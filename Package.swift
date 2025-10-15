@@ -5,7 +5,11 @@ import PackageDescription
 
 let package = Package(
     name: "waterui-swift",
-    platforms: [.iOS(.v26), .macOS(.v26)],
+    platforms: [
+        .iOS(.v26),
+        .macOS(.v26),
+        .watchOS(.v26),
+    ],
     products: [
         .library(name: "WaterUI", targets: ["WaterUI"])
     ],

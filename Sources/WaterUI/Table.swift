@@ -37,22 +37,6 @@ struct WuiTableColumn: Identifiable {
         self.init(column: waterui_force_as_table_column(anyview))
     }
 
-    func makeColumn(env: WuiEnvironment)
-        -> SwiftUI.TableColumn<
-            WuiTableColumn, Never,
-            ForEach<EnumeratedSequence<WuiAnyViewCollection>, WuiId, some View>, Text
-        >
-    {
-        SwiftUI.TableColumn<
-            WuiTableColumn, Never,
-            ForEach<EnumeratedSequence<WuiAnyViewCollection>, WuiId, _>, Text
-        >(
-            WuiText(styledStr: label, env: env).toText()
-        ) { row in
-            row.contents.intoForEach(env: env)
-        }
-    }
-
 }
 
 extension WuiComputed where T == [WuiTableColumn] {

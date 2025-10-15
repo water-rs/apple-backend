@@ -14,16 +14,16 @@ struct WuiGestureView: WuiComponent, View {
     static var id: WuiTypeId {
         waterui_gesture_id()
     }
-
+    
     private var content: WuiAnyView
     private var sequence: [BaseGestureDescriptor]
     private var action: GestureAction
-
+    
     init(anyview: OpaquePointer, env: WuiEnvironment) {
         let metadata = waterui_force_as_gesture(anyview)
         self.content = WuiAnyView(anyview: metadata.view, env: env)
         self.action = GestureAction(inner: metadata.action, env: env)
-
+        
         if let gesturePtr = metadata.gesture {
             let descriptor = GestureDescriptor(pointer: gesturePtr)
             self.sequence = descriptor.flattened()
@@ -32,7 +32,7 @@ struct WuiGestureView: WuiComponent, View {
             self.sequence = []
         }
     }
-
+    
     var body: some View {
         if sequence.isEmpty {
             content
@@ -49,16 +49,16 @@ private struct GestureSequenceContainer<Content: View>: View {
     let content: Content
     let sequence: [BaseGestureDescriptor]
     let action: GestureAction
-
+    
     @State private var stage: Int = 0
     @State private var viewSize: CGSize = .zero
     @State private var dragState = DragTrackingState()
     @State private var magnificationState = MagnificationTrackingState()
     @State private var longPressState = LongPressTrackingState()
-
+    
     var body: some View {
         let sizedContent = content.background(SizeReader(size: $viewSize))
-
+        
         return Group {
             if let descriptor = sequence[safe: stage] {
                 apply(descriptor: descriptor, to: sizedContent, stageIndex: stage)
@@ -67,11 +67,11 @@ private struct GestureSequenceContainer<Content: View>: View {
             }
         }
     }
-
+    
     @ViewBuilder
     private func apply<V: View>(descriptor: BaseGestureDescriptor, to view: V, stageIndex: Int) -> some View {
         let lastStageIndex = sequence.count - 1
-
+        
         switch descriptor {
         case .tap(let tap):
             view.simultaneousGesture(
@@ -89,7 +89,7 @@ private struct GestureSequenceContainer<Content: View>: View {
                         advanceStage(from: stageIndex)
                     }
             )
-
+            
         case .longPress(let press):
             let tracked = view.simultaneousGesture(
                 DragGesture(minimumDistance: 0, coordinateSpace: .local)
@@ -98,7 +98,7 @@ private struct GestureSequenceContainer<Content: View>: View {
                         longPressState.currentLocation = value.location
                     }
             )
-
+            
             tracked.simultaneousGesture(
                 LongPressGesture(minimumDuration: press.minimumDuration, maximumDistance: 10)
                     .onChanged { isPressing in
@@ -117,15 +117,15 @@ private struct GestureSequenceContainer<Content: View>: View {
                     .onEnded { success in
                         guard stage == stageIndex else { return }
                         defer { longPressState.reset() }
-
+                        
                         guard success else {
                             resetSequence()
                             return
                         }
-
+                        
                         let duration = Float(longPressState.duration)
                         let location = longPressState.location
-
+                        
                         if stageIndex == lastStageIndex {
                             action.call(
                                 kind: WuiGestureEventKind_LongPress,
@@ -134,11 +134,11 @@ private struct GestureSequenceContainer<Content: View>: View {
                                 duration: duration
                             )
                         }
-
+                        
                         advanceStage(from: stageIndex)
                     }
             )
-
+            
         case .drag(let drag):
             view.simultaneousGesture(
                 DragGesture(minimumDistance: CGFloat(drag.minDistance), coordinateSpace: .local)
@@ -147,7 +147,7 @@ private struct GestureSequenceContainer<Content: View>: View {
                         let location = value.location
                         let translation = value.translation
                         let timestamp = value.time
-
+                        
                         if !dragState.isActive {
                             dragState.start(location: location, time: timestamp)
                             if stageIndex == lastStageIndex {
@@ -160,10 +160,10 @@ private struct GestureSequenceContainer<Content: View>: View {
                             }
                             return
                         }
-
+                        
                         let velocity = dragState.velocity(to: location, at: timestamp)
                         dragState.update(location: location, time: timestamp)
-
+                        
                         if stageIndex == lastStageIndex {
                             action.call(
                                 kind: WuiGestureEventKind_Drag,
@@ -180,7 +180,7 @@ private struct GestureSequenceContainer<Content: View>: View {
                         let translation = value.translation
                         let timestamp = value.time
                         let velocity = dragState.velocity(to: location, at: timestamp)
-
+                        
                         if stageIndex == lastStageIndex {
                             action.call(
                                 kind: WuiGestureEventKind_Drag,
@@ -190,13 +190,13 @@ private struct GestureSequenceContainer<Content: View>: View {
                                 velocity: velocity
                             )
                         }
-
+                        
                         dragState.reset()
                         advanceStage(from: stageIndex)
                     }
             )
-
         case .magnification:
+#if os(iOS) || os(macOS)
             view.simultaneousGesture(
                 MagnificationGesture()
                     .onChanged { value in
@@ -214,10 +214,10 @@ private struct GestureSequenceContainer<Content: View>: View {
                             }
                             return
                         }
-
+                        
                         let velocity = magnificationState.velocity(to: value, at: now)
                         magnificationState.update(scale: value, time: now)
-
+                        
                         if stageIndex == lastStageIndex {
                             action.call(
                                 kind: WuiGestureEventKind_Magnification,
@@ -232,7 +232,7 @@ private struct GestureSequenceContainer<Content: View>: View {
                         guard stage == stageIndex else { return }
                         let now = Date()
                         let velocity = magnificationState.velocity(to: value, at: now)
-
+                        
                         if stageIndex == lastStageIndex {
                             action.call(
                                 kind: WuiGestureEventKind_Magnification,
@@ -242,21 +242,25 @@ private struct GestureSequenceContainer<Content: View>: View {
                                 velocityScalar: Float(velocity)
                             )
                         }
-
+                        
                         magnificationState.reset()
                         advanceStage(from: stageIndex)
                     }
             )
-
+#endif
+            
         case .rotation:
             view
+            
         }
+        
+        
     }
-
+    
     private var centerPoint: CGPoint {
         CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
     }
-
+    
     private func advanceStage(from index: Int) {
         if index >= sequence.count - 1 {
             stage = 0
@@ -267,7 +271,7 @@ private struct GestureSequenceContainer<Content: View>: View {
         magnificationState.reset()
         longPressState.reset()
     }
-
+    
     private func resetSequence() {
         stage = 0
         dragState.reset()
@@ -289,7 +293,7 @@ private struct SizePreferenceKey: PreferenceKey {
 
 private struct SizeReader: View {
     @Binding var size: CGSize
-
+    
     var body: some View {
         GeometryReader { proxy in
             Color.clear
@@ -309,24 +313,24 @@ private struct DragTrackingState {
     var isActive: Bool = false
     private var lastLocation: CGPoint = .zero
     private var lastTimestamp: Date = .distantPast
-
+    
     mutating func start(location: CGPoint, time: Date) {
         isActive = true
         lastLocation = location
         lastTimestamp = time
     }
-
+    
     mutating func update(location: CGPoint, time: Date) {
         lastLocation = location
         lastTimestamp = time
     }
-
+    
     mutating func reset() {
         isActive = false
         lastLocation = .zero
         lastTimestamp = .distantPast
     }
-
+    
     func velocity(to location: CGPoint, at time: Date) -> CGSize {
         guard isActive else { return .zero }
         let dt = time.timeIntervalSince(lastTimestamp)
@@ -341,24 +345,24 @@ private struct MagnificationTrackingState {
     var isActive: Bool = false
     private var lastScale: CGFloat = 1
     private var lastTimestamp: Date = .distantPast
-
+    
     mutating func start(scale: CGFloat, time: Date) {
         isActive = true
         lastScale = scale
         lastTimestamp = time
     }
-
+    
     mutating func update(scale: CGFloat, time: Date) {
         lastScale = scale
         lastTimestamp = time
     }
-
+    
     mutating func reset() {
         isActive = false
         lastScale = 1
         lastTimestamp = .distantPast
     }
-
+    
     func velocity(to scale: CGFloat, at time: Date) -> CGFloat {
         guard isActive else { return 0 }
         let dt = time.timeIntervalSince(lastTimestamp)
@@ -372,20 +376,20 @@ private struct LongPressTrackingState {
     private(set) var startTime: Date?
     private(set) var location: CGPoint = .zero
     var currentLocation: CGPoint = .zero
-
+    
     mutating func begin(at location: CGPoint) {
         isPressing = true
         startTime = Date()
         self.location = location
     }
-
+    
     mutating func reset() {
         isPressing = false
         startTime = nil
         location = .zero
         currentLocation = .zero
     }
-
+    
     var duration: TimeInterval {
         guard let startTime else { return 0 }
         return Date().timeIntervalSince(startTime)
@@ -398,12 +402,12 @@ private struct LongPressTrackingState {
 final class GestureAction {
     private var inner: OpaquePointer?
     private unowned let env: WuiEnvironment
-
+    
     init(inner: OpaquePointer?, env: WuiEnvironment) {
         self.inner = inner
         self.env = env
     }
-
+    
     func call(
         kind: WuiGestureEventKind,
         phase: WuiGesturePhase,
@@ -416,7 +420,7 @@ final class GestureAction {
         duration: Float = 0
     ) {
         guard let inner else { return }
-
+        
         let event = WuiGestureEvent(
             kind: kind,
             phase: phase,
@@ -434,10 +438,10 @@ final class GestureAction {
             count: count,
             duration: duration
         )
-
+        
         waterui_call_gesture_action(inner, env.inner, event)
     }
-
+    
     @MainActor deinit {
         if let inner {
             waterui_drop_action(inner)
@@ -453,7 +457,7 @@ private struct TapGestureDescriptor {
 
 private struct LongPressGestureDescriptor {
     let duration: UInt32
-
+    
     var minimumDuration: Double {
         Double(duration) / 1000.0
     }
@@ -486,7 +490,7 @@ private enum GestureDescriptor {
     case magnification(MagnificationGestureDescriptor)
     case rotation(RotationGestureDescriptor)
     indirect case sequence(first: GestureDescriptor, then: GestureDescriptor)
-
+    
     init(pointer: UnsafeMutablePointer<WuiGesture>) {
         let gesture = pointer.pointee
         switch gesture.kind {
@@ -515,12 +519,12 @@ private enum GestureDescriptor {
             case (nil, nil):
                 self = .tap(TapGestureDescriptor(count: 1))
             }
-            default:
-                fatalError("Unknown gesture kind: \(gesture.kind.rawValue)")
+        default:
+            fatalError("Unknown gesture kind: \(gesture.kind.rawValue)")
         }
-       
+        
     }
-
+    
     func flattened() -> [BaseGestureDescriptor] {
         switch self {
         case .tap(let tap):
