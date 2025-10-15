@@ -1,0 +1,34 @@
+name: Swift Backend CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: Build Swift Backend
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout swift-backend repository
+        uses: actions/checkout@v4
+
+      - name: Checkout main waterui repository
+        uses: actions/checkout@v4
+        with:
+          repository: water-rs/waterui
+          path: waterui
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Generate C header
+        run: |
+          cd waterui/ffi
+          cargo run --bin generate_header --features cbindgen
+          cp waterui.h ../../Sources/CWaterUI/include/waterui.h
+
+      - name: Build Swift package
+        run: swift build --configuration release
