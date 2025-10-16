@@ -28,7 +28,7 @@ jobs:
           path: waterui
           ref: ${{ steps.get_waterui_branch.outputs.branch }}
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@nightly
       - name: Generate C header
         run: |
           cd waterui/ffi
@@ -59,7 +59,7 @@ jobs:
           path: waterui
           ref: ${{ steps.get_waterui_branch.outputs.branch }}
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@nightly
       - name: Install waterui-cli
         run: cargo install --path waterui/cli
       - name: Create test app
