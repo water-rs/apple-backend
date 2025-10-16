@@ -10,25 +10,43 @@ jobs:
   build:
     name: Build Swift Backend
     runs-on: macos-latest
-
     steps:
       - name: Checkout swift-backend repository
         uses: actions/checkout@v4
-
       - name: Checkout main waterui repository
         uses: actions/checkout@v4
         with:
           repository: water-rs/waterui
           path: waterui
-
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-
       - name: Generate C header
         run: |
           cd waterui/ffi
           cargo run --bin generate_header --features cbindgen
           cp waterui.h ../../Sources/CWaterUI/include/waterui.h
-
       - name: Build Swift package
         run: swift build --configuration release
+
+  e2e-test:
+    name: End-to-end Test
+    needs: build
+    runs-on: macos-latest
+    steps:
+      - name: Checkout swift-backend repository
+        uses: actions/checkout@v4
+      - name: Checkout main waterui repository
+        uses: actions/checkout@v4
+        with:
+          repository: water-rs/waterui
+          path: waterui
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install waterui-cli
+        run: cargo install --path waterui/cli
+      - name: Create test app
+        env:
+          WATERUI_SWIFT_BACKEND_URL: "file://${{ github.workspace }}"
+        run: water create --name "E2E Test" --directory e2e-test-app --bundle-identifier com.waterui.e2etest --yes --backend swiftui --dev
+      - name: Package iOS app
+        run: water package --platform ios --project e2e-test-app
