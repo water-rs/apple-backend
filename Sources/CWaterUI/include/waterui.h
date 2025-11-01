@@ -32,6 +32,12 @@ typedef enum WuiAxis {
   WuiAxis_All,
 } WuiAxis;
 
+typedef enum WuiEvent {
+  WuiEvent_Appear,
+  WuiEvent_Disappear,
+  WuiEvent_Unknown,
+} WuiEvent;
+
 typedef enum WuiFontWeight {
   WuiFontWeight_Thin,
   WuiFontWeight_UltraLight,
@@ -323,6 +329,8 @@ typedef struct WuiColor WuiColor;
 
 typedef struct WuiDynamic WuiDynamic;
 
+typedef struct WuiOnEvent WuiOnEvent;
+
 typedef struct WuiEnv WuiEnv;
 
 typedef struct WuiFont WuiFont;
@@ -381,6 +389,16 @@ typedef struct WuiArray_u8 {
 typedef struct WuiStr {
   struct WuiArray_u8 _0;
 } WuiStr;
+
+typedef struct WuiMetadata_OnEvent {
+  struct WuiAnyView *content;
+  struct WuiOnEvent *value;
+} WuiMetadata_OnEvent;
+
+typedef struct WuiAssociatedValue {
+  void *data;
+  void (*drop)(void*);
+} WuiAssociatedValue;
 
 typedef struct WuiArraySlice_____WuiAnyView {
   struct WuiAnyView **head;
@@ -1057,6 +1075,12 @@ struct WuiStr waterui_view_id(const struct WuiAnyView *view);
 struct WuiAnyView *waterui_empty_anyview(void);
 
 struct WuiStr waterui_anyview_id(void);
+struct WuiStr waterui_metadata_on_event_id(void);
+struct WuiMetadata_OnEvent waterui_metadata_force_as_on_event(struct WuiAnyView *view);
+enum WuiEvent waterui_on_event_kind(const struct WuiOnEvent *on_event);
+void waterui_on_event_trigger(struct WuiOnEvent *on_event, const struct WuiEnv *env);
+void waterui_drop_on_event(struct WuiOnEvent *value);
+struct WuiAnyView *waterui_associated_view(struct WuiAssociatedValue value, struct WuiAnyView *view);
 
 /**
  * Drops the FFI value.

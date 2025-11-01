@@ -58,6 +58,7 @@ struct Render {
             WuiLazy.self,
             WuiList.self,
             WuiListItem.self,
+            WuiEventMetadataView.self,
 
                 // WaterUI.ColorPicker.self,
                 // WaterUI.Icon.self
