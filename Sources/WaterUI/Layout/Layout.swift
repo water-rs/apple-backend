@@ -346,12 +346,15 @@ private struct RustLayout: @preconcurrency Layout {
             )
             
             let measuredSize = subview.sizeThatFits(swiftUIProposal)
-            
+            let constrainedSize = clampMeasuredSize(
+                measuredSize,
+                to: swiftUIProposal
+            )
 
             // --- THIS IS THE KEY COMMUNICATION ---
             // If the child is a flexible spacer, tell Rust it has zero intrinsic size.
             // Otherwise, tell Rust the actual measured size.
-            let metadataProposal = isStretchy ? WuiProposalSize() : WuiProposalSize(size: measuredSize)
+            let metadataProposal = isStretchy ? WuiProposalSize() : WuiProposalSize(size: constrainedSize)
             
             metadata.append(
                 WuiChildMetadata(
@@ -446,6 +449,27 @@ private struct RustLayout: @preconcurrency Layout {
     private enum LayoutAxis {
         case horizontal
         case vertical
+    }
+
+    private func clampMeasuredSize(
+        _ size: CGSize,
+        to proposal: ProposedViewSize
+    ) -> CGSize {
+        let width: CGFloat
+        if let maxWidth = proposal.width, maxWidth.isFinite {
+            width = min(size.width, maxWidth)
+        } else {
+            width = size.width
+        }
+
+        let height: CGFloat
+        if let maxHeight = proposal.height, maxHeight.isFinite {
+            height = min(size.height, maxHeight)
+        } else {
+            height = size.height
+        }
+
+        return CGSize(width: width, height: height)
     }
 
     private func resolveParentProposal(
