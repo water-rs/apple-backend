@@ -2091,6 +2091,8 @@ WuiEnv* waterui_init(void);
 
 WuiAnyView* waterui_main(void);
 
+void waterui_configure_hot_reload_endpoint(const char *host, uint16_t port);
+
 #ifdef __cplusplus
 }
 #endif

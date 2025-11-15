@@ -303,8 +303,14 @@ private struct RustLayout: @preconcurrency Layout {
         subviews: Subviews,
         cache: inout Cache
     ) -> CGSize {
-        let parentProposal = WuiProposalSize(proposal)
-        let parentSwiftProposal = proposal
+        let rawParentProposal = WuiProposalSize(proposal)
+        let parentProposals = resolveParentProposal(
+            raw: rawParentProposal,
+            fallback: proposal,
+            cache: cache
+        )
+        let parentProposal = parentProposals.wui
+        let parentSwiftProposal = parentProposals.swift
 
         var metadata: [WuiChildMetadata] = []
         metadata.reserveCapacity(subviews.count)
@@ -381,7 +387,12 @@ private struct RustLayout: @preconcurrency Layout {
 
         cache.lastBounds = bounds.size
 
-        let parentProposal = WuiProposalSize(proposal)
+        let rawParentProposal = WuiProposalSize(proposal)
+        let parentProposal = resolveParentProposal(
+            raw: rawParentProposal,
+            fallback: proposal,
+            cache: cache
+        ).wui
         
         // Use the metadata we already computed and cached in `sizeThatFits`.
         let rects = layout.place(
@@ -435,6 +446,33 @@ private struct RustLayout: @preconcurrency Layout {
     private enum LayoutAxis {
         case horizontal
         case vertical
+    }
+
+    private func resolveParentProposal(
+        raw parent: WuiProposalSize,
+        fallback: ProposedViewSize,
+        cache: Cache
+    ) -> (swift: ProposedViewSize, wui: WuiProposalSize) {
+        let width = sanitizeDimension(
+            raw: parent.width,
+            fallback: fallback.width,
+            cached: cache.lastBounds?.width,
+            axis: .horizontal
+        )
+        let height = sanitizeDimension(
+            raw: parent.height,
+            fallback: fallback.height,
+            cached: cache.lastBounds?.height,
+            axis: .vertical
+        )
+
+        let swiftProposal = ProposedViewSize(width: width, height: height)
+        let wuiProposal = WuiProposalSize(
+            width: width.map { Float($0) },
+            height: height.map { Float($0) }
+        )
+
+        return (swiftProposal, wuiProposal)
     }
 
     private func sanitizeDimension(
