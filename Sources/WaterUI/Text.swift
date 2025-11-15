@@ -37,6 +37,9 @@ struct WuiText: View, WuiComponent {
 
     var body: some View {
         toText()
+            .multilineTextAlignment(.leading)
+            .lineLimit(nil)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
 }

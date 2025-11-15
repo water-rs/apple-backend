@@ -1,5 +1,10 @@
 import CWaterUI
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 
 struct WuiProposalSize {
     var width: Float?
@@ -281,6 +286,7 @@ private struct RustLayout: @preconcurrency Layout {
     // --- Cache remains the same ---
     struct Cache {
         var metadata: [WuiChildMetadata] = []
+        var lastBounds: CGSize?
     }
 
     func makeCache(subviews: Subviews) -> Cache {
@@ -298,6 +304,7 @@ private struct RustLayout: @preconcurrency Layout {
         cache: inout Cache
     ) -> CGSize {
         let parentProposal = WuiProposalSize(proposal)
+        let parentSwiftProposal = proposal
 
         var metadata: [WuiChildMetadata] = []
         metadata.reserveCapacity(subviews.count)
@@ -326,7 +333,11 @@ private struct RustLayout: @preconcurrency Layout {
             let isStretchy = descriptors[safe: index]?.isSpacer ?? false
             
             let childProposal = childProposals[safe: index] ?? WuiProposalSize()
-            let swiftUIProposal = childProposal.toProposedSize()
+            let swiftUIProposal = sanitizedProposal(
+                from: childProposal,
+                parentProposal: parentSwiftProposal,
+                cache: cache
+            )
             
             let measuredSize = subview.sizeThatFits(swiftUIProposal)
             
@@ -368,6 +379,8 @@ private struct RustLayout: @preconcurrency Layout {
             return
         }
 
+        cache.lastBounds = bounds.size
+
         let parentProposal = WuiProposalSize(proposal)
         
         // Use the metadata we already computed and cached in `sizeThatFits`.
@@ -396,6 +409,63 @@ private struct RustLayout: @preconcurrency Layout {
         guard raw.isFinite, raw > 0 else { return 0 }
         let clamped = min(max(raw, 0.0), 255.0)
         return UInt8(clamped.rounded())
+    }
+
+    private func sanitizedProposal(
+        from childProposal: WuiProposalSize,
+        parentProposal: ProposedViewSize,
+        cache: Cache
+    ) -> ProposedViewSize {
+        ProposedViewSize(
+            width: sanitizeDimension(
+                raw: childProposal.width,
+                fallback: parentProposal.width,
+                cached: cache.lastBounds?.width,
+                axis: .horizontal
+            ),
+            height: sanitizeDimension(
+                raw: childProposal.height,
+                fallback: parentProposal.height,
+                cached: cache.lastBounds?.height,
+                axis: .vertical
+            )
+        )
+    }
+
+    private enum LayoutAxis {
+        case horizontal
+        case vertical
+    }
+
+    private func sanitizeDimension(
+        raw: Float?,
+        fallback: CGFloat?,
+        cached: CGFloat?,
+        axis: LayoutAxis
+    ) -> CGFloat? {
+        if let raw, raw.isFinite {
+            return CGFloat(raw)
+        }
+        if let fallback, fallback.isFinite {
+            return fallback
+        }
+        if let cached, cached.isFinite {
+            return cached
+        }
+        if axis == .horizontal, let fallbackWidth = fallbackViewportWidth {
+            return fallbackWidth
+        }
+        return nil
+    }
+
+    private var fallbackViewportWidth: CGFloat? {
+        #if canImport(UIKit)
+        return UIScreen.main.bounds.width
+        #elseif canImport(AppKit)
+        return NSScreen.main?.frame.width
+        #else
+        return nil
+        #endif
     }
 }
 
