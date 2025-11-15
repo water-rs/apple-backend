@@ -43,7 +43,7 @@ struct WuiProgress: View, WuiComponent {
 
     var body: some View {
         VStack {
-            if value.value.isNaN {
+            if value.value.isInfinite {
                 SwiftUI.ProgressView {
                     label
                 }
