@@ -8,6 +8,9 @@
 import CWaterUI
 import Foundation
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 @MainActor
 struct Render {
@@ -109,7 +112,7 @@ public struct WuiAnyView: View, Identifiable {
     #if canImport(UIKit)
     func makePlatformView() -> PlatformView {
         guard let pointer = handle.takePointer() else {
-            return UnsupportedComponentView(typeId: typeId)
+            return UIView()
         }
         return PlatformRenderer.shared.makeView(anyview: pointer, env: env, typeId: typeId)
     }
