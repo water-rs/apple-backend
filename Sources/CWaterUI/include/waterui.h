@@ -335,10 +335,6 @@ typedef struct WuiComputed_Vec_TableColumn WuiComputed_Vec_TableColumn;
 
 typedef struct WuiComputed_Video WuiComputed_Video;
 
-typedef struct WuiComputed_WuiResolvedColor WuiComputed_WuiResolvedColor;
-
-typedef struct WuiComputed_WuiResolvedFont WuiComputed_WuiResolvedFont;
-
 typedef struct WuiComputed_bool WuiComputed_bool;
 
 typedef struct WuiComputed_f32 WuiComputed_f32;
@@ -801,22 +797,6 @@ typedef struct WuiVideo {
   Url url;
 } WuiVideo;
 
-typedef struct WuiTheme {
-  struct WuiComputed_WuiResolvedFont *body;
-  struct WuiComputed_WuiResolvedFont *title;
-  struct WuiComputed_WuiResolvedFont *headline;
-  struct WuiComputed_WuiResolvedFont *subheadline;
-  struct WuiComputed_WuiResolvedFont *caption;
-  struct WuiComputed_WuiResolvedColor *background;
-  struct WuiComputed_WuiResolvedColor *surface;
-  struct WuiComputed_WuiResolvedColor *surface_variant;
-  struct WuiComputed_WuiResolvedColor *border;
-  struct WuiComputed_WuiResolvedColor *foreground;
-  struct WuiComputed_WuiResolvedColor *muted_foreground;
-  struct WuiComputed_WuiResolvedColor *accent;
-  struct WuiComputed_WuiResolvedColor *accent_foreground;
-} WuiTheme;
-
 void waterui_configure_hot_reload_endpoint(const char *_host, uint16_t _port);
 
 void waterui_configure_hot_reload_directory(const char *_path);
@@ -945,6 +925,12 @@ struct WuiWatcher_ResolvedColor *waterui_new_watcher_resolved_color(void *data,
                                                                                  struct WuiWatcherMetadata*),
                                                                     void (*drop)(void*));
 
+struct WuiComputed_ResolvedColor *waterui_new_computed_resolved_color(void *data,
+                                                                      struct WuiResolvedColor (*get)(const void*),
+                                                                      struct WuiWatcherGuard *(*watch)(const void*,
+                                                                                                       struct WuiWatcher_ResolvedColor*),
+                                                                      void (*drop)(void*));
+
 /**
  * Reads the current value from a binding
  * # Safety
@@ -981,9 +967,6 @@ struct WuiWatcher_Color *waterui_new_watcher_color(void *data,
                                                                 struct WuiWatcherMetadata*),
                                                    void (*drop)(void*));
 
-/**
- * Create a new `Computed` from native side.
- */
 struct WuiComputed_Color *waterui_new_computed_color(void *data,
                                                      struct WuiColor *(*get)(const void*),
                                                      struct WuiWatcherGuard *(*watch)(const void*,
@@ -1226,9 +1209,6 @@ struct WuiWatcher_Font *waterui_new_watcher_font(void *data,
                                                               struct WuiWatcherMetadata*),
                                                  void (*drop)(void*));
 
-/**
- * Create a new `Computed` from native side.
- */
 struct WuiComputed_Font *waterui_new_computed_font(void *data,
                                                    struct WuiFont *(*get)(const void*),
                                                    struct WuiWatcherGuard *(*watch)(const void*,
@@ -1311,6 +1291,12 @@ void waterui_drop_computed_resolved_font(struct WuiComputed_ResolvedFont *comput
  * The caller must ensure that `computed` is a valid pointer obtained from the
  */
 struct WuiComputed_ResolvedFont *waterui_clone_computed_resolved_font(const struct WuiComputed_ResolvedFont *computed);
+
+struct WuiComputed_ResolvedFont *waterui_new_computed_resolved_font(void *data,
+                                                                    struct WuiResolvedFont (*get)(const void*),
+                                                                    struct WuiWatcherGuard *(*watch)(const void*,
+                                                                                                     struct WuiWatcher_ResolvedFont*),
+                                                                    void (*drop)(void*));
 
 struct WuiWatcher_ResolvedFont *waterui_new_watcher_resolved_font(void *data,
                                                                   void (*call)(void*,
@@ -1627,9 +1613,6 @@ struct WuiWatcher_Id *waterui_new_watcher_id(void *data,
                                                           struct WuiWatcherMetadata*),
                                              void (*drop)(void*));
 
-/**
- * Create a new `Computed` from native side.
- */
 struct WuiComputed_Id *waterui_new_computed_id(void *data,
                                                struct WuiId (*get)(const void*),
                                                struct WuiWatcherGuard *(*watch)(const void*,
@@ -1718,9 +1701,6 @@ struct WuiWatcher_Str *waterui_new_watcher_str(void *data,
                                                             struct WuiWatcherMetadata*),
                                                void (*drop)(void*));
 
-/**
- * Create a new `Computed` from native side.
- */
 struct WuiComputed_Str *waterui_new_computed_str(void *data,
                                                  struct WuiStr (*get)(const void*),
                                                  struct WuiWatcherGuard *(*watch)(const void*,
@@ -1797,9 +1777,6 @@ struct WuiWatcher_AnyView *waterui_new_watcher_any_view(void *data,
                                                                      struct WuiWatcherMetadata*),
                                                         void (*drop)(void*));
 
-/**
- * Create a new `Computed` from native side.
- */
 struct WuiComputed_AnyView *waterui_new_computed_any_view(void *data,
                                                           struct WuiAnyView *(*get)(const void*),
                                                           struct WuiWatcherGuard *(*watch)(const void*,
@@ -1876,9 +1853,6 @@ struct WuiWatcher_i32 *waterui_new_watcher_i32(void *data,
                                                             struct WuiWatcherMetadata*),
                                                void (*drop)(void*));
 
-/**
- * Create a new `Computed` from native side.
- */
 struct WuiComputed_i32 *waterui_new_computed_i32(void *data,
                                                  int32_t (*get)(const void*),
                                                  struct WuiWatcherGuard *(*watch)(const void*,
@@ -1955,9 +1929,6 @@ struct WuiWatcher_bool *waterui_new_watcher_bool(void *data,
                                                               struct WuiWatcherMetadata*),
                                                  void (*drop)(void*));
 
-/**
- * Create a new `Computed` from native side.
- */
 struct WuiComputed_bool *waterui_new_computed_bool(void *data,
                                                    bool (*get)(const void*),
                                                    struct WuiWatcherGuard *(*watch)(const void*,
@@ -2032,9 +2003,6 @@ struct WuiWatcher_f32 *waterui_new_watcher_f32(void *data,
                                                void (*call)(void*, float, struct WuiWatcherMetadata*),
                                                void (*drop)(void*));
 
-/**
- * Create a new `Computed` from native side.
- */
 struct WuiComputed_f32 *waterui_new_computed_f32(void *data,
                                                  float (*get)(const void*),
                                                  struct WuiWatcherGuard *(*watch)(const void*,
@@ -2111,9 +2079,6 @@ struct WuiWatcher_f64 *waterui_new_watcher_f64(void *data,
                                                             struct WuiWatcherMetadata*),
                                                void (*drop)(void*));
 
-/**
- * Create a new `Computed` from native side.
- */
 struct WuiComputed_f64 *waterui_new_computed_f64(void *data,
                                                  double (*get)(const void*),
                                                  struct WuiWatcherGuard *(*watch)(const void*,
@@ -2282,7 +2247,20 @@ struct WuiWatcher_LivePhotoSource *waterui_new_watcher_live_photo_source(void *d
  */
 struct WuiWatcherGuard *waterui_new_watcher_guard(void *data, void (*drop)(void*));
 
-void waterui_register_theme(struct WuiTheme theme);
+void waterui_env_install_theme(struct WuiEnv *env,
+                               struct WuiComputed_ResolvedColor *background,
+                               struct WuiComputed_ResolvedColor *surface,
+                               struct WuiComputed_ResolvedColor *surface_variant,
+                               struct WuiComputed_ResolvedColor *border,
+                               struct WuiComputed_ResolvedColor *foreground,
+                               struct WuiComputed_ResolvedColor *muted_foreground,
+                               struct WuiComputed_ResolvedColor *accent,
+                               struct WuiComputed_ResolvedColor *accent_foreground,
+                               struct WuiComputed_ResolvedFont *body,
+                               struct WuiComputed_ResolvedFont *title,
+                               struct WuiComputed_ResolvedFont *headline,
+                               struct WuiComputed_ResolvedFont *subheadline,
+                               struct WuiComputed_ResolvedFont *caption);
 
 /**
  * # Safety
