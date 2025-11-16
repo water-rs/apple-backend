@@ -112,7 +112,7 @@ public struct WuiAnyView: View, Identifiable {
     #if canImport(UIKit)
     func makePlatformView() -> PlatformView {
         guard let pointer = handle.takePointer() else {
-            return UIView()
+            return UIKitSpacerHost()
         }
         return PlatformRenderer.shared.makeView(anyview: pointer, env: env, typeId: typeId)
     }
