@@ -32,36 +32,36 @@ final class PlatformRenderer {
     }
 
     private func registerDefaults() {
-        register(WuiButton.id) { anyview, env in
+        register(id: WuiButton.id) { anyview, env in
             let button = waterui_force_as_button(anyview)
             let labelView = PlatformRenderer.shared.makeChildView(button.label, env: env)
             let action = Action(inner: button.action, env: env)
             return UIKitButtonHost(label: labelView, action: action)
         }
 
-        register(WuiText.id) { anyview, env in
+        register(id: WuiText.id) { anyview, env in
             let text = waterui_force_as_text(anyview)
-            let content = WuiComputed(text.content)
+            let content: WuiComputed<WuiStyledStr> = WuiComputed(text.content)
             return UIKitTextHost(content: content, env: env)
         }
 
-        register(WuiSpacer.id) { _, _ in
+        register(id: WuiSpacer.id) { _, _ in
             UIKitSpacerHost()
         }
 
-        register(WuiToggle.id) { anyview, env in
+        register(id: WuiToggle.id) { anyview, env in
             let toggle = waterui_force_as_toggle(anyview)
             let labelView = PlatformRenderer.shared.makeChildView(toggle.label, env: env)
-            let binding = WuiBinding(toggle.toggle)
+            let binding: WuiBinding<Bool> = WuiBinding(toggle.toggle)
             return UIKitToggleHost(label: labelView, binding: binding)
         }
 
-        register(WuiSlider.id) { anyview, env in
+        register(id: WuiSlider.id) { anyview, env in
             let slider = waterui_force_as_slider(anyview)
             let labelView = PlatformRenderer.shared.makeChildView(slider.label, env: env)
             let minView = PlatformRenderer.shared.makeChildView(slider.min_value_label, env: env)
             let maxView = PlatformRenderer.shared.makeChildView(slider.max_value_label, env: env)
-            let binding = WuiBinding(slider.value)
+            let binding: WuiBinding<Double> = WuiBinding(slider.value)
             return UIKitSliderHost(
                 label: labelView,
                 minLabel: minView,
@@ -71,11 +71,11 @@ final class PlatformRenderer {
             )
         }
 
-        register(WuiTextField.id) { anyview, env in
+        register(id: WuiTextField.id) { anyview, env in
             let field = waterui_force_as_text_field(anyview)
             let labelView = PlatformRenderer.shared.makeChildView(field.label, env: env)
-            let binding = WuiBinding(field.value)
-            let prompt = WuiComputed(field.prompt.content)
+            let binding: WuiBinding<WuiStr> = WuiBinding(field.value)
+            let prompt: WuiComputed<WuiStyledStr> = WuiComputed(field.prompt.content)
             return UIKitTextFieldHost(
                 label: labelView,
                 binding: binding,
@@ -85,14 +85,14 @@ final class PlatformRenderer {
             )
         }
 
-        register(WuiProgress.id) { anyview, env in
+        register(id: WuiProgress.id) { anyview, env in
             let progress = waterui_force_as_progress(anyview)
             let labelView = PlatformRenderer.shared.makeChildView(progress.label, env: env)
-            let value = WuiComputed(progress.value)
+            let value: WuiComputed<Double> = WuiComputed(progress.value)
             return UIKitProgressHost(label: labelView, value: value, style: progress.style)
         }
 
-        register(WuiEmptyView.id) { _, _ in
+        register(id: WuiEmptyView.id) { _, _ in
             UIKitSpacerHost()
         }
     }

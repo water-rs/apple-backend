@@ -2,35 +2,44 @@ name: Release Apple backend
 
 on:
   push:
-    tags:
-      - "v*"
+    branches:
+      - main
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   release:
-    name: Release Apple backend
+    name: Prepare Apple backend release
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           submodules: "recursive"
 
-      - name: Get version from tag
-        id: get_version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+      - name: Run release-please
+        id: release
+        uses: googleapis/release-please-action@v4
+        with:
+          config-file: .github/release-please-config.json
+          manifest-file: .release-please-manifest.json
 
       - name: Build Apple backend
+        if: ${{ steps.release.outputs.release_created == 'true' }}
+        working-directory: backends/apple
         run: swift build --configuration release
 
       - name: Create Swift Package Archive
+        if: ${{ steps.release.outputs.release_created == 'true' }}
+        working-directory: backends/apple
         run: swift package archive-source
 
-      - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: "Apple backend ${{ steps.get_version.outputs.VERSION }}"
-          generate_release_notes: true
-          files: ./*.zip
+      - name: Upload archive to GitHub release
+        if: ${{ steps.release.outputs.release_created == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd backends/apple
+          gh release upload "${{ steps.release.outputs.tag_name }}" ./*.zip --clobber
