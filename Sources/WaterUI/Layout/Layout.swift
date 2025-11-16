@@ -310,7 +310,6 @@ private struct RustLayout: @preconcurrency Layout {
             cache: cache
         )
         let parentProposal = parentProposals.wui
-        let parentSwiftProposal = parentProposals.swift
 
         var metadata: [WuiChildMetadata] = []
         metadata.reserveCapacity(subviews.count)
@@ -340,15 +339,20 @@ private struct RustLayout: @preconcurrency Layout {
             
             let childProposal = childProposals[safe: index] ?? WuiProposalSize()
             let swiftUIProposal = sanitizedProposal(
-                from: childProposal,
-                parentProposal: parentSwiftProposal,
-                cache: cache
+                from: childProposal
             )
             
             let measuredSize = subview.sizeThatFits(swiftUIProposal)
-            let constrainedSize = clampMeasuredSize(
-                measuredSize,
-                to: swiftUIProposal
+            let shouldClampWidth = descriptors[safe: index]?.typeId == WuiText.id
+            let constrainedWidth = shouldClampWidth
+                ? constrainedDimension(
+                    measuredSize.width,
+                    limit: swiftUIProposal.width
+                )
+                : measuredSize.width
+            let constrainedSize = CGSize(
+                width: constrainedWidth,
+                height: measuredSize.height
             )
 
             // --- THIS IS THE KEY COMMUNICATION ---
@@ -426,50 +430,22 @@ private struct RustLayout: @preconcurrency Layout {
     }
 
     private func sanitizedProposal(
-        from childProposal: WuiProposalSize,
-        parentProposal: ProposedViewSize,
-        cache: Cache
+        from childProposal: WuiProposalSize
     ) -> ProposedViewSize {
         ProposedViewSize(
-            width: sanitizeDimension(
-                raw: childProposal.width,
-                fallback: parentProposal.width,
-                cached: cache.lastBounds?.width,
-                axis: .horizontal
-            ),
-            height: sanitizeDimension(
-                raw: childProposal.height,
-                fallback: parentProposal.height,
-                cached: cache.lastBounds?.height,
-                axis: .vertical
-            )
+            width: cleanDimension(raw: childProposal.width),
+            height: cleanDimension(raw: childProposal.height)
         )
     }
 
-    private enum LayoutAxis {
-        case horizontal
-        case vertical
-    }
-
-    private func clampMeasuredSize(
-        _ size: CGSize,
-        to proposal: ProposedViewSize
-    ) -> CGSize {
-        let width: CGFloat
-        if let maxWidth = proposal.width, maxWidth.isFinite {
-            width = min(size.width, maxWidth)
-        } else {
-            width = size.width
+    private func constrainedDimension(
+        _ value: CGFloat,
+        limit: CGFloat?
+    ) -> CGFloat {
+        guard let limit, limit.isFinite else {
+            return value
         }
-
-        let height: CGFloat
-        if let maxHeight = proposal.height, maxHeight.isFinite {
-            height = min(size.height, maxHeight)
-        } else {
-            height = size.height
-        }
-
-        return CGSize(width: width, height: height)
+        return min(value, limit)
     }
 
     private func resolveParentProposal(
@@ -477,17 +453,15 @@ private struct RustLayout: @preconcurrency Layout {
         fallback: ProposedViewSize,
         cache: Cache
     ) -> (swift: ProposedViewSize, wui: WuiProposalSize) {
-        let width = sanitizeDimension(
+        let width = resolveParentDimension(
             raw: parent.width,
             fallback: fallback.width,
-            cached: cache.lastBounds?.width,
-            axis: .horizontal
+            cached: cache.lastBounds?.width
         )
-        let height = sanitizeDimension(
+        let height = resolveParentDimension(
             raw: parent.height,
             fallback: fallback.height,
-            cached: cache.lastBounds?.height,
-            axis: .vertical
+            cached: cache.lastBounds?.height
         )
 
         let swiftProposal = ProposedViewSize(width: width, height: height)
@@ -499,14 +473,18 @@ private struct RustLayout: @preconcurrency Layout {
         return (swiftProposal, wuiProposal)
     }
 
-    private func sanitizeDimension(
+    private func cleanDimension(raw: Float?) -> CGFloat? {
+        guard let raw, raw.isFinite else { return nil }
+        return CGFloat(raw)
+    }
+
+    private func resolveParentDimension(
         raw: Float?,
         fallback: CGFloat?,
-        cached: CGFloat?,
-        axis: LayoutAxis
+        cached: CGFloat?
     ) -> CGFloat? {
-        if let raw, raw.isFinite {
-            return CGFloat(raw)
+        if let dimension = cleanDimension(raw: raw) {
+            return dimension
         }
         if let fallback, fallback.isFinite {
             return fallback
@@ -514,20 +492,7 @@ private struct RustLayout: @preconcurrency Layout {
         if let cached, cached.isFinite {
             return cached
         }
-        if axis == .horizontal, let fallbackWidth = fallbackViewportWidth {
-            return fallbackWidth
-        }
         return nil
-    }
-
-    private var fallbackViewportWidth: CGFloat? {
-        #if canImport(UIKit)
-        return UIScreen.main.bounds.width
-        #elseif canImport(AppKit)
-        return NSScreen.main?.frame.width
-        #else
-        return nil
-        #endif
     }
 }
 
