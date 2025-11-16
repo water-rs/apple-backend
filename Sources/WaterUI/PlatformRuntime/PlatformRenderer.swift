@@ -9,6 +9,7 @@ final class PlatformRenderer {
     static let shared = PlatformRenderer()
 
     private var registry: [String: Factory] = [:]
+    private let plainViewId = decodeViewIdentifier(waterui_plain_id())
 
     private init() {
         registerDefaults()
@@ -24,6 +25,11 @@ final class PlatformRenderer {
         }
 
         let resolvedId = typeId ?? decodeIdentifier(for: sanitized)
+
+        if let resolvedId, resolvedId == plainViewId {
+            let text = WuiStr(waterui_force_as_plain(sanitized)).toString()
+            return UIKitPlainHost(text: text)
+        }
         if let resolvedId, let factory = registry[resolvedId] {
             return factory(sanitized, env, resolvedId)
         }
@@ -49,10 +55,6 @@ final class PlatformRenderer {
             return UIKitTextHost(content: content, env: env)
         }
 
-        register(id: WuiPlain.id) { anyview, _, _ in
-            let plain = WuiStr(waterui_force_as_plain(anyview)).toString()
-            return UIKitPlainHost(text: plain)
-        }
 
         register(id: WuiSpacer.id) { _, _, _ in
             UIKitSpacerHost()
