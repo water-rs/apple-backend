@@ -100,13 +100,13 @@ final class PlatformRenderer {
 
 private extension PlatformRenderer {
     func makeChildView(
-        _ pointer: UnsafeMutablePointer<CWaterUI.WuiAnyView>?,
+        _ pointer: OpaquePointer?,
         env: WuiEnvironment
     ) -> PlatformView {
         guard let pointer else {
             return UnsupportedComponentView(typeId: "nil-child")
         }
-        return makeView(anyview: OpaquePointer(pointer), env: env)
+        return makeView(anyview: pointer, env: env)
     }
 }
 

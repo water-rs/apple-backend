@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import UIKit
+import CWaterUI
 
 @MainActor
 final class UIKitSliderHost: UIView, WaterUILayoutMeasurable {
