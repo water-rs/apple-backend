@@ -23,6 +23,7 @@ struct PlatformViewDescriptor: Equatable {
 
 /// Protocol adopted by native views (UIView/NSView/etc.) that can measure
 /// themselves using WaterUI's proposal semantics.
+@MainActor
 protocol WaterUILayoutMeasurable: AnyObject {
     var descriptor: PlatformViewDescriptor { get }
     func layoutPriority() -> UInt8
