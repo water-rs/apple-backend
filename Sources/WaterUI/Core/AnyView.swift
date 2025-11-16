@@ -116,7 +116,7 @@ public struct WuiAnyView: View, Identifiable {
 
     #if canImport(UIKit)
     func makePlatformView() -> PlatformView {
-        PlatformRenderer.shared.makeView(anyview: anyviewPtr, env: env)
+        PlatformRenderer.shared.makeView(anyview: anyviewPtr, env: env, typeId: typeId)
     }
     #endif
 }

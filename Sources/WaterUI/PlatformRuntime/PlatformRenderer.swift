@@ -4,7 +4,7 @@ import CWaterUI
 
 @MainActor
 final class PlatformRenderer {
-    typealias Factory = (OpaquePointer, WuiEnvironment) -> PlatformView
+    typealias Factory = (OpaquePointer, WuiEnvironment, String?) -> PlatformView
 
     static let shared = PlatformRenderer()
 
@@ -18,45 +18,49 @@ final class PlatformRenderer {
         registry[id] = factory
     }
 
-    func makeView(anyview: OpaquePointer, env: WuiEnvironment) -> PlatformView {
-        let id = decodeViewIdentifier(waterui_view_id(anyview))
-        if let factory = registry[id] {
-            return factory(anyview, env)
+    func makeView(anyview: OpaquePointer, env: WuiEnvironment, typeId: String? = nil) -> PlatformView {
+        guard let sanitized = sanitize(anyview) else {
+            return UnsupportedComponentView(typeId: "invalid")
         }
 
-        if let next = waterui_view_body(anyview, env.inner) {
+        let resolvedId = typeId ?? decodeIdentifier(for: sanitized)
+        if let resolvedId, let factory = registry[resolvedId] {
+            return factory(sanitized, env, resolvedId)
+        }
+
+        if let next = waterui_view_body(sanitized, env.inner) {
             return makeView(anyview: next, env: env)
         }
 
-        return UnsupportedComponentView(typeId: id)
+        return UnsupportedComponentView(typeId: resolvedId ?? "unknown")
     }
 
     private func registerDefaults() {
-        register(id: WuiButton.id) { anyview, env in
+        register(id: WuiButton.id) { anyview, env, _ in
             let button = waterui_force_as_button(anyview)
             let labelView = PlatformRenderer.shared.makeChildView(button.label, env: env)
             let action = Action(inner: button.action, env: env)
             return UIKitButtonHost(label: labelView, action: action)
         }
 
-        register(id: WuiText.id) { anyview, env in
+        register(id: WuiText.id) { anyview, env, _ in
             let text = waterui_force_as_text(anyview)
             let content: WuiComputed<WuiStyledStr> = WuiComputed(text.content)
             return UIKitTextHost(content: content, env: env)
         }
 
-        register(id: WuiSpacer.id) { _, _ in
+        register(id: WuiSpacer.id) { _, _, _ in
             UIKitSpacerHost()
         }
 
-        register(id: WuiToggle.id) { anyview, env in
+        register(id: WuiToggle.id) { anyview, env, _ in
             let toggle = waterui_force_as_toggle(anyview)
             let labelView = PlatformRenderer.shared.makeChildView(toggle.label, env: env)
             let binding: WuiBinding<Bool> = WuiBinding(toggle.toggle)
             return UIKitToggleHost(label: labelView, binding: binding)
         }
 
-        register(id: WuiSlider.id) { anyview, env in
+        register(id: WuiSlider.id) { anyview, env, _ in
             let slider = waterui_force_as_slider(anyview)
             let labelView = PlatformRenderer.shared.makeChildView(slider.label, env: env)
             let minView = PlatformRenderer.shared.makeChildView(slider.min_value_label, env: env)
@@ -71,7 +75,7 @@ final class PlatformRenderer {
             )
         }
 
-        register(id: WuiTextField.id) { anyview, env in
+        register(id: WuiTextField.id) { anyview, env, _ in
             let field = waterui_force_as_text_field(anyview)
             let labelView = PlatformRenderer.shared.makeChildView(field.label, env: env)
             let binding: WuiBinding<WuiStr> = WuiBinding(field.value)
@@ -85,14 +89,14 @@ final class PlatformRenderer {
             )
         }
 
-        register(id: WuiProgress.id) { anyview, env in
+        register(id: WuiProgress.id) { anyview, env, _ in
             let progress = waterui_force_as_progress(anyview)
             let labelView = PlatformRenderer.shared.makeChildView(progress.label, env: env)
             let value: WuiComputed<Double> = WuiComputed(progress.value)
             return UIKitProgressHost(label: labelView, value: value, style: progress.style)
         }
 
-        register(id: WuiEmptyView.id) { _, _ in
+        register(id: WuiEmptyView.id) { _, _, _ in
             UIKitSpacerHost()
         }
     }
@@ -103,10 +107,26 @@ private extension PlatformRenderer {
         _ pointer: OpaquePointer?,
         env: WuiEnvironment
     ) -> PlatformView {
-        guard let pointer else {
+        guard let pointer = sanitize(pointer) else {
             return UnsupportedComponentView(typeId: "nil-child")
         }
         return makeView(anyview: pointer, env: env)
+    }
+
+    func sanitize(_ pointer: OpaquePointer?) -> OpaquePointer? {
+        guard let pointer else {
+            return nil
+        }
+        let raw = UInt(bitPattern: pointer)
+        if raw <= 0x1000 {
+            return nil
+        }
+        return pointer
+    }
+
+    func decodeIdentifier(for pointer: OpaquePointer) -> String? {
+        let str = waterui_view_id(pointer)
+        return WuiStr(str).toString()
     }
 }
 
