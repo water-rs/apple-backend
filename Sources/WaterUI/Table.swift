@@ -50,8 +50,8 @@ extension WuiComputed where T == [WuiTableColumn] {
                 return views
             },
             watch: { inner, f in
-                let g = waterui_watch_computed_table_cols(
-                    inner, WuiWatcher_WuiArray_WuiTableColumn(f))
+                let watcher = makeTableColumnWatcher(f)
+                let g = waterui_watch_computed_table_cols(inner, watcher)
                 return WatcherGuard(g!)
             },
             drop: waterui_drop_computed_table_cols
@@ -67,24 +67,27 @@ extension WuiArray<CWaterUI.WuiTableColumn> {
 
 }
 
-extension WuiWatcher_WuiArray_WuiTableColumn: Watcher {
-    typealias Output = [WuiTableColumn]
+@MainActor
+private func makeTableColumnWatcher(
+    _ f: @escaping ([WuiTableColumn], WuiWatcherMetadata) -> Void
+) -> OpaquePointer {
+    let data = wrap(f)
 
-    init(_ f: @escaping (Self.Output, WuiWatcherMetadata) -> Void) {
-        let data = wrap(f)
+    let call:
+        @convention(c) (UnsafeMutableRawPointer?, WuiArray_WuiTableColumn, OpaquePointer?)
+            -> Void =
+            {
+                data, value, metadata in
+                let array = WuiArray<CWaterUI.WuiTableColumn>(value)
+                callWrapper(data, array.toArray().map { WuiTableColumn(column: $0) }, metadata)
+            }
 
-        let call:
-            @convention(c) (UnsafeRawPointer?, WuiArray_WuiTableColumn, OpaquePointer?) -> Void =
-                {
-                    data, value, metadata in
-                    let array = WuiArray<CWaterUI.WuiTableColumn>(value)
-                    callWrapper(data, array.toArray().map { WuiTableColumn(column: $0) }, metadata)
-                }
-
-        let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
-            dropWrapper($0, Self.Output.self)
-        }
-
-        self.init(data: data, call: call, drop: drop)
+    let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
+        dropWrapper($0, [WuiTableColumn].self)
     }
+
+    guard let watcher = waterui_new_watcher_table_cols(data, call, drop) else {
+        fatalError("Failed to create table column watcher")
+    }
+    return watcher
 }

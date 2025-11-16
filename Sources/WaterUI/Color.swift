@@ -50,6 +50,6 @@ extension WuiResolvedColor {
         let resolved = color.resolveHDR(in: .init())
         self.init(
             red: Float(resolved.red), green: Float(resolved.green), blue: Float(resolved.blue),
-            opacity: Float(resolved.opacity))
+            opacity: Float(resolved.opacity), headroom: 0)
     }
 }

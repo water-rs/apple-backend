@@ -91,7 +91,7 @@ extension WuiBinding where T == WuiStr {
             inner: inner,
             read: { inner in WuiStr(waterui_read_binding_str(inner)) },
             watch: { inner, f in
-                let g = waterui_watch_binding_str(inner, WuiWatcher_WuiStr(f))
+                let g = waterui_watch_binding_str(inner, makeStrWatcher(f))
                 return WatcherGuard(g!)
             },
             set: { inner, value in
@@ -108,7 +108,7 @@ extension WuiBinding where T == Int32 {
             inner: inner,
             read: waterui_read_binding_i32,
             watch: { inner, f in
-                let g = waterui_watch_binding_i32(inner, WuiWatcher_i32(f))
+                let g = waterui_watch_binding_i32(inner, makeIntWatcher(f))
                 return WatcherGuard(g!)
             },
             set: waterui_set_binding_i32,
@@ -123,7 +123,7 @@ extension WuiBinding where T == Bool {
             inner: inner,
             read: waterui_read_binding_bool,
             watch: { inner, f in
-                let g = waterui_watch_binding_bool(inner, WuiWatcher_bool(f))
+                let g = waterui_watch_binding_bool(inner, makeBoolWatcher(f))
                 return WatcherGuard(g!)
             },
             set: waterui_set_binding_bool,
@@ -138,7 +138,7 @@ extension WuiBinding where T == Double {
             inner: inner,
             read: waterui_read_binding_f64,
             watch: { inner, f in
-                let g = waterui_watch_binding_f64(inner, WuiWatcher_f64(f))
+                let g = waterui_watch_binding_f64(inner, makeDoubleWatcher(f))
                 return WatcherGuard(g!)
             },
             set: waterui_set_binding_f64,

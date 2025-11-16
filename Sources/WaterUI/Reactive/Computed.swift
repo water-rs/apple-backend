@@ -67,7 +67,7 @@ extension WuiComputed where T == WuiStr {
             inner: inner,
             read: { inner in WuiStr(waterui_read_binding_str(inner)) },
             watch: { inner, f in
-                let g = waterui_watch_binding_str(inner, WuiWatcher_WuiStr(f))
+                let g = waterui_watch_binding_str(inner, makeStrWatcher(f))
                 return WatcherGuard(g!)
             },
             drop: waterui_drop_binding_str
@@ -81,7 +81,7 @@ extension WuiComputed where T == Int32 {
             inner: inner,
             read: waterui_read_binding_i32,
             watch: { inner, f in
-                let g = waterui_watch_binding_i32(inner, WuiWatcher_i32(f))
+                let g = waterui_watch_binding_i32(inner, makeIntWatcher(f))
                 return WatcherGuard(g!)
             },
             drop: waterui_drop_binding_i32
@@ -95,7 +95,7 @@ extension WuiComputed where T == Bool {
             inner: inner,
             read: waterui_read_binding_bool,
             watch: { inner, f in
-                let g = waterui_watch_binding_bool(inner, WuiWatcher_bool(f))
+                let g = waterui_watch_binding_bool(inner, makeBoolWatcher(f))
                 return WatcherGuard(g!)
             },
             drop: waterui_drop_binding_bool
@@ -109,7 +109,7 @@ extension WuiComputed where T == Double {
             inner: inner,
             read: waterui_read_binding_f64,
             watch: { inner, f in
-                let g = waterui_watch_binding_f64(inner, WuiWatcher_f64(f))
+                let g = waterui_watch_binding_f64(inner, makeDoubleWatcher(f))
                 return WatcherGuard(g!)
             },
             drop: waterui_drop_binding_f64
@@ -125,7 +125,7 @@ extension WuiComputed where T == WuiResolvedFont {
                 return waterui_read_computed_resolved_font(inner)
             },
             watch: { inner, f in
-                let g = waterui_watch_computed_resolved_font(inner, WuiWatcher_WuiResolvedFont(f))
+                let g = waterui_watch_computed_resolved_font(inner, makeResolvedFontWatcher(f))
                 return WatcherGuard(g!)
             },
             drop: waterui_drop_computed_resolved_font
@@ -141,7 +141,7 @@ extension WuiComputed where T == WuiResolvedColor {
                 return waterui_read_computed_resolved_color(inner)
             },
             watch: { inner, f in
-                let g = waterui_watch_computed_resolved_color(inner, WuiWatcher_WuiResolvedColor(f))
+                let g = waterui_watch_computed_resolved_color(inner, makeResolvedColorWatcher(f))
                 return WatcherGuard(g!)
             },
             drop: waterui_drop_computed_resolved_color
@@ -157,11 +157,10 @@ extension WuiComputed where T == WuiStyledStr {
                 return WuiStyledStr(waterui_read_computed_styled_str(inner))
             },
             watch: { inner, f in
-                let g = waterui_watch_computed_styled_str(inner, WuiWatcher_WuiStyledStr(f))
+                let g = waterui_watch_computed_styled_str(inner, makeStyledStrWatcher(f))
                 return WatcherGuard(g!)
             },
             drop: waterui_drop_computed_styled_str
         )
     }
 }
-

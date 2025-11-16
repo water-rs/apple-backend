@@ -8,14 +8,6 @@
 import CWaterUI
 import SwiftUI
 
-/// The protocol that all C-level watcher structs should conform to via an extension.
-@MainActor
-protocol Watcher {
-    associatedtype Output
-    
-    init(_ f: @escaping (Output, WuiWatcherMetadata) -> Void)
-}
-
 @MainActor
 class WatcherGuard {
     var inner: OpaquePointer
@@ -59,7 +51,7 @@ class WuiWatcherMetadata {
 //   2. Use (UnsafeRawPointer?, OpaquePointer?, OpaquePointer?) for call signature
 //   3. Convert OpaquePointer to Swift type in the call function
 
-class Wrapper<T> {
+final class Wrapper<T> {
     let inner: (T, WuiWatcherMetadata) -> Void
     init(_ inner: @escaping (T, WuiWatcherMetadata) -> Void) { self.inner = inner }
 
@@ -67,7 +59,7 @@ class Wrapper<T> {
 
 @MainActor
 func callWrapper<T>(
-    _ data: UnsafeRawPointer?, _ value: T, _ metadata: OpaquePointer?
+    _ data: UnsafeMutableRawPointer?, _ value: T, _ metadata: OpaquePointer?
 ) {
     let wrapper = Unmanaged<Wrapper<T>>.fromOpaque(data!).takeUnretainedValue()
     wrapper.inner(value, WuiWatcherMetadata(metadata!))
@@ -82,120 +74,116 @@ func wrap<T>(_ f: @escaping (T, WuiWatcherMetadata) -> Void) -> UnsafeMutableRaw
     return UnsafeMutableRawPointer(Unmanaged.passRetained(wrapper).toOpaque())
 }
 
-/// Watcher implementation for Int32 values
-extension WuiWatcher_i32: Watcher {
-    typealias Output = Int32
-
-    init(_ f: @escaping (Self.Output, WuiWatcherMetadata) -> Void) {
-        let data = wrap(f)
-
-        let call: @convention(c) (UnsafeRawPointer?, Int32, OpaquePointer?) -> Void = {
-            data, value, metadata in
-            callWrapper(data, value, metadata)
-        }
-
-        let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
-            dropWrapper($0, Self.Output.self)
-        }
-
-        self.init(data: data, call: call, drop: drop)
+@MainActor
+func makeIntWatcher(_ f: @escaping (Int32, WuiWatcherMetadata) -> Void) -> OpaquePointer {
+    let data = wrap(f)
+    let call: @convention(c) (UnsafeMutableRawPointer?, Int32, OpaquePointer?) -> Void = {
+        data, value, metadata in
+        callWrapper(data, value, metadata)
     }
+    let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
+        dropWrapper($0, Int32.self)
+    }
+    guard let watcher = waterui_new_watcher_i32(data, call, drop) else {
+        fatalError("Failed to create i32 watcher")
+    }
+    return watcher
 }
 
-/// Watcher implementation for Bool values
-extension WuiWatcher_bool: Watcher {
-    typealias Output = Bool
-    init(_ f: @escaping (Self.Output, WuiWatcherMetadata) -> Void) {
-        let data = wrap(f)
-
-        let call: @convention(c) (UnsafeRawPointer?, Bool, OpaquePointer?) -> Void = {
-            data, value, metadata in
-            callWrapper(data, value, metadata)
-        }
-
-        let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
-            dropWrapper($0, Self.Output.self)
-        }
-
-        self.init(data: data, call: call, drop: drop)
+@MainActor
+func makeBoolWatcher(_ f: @escaping (Bool, WuiWatcherMetadata) -> Void) -> OpaquePointer {
+    let data = wrap(f)
+    let call: @convention(c) (UnsafeMutableRawPointer?, Bool, OpaquePointer?) -> Void = {
+        data, value, metadata in
+        callWrapper(data, value, metadata)
     }
+    let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
+        dropWrapper($0, Bool.self)
+    }
+    guard let watcher = waterui_new_watcher_bool(data, call, drop) else {
+        fatalError("Failed to create bool watcher")
+    }
+    return watcher
 }
 
-/// Watcher implementation for Double values
-extension WuiWatcher_f64: Watcher {
-    typealias Output = Double
-    init(_ f: @escaping (Self.Output, WuiWatcherMetadata) -> Void) {
-        let data = wrap(f)
-        let call: @convention(c) (UnsafeRawPointer?, Double, OpaquePointer?) -> Void = {
-            data, value, metadata in
-            callWrapper(data, value, metadata)
-        }
-        let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
-            dropWrapper($0, Self.Output.self)
-        }
-        self.init(data: data, call: call, drop: drop)
+@MainActor
+func makeDoubleWatcher(_ f: @escaping (Double, WuiWatcherMetadata) -> Void) -> OpaquePointer {
+    let data = wrap(f)
+    let call: @convention(c) (UnsafeMutableRawPointer?, Double, OpaquePointer?) -> Void = {
+        data, value, metadata in
+        callWrapper(data, value, metadata)
     }
+    let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
+        dropWrapper($0, Double.self)
+    }
+    guard let watcher = waterui_new_watcher_f64(data, call, drop) else {
+        fatalError("Failed to create f64 watcher")
+    }
+    return watcher
 }
 
-/// Watcher implementation for WuiStr values
-extension WuiWatcher_WuiStr: Watcher {
-    typealias Output = WuiStr
-    init(_ f: @escaping (Self.Output, WuiWatcherMetadata) -> Void) {
-        let data = wrap(f)
-        let call: @convention(c) (UnsafeRawPointer?, CWaterUI.WuiStr, OpaquePointer?) -> Void = {
-            data, value, metadata in
-            let str = WuiStr(value)
-            callWrapper(data, str, metadata)
-        }
-        let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
-            dropWrapper($0, Self.Output.self)
-        }
-        self.init(data: data, call: call, drop: drop)
+@MainActor
+func makeStrWatcher(_ f: @escaping (WuiStr, WuiWatcherMetadata) -> Void) -> OpaquePointer {
+    let data = wrap(f)
+    let call: @convention(c) (UnsafeMutableRawPointer?, CWaterUI.WuiStr, OpaquePointer?) -> Void = {
+        data, value, metadata in
+        let str = WuiStr(value)
+        callWrapper(data, str, metadata)
     }
+    let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
+        dropWrapper($0, WuiStr.self)
+    }
+    guard let watcher = waterui_new_watcher_str(data, call, drop) else {
+        fatalError("Failed to create string watcher")
+    }
+    return watcher
 }
 
-extension WuiWatcher_WuiStyledStr: Watcher{
-    typealias Output = WuiStyledStr
-    init(_ f: @escaping (Self.Output, WuiWatcherMetadata) -> Void) {
-        let data = wrap(f)
-        let call: @convention(c) (UnsafeRawPointer?, CWaterUI.WuiStyledStr, OpaquePointer?) -> Void = {
-            data, value, metadata in
+@MainActor
+func makeStyledStrWatcher(_ f: @escaping (WuiStyledStr, WuiWatcherMetadata) -> Void) -> OpaquePointer {
+    let data = wrap(f)
+    let call: @convention(c) (UnsafeMutableRawPointer?, CWaterUI.WuiStyledStr, OpaquePointer?) -> Void =
+        { data, value, metadata in
             let str = WuiStyledStr(value)
             callWrapper(data, str, metadata)
         }
-        let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
-            dropWrapper($0, Self.Output.self)
-        }
-        self.init(data: data, call: call, drop: drop)
+    let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
+        dropWrapper($0, WuiStyledStr.self)
     }
+    guard let watcher = waterui_new_watcher_styled_str(data, call, drop) else {
+        fatalError("Failed to create styled string watcher")
+    }
+    return watcher
 }
 
-extension WuiWatcher_WuiResolvedFont: Watcher {
-    typealias Output = WuiResolvedFont
-    init(_ f: @escaping (Self.Output, WuiWatcherMetadata) -> Void) {
-        let data = wrap(f)
-        let call: @convention(c) (UnsafeRawPointer?, WuiResolvedFont, OpaquePointer?) -> Void = {
-            data, value, metadata in
-            callWrapper(data, value, metadata)
-        }
-        let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
-            dropWrapper($0, Self.Output.self)
-        }
-        self.init(data: data, call: call, drop: drop)
+@MainActor
+func makeResolvedFontWatcher(_ f: @escaping (WuiResolvedFont, WuiWatcherMetadata) -> Void) -> OpaquePointer {
+    let data = wrap(f)
+    let call: @convention(c) (UnsafeMutableRawPointer?, WuiResolvedFont, OpaquePointer?) -> Void = {
+        data, value, metadata in
+        callWrapper(data, value, metadata)
     }
+    let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
+        dropWrapper($0, WuiResolvedFont.self)
+    }
+    guard let watcher = waterui_new_watcher_resolved_font(data, call, drop) else {
+        fatalError("Failed to create resolved font watcher")
+    }
+    return watcher
 }
 
-extension WuiWatcher_WuiResolvedColor: Watcher {
-    typealias Output = WuiResolvedColor
-    init(_ f: @escaping (Self.Output, WuiWatcherMetadata) -> Void) {
-        let data = wrap(f)
-        let call: @convention(c) (UnsafeRawPointer?, WuiResolvedColor, OpaquePointer?) -> Void = {
-            data, value, metadata in
-            callWrapper(data, value, metadata)
-        }
-        let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
-            dropWrapper($0, Self.Output.self)
-        }
-        self.init(data: data, call: call, drop: drop)
+@MainActor
+func makeResolvedColorWatcher(_ f: @escaping (WuiResolvedColor, WuiWatcherMetadata) -> Void) -> OpaquePointer {
+    let data = wrap(f)
+    let call: @convention(c) (UnsafeMutableRawPointer?, WuiResolvedColor, OpaquePointer?) -> Void = {
+        data, value, metadata in
+        callWrapper(data, value, metadata)
     }
+    let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
+        dropWrapper($0, WuiResolvedColor.self)
+    }
+    guard let watcher = waterui_new_watcher_resolved_color(data, call, drop) else {
+        fatalError("Failed to create resolved color watcher")
+    }
+    return watcher
 }

@@ -29,34 +29,43 @@ struct WuiDynamic: View, WuiComponent {
         VStack{
             view
         }.onAppear{
-            waterui_dynamic_connect(dynamic, WuiWatcher_____WuiAnyView({ new in
-                view=new
-            },env:env))
+            let watcher = makeAnyViewWatcher(env: env) { new in
+                view = new
+            }
+            waterui_dynamic_connect(dynamic, watcher)
         }
     }
 }
 
 
-extension WuiWatcher_____WuiAnyView{
+@MainActor
+func makeAnyViewWatcher(
+    env: WuiEnvironment,
+    _ f:@escaping (WuiAnyView)->Void
+) -> OpaquePointer {
     @MainActor
-    init(_ f:@escaping (WuiAnyView)->Void, env:WuiEnvironment) {
-        class Wrapper {
-            var inner: (WuiAnyView) -> Void
-            var env:WuiEnvironment
-            init(inner: @escaping (WuiAnyView) -> Void,env:WuiEnvironment) {
-                self.inner = inner
-                self.env=env
-            }
+    final class AnyViewWrapper {
+        var inner: (WuiAnyView) -> Void
+        var env: WuiEnvironment
+        init(inner: @escaping (WuiAnyView) -> Void, env: WuiEnvironment) {
+            self.inner = inner
+            self.env = env
         }
-
-        let data = UnsafeMutableRawPointer(Unmanaged.passRetained(Wrapper(inner:f,env:env)).toOpaque())
-
-        self.init(data: data, call: { data, value,ctx in
-            let data = Unmanaged<Wrapper>.fromOpaque(data!).takeUnretainedValue()
-            (data.inner)(WuiAnyView(anyview: value!, env: data.env))
-
-        }, drop: { data in
-            _ = Unmanaged<Wrapper>.fromOpaque(data!).takeRetainedValue()
-        })
     }
+
+    let data = UnsafeMutableRawPointer(Unmanaged.passRetained(AnyViewWrapper(inner: f, env: env)).toOpaque())
+
+    let call: @convention(c) (UnsafeMutableRawPointer?, OpaquePointer?, OpaquePointer?) -> Void = { data, value, _ in
+        let data = Unmanaged<AnyViewWrapper>.fromOpaque(data!).takeUnretainedValue()
+        (data.inner)(WuiAnyView(anyview: value!, env: data.env))
+    }
+
+    let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = { data in
+        _ = Unmanaged<AnyViewWrapper>.fromOpaque(data!).takeRetainedValue()
+    }
+
+    guard let watcher = waterui_new_watcher_any_view(data, call, drop) else {
+        fatalError("Failed to create any-view watcher")
+    }
+    return watcher
 }

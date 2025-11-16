@@ -96,22 +96,24 @@ final class WuiAnyViews {
 
 }
 
-extension WuiWatcher_____WuiAnyViews: Watcher {
-    typealias Output = WuiAnyViews
+@MainActor
+func makeAnyViewsWatcher(
+    _ f: @escaping (WuiAnyViews, WuiWatcherMetadata) -> Void
+) -> OpaquePointer {
+    let data = wrap(f)
 
-    init(_ f: @escaping (Self.Output, WuiWatcherMetadata) -> Void) {
-        let data = wrap(f)
-
-        let call: @convention(c) (UnsafeRawPointer?, OpaquePointer?, OpaquePointer?) -> Void =
-            {
-                data, value, metadata in
-                callWrapper(data, WuiAnyViews(value!), metadata)
-            }
-
-        let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
-            dropWrapper($0, Self.Output.self)
+    let call: @convention(c) (UnsafeMutableRawPointer?, OpaquePointer?, OpaquePointer?) -> Void =
+        {
+            data, value, metadata in
+            callWrapper(data, WuiAnyViews(value!), metadata)
         }
 
-        self.init(data: data, call: call, drop: drop)
+    let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
+        dropWrapper($0, WuiAnyViews.self)
     }
+
+    guard let watcher = waterui_new_watcher_views(data, call, drop) else {
+        fatalError("Failed to create AnyViews watcher")
+    }
+    return watcher
 }
