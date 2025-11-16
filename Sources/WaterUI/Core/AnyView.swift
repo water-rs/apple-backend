@@ -83,40 +83,68 @@ struct Render {
 @MainActor
 public struct WuiAnyView: View, Identifiable {
     public var id = UUID()
-    var main: any View
-    var anyviewPtr: OpaquePointer
-    var env: WuiEnvironment
-    public var typeId: String
+    private let env: WuiEnvironment
+    public let typeId: String
+    private let handle: WuiAnyViewHandle
+    #if canImport(SwiftUI)
+    private var renderedView: SwiftUI.AnyView {
+        handle.render(using: env)
+    }
+    #endif
 
     init(anyview: OpaquePointer, env: WuiEnvironment) {
-        self.anyviewPtr = anyview
         self.env = env
         self.typeId = decodeViewIdentifier(waterui_view_id(anyview))
-        self.main = Render.main.render(anyview: anyview, env: env)
-    }
-
-    /// Force downcast to a specific component type
-    func forceAs<T: WuiComponent>(_ type: T.Type) -> T? {
-        let currentId = decodeViewIdentifier(waterui_view_id(anyviewPtr))
-        if currentId == T.id {
-            return T(anyview: anyviewPtr, env: env)
-        }
-        return nil
-    }
-
-    /// Check if this view is of a specific component type
-    func isType<T: WuiComponent>(_ type: T.Type) -> Bool {
-        let currentId = decodeViewIdentifier(waterui_view_id(anyviewPtr))
-        return currentId == T.id
+        self.handle = WuiAnyViewHandle(pointer: anyview)
     }
 
     public var body: some View {
-        AnyView(main).id(id)
+        #if canImport(SwiftUI)
+        AnyView(renderedView).id(id)
+        #else
+        AnyView(EmptyView()).id(id)
+        #endif
     }
 
     #if canImport(UIKit)
     func makePlatformView() -> PlatformView {
-        PlatformRenderer.shared.makeView(anyview: anyviewPtr, env: env, typeId: typeId)
+        guard let pointer = handle.takePointer() else {
+            return UnsupportedComponentView(typeId: typeId)
+        }
+        return PlatformRenderer.shared.makeView(anyview: pointer, env: env, typeId: typeId)
+    }
+    #endif
+}
+
+@MainActor
+private final class WuiAnyViewHandle {
+    private var pointer: OpaquePointer?
+    #if canImport(SwiftUI)
+    private var cachedView: SwiftUI.AnyView?
+    #endif
+
+    init(pointer: OpaquePointer?) {
+        self.pointer = pointer
+    }
+
+    func takePointer() -> OpaquePointer? {
+        defer { pointer = nil }
+        return pointer
+    }
+
+    #if canImport(SwiftUI)
+    func render(using env: WuiEnvironment) -> SwiftUI.AnyView {
+        if let cachedView {
+            return cachedView
+        }
+        guard let pointer = takePointer() else {
+            let placeholder = SwiftUI.AnyView(EmptyView())
+            cachedView = placeholder
+            return placeholder
+        }
+        let rendered = Render.main.render(anyview: pointer, env: env)
+        cachedView = rendered
+        return rendered
     }
     #endif
 }

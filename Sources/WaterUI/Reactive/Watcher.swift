@@ -1,6 +1,6 @@
 //
 //  Watcher.swift
-//  
+//
 //
 //  Created by Gemini on 10/6/25.
 //
@@ -140,13 +140,16 @@ func makeStrWatcher(_ f: @escaping (WuiStr, WuiWatcherMetadata) -> Void) -> Opaq
 }
 
 @MainActor
-func makeStyledStrWatcher(_ f: @escaping (WuiStyledStr, WuiWatcherMetadata) -> Void) -> OpaquePointer {
+func makeStyledStrWatcher(_ f: @escaping (WuiStyledStr, WuiWatcherMetadata) -> Void)
+    -> OpaquePointer
+{
     let data = wrap(f)
-    let call: @convention(c) (UnsafeMutableRawPointer?, CWaterUI.WuiStyledStr, OpaquePointer?) -> Void =
-        { data, value, metadata in
-            let str = WuiStyledStr(value)
-            callWrapper(data, str, metadata)
-        }
+    let call:
+        @convention(c) (UnsafeMutableRawPointer?, CWaterUI.WuiStyledStr, OpaquePointer?) -> Void =
+            { data, value, metadata in
+                let str = WuiStyledStr(value)
+                callWrapper(data, str, metadata)
+            }
     let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
         dropWrapper($0, WuiStyledStr.self)
     }
@@ -157,7 +160,9 @@ func makeStyledStrWatcher(_ f: @escaping (WuiStyledStr, WuiWatcherMetadata) -> V
 }
 
 @MainActor
-func makeResolvedFontWatcher(_ f: @escaping (WuiResolvedFont, WuiWatcherMetadata) -> Void) -> OpaquePointer {
+func makeResolvedFontWatcher(_ f: @escaping (WuiResolvedFont, WuiWatcherMetadata) -> Void)
+    -> OpaquePointer
+{
     let data = wrap(f)
     let call: @convention(c) (UnsafeMutableRawPointer?, WuiResolvedFont, OpaquePointer?) -> Void = {
         data, value, metadata in
@@ -173,12 +178,15 @@ func makeResolvedFontWatcher(_ f: @escaping (WuiResolvedFont, WuiWatcherMetadata
 }
 
 @MainActor
-func makeResolvedColorWatcher(_ f: @escaping (WuiResolvedColor, WuiWatcherMetadata) -> Void) -> OpaquePointer {
+func makeResolvedColorWatcher(_ f: @escaping (WuiResolvedColor, WuiWatcherMetadata) -> Void)
+    -> OpaquePointer
+{
     let data = wrap(f)
-    let call: @convention(c) (UnsafeMutableRawPointer?, WuiResolvedColor, OpaquePointer?) -> Void = {
-        data, value, metadata in
-        callWrapper(data, value, metadata)
-    }
+    let call: @convention(c) (UnsafeMutableRawPointer?, WuiResolvedColor, OpaquePointer?) -> Void =
+        {
+            data, value, metadata in
+            callWrapper(data, value, metadata)
+        }
     let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
         dropWrapper($0, WuiResolvedColor.self)
     }
