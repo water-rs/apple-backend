@@ -84,8 +84,8 @@ struct Render {
 public struct WuiAnyView: View, Identifiable {
     public var id = UUID()
     var main: any View
-    private var anyviewPtr: OpaquePointer
-    private var env: WuiEnvironment
+    var anyviewPtr: OpaquePointer
+    var env: WuiEnvironment
     public var typeId: String
 
     init(anyview: OpaquePointer, env: WuiEnvironment) {
@@ -113,4 +113,10 @@ public struct WuiAnyView: View, Identifiable {
     public var body: some View {
         AnyView(main).id(id)
     }
+
+    #if canImport(UIKit)
+    func makePlatformView() -> PlatformView {
+        PlatformRenderer.shared.makeView(anyview: anyviewPtr, env: env)
+    }
+    #endif
 }

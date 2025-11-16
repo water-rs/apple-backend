@@ -31,15 +31,36 @@ struct WuiText: View, WuiComponent {
         self.content = styledStr
     }
 
-    func toText() -> SwiftUI.Text {
-        SwiftUI.Text(content.value.toAttributedString(env: env))
-    }
-
     var body: some View {
-        toText()
+        #if canImport(UIKit)
+        UIKitTextRepresentable(content: content, env: env)
+        #else
+        toSwiftUIText()
             .multilineTextAlignment(.leading)
             .lineLimit(nil)
             .fixedSize(horizontal: false, vertical: true)
+        #endif
     }
 
+    #if !canImport(UIKit)
+    func toSwiftUIText() -> SwiftUI.Text {
+        SwiftUI.Text(content.value.toAttributedString(env: env))
+    }
+    #endif
 }
+
+#if canImport(UIKit)
+@MainActor
+private struct UIKitTextRepresentable: UIViewRepresentable {
+    var content: WuiComputed<WuiStyledStr>
+    var env: WuiEnvironment
+
+    func makeUIView(context: Context) -> UIKitTextHost {
+        UIKitTextHost(content: content, env: env)
+    }
+
+    func updateUIView(_ uiView: UIKitTextHost, context: Context) {
+        // UIKitTextHost listens to watchers directly; no incremental updates needed.
+    }
+}
+#endif

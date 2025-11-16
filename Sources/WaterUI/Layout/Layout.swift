@@ -207,7 +207,7 @@ struct WuiLayoutContainer: WuiComponent, View {
 
     private var layout: WuiLayout
     private var children: [WuiAnyView]
-    private var descriptors: [ChildDescriptor]
+    private var descriptors: [PlatformViewDescriptor]
 
     init(anyview: OpaquePointer, env: WuiEnvironment) {
         let container = waterui_force_as_layout_container(anyview)
@@ -223,7 +223,7 @@ struct WuiLayoutContainer: WuiComponent, View {
 
         self.descriptors = children.map { view in
             let id = view.typeId
-            return ChildDescriptor(typeId: id, isSpacer: id == WuiSpacer.id)
+            return PlatformViewDescriptor(typeId: id, isSpacer: id == WuiSpacer.id)
         }
     }
 
@@ -242,7 +242,7 @@ struct WuiFixedContainer: WuiComponent, View {
 
     private var layout: WuiLayout
     private var children: [WuiAnyView]
-    private var descriptors: [ChildDescriptor]
+    private var descriptors: [PlatformViewDescriptor]
 
     init(anyview: OpaquePointer, env: WuiEnvironment) {
         let container = waterui_force_as_fixed_container(anyview)
@@ -256,7 +256,7 @@ struct WuiFixedContainer: WuiComponent, View {
         self.children = resolvedChildren
         self.descriptors = resolvedChildren.map { view in
             let id = view.typeId
-            return ChildDescriptor(typeId: id, isSpacer: id == WuiSpacer.id)
+            return PlatformViewDescriptor(typeId: id, isSpacer: id == WuiSpacer.id)
         }
     }
 
@@ -269,23 +269,19 @@ struct WuiFixedContainer: WuiComponent, View {
     }
 }
 
-private struct ChildDescriptor {
-    let typeId: String
-    let isSpacer: Bool
-}
-
 private struct RustLayout: @preconcurrency Layout {
     private var layout: WuiLayout
-    private var descriptors: [ChildDescriptor]
+    private var descriptors: [PlatformViewDescriptor]
+    private var bridge = NativeLayoutBridge()
 
-    init(layout: WuiLayout, descriptors: [ChildDescriptor]) {
+    init(layout: WuiLayout, descriptors: [PlatformViewDescriptor]) {
         self.layout = layout
         self.descriptors = descriptors
     }
 
     // --- Cache remains the same ---
     struct Cache {
-        var metadata: [WuiChildMetadata] = []
+        var measurements: [NativeLayoutBridge.ChildMeasurement] = []
         var lastBounds: CGSize?
     }
 
@@ -311,36 +307,34 @@ private struct RustLayout: @preconcurrency Layout {
         )
         let parentProposal = parentProposals.wui
 
-        var metadata: [WuiChildMetadata] = []
-        metadata.reserveCapacity(subviews.count)
-
-        // First, create metadata for an initial proposal pass in Rust
-        // This pass determines how much space to offer each child.
+        var contexts: [NativeLayoutBridge.ChildContext] = []
+        contexts.reserveCapacity(subviews.count)
         for index in subviews.indices {
-            let isStretchy = descriptors[safe: index]?.isSpacer ?? false
-            metadata.append(
-                WuiChildMetadata(
-                    // We don't know the proposal size yet, so we send an empty one.
-                    // The `stretch` flag is the most important info for this pass.
-                    proposal: WuiProposalSize(),
-                    priority: priorityValue(from: subviews[index]),
-                    stretch: isStretchy
+            let descriptor = descriptors[safe: index] ?? PlatformViewDescriptor(typeId: "", isSpacer: false)
+            let priority = priorityValue(from: subviews[index])
+            contexts.append(
+                NativeLayoutBridge.ChildContext(
+                    descriptor: descriptor,
+                    priority: priority
                 )
             )
         }
-        
-        let childProposals = layout.propose(parent: parentProposal, children: metadata)
 
-        // Now, measure children with the proposals from Rust and create the final metadata.
-        metadata.removeAll(keepingCapacity: true)
+        let childProposals = bridge.requestChildProposals(
+            layout: layout,
+            parentProposal: parentProposal,
+            contexts: contexts
+        )
+
+        var measurements: [NativeLayoutBridge.ChildMeasurement] = []
+        measurements.reserveCapacity(subviews.count)
+
         for index in subviews.indices {
             let subview = subviews[index]
-            let isStretchy = descriptors[safe: index]?.isSpacer ?? false
-            
+            let context = contexts[index]
+
             let childProposal = childProposals[safe: index] ?? WuiProposalSize()
-            let swiftUIProposal = sanitizedProposal(
-                from: childProposal
-            )
+            let swiftUIProposal = sanitizedProposal(from: childProposal)
             
             let measuredSize = subview.sizeThatFits(swiftUIProposal)
             let shouldClampWidth = descriptors[safe: index]?.typeId == WuiText.id
@@ -355,27 +349,21 @@ private struct RustLayout: @preconcurrency Layout {
                 height: measuredSize.height
             )
 
-            // --- THIS IS THE KEY COMMUNICATION ---
-            // If the child is a flexible spacer, tell Rust it has zero intrinsic size.
-            // Otherwise, tell Rust the actual measured size.
-            let metadataProposal = isStretchy ? WuiProposalSize() : WuiProposalSize(size: constrainedSize)
-            
-            metadata.append(
-                WuiChildMetadata(
-                    proposal: metadataProposal,
-                    priority: priorityValue(from: subview),
-                    stretch: isStretchy
-                )
+            let measurement = NativeLayoutBridge.ChildMeasurement(
+                context: context,
+                proposal: WuiProposalSize(swiftUIProposal),
+                measuredSize: constrainedSize
             )
+            measurements.append(measurement)
         }
 
-        // Store the final metadata in the cache for the `placeSubviews` pass.
-        cache.metadata = metadata
+        cache.measurements = measurements
 
-        // Ask Rust for the final container size based on the definitive child metadata.
-        let finalSize = layout.size(parent: parentProposal, children: metadata)
-        
-  
+        let finalSize = bridge.containerSize(
+            layout: layout,
+            parentProposal: parentProposal,
+            measurements: measurements
+        )
 
         return finalSize
     }
@@ -401,11 +389,15 @@ private struct RustLayout: @preconcurrency Layout {
             cache: cache
         ).wui
         
-        // Use the metadata we already computed and cached in `sizeThatFits`.
-        let rects = layout.place(
-            bound: bounds,
-            proposal: parentProposal,
-            children: cache.metadata
+        guard !cache.measurements.isEmpty else {
+            return
+        }
+
+        let rects = bridge.frames(
+            layout: layout,
+            bounds: bounds,
+            parentProposal: parentProposal,
+            measurements: cache.measurements
         )
 
         for index in subviews.indices {

@@ -6,6 +6,9 @@
 //
 import CWaterUI
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 @MainActor
 struct WuiButton: View, WuiComponent {
@@ -24,13 +27,34 @@ struct WuiButton: View, WuiComponent {
     }
 
     var body: some View {
+        #if canImport(UIKit)
+        UIKitButtonRepresentable(label: label, action: action)
+        #else
+        // TODO: Add AppKit/WatchKit native implementations.
         Button {
             action.call()
         } label: {
             label
         }
+        #endif
     }
 }
+
+#if canImport(UIKit)
+@MainActor
+private struct UIKitButtonRepresentable: UIViewRepresentable {
+    var label: WuiAnyView
+    var action: Action
+
+    func makeUIView(context: Context) -> UIKitButtonHost {
+        UIKitButtonHost(label: label.makePlatformView(), action: action)
+    }
+
+    func updateUIView(_ uiView: UIKitButtonHost, context: Context) {
+        uiView.updateLabel(label.makePlatformView())
+    }
+}
+#endif
 
 @MainActor
 class Action {
