@@ -49,6 +49,11 @@ final class PlatformRenderer {
             return UIKitTextHost(content: content, env: env)
         }
 
+        register(id: WuiPlain.id) { anyview, _, _ in
+            let plain = WuiStr(waterui_force_as_plain(anyview)).toString()
+            return UIKitPlainHost(text: plain)
+        }
+
         register(id: WuiSpacer.id) { _, _, _ in
             UIKitSpacerHost()
         }
