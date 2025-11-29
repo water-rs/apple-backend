@@ -501,23 +501,46 @@ private struct RustLayout: @preconcurrency Layout {
             let childProposal = childProposals[safe: index] ?? WuiProposalSize()
             let swiftUIProposal = sanitizedProposal(from: childProposal)
             
-            let measuredSize = subview.sizeThatFits(swiftUIProposal)
-            let shouldClampWidth = descriptors[safe: index]?.typeId == WuiText.id
-            let constrainedWidth = shouldClampWidth
-                ? constrainedDimension(
-                    measuredSize.width,
-                    limit: swiftUIProposal.width
+            // 1) Measure with the proposal we got from Rust
+            var measuredSize = subview.sizeThatFits(swiftUIProposal)
+            
+            // 2) Apply WaterUI category rules (Option 5 from layout report):
+            //    - Text (content-sized): use proposal only for wrapping/height;
+            //      report intrinsic content width so centering works.
+            //    - Axis-expanding (TextField/Slider/Progress(linear)/Color with frame): 
+            //      fill available width.
+            //    - Everyone else: clamp to proposal width at most (safety).
+            let typeId = descriptors[safe: index]?.typeId ?? ""
+            
+            if typeId == WuiText.id {
+                // Height comes from wrapped measurement at proposed width
+                let wrappedHeight = measuredSize.height
+                // Intrinsic width independent of proposed width
+                let intrinsicForWidth = subview.sizeThatFits(
+                    ProposedViewSize(width: nil, height: swiftUIProposal.height)
+                ).width
+                measuredSize = CGSize(
+                    width: min(intrinsicForWidth, swiftUIProposal.width ?? intrinsicForWidth),
+                    height: wrappedHeight
                 )
-                : measuredSize.width
-            let constrainedSize = CGSize(
-                width: constrainedWidth,
-                height: measuredSize.height
-            )
+            } else if isAxisExpanding(typeId) {
+                // Axis-expanding views fill the proposed width
+                if let w = swiftUIProposal.width, w.isValidForLayout {
+                    measuredSize = CGSize(width: w, height: measuredSize.height)
+                }
+            } else {
+                // Defensive clamp (never exceed proposed width)
+                measuredSize = CGSize(
+                    width: constrainedDimension(measuredSize.width, limit: swiftUIProposal.width),
+                    height: measuredSize.height
+                )
+            }
 
             let measurement = NativeLayoutBridge.ChildMeasurement(
                 context: context,
-                proposal: WuiProposalSize(swiftUIProposal),
-                measuredSize: constrainedSize
+                // IMPORTANT: send what we MEASURED (Android parity), not the proposal
+                proposal: WuiProposalSize(size: measuredSize),
+                measuredSize: measuredSize
             )
             measurements.append(measurement)
         }
@@ -630,8 +653,14 @@ private struct RustLayout: @preconcurrency Layout {
         return (swiftProposal, wuiProposal)
     }
 
+    // Preserve semantics:
+    // - NaN (None)      -> nil  (intrinsic)
+    // - finite value    -> value (Exact)
+    // - +Infinity       -> .greatestFiniteMagnitude (unbounded / "fill")
     private func cleanDimension(raw: Float?) -> CGFloat? {
-        guard let raw, raw.isFinite else { return nil }
+        guard let raw else { return nil }
+        if raw.isNaN { return nil }
+        if raw.isInfinite { return .greatestFiniteMagnitude }
         return CGFloat(raw)
     }
 
@@ -650,6 +679,21 @@ private struct RustLayout: @preconcurrency Layout {
             return cached
         }
         return nil
+    }
+    
+    // MARK: - Type Category Detection
+    
+    /// Axis-expanding views fill available width (in VStack) or height (in HStack).
+    /// Per LAYOUT_SPEC.md: TextField, Slider, ProgressView (linear), Color (greedy).
+    /// Divider uses Color internally with width(INFINITY), so Color handles it.
+    @MainActor
+    private func isAxisExpanding(_ typeId: String) -> Bool {
+        // TextField, Slider, Progress are axis-expanding controls
+        // Color is greedy (expands both dimensions) - Divider uses Color internally
+        return typeId == WuiTextField.id
+            || typeId == WuiSlider.id
+            || typeId == WuiProgress.id
+            || typeId == WuiColorView.id
     }
 }
 

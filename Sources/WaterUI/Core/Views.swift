@@ -88,6 +88,11 @@ final class WuiAnyViews {
         return WuiAnyView(anyview: ptr!, env: env)
     }
 
+    /// Returns the raw pointer for the view at the given index (for native rendering)
+    func getPointer(at index: Int) -> OpaquePointer? {
+        waterui_anyviews_get_view(inner, UInt(index))
+    }
+
     func intoForEach(env: WuiEnvironment)
         -> SwiftUI.ForEach<EnumeratedSequence<WuiAnyViewCollection>, WuiId, some View>
     {

@@ -68,8 +68,7 @@ final class PlatformRenderer {
             var childViews: [PlatformView] = []
             childViews.reserveCapacity(anyViews.count)
             for i in 0..<anyViews.count {
-                let childPointer = waterui_anyviews_get_view(anyViews.inner, i)
-                if let childPointer {
+                if let childPointer = anyViews.getPointer(at: i) {
                     childViews.append(PlatformRenderer.shared.makeView(anyview: childPointer, env: env))
                 }
             }
@@ -142,6 +141,53 @@ final class PlatformRenderer {
 
         register(id: WuiEmptyView.id) { _, _, _ in
             UIKitSpacerHost()
+        }
+        
+        // MARK: - Scroll View
+        
+        register(id: WuiScrollView.id) { anyview, env, _ in
+            let scroll = waterui_force_as_scroll_view(anyview)
+            
+            // Get the content view's layout container
+            let contentPointer = scroll.content
+            guard let contentPointer else {
+                return UnsupportedComponentView(typeId: "scroll-nil-content")
+            }
+            
+            // Check if content is a layout container
+            let contentId = decodeViewIdentifier(waterui_view_id(contentPointer))
+            let fixedId = decodeViewIdentifier(waterui_fixed_container_id())
+            let layoutId = decodeViewIdentifier(waterui_layout_container_id())
+            
+            if contentId == fixedId {
+                let container = waterui_force_as_fixed_container(contentPointer)
+                let layout = WuiLayout(inner: container.layout!)
+                
+                let pointerArray = WuiArray<OpaquePointer>(container.contents)
+                let childViews = pointerArray
+                    .toArray()
+                    .map { PlatformRenderer.shared.makeChildView($0, env: env) }
+                
+                return UIKitScrollHost(layout: layout, children: childViews)
+            } else if contentId == layoutId {
+                let container = waterui_force_as_layout_container(contentPointer)
+                let layout = WuiLayout(inner: container.layout!)
+                
+                let anyViews = WuiAnyViews(container.contents)
+                var childViews: [PlatformView] = []
+                childViews.reserveCapacity(anyViews.count)
+                for i in 0..<anyViews.count {
+                    if let childPointer = anyViews.getPointer(at: i) {
+                        childViews.append(PlatformRenderer.shared.makeView(anyview: childPointer, env: env))
+                    }
+                }
+                
+                return UIKitScrollHost(layout: layout, children: childViews)
+            } else {
+                // Content is not a layout container - render it directly
+                // This should rarely happen; scroll usually wraps a VStack
+                return PlatformRenderer.shared.makeView(anyview: contentPointer, env: env)
+            }
         }
     }
 }
