@@ -145,6 +145,145 @@ struct WuiChildMetadata {
     }
 }
 
+// MARK: - Safe Area Types
+
+/// Safe area insets in points, relative to the container bounds
+struct WuiSafeAreaInsets {
+    var top: Float
+    var bottom: Float
+    var leading: Float
+    var trailing: Float
+
+    static let zero = WuiSafeAreaInsets(top: 0, bottom: 0, leading: 0, trailing: 0)
+
+    init(top: Float = 0, bottom: Float = 0, leading: Float = 0, trailing: Float = 0) {
+        self.top = top
+        self.bottom = bottom
+        self.leading = leading
+        self.trailing = trailing
+    }
+
+    init(_ raw: CWaterUI.WuiSafeAreaInsets) {
+        self.top = raw.top
+        self.bottom = raw.bottom
+        self.leading = raw.leading
+        self.trailing = raw.trailing
+    }
+
+    #if canImport(UIKit)
+    init(from insets: UIEdgeInsets, layoutDirection: UIUserInterfaceLayoutDirection = .leftToRight) {
+        self.top = Float(insets.top)
+        self.bottom = Float(insets.bottom)
+        // Convert left/right to leading/trailing based on layout direction
+        if layoutDirection == .rightToLeft {
+            self.leading = Float(insets.right)
+            self.trailing = Float(insets.left)
+        } else {
+            self.leading = Float(insets.left)
+            self.trailing = Float(insets.right)
+        }
+    }
+    #endif
+
+    #if canImport(AppKit)
+    init(from insets: NSEdgeInsets) {
+        self.top = Float(insets.top)
+        self.bottom = Float(insets.bottom)
+        self.leading = Float(insets.left)
+        self.trailing = Float(insets.right)
+    }
+    #endif
+
+    func toCStruct() -> CWaterUI.WuiSafeAreaInsets {
+        CWaterUI.WuiSafeAreaInsets(
+            top: top,
+            bottom: bottom,
+            leading: leading,
+            trailing: trailing
+        )
+    }
+}
+
+/// Bitflags for safe area edges that can be selectively ignored
+struct WuiSafeAreaEdges: OptionSet {
+    let rawValue: UInt8
+
+    static let top = WuiSafeAreaEdges(rawValue: 0b0001)
+    static let bottom = WuiSafeAreaEdges(rawValue: 0b0010)
+    static let leading = WuiSafeAreaEdges(rawValue: 0b0100)
+    static let trailing = WuiSafeAreaEdges(rawValue: 0b1000)
+
+    static let horizontal: WuiSafeAreaEdges = [.leading, .trailing]
+    static let vertical: WuiSafeAreaEdges = [.top, .bottom]
+    static let all: WuiSafeAreaEdges = [.top, .bottom, .leading, .trailing]
+
+    init(rawValue: UInt8) {
+        self.rawValue = rawValue
+    }
+
+    init(_ raw: CWaterUI.WuiSafeAreaEdges) {
+        self.rawValue = raw.bits
+    }
+
+    func toCStruct() -> CWaterUI.WuiSafeAreaEdges {
+        CWaterUI.WuiSafeAreaEdges(bits: rawValue)
+    }
+}
+
+/// Context passed to layout operations containing safe area and other layout state
+struct WuiLayoutContext {
+    var safeArea: WuiSafeAreaInsets
+    var ignoresSafeArea: WuiSafeAreaEdges
+
+    static let empty = WuiLayoutContext(safeArea: .zero, ignoresSafeArea: [])
+
+    init(safeArea: WuiSafeAreaInsets = .zero, ignoresSafeArea: WuiSafeAreaEdges = []) {
+        self.safeArea = safeArea
+        self.ignoresSafeArea = ignoresSafeArea
+    }
+
+    init(_ raw: CWaterUI.WuiLayoutContext) {
+        self.safeArea = WuiSafeAreaInsets(raw.safe_area)
+        self.ignoresSafeArea = WuiSafeAreaEdges(raw.ignores_safe_area)
+    }
+
+    #if canImport(UIKit)
+    init(from insets: UIEdgeInsets, layoutDirection: UIUserInterfaceLayoutDirection = .leftToRight) {
+        self.safeArea = WuiSafeAreaInsets(from: insets, layoutDirection: layoutDirection)
+        self.ignoresSafeArea = []
+    }
+    #endif
+
+    func toCStruct() -> CWaterUI.WuiLayoutContext {
+        CWaterUI.WuiLayoutContext(
+            safe_area: safeArea.toCStruct(),
+            ignores_safe_area: ignoresSafeArea.toCStruct()
+        )
+    }
+}
+
+/// Result of placing a child view (rect + context for nested layouts)
+struct WuiChildPlacement {
+    var rect: WuiRect
+    var context: WuiLayoutContext
+
+    init(rect: WuiRect, context: WuiLayoutContext) {
+        self.rect = rect
+        self.context = context
+    }
+
+    init(_ raw: CWaterUI.WuiChildPlacement) {
+        self.rect = WuiRect(raw.rect)
+        self.context = WuiLayoutContext(raw.context)
+    }
+
+    var cgRect: CGRect {
+        rect.cgRect
+    }
+}
+
+// MARK: - Layout Engine
+
 @MainActor
 final class WuiLayout {
     private var inner: OpaquePointer
@@ -157,48 +296,74 @@ final class WuiLayout {
         waterui_drop_layout(inner)
     }
 
-    func propose(parent: WuiProposalSize, children: [WuiChildMetadata]) -> [WuiProposalSize] {
-            let childArray = WuiArray(array: children.map { $0.toCStruct() })
-            let parentRaw = parent.toCStruct()
+    func propose(
+        parent: WuiProposalSize,
+        children: [WuiChildMetadata],
+        context: WuiLayoutContext = .empty
+    ) -> [WuiProposalSize] {
+        let childArray = WuiArray(array: children.map { $0.toCStruct() })
+        let parentRaw = parent.toCStruct()
+        let contextRaw = context.toCStruct()
 
         let typedChildren = unsafeBitCast(
             childArray.inner.intoInner(),
             to: CWaterUI.WuiArray_WuiChildMetadata.self
         )
-        let proposals = waterui_layout_propose(inner, parentRaw, typedChildren)
+        let proposals = waterui_layout_propose(inner, parentRaw, typedChildren, contextRaw)
         let rawArray = unsafeBitCast(proposals, to: CWaterUI.WuiArray.self)
         let bridged = WuiArray<CWaterUI.WuiProposalSize>(c: rawArray)
         return bridged.toArray().map { WuiProposalSize($0) }
-        
     }
 
-    func size(parent: WuiProposalSize, children: [WuiChildMetadata]) -> CGSize {
+    func size(
+        parent: WuiProposalSize,
+        children: [WuiChildMetadata],
+        context: WuiLayoutContext = .empty
+    ) -> CGSize {
         let childArray = WuiArray(array: children.map { $0.toCStruct() })
         let parentRaw = parent.toCStruct()
+        let contextRaw = context.toCStruct()
 
         let typedChildren = unsafeBitCast(
             childArray.inner.intoInner(),
             to: CWaterUI.WuiArray_WuiChildMetadata.self
         )
-        let size = waterui_layout_size(inner, parentRaw, typedChildren)
+        let size = waterui_layout_size(inner, parentRaw, typedChildren, contextRaw)
         return WuiSize(size).cgSize
     }
 
-    func place(bound: CGRect, proposal: WuiProposalSize, children: [WuiChildMetadata]) -> [CGRect] {
+    /// Places children and returns just the rects (legacy compatibility)
+    func place(
+        bound: CGRect,
+        proposal: WuiProposalSize,
+        children: [WuiChildMetadata],
+        context: WuiLayoutContext = .empty
+    ) -> [CGRect] {
+        placements(bound: bound, proposal: proposal, children: children, context: context)
+            .map { $0.cgRect }
+    }
+
+    /// Places children and returns full placements with context for nested layouts
+    func placements(
+        bound: CGRect,
+        proposal: WuiProposalSize,
+        children: [WuiChildMetadata],
+        context: WuiLayoutContext = .empty
+    ) -> [WuiChildPlacement] {
         let childArray = WuiArray(array: children.map { $0.toCStruct() })
         let boundRaw = WuiRect(bound).toCStruct()
         let proposalRaw = proposal.toCStruct()
+        let contextRaw = context.toCStruct()
 
-            let typedChildren = unsafeBitCast(
-                childArray.inner.intoInner(),
-                to: CWaterUI.WuiArray_WuiChildMetadata.self
-            )
-            let rects = waterui_layout_place(inner, boundRaw, proposalRaw, typedChildren)
-            let rawArray = unsafeBitCast(rects, to: CWaterUI.WuiArray.self)
-            let bridged = WuiArray<CWaterUI.WuiRect>(c: rawArray)
-            return bridged.toArray().map { WuiRect($0).cgRect }
-        }
-    
+        let typedChildren = unsafeBitCast(
+            childArray.inner.intoInner(),
+            to: CWaterUI.WuiArray_WuiChildMetadata.self
+        )
+        let placements = waterui_layout_place(inner, boundRaw, proposalRaw, typedChildren, contextRaw)
+        let rawArray = unsafeBitCast(placements, to: CWaterUI.WuiArray.self)
+        let bridged = WuiArray<CWaterUI.WuiChildPlacement>(c: rawArray)
+        return bridged.toArray().map { WuiChildPlacement($0) }
+    }
 }
 
 @MainActor

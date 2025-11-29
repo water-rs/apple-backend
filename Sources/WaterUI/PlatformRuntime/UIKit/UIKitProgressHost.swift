@@ -34,16 +34,30 @@ final class UIKitProgressHost: UIView, WaterUILayoutMeasurable {
     func layoutPriority() -> UInt8 { 0 }
 
     func measure(in proposal: WuiProposalSize) -> CGSize {
+        // Per LAYOUT_SPEC.md:
+        // - Linear ProgressView: axis-expanding (width expands, height intrinsic)
+        // - Circular ProgressView: fixed size (platform-native spinner)
+        
+        let isCircular = style == WuiProgressStyle_Circular
+        
+        if isCircular {
+            // Circular uses fixed platform-native size
+            let spinnerSize = activityIndicator.intrinsicContentSize
+            return CGSize(
+                width: proposal.width.map { CGFloat($0) } ?? spinnerSize.width,
+                height: proposal.height.map { CGFloat($0) } ?? spinnerSize.height
+            )
+        }
+        
+        // Linear progress: axis-expanding on width
         let targetWidth = proposal.width.map { CGFloat($0) } ?? UIView.noIntrinsicMetric
         let targetHeight = proposal.height.map { CGFloat($0) } ?? UIView.noIntrinsicMetric
         let fittingSize = CGSize(
-            width: targetWidth == UIView.noIntrinsicMetric ? UIView.layoutFittingCompressedSize.width : targetWidth,
+            width: targetWidth == UIView.noIntrinsicMetric ? UIView.layoutFittingExpandedSize.width : targetWidth,
             height: targetHeight == UIView.noIntrinsicMetric ? UIView.layoutFittingCompressedSize.height : targetHeight
         )
-        let horizontalPriority: UILayoutPriority =
-            targetWidth == UIView.noIntrinsicMetric ? .fittingSizeLevel : .required
-        let verticalPriority: UILayoutPriority =
-            targetHeight == UIView.noIntrinsicMetric ? .fittingSizeLevel : .required
+        let horizontalPriority: UILayoutPriority = targetWidth == UIView.noIntrinsicMetric ? .defaultLow : .required
+        let verticalPriority: UILayoutPriority = targetHeight == UIView.noIntrinsicMetric ? .fittingSizeLevel : .required
         return stack.systemLayoutSizeFitting(
             fittingSize,
             withHorizontalFittingPriority: horizontalPriority,

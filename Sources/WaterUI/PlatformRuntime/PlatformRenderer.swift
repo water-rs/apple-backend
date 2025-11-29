@@ -42,6 +42,43 @@ final class PlatformRenderer {
     }
 
     private func registerDefaults() {
+        // MARK: - Layout Containers
+        
+        // FixedContainer - layout with fixed number of children
+        register(id: decodeViewIdentifier(waterui_fixed_container_id())) { anyview, env, _ in
+            let container = waterui_force_as_fixed_container(anyview)
+            let layout = WuiLayout(inner: container.layout!)
+            
+            // Build child views
+            let pointerArray = WuiArray<OpaquePointer>(container.contents)
+            let childViews = pointerArray
+                .toArray()
+                .map { PlatformRenderer.shared.makeChildView($0, env: env) }
+            
+            return UIKitLayoutContainer(layout: layout, children: childViews)
+        }
+        
+        // LayoutContainer - layout with dynamic children (ForEach, etc.)
+        register(id: decodeViewIdentifier(waterui_layout_container_id())) { anyview, env, _ in
+            let container = waterui_force_as_layout_container(anyview)
+            let layout = WuiLayout(inner: container.layout!)
+            
+            // Build child views from dynamic collection
+            let anyViews = WuiAnyViews(container.contents)
+            var childViews: [PlatformView] = []
+            childViews.reserveCapacity(anyViews.count)
+            for i in 0..<anyViews.count {
+                let childPointer = waterui_anyviews_get_view(anyViews.inner, i)
+                if let childPointer {
+                    childViews.append(PlatformRenderer.shared.makeView(anyview: childPointer, env: env))
+                }
+            }
+            
+            return UIKitLayoutContainer(layout: layout, children: childViews)
+        }
+        
+        // MARK: - Controls
+        
         register(id: WuiButton.id) { anyview, env, _ in
             let button = waterui_force_as_button(anyview)
             let labelView = PlatformRenderer.shared.makeChildView(button.label, env: env)

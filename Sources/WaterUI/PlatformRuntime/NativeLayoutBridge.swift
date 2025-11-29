@@ -32,29 +32,55 @@ struct NativeLayoutBridge {
     func requestChildProposals(
         layout: WuiLayout,
         parentProposal: WuiProposalSize,
-        contexts: [ChildContext]
+        contexts: [ChildContext],
+        layoutContext: WuiLayoutContext = .empty
     ) -> [WuiProposalSize] {
         let metadata = initialMetadata(from: contexts)
-        return layout.propose(parent: parentProposal, children: metadata)
+        return layout.propose(parent: parentProposal, children: metadata, context: layoutContext)
     }
 
     func containerSize(
         layout: WuiLayout,
         parentProposal: WuiProposalSize,
-        measurements: [ChildMeasurement]
+        measurements: [ChildMeasurement],
+        layoutContext: WuiLayoutContext = .empty
     ) -> CGSize {
         let metadata = measuredMetadata(from: measurements)
-        return layout.size(parent: parentProposal, children: metadata)
+        return layout.size(parent: parentProposal, children: metadata, context: layoutContext)
     }
 
+    /// Returns just the rects for legacy compatibility
     func frames(
         layout: WuiLayout,
         bounds: CGRect,
         parentProposal: WuiProposalSize,
-        measurements: [ChildMeasurement]
+        measurements: [ChildMeasurement],
+        layoutContext: WuiLayoutContext = .empty
     ) -> [CGRect] {
+        placements(
+            layout: layout,
+            bounds: bounds,
+            parentProposal: parentProposal,
+            measurements: measurements,
+            layoutContext: layoutContext
+        ).map { $0.cgRect }
+    }
+
+    /// Returns full placements with rect and child context for nested layouts
+    func placements(
+        layout: WuiLayout,
+        bounds: CGRect,
+        parentProposal: WuiProposalSize,
+        measurements: [ChildMeasurement],
+        layoutContext: WuiLayoutContext = .empty
+    ) -> [WuiChildPlacement] {
         let metadata = measuredMetadata(from: measurements)
-        return layout.place(bound: bounds, proposal: parentProposal, children: metadata)
+        return layout.placements(
+            bound: bounds,
+            proposal: parentProposal,
+            children: metadata,
+            context: layoutContext
+        )
     }
 
     func metadata(from measurements: [ChildMeasurement]) -> [WuiChildMetadata] {

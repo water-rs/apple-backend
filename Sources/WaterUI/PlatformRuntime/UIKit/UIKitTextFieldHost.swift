@@ -48,16 +48,17 @@ final class UIKitTextFieldHost: UIView, WaterUILayoutMeasurable {
     func layoutPriority() -> UInt8 { 0 }
 
     func measure(in proposal: WuiProposalSize) -> CGSize {
+        // TextField is axis-expanding on width per LAYOUT_SPEC.md
+        // When width is proposed, use it; otherwise measure intrinsic
         let targetWidth = proposal.width.map { CGFloat($0) } ?? UIView.noIntrinsicMetric
         let targetHeight = proposal.height.map { CGFloat($0) } ?? UIView.noIntrinsicMetric
         let fittingSize = CGSize(
-            width: targetWidth == UIView.noIntrinsicMetric ? UIView.layoutFittingCompressedSize.width : targetWidth,
+            width: targetWidth == UIView.noIntrinsicMetric ? UIView.layoutFittingExpandedSize.width : targetWidth,
             height: targetHeight == UIView.noIntrinsicMetric ? UIView.layoutFittingCompressedSize.height : targetHeight
         )
-        let horizontalPriority: UILayoutPriority =
-            targetWidth == UIView.noIntrinsicMetric ? .fittingSizeLevel : .required
-        let verticalPriority: UILayoutPriority =
-            targetHeight == UIView.noIntrinsicMetric ? .fittingSizeLevel : .required
+        // Use high horizontal priority to expand, low vertical to compress
+        let horizontalPriority: UILayoutPriority = targetWidth == UIView.noIntrinsicMetric ? .defaultLow : .required
+        let verticalPriority: UILayoutPriority = targetHeight == UIView.noIntrinsicMetric ? .fittingSizeLevel : .required
         return stack.systemLayoutSizeFitting(
             fittingSize,
             withHorizontalFittingPriority: horizontalPriority,
