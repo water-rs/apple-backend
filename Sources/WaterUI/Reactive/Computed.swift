@@ -7,13 +7,9 @@
 
 import CWaterUI
 import Foundation
-import Combine
-import SwiftUI
-
 
 @MainActor
-@Observable
-final class WuiComputed<T>: ObservableObject {
+final class WuiComputed<T> {
     private var inner: OpaquePointer
     private var watcher: WatcherGuard!
 
@@ -21,7 +17,7 @@ final class WuiComputed<T>: ObservableObject {
     private let watchFn: (OpaquePointer?, @escaping (T, WuiWatcherMetadata) -> Void) -> WatcherGuard
     private let dropFn: (OpaquePointer?) -> Void
 
-    var value: T
+    private(set) var value: T
 
     init(
         inner: OpaquePointer,
@@ -35,11 +31,9 @@ final class WuiComputed<T>: ObservableObject {
         self.watchFn = watch
         self.dropFn = drop
         self.value = read(inner)
-        
+
         self.watcher = self.watch { [unowned self] value, metadata in
-            useAnimation(metadata) {
-                self.value = value
-            }
+            self.value = value
         }
     }
 
@@ -56,10 +50,6 @@ final class WuiComputed<T>: ObservableObject {
         dropFn(inner)
     }
 }
-
-
-
-
 
 extension WuiComputed where T == WuiStr {
     convenience init(_ inner: OpaquePointer) {

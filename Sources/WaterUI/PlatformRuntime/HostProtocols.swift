@@ -9,34 +9,18 @@ import UIKit
 import AppKit
 #endif
 
-/// Describes the minimal data the native runtime needs for a child view when
-/// talking to the Rust layout engine.
-struct PlatformViewDescriptor: Equatable {
-    let typeId: String
-    let isSpacer: Bool
-
-    init(typeId: String, isSpacer: Bool) {
-        self.typeId = typeId
-        self.isSpacer = isSpacer
-    }
-}
-
-/// Protocol adopted by native views (UIView/NSView/etc.) that can measure
-/// themselves using WaterUI's proposal semantics.
-@MainActor
-protocol WaterUILayoutMeasurable: AnyObject {
-    var descriptor: PlatformViewDescriptor { get }
-    func layoutPriority() -> UInt8
-    func measure(in proposal: WuiProposalSize) -> CGSize
-}
-
 /// A host container that arranges native child views using the shared Rust layout engine.
+@MainActor
 protocol WaterUIPlatformHost: AnyObject {
-    associatedtype NativeContainer
+    #if canImport(UIKit)
+    associatedtype NativeContainer: UIView
+    #elseif canImport(AppKit)
+    associatedtype NativeContainer: NSView
+    #endif
 
     var container: NativeContainer { get }
     var layoutBridge: NativeLayoutBridge { get }
 
-    func setChildren(_ children: [WaterUILayoutMeasurable])
+    func setChildren(_ children: [any WuiComponent])
     func performNativeLayout(bounds: CGRect)
 }

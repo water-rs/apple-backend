@@ -6,12 +6,9 @@
 //
 
 import CWaterUI
-import Combine
 import Foundation
-import SwiftUI
 
 @MainActor
-@Observable
 final class WuiBinding<T> {
     private var inner: OpaquePointer
     private var watcher: WatcherGuard!
@@ -20,7 +17,6 @@ final class WuiBinding<T> {
     private let watchFn: (OpaquePointer?, @escaping (T, WuiWatcherMetadata) -> Void) -> WatcherGuard
     private let setFn: (OpaquePointer?, T) -> Void
     private let dropFn: (OpaquePointer?) -> Void
-    private var cancelTracking: (() -> Void)?
     private var isSyncingFromRust = false
 
     var value: T {
@@ -29,7 +25,7 @@ final class WuiBinding<T> {
             setFn(inner, value)
         }
     }
-    
+
     init(
         inner: OpaquePointer,
         read: @escaping (OpaquePointer?) -> T,
@@ -49,14 +45,11 @@ final class WuiBinding<T> {
 
         self.watcher = self.watch { [unowned self] value, metadata in
             self.withRustSync {
-                useAnimation(metadata) {
-                    self.value = value
-                }
+                self.value = value
             }
         }
-
     }
-    
+
 
     func compute() -> T {
         readFn(inner)

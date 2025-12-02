@@ -6,7 +6,6 @@
 //
 
 import CWaterUI
-import SwiftUI
 
 @MainActor
 class WatcherGuard {
@@ -26,9 +25,8 @@ class WuiWatcherMetadata {
         self.inner = inner
     }
 
-    func getAnimation() -> Animation? {
-        let animation = waterui_get_animation(inner)
-        return .init(animation)
+    func getAnimation() -> WuiAnimation {
+        waterui_get_animation(inner)
     }
 
     @MainActor deinit {
