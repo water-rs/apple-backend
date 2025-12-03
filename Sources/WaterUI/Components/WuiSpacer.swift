@@ -21,19 +21,21 @@ import AppKit
 
 @MainActor
 final class WuiSpacer: PlatformView, WuiComponent {
-    static let id: String = decodeViewIdentifier(waterui_spacer_id())
+    static var rawId: CWaterUI.WuiTypeId { waterui_spacer_id() }
 
-    var stretchAxis: WuiStretchAxis { .mainAxis }
+    private(set) var stretchAxis: WuiStretchAxis
 
     // MARK: - WuiComponent Init
 
     convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
-        self.init()
+        let stretchAxis = WuiStretchAxis(waterui_view_stretch_axis(anyview))
+        self.init(stretchAxis: stretchAxis)
     }
 
     // MARK: - Designated Init
 
-    init() {
+    init(stretchAxis: WuiStretchAxis) {
+        self.stretchAxis = stretchAxis
         super.init(frame: .zero)
         #if canImport(UIKit)
         backgroundColor = .clear

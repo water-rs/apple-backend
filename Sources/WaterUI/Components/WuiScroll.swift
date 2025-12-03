@@ -22,9 +22,9 @@ import AppKit
 #if canImport(UIKit)
 @MainActor
 final class WuiScroll: UIScrollView, WuiComponent, UIScrollViewDelegate {
-    static let id: String = decodeViewIdentifier(waterui_scroll_view_id())
+    static var rawId: CWaterUI.WuiTypeId { waterui_scroll_view_id() }
 
-    var stretchAxis: WuiStretchAxis { .both }
+    private(set) var stretchAxis: WuiStretchAxis
 
     private var contentView: WuiAnyView
     private let axis: WuiAxis
@@ -32,14 +32,16 @@ final class WuiScroll: UIScrollView, WuiComponent, UIScrollViewDelegate {
     // MARK: - WuiComponent Init
 
     convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
+        let stretchAxis = WuiStretchAxis(waterui_view_stretch_axis(anyview))
         let ffiScroll: CWaterUI.WuiScrollView = waterui_force_as_scroll_view(anyview)
         let contentView = WuiAnyView(anyview: ffiScroll.content, env: env)
-        self.init(content: contentView, axis: ffiScroll.axis)
+        self.init(stretchAxis: stretchAxis, content: contentView, axis: ffiScroll.axis)
     }
 
     // MARK: - Designated Init
 
-    init(content: WuiAnyView, axis: WuiAxis) {
+    init(stretchAxis: WuiStretchAxis, content: WuiAnyView, axis: WuiAxis) {
+        self.stretchAxis = stretchAxis
         self.contentView = content
         self.axis = axis
         super.init(frame: .zero)
@@ -125,9 +127,9 @@ final class WuiScroll: UIScrollView, WuiComponent, UIScrollViewDelegate {
 #if canImport(AppKit)
 @MainActor
 final class WuiScroll: NSScrollView, WuiComponent {
-    static let id: String = decodeViewIdentifier(waterui_scroll_view_id())
+    static var rawId: CWaterUI.WuiTypeId { waterui_scroll_view_id() }
 
-    var stretchAxis: WuiStretchAxis { .both }
+    private(set) var stretchAxis: WuiStretchAxis
 
     private var contentHostView: WuiAnyView
     private let axis: WuiAxis
@@ -135,14 +137,16 @@ final class WuiScroll: NSScrollView, WuiComponent {
     // MARK: - WuiComponent Init
 
     convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
+        let stretchAxis = WuiStretchAxis(waterui_view_stretch_axis(anyview))
         let ffiScroll: CWaterUI.WuiScrollView = waterui_force_as_scroll_view(anyview)
         let contentView = WuiAnyView(anyview: ffiScroll.content, env: env)
-        self.init(content: contentView, axis: ffiScroll.axis)
+        self.init(stretchAxis: stretchAxis, content: contentView, axis: ffiScroll.axis)
     }
 
     // MARK: - Designated Init
 
-    init(content: WuiAnyView, axis: WuiAxis) {
+    init(stretchAxis: WuiStretchAxis, content: WuiAnyView, axis: WuiAxis) {
+        self.stretchAxis = stretchAxis
         self.contentHostView = content
         self.axis = axis
         super.init(frame: .zero)

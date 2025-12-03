@@ -16,9 +16,9 @@ import AppKit
 
 // MARK: - Component Registry
 
-/// Internal registry for component factories
+/// Internal registry for component factories using pointer-based ID lookup
 @MainActor
-private var componentRegistry: [String: (OpaquePointer, WuiEnvironment) -> any WuiComponent] = [:]
+private var componentRegistry: [WuiViewId: (OpaquePointer, WuiEnvironment) -> any WuiComponent] = [:]
 
 /// Internal flag to track if builtin components have been registered
 @MainActor
@@ -27,7 +27,7 @@ private var builtinComponentsRegistered = false
 /// Register a component type that conforms to WuiComponent.
 @MainActor
 private func registerComponent<T: WuiComponent>(_ type: T.Type) {
-    componentRegistry[type.id] = { anyview, env in
+    componentRegistry[type.viewId] = { anyview, env in
         type.init(anyview: anyview, env: env)
     }
 }
@@ -43,7 +43,6 @@ private func registerBuiltinComponentsIfNeeded() {
     registerComponent(WuiPlain.self)
     registerComponent(WuiText.self)
     registerComponent(WuiSpacer.self)
-    registerComponent(WuiDivider.self)
     registerComponent(WuiColorView.self)
 
     // Interactive components
@@ -52,6 +51,7 @@ private func registerBuiltinComponentsIfNeeded() {
     registerComponent(WuiToggle.self)
     registerComponent(WuiSlider.self)
     registerComponent(WuiTextField.self)
+    registerComponent(WuiSecureField.self)
     registerComponent(WuiStepper.self)
     // TODO: registerComponent(WuiColorPicker.self)
     // TODO: registerComponent(WuiPicker.self)
@@ -71,6 +71,9 @@ private func registerBuiltinComponentsIfNeeded() {
     registerComponent(WuiDynamic.self)
     // TODO: registerComponent(WuiLazy.self)
 
+    // Metadata components
+    registerComponent(WuiWithEnv.self)
+
     // Media components
     // TODO: registerComponent(WuiPhoto.self)
     // TODO: registerComponent(WuiVideoPlayer.self)
@@ -88,9 +91,7 @@ private func registerBuiltinComponentsIfNeeded() {
 /// Resolves an opaque FFI pointer into a concrete WuiComponent at initialization time.
 @MainActor
 public final class WuiAnyView: UIView, WuiComponent {
-    public static var id: String {
-        decodeViewIdentifier(waterui_anyview_id())
-    }
+    public static var rawId: CWaterUI.WuiTypeId { waterui_anyview_id() }
 
     /// The resolved inner component - never nil after initialization
     private let inner: any WuiComponent
@@ -131,17 +132,17 @@ public final class WuiAnyView: UIView, WuiComponent {
         inner.frame = bounds
     }
 
-    // MARK: - Private Resolution
+    // MARK: - Internal Resolution
 
-    private static func resolve(anyview: OpaquePointer, env: WuiEnvironment) -> any WuiComponent {
+    internal static func resolve(anyview: OpaquePointer, env: WuiEnvironment) -> any WuiComponent {
         guard let sanitized = sanitize(anyview) else {
             fatalError("Invalid anyview pointer")
         }
 
-        let typeId = decodeIdentifier(for: sanitized)
+        let viewId = WuiViewId(waterui_view_id(sanitized))
 
-        // Look up registered component factory
-        if let typeId, let factory = componentRegistry[typeId] {
+        // Look up registered component factory - O(1) pointer-based lookup
+        if let factory = componentRegistry[viewId] {
             return factory(sanitized, env)
         }
 
@@ -149,7 +150,7 @@ public final class WuiAnyView: UIView, WuiComponent {
             return resolve(anyview: next, env: env)
         }
 
-        fatalError("Unsupported component type: \(typeId ?? "unknown")")
+        fatalError("Unsupported component type: \(viewId.toString())")
     }
 
     private static func sanitize(_ pointer: OpaquePointer?) -> OpaquePointer? {
@@ -158,11 +159,6 @@ public final class WuiAnyView: UIView, WuiComponent {
         if raw <= 0x1000 { return nil }
         return pointer
     }
-
-    private static func decodeIdentifier(for pointer: OpaquePointer) -> String? {
-        let str = waterui_view_id(pointer)
-        return WuiStr(str).toString()
-    }
 }
 
 #elseif canImport(AppKit)
@@ -170,9 +166,7 @@ public final class WuiAnyView: UIView, WuiComponent {
 /// Resolves an opaque FFI pointer into a concrete WuiComponent at initialization time.
 @MainActor
 public final class WuiAnyView: NSView, WuiComponent {
-    public static var id: String {
-        decodeViewIdentifier(waterui_anyview_id())
-    }
+    public static var rawId: CWaterUI.WuiTypeId { waterui_anyview_id() }
 
     /// The resolved inner component - never nil after initialization
     private let inner: any WuiComponent
@@ -215,17 +209,17 @@ public final class WuiAnyView: NSView, WuiComponent {
         inner.frame = bounds
     }
 
-    // MARK: - Private Resolution
+    // MARK: - Internal Resolution
 
-    private static func resolve(anyview: OpaquePointer, env: WuiEnvironment) -> any WuiComponent {
+    internal static func resolve(anyview: OpaquePointer, env: WuiEnvironment) -> any WuiComponent {
         guard let sanitized = sanitize(anyview) else {
             fatalError("Invalid anyview pointer")
         }
 
-        let typeId = decodeIdentifier(for: sanitized)
+        let viewId = WuiViewId(waterui_view_id(sanitized))
 
-        // Look up registered component factory
-        if let typeId, let factory = componentRegistry[typeId] {
+        // Look up registered component factory - O(1) pointer-based lookup
+        if let factory = componentRegistry[viewId] {
             return factory(sanitized, env)
         }
 
@@ -233,7 +227,7 @@ public final class WuiAnyView: NSView, WuiComponent {
             return resolve(anyview: next, env: env)
         }
 
-        fatalError("Unsupported component type: \(typeId ?? "unknown")")
+        fatalError("Unsupported component type: \(viewId.toString())")
     }
 
     private static func sanitize(_ pointer: OpaquePointer?) -> OpaquePointer? {
@@ -241,11 +235,6 @@ public final class WuiAnyView: NSView, WuiComponent {
         let raw = UInt(bitPattern: pointer)
         if raw <= 0x1000 { return nil }
         return pointer
-    }
-
-    private static func decodeIdentifier(for pointer: OpaquePointer) -> String? {
-        let str = waterui_view_id(pointer)
-        return WuiStr(str).toString()
     }
 }
 #endif

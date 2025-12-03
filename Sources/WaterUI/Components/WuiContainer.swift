@@ -24,7 +24,9 @@ import AppKit
 /// Similar to SwiftUI's ForEach - can access view IDs individually.
 @MainActor
 final class WuiContainer: PlatformView, WuiComponent {
-    static let id: String = decodeViewIdentifier(waterui_layout_container_id())
+    static var rawId: CWaterUI.WuiTypeId { waterui_layout_container_id() }
+
+    private(set) var stretchAxis: WuiStretchAxis
 
     private var wuiLayout: WuiLayout
     private var anyViews: WuiAnyViews  // Stored for lazy access & view ID lookup
@@ -35,15 +37,17 @@ final class WuiContainer: PlatformView, WuiComponent {
     // MARK: - WuiComponent Init
 
     convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
+        let stretchAxis = WuiStretchAxis(waterui_view_stretch_axis(anyview))
         let container: CWaterUI.WuiContainer = waterui_force_as_layout_container(anyview)
         let layout = WuiLayout(inner: container.layout!)
         let anyViews = WuiAnyViews(container.contents)
-        self.init(layout: layout, anyViews: anyViews, env: env)
+        self.init(stretchAxis: stretchAxis, layout: layout, anyViews: anyViews, env: env)
     }
 
     // MARK: - Designated Init
 
-    init(layout: WuiLayout, anyViews: WuiAnyViews, env: WuiEnvironment) {
+    init(stretchAxis: WuiStretchAxis, layout: WuiLayout, anyViews: WuiAnyViews, env: WuiEnvironment) {
+        self.stretchAxis = stretchAxis
         self.wuiLayout = layout
         self.anyViews = anyViews
         self.env = env
@@ -77,12 +81,6 @@ final class WuiContainer: PlatformView, WuiComponent {
     }
 
     // MARK: - WuiComponent
-
-    /// Container's stretch axis is determined by its layout algorithm.
-    /// VStack stretches horizontally, HStack stretches vertically, etc.
-    var stretchAxis: WuiStretchAxis {
-        wuiLayout.stretchAxis
-    }
 
     func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
         let proxies = bridge.createSubViewProxies(children: childViews) { child, childProposal in

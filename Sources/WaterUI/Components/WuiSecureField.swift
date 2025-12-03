@@ -1,9 +1,9 @@
-// WuiTextField.swift
-// Text field component - merged UIKit and AppKit implementation
+// WuiSecureField.swift
+// Secure field component - merged UIKit and AppKit implementation
 //
 // # Layout Behavior
-// TextField expands horizontally to fill available width, but has fixed intrinsic height.
-// Includes optional label at top and placeholder text support.
+// SecureField expands horizontally to fill available width, but has fixed intrinsic height.
+// Includes optional label at top. Input is automatically masked for security.
 // Use frame modifiers to constrain width if needed.
 //
 // // INTERNAL: Layout Contract for Backend Implementers
@@ -19,42 +19,22 @@ import UIKit
 import AppKit
 #endif
 
-#if canImport(UIKit)
-extension CWaterUI.WuiKeyboardType {
-    var uiKeyboardType: UIKeyboardType {
-        switch self {
-        case WuiKeyboardType_Text: return .default
-        case WuiKeyboardType_Email: return .emailAddress
-        case WuiKeyboardType_URL: return .URL
-        case WuiKeyboardType_Number: return .numberPad
-        case WuiKeyboardType_PhoneNumber: return .phonePad
-        default: return .default
-        }
-    }
-}
-#endif
-
 @MainActor
-final class WuiTextField: PlatformView, WuiComponent {
-    static var rawId: CWaterUI.WuiTypeId { waterui_text_field_id() }
+final class WuiSecureField: PlatformView, WuiComponent {
+    static var rawId: CWaterUI.WuiTypeId { waterui_secure_field_id() }
 
     private(set) var stretchAxis: WuiStretchAxis
 
     #if canImport(UIKit)
     private let textField = UITextField()
     #elseif canImport(AppKit)
-    private let textField = NSTextField()
+    private let textField = NSSecureTextField()
     #endif
     private var bindingWatcher: WatcherGuard?
-    private var promptWatcher: WatcherGuard?
     private var isSyncingFromBinding = false
 
     private var labelView: WuiAnyView
     private var binding: WuiBinding<WuiStr>
-    private var prompt: WuiComputed<WuiStyledStr>
-    #if canImport(UIKit)
-    private var keyboard: CWaterUI.WuiKeyboardType
-    #endif
     private var env: WuiEnvironment
 
     // Layout constants
@@ -64,77 +44,36 @@ final class WuiTextField: PlatformView, WuiComponent {
 
     convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
         let stretchAxis = WuiStretchAxis(waterui_view_stretch_axis(anyview))
-        let ffiTextField: CWaterUI.WuiTextField = waterui_force_as_text_field(anyview)
-        let labelView = WuiAnyView(anyview: ffiTextField.label, env: env)
-        let binding = WuiBinding<WuiStr>(ffiTextField.value)
-        let prompt = WuiComputed<WuiStyledStr>(ffiTextField.prompt.content)
-        #if canImport(UIKit)
+        let ffiSecureField: CWaterUI.WuiSecureField = waterui_force_as_secure_field(anyview)
+        let labelView = WuiAnyView(anyview: ffiSecureField.label, env: env)
+        let binding = WuiBinding<WuiStr>(ffiSecureField.value)
         self.init(
             stretchAxis: stretchAxis,
             label: labelView,
             binding: binding,
-            prompt: prompt,
-            keyboard: ffiTextField.keyboard,
             env: env
         )
-        #elseif canImport(AppKit)
-        self.init(
-            stretchAxis: stretchAxis,
-            label: labelView,
-            binding: binding,
-            prompt: prompt,
-            env: env
-        )
-        #endif
     }
 
     // MARK: - Designated Init
 
-    #if canImport(UIKit)
     init(
         stretchAxis: WuiStretchAxis,
         label: WuiAnyView,
         binding: WuiBinding<WuiStr>,
-        prompt: WuiComputed<WuiStyledStr>,
-        keyboard: CWaterUI.WuiKeyboardType,
         env: WuiEnvironment
     ) {
         self.stretchAxis = stretchAxis
         self.labelView = label
         self.binding = binding
-        self.prompt = prompt
-        self.keyboard = keyboard
         self.env = env
         super.init(frame: .zero)
         configureSubviews()
         configureTextField()
-        applyPrompt(prompt.value)
-        textField.text = binding.value.toString()
+        // Note: We don't set initial text value from binding for security
+        // SecureField should always start empty on the UI side
         startBindingWatcher()
-        startPromptWatcher()
     }
-    #elseif canImport(AppKit)
-    init(
-        stretchAxis: WuiStretchAxis,
-        label: WuiAnyView,
-        binding: WuiBinding<WuiStr>,
-        prompt: WuiComputed<WuiStyledStr>,
-        env: WuiEnvironment
-    ) {
-        self.stretchAxis = stretchAxis
-        self.labelView = label
-        self.binding = binding
-        self.prompt = prompt
-        self.env = env
-        super.init(frame: .zero)
-        configureSubviews()
-        configureTextField()
-        applyPrompt(prompt.value)
-        textField.stringValue = binding.value.toString()
-        startBindingWatcher()
-        startPromptWatcher()
-    }
-    #endif
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
@@ -144,7 +83,7 @@ final class WuiTextField: PlatformView, WuiComponent {
     // MARK: - WuiComponent
 
     func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
-        // TextField is axis-expanding on width per LAYOUT_SPEC.md
+        // SecureField is axis-expanding on width per LAYOUT_SPEC.md
         // It uses isStretch: true to expand, so here we report MINIMUM usable size
         let labelSize = labelView.sizeThatFits(WuiProposalSize())
         let textFieldHeight = textField.intrinsicContentSize.height
@@ -221,28 +160,10 @@ final class WuiTextField: PlatformView, WuiComponent {
         guard newBinding !== binding else { return }
         bindingWatcher = nil
         binding = newBinding
-        #if canImport(UIKit)
-        textField.text = binding.value.toString()
-        #elseif canImport(AppKit)
-        textField.stringValue = binding.value.toString()
-        #endif
+        // For security, we don't update the text field from binding
+        // User must re-enter the secure value
         startBindingWatcher()
     }
-
-    func updatePrompt(_ newPrompt: WuiComputed<WuiStyledStr>) {
-        guard newPrompt !== prompt else { return }
-        promptWatcher = nil
-        prompt = newPrompt
-        applyPrompt(newPrompt.value)
-        startPromptWatcher()
-    }
-
-    #if canImport(UIKit)
-    func updateKeyboard(_ newKeyboard: CWaterUI.WuiKeyboardType) {
-        keyboard = newKeyboard
-        textField.keyboardType = newKeyboard.uiKeyboardType
-    }
-    #endif
 
     // MARK: - Configuration
 
@@ -255,7 +176,10 @@ final class WuiTextField: PlatformView, WuiComponent {
     private func configureTextField() {
         #if canImport(UIKit)
         textField.borderStyle = .roundedRect
-        textField.keyboardType = keyboard.uiKeyboardType
+        textField.isSecureTextEntry = true
+        textField.textContentType = .password
+        textField.autocorrectionType = .no
+        textField.autocapitalizationType = .none
         textField.addTarget(self, action: #selector(valueChanged), for: .editingChanged)
         #elseif canImport(AppKit)
         textField.isBordered = true
@@ -274,53 +198,27 @@ final class WuiTextField: PlatformView, WuiComponent {
         #endif
     }
 
-    private func applyPrompt(_ styled: WuiStyledStr) {
-        let attributed = styled.toAttributedString(env: env)
-        #if canImport(UIKit)
-        textField.attributedPlaceholder = attributed
-        #elseif canImport(AppKit)
-        textField.placeholderAttributedString = NSAttributedString(attributedString: attributed)
-        #endif
-    }
-
     private func startBindingWatcher() {
-        bindingWatcher = binding.watch { [weak self] newValue, _ in
-            guard let self else { return }
-            let newText = newValue.toString()
-            #if canImport(UIKit)
-            if textField.text == newText { return }
-            #elseif canImport(AppKit)
-            if textField.stringValue == newText { return }
-            #endif
-            isSyncingFromBinding = true
-            #if canImport(UIKit)
-            textField.text = newText
-            #elseif canImport(AppKit)
-            textField.stringValue = newText
-            #endif
-            isSyncingFromBinding = false
-        }
-    }
-
-    private func startPromptWatcher() {
-        promptWatcher = prompt.watch { [weak self] newValue, _ in
-            self?.applyPrompt(newValue)
-        }
+        // We intentionally don't watch the binding to update the text field
+        // For security reasons, secure fields should not display their values
+        // The binding only flows from the text field TO the binding, not vice versa
     }
 
     #if canImport(UIKit)
     @objc private func valueChanged() {
         guard !isSyncingFromBinding else { return }
-        binding.value = WuiStr(string: textField.text ?? "")
+        let text = textField.text ?? ""
+        binding.value = WuiStr(string: text)
     }
     #endif
 }
 
 #if canImport(AppKit)
-extension WuiTextField: NSTextFieldDelegate {
+extension WuiSecureField: NSTextFieldDelegate {
     func controlTextDidChange(_ obj: Notification) {
         guard !isSyncingFromBinding else { return }
-        binding.value = WuiStr(string: textField.stringValue)
+        let text = textField.stringValue
+        binding.value = WuiStr(string: text)
     }
 }
 #endif

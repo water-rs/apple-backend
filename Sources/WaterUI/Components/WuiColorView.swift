@@ -20,24 +20,26 @@ import AppKit
 
 @MainActor
 final class WuiColorView: PlatformView, WuiComponent {
-    static let id: String = decodeViewIdentifier(waterui_color_id())
+    static var rawId: CWaterUI.WuiTypeId { waterui_color_id() }
 
-    var stretchAxis: WuiStretchAxis { .both }
+    private(set) var stretchAxis: WuiStretchAxis
 
     private var watcher: WatcherGuard?
 
     // MARK: - WuiComponent Init
 
     convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
+        let stretchAxis = WuiStretchAxis(waterui_view_stretch_axis(anyview))
         let colorPtr = waterui_force_as_color(anyview)!
         let wuiColor = WuiColor(colorPtr)
         let color = wuiColor.resolve(in: env)
-        self.init(color: color)
+        self.init(stretchAxis: stretchAxis, color: color)
     }
 
     // MARK: - Designated Init
 
-    init(color: WuiComputed<WuiResolvedColor>) {
+    init(stretchAxis: WuiStretchAxis, color: WuiComputed<WuiResolvedColor>) {
+        self.stretchAxis = stretchAxis
         super.init(frame: .zero)
 
         #if canImport(UIKit)

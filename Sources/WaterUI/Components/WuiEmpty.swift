@@ -21,7 +21,7 @@ import AppKit
 /// A zero-size invisible view for empty/unit type `()`.
 @MainActor
 final class WuiEmpty: PlatformView, WuiComponent {
-    static let id: String = decodeViewIdentifier(waterui_empty_id())
+    static var rawId: CWaterUI.WuiTypeId { waterui_empty_id() }
 
     // WuiEmpty is special - it doesn't use the standard init(anyview:env:) pattern
     // because it's handled specially in PlatformRenderer.makeView()

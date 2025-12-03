@@ -23,7 +23,9 @@ import AppKit
 /// FixedContainer has a fixed array of children - no lazy loading support.
 @MainActor
 final class WuiFixedContainer: PlatformView, WuiComponent {
-    static let id: String = decodeViewIdentifier(waterui_fixed_container_id())
+    static var rawId: CWaterUI.WuiTypeId { waterui_fixed_container_id() }
+
+    private(set) var stretchAxis: WuiStretchAxis
 
     private var wuiLayout: WuiLayout
     private var childViews: [WuiAnyView]
@@ -32,18 +34,20 @@ final class WuiFixedContainer: PlatformView, WuiComponent {
     // MARK: - WuiComponent Init
 
     convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
+        let stretchAxis = WuiStretchAxis(waterui_view_stretch_axis(anyview))
         let container: CWaterUI.WuiFixedContainer = waterui_force_as_fixed_container(anyview)
         let layout = WuiLayout(inner: container.layout!)
         let pointerArray = WuiArray<OpaquePointer>(container.contents)
         let childViews = pointerArray.toArray().map {
             WuiAnyView(anyview: $0, env: env)
         }
-        self.init(layout: layout, children: childViews)
+        self.init(stretchAxis: stretchAxis, layout: layout, children: childViews)
     }
 
     // MARK: - Designated Init
 
-    init(layout: WuiLayout, children: [WuiAnyView]) {
+    init(stretchAxis: WuiStretchAxis, layout: WuiLayout, children: [WuiAnyView]) {
+        self.stretchAxis = stretchAxis
         self.wuiLayout = layout
         self.childViews = children
         super.init(frame: .zero)
@@ -60,12 +64,6 @@ final class WuiFixedContainer: PlatformView, WuiComponent {
     }
 
     // MARK: - WuiComponent
-
-    /// Container's stretch axis is determined by its layout algorithm.
-    /// VStack stretches horizontally, HStack stretches vertically, etc.
-    var stretchAxis: WuiStretchAxis {
-        wuiLayout.stretchAxis
-    }
 
     func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
         let proxies = bridge.createSubViewProxies(children: childViews) { child, childProposal in

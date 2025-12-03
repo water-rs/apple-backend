@@ -122,12 +122,6 @@ final class WuiLayout {
         waterui_drop_layout(inner)
     }
 
-    /// Returns the stretch axis of this layout.
-    /// VStack returns .horizontal, HStack returns .vertical, etc.
-    var stretchAxis: WuiStretchAxis {
-        WuiStretchAxis(waterui_layout_stretch_axis(inner))
-    }
-
     /// Calculate the size this layout wants given a proposal.
     /// The layout will call the measure closure multiple times with different proposals.
     func sizeThatFits(

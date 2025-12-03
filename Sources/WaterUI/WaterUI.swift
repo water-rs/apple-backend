@@ -37,10 +37,50 @@ public enum WuiStretchAxis: UInt32 {
     }
 }
 
+// MARK: - WuiViewId
+
+/// A view identifier using 128-bit value for O(1) lookups.
+///
+/// Uses the same 128-bit type ID from Rust:
+/// - Normal build: Contains TypeId (guaranteed unique by Rust)
+/// - Hot reload: Contains 128-bit FNV-1a hash of type_name (stable across dylib reloads)
+///
+/// Using 128-bit virtually eliminates collision risk (birthday paradox threshold: ~10^19).
+struct WuiViewId: Hashable {
+    /// Low 64 bits of the 128-bit type identifier
+    let low: UInt64
+    /// High 64 bits of the 128-bit type identifier
+    let high: UInt64
+
+    /// Extract view ID from the FFI WuiTypeId struct.
+    @inline(__always)
+    init(_ raw: CWaterUI.WuiTypeId) {
+        self.low = raw.low
+        self.high = raw.high
+    }
+
+    @inline(__always)
+    static func == (lhs: WuiViewId, rhs: WuiViewId) -> Bool {
+        // O(1) comparison of two 64-bit values
+        lhs.low == rhs.low && lhs.high == rhs.high
+    }
+
+    @inline(__always)
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(low)
+        hasher.combine(high)
+    }
+
+    /// Convert to debug string (shows hex representation)
+    func toString() -> String {
+        String(format: "0x%016llx%016llx", high, low)
+    }
+}
+
 // MARK: - WuiComponent Protocol
 
 /// Protocol for all WaterUI components.
-/// Components are platform views (UIView/NSView) identified by a static ID string
+/// Components are platform views (UIView/NSView) identified by a static ID
 /// that implement WaterUI's measurement protocol.
 ///
 /// This protocol mirrors Rust's `SubView` trait:
@@ -49,8 +89,13 @@ public enum WuiStretchAxis: UInt32 {
 /// - `layoutPriority()` → `priority()`
 @MainActor
 protocol WuiComponent: PlatformView {
-    /// Static identifier for this component type (e.g., "Text", "Button")
-    /// Must be obtained via `waterui_*_id()` FFI function
+    /// Raw FFI identifier for this component type.
+    /// Must be obtained via `waterui_*_id()` FFI function.
+    /// Used for O(1) 128-bit value-based registry lookup.
+    static var rawId: CWaterUI.WuiTypeId { get }
+
+    /// String identifier for this component type (hex representation for debugging)
+    /// Computed from rawId for debugging and logging purposes.
     static var id: String { get }
 
     /// Creates an instance from an FFI anyview pointer and environment.
@@ -75,14 +120,20 @@ extension WuiComponent {
     var stretchAxis: WuiStretchAxis { .none }
     func layoutPriority() -> Int32 { 0 }
 
-    static func decodeId(_ raw: CWaterUI.WuiStr) -> String {
-        decodeViewIdentifier(raw)
+    /// 128-bit view ID for O(1) registry lookup
+    static var viewId: WuiViewId {
+        WuiViewId(rawId)
+    }
+
+    /// String ID derived from rawId (for debugging/logging)
+    static var id: String {
+        viewId.toString()
     }
 }
 
 @inline(__always)
-func decodeViewIdentifier(_ raw: CWaterUI.WuiStr) -> String {
-    WuiStr(raw).toString()
+func decodeViewIdentifier(_ raw: CWaterUI.WuiTypeId) -> String {
+    WuiViewId(raw).toString()
 }
 
 // MARK: - Reactive Signal Infrastructure

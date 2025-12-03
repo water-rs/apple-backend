@@ -21,7 +21,7 @@ import AppKit
 
 @MainActor
 final class WuiButton: PlatformView, WuiComponent {
-    static let id: String = decodeViewIdentifier(waterui_button_id())
+    static var rawId: CWaterUI.WuiTypeId { waterui_button_id() }
 
     #if canImport(UIKit)
     private let button: UIButton = .init(type: .system)

@@ -21,7 +21,7 @@ import AppKit
 
 @MainActor
 final class WuiPlain: PlatformView, WuiComponent {
-    static let id: String = decodeViewIdentifier(waterui_plain_id())
+    static var rawId: CWaterUI.WuiTypeId { waterui_plain_id() }
 
     #if canImport(UIKit)
     private let label = UILabel()

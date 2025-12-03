@@ -21,9 +21,9 @@ import AppKit
 
 @MainActor
 final class WuiSlider: PlatformView, WuiComponent {
-    static let id: String = decodeViewIdentifier(waterui_slider_id())
+    static var rawId: CWaterUI.WuiTypeId { waterui_slider_id() }
 
-    var stretchAxis: WuiStretchAxis { .horizontal }
+    private(set) var stretchAxis: WuiStretchAxis
 
     #if canImport(UIKit)
     private let slider = UISlider()
@@ -45,12 +45,14 @@ final class WuiSlider: PlatformView, WuiComponent {
     // MARK: - WuiComponent Init
 
     convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
+        let stretchAxis = WuiStretchAxis(waterui_view_stretch_axis(anyview))
         let ffiSlider: CWaterUI.WuiSlider = waterui_force_as_slider(anyview)
         let labelView = WuiAnyView(anyview: ffiSlider.label, env: env)
         let minLabelView = WuiAnyView(anyview: ffiSlider.min_value_label, env: env)
         let maxLabelView = WuiAnyView(anyview: ffiSlider.max_value_label, env: env)
         let binding = WuiBinding<Double>(ffiSlider.value)
         self.init(
+            stretchAxis: stretchAxis,
             label: labelView,
             minLabel: minLabelView,
             maxLabel: maxLabelView,
@@ -62,12 +64,14 @@ final class WuiSlider: PlatformView, WuiComponent {
     // MARK: - Designated Init
 
     init(
+        stretchAxis: WuiStretchAxis,
         label: WuiAnyView,
         minLabel: WuiAnyView,
         maxLabel: WuiAnyView,
         range: WuiRange_f64,
         binding: WuiBinding<Double>
     ) {
+        self.stretchAxis = stretchAxis
         self.labelView = label
         self.minLabelView = minLabel
         self.maxLabelView = maxLabel

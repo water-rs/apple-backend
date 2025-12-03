@@ -2,13 +2,13 @@
 // Toggle/Switch component - merged UIKit and AppKit implementation
 //
 // # Layout Behavior
-// Toggle is content-sized - it uses its intrinsic size based on label and switch control.
-// Horizontal layout: label on left, switch on right with fixed spacing.
-// Does not expand to fill available space.
+// Toggle expands horizontally when it has a label (stretchAxis from Rust).
+// Horizontal layout: [label] --- flexible space --- [switch]
+// Label on left, switch on right, space distributed between.
 //
 // // INTERNAL: Layout Contract for Backend Implementers
-// // - stretchAxis: .none (content-sized, does not expand)
-// // - sizeThatFits: Returns intrinsic size (label + spacing + switch)
+// // - stretchAxis: Determined by Rust side (Horizontal when has label, None otherwise)
+// // - sizeThatFits: Returns proposed width (or minimum), intrinsic height
 // // - Priority: 0 (default)
 
 import CWaterUI
@@ -21,7 +21,7 @@ import AppKit
 
 @MainActor
 final class WuiToggle: PlatformView, WuiComponent {
-    static let id: String = decodeViewIdentifier(waterui_toggle_id())
+    static var rawId: CWaterUI.WuiTypeId { waterui_toggle_id() }
 
     // Shared fields
     private let toggle = PlatformSwitch()
@@ -61,17 +61,29 @@ final class WuiToggle: PlatformView, WuiComponent {
     // MARK: - WuiComponent
 
     func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
-        // Toggle is Content-Sized per LAYOUT_SPEC.md
-        // Content-Sized views ALWAYS return their intrinsic size, regardless of proposal
         let labelSize = labelView.sizeThatFits(WuiProposalSize())
         let toggleSize = toggle.intrinsicContentSize
+        let hasLabel = labelSize.width > 0 && labelSize.height > 0
 
-        // Intrinsic size: label width + spacing + toggle width, max height
-        let intrinsicWidth = labelSize.width + horizontalSpacing + toggleSize.width
-        let intrinsicHeight = max(labelSize.height, toggleSize.height)
+        // Calculate minimum width needed
+        var minWidth: CGFloat = toggleSize.width
+        var maxHeight: CGFloat = toggleSize.height
 
-        // Content-Sized: always return intrinsic size (don't expand to proposal)
-        return CGSize(width: intrinsicWidth, height: intrinsicHeight)
+        if hasLabel {
+            minWidth += horizontalSpacing + labelSize.width
+            maxHeight = max(maxHeight, labelSize.height)
+        }
+
+        // With label: expand horizontally to fill proposed width (Rust controls stretchAxis)
+        // Without label: content-sized (just switch)
+        let finalWidth: CGFloat
+        if hasLabel, let proposedWidth = proposal.width {
+            finalWidth = max(CGFloat(proposedWidth), minWidth)
+        } else {
+            finalWidth = minWidth
+        }
+
+        return CGSize(width: finalWidth, height: maxHeight)
     }
 
     // MARK: - Layout
@@ -92,30 +104,47 @@ final class WuiToggle: PlatformView, WuiComponent {
 
     /// Shared layout logic for both UIKit and AppKit
     private func performLayout() {
+        let boundsWidth = bounds.width
         let boundsHeight = bounds.height
 
         // Calculate sizes
         let labelSize = labelView.sizeThatFits(WuiProposalSize())
         let toggleSize = toggle.intrinsicContentSize
+        let hasLabel = labelSize.width > 0 && labelSize.height > 0
 
-        // Layout label on left, vertically centered
-        let labelY = (boundsHeight - labelSize.height) / 2
-        labelView.frame = CGRect(
-            x: 0,
-            y: labelY,
-            width: labelSize.width,
-            height: labelSize.height
-        )
+        if hasLabel {
+            // With label: [label] --- flexible space --- [switch]
+            // Label on left, switch on right
 
-        // Layout toggle on right of label, vertically centered
-        let toggleX = labelSize.width + horizontalSpacing
-        let toggleY = (boundsHeight - toggleSize.height) / 2
-        toggle.frame = CGRect(
-            x: toggleX,
-            y: toggleY,
-            width: toggleSize.width,
-            height: toggleSize.height
-        )
+            // 1. Toggle switch (rightmost)
+            let toggleX = boundsWidth - toggleSize.width
+            let toggleY = (boundsHeight - toggleSize.height) / 2
+            toggle.frame = CGRect(
+                x: toggleX,
+                y: toggleY,
+                width: toggleSize.width,
+                height: toggleSize.height
+            )
+
+            // 2. Label view (leftmost)
+            let labelY = (boundsHeight - labelSize.height) / 2
+            labelView.frame = CGRect(
+                x: 0,
+                y: labelY,
+                width: labelSize.width,
+                height: labelSize.height
+            )
+        } else {
+            // Without label: just switch, left-aligned
+            labelView.frame = .zero
+            let toggleY = (boundsHeight - toggleSize.height) / 2
+            toggle.frame = CGRect(
+                x: 0,
+                y: toggleY,
+                width: toggleSize.width,
+                height: toggleSize.height
+            )
+        }
     }
 
     // MARK: - Configuration

@@ -42,6 +42,26 @@ struct WuiStyledChunk {
             .font: font
         ]
 
+        // Apply foreground color if specified
+        if let foreground = style.foreground {
+            let resolvedColor = foreground.resolve(in: env).value
+            #if canImport(UIKit)
+            attributes[.foregroundColor] = resolvedColor.toUIColor()
+            #elseif canImport(AppKit)
+            attributes[.foregroundColor] = resolvedColor.toNSColor()
+            #endif
+        }
+
+        // Apply background color if specified
+        if let background = style.background {
+            let resolvedColor = background.resolve(in: env).value
+            #if canImport(UIKit)
+            attributes[.backgroundColor] = resolvedColor.toUIColor()
+            #elseif canImport(AppKit)
+            attributes[.backgroundColor] = resolvedColor.toNSColor()
+            #endif
+        }
+
         if style.underline {
             attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
         }
@@ -100,13 +120,17 @@ struct WuiTextStyle {
 extension WuiResolvedFont {
     #if canImport(UIKit)
     func toPlatformFont() -> UIFont {
-        let size = CGFloat(self.size)
+        // Use system font size as fallback if resolved size is 0 or invalid
+        let resolvedSize = CGFloat(self.size)
+        let size = resolvedSize > 0 ? resolvedSize : UIFont.systemFontSize
         let weight = self.weight.toUIFontWeight()
         return UIFont.systemFont(ofSize: size, weight: weight)
     }
     #elseif canImport(AppKit)
     func toPlatformFont() -> NSFont {
-        let size = CGFloat(self.size)
+        // Use system font size as fallback if resolved size is 0 or invalid
+        let resolvedSize = CGFloat(self.size)
+        let size = resolvedSize > 0 ? resolvedSize : NSFont.systemFontSize
         let weight = self.weight.toNSFontWeight()
         return NSFont.systemFont(ofSize: size, weight: weight)
     }

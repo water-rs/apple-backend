@@ -21,11 +21,9 @@ import AppKit
 
 @MainActor
 final class WuiProgress: PlatformView, WuiComponent {
-    static let id: String = decodeViewIdentifier(waterui_progress_id())
+    static var rawId: CWaterUI.WuiTypeId { waterui_progress_id() }
 
-    var stretchAxis: WuiStretchAxis {
-        style == WuiProgressStyle_Circular ? .none : .horizontal
-    }
+    private(set) var stretchAxis: WuiStretchAxis
 
     #if canImport(UIKit)
     private let progressView = UIProgressView(progressViewStyle: .default)
@@ -45,15 +43,17 @@ final class WuiProgress: PlatformView, WuiComponent {
     // MARK: - WuiComponent Init
 
     convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
+        let stretchAxis = WuiStretchAxis(waterui_view_stretch_axis(anyview))
         let ffiProgress: CWaterUI.WuiProgress = waterui_force_as_progress(anyview)
         let labelView = WuiAnyView(anyview: ffiProgress.label, env: env)
         let value = WuiComputed<Double>(ffiProgress.value)
-        self.init(label: labelView, value: value, style: ffiProgress.style)
+        self.init(stretchAxis: stretchAxis, label: labelView, value: value, style: ffiProgress.style)
     }
 
     // MARK: - Designated Init
 
-    init(label: WuiAnyView, value: WuiComputed<Double>, style: WuiProgressStyle) {
+    init(stretchAxis: WuiStretchAxis, label: WuiAnyView, value: WuiComputed<Double>, style: WuiProgressStyle) {
+        self.stretchAxis = stretchAxis
         self.labelView = label
         self.value = value
         self.style = style

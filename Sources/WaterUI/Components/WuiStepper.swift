@@ -2,13 +2,13 @@
 // Stepper component - merged UIKit and AppKit implementation
 //
 // # Layout Behavior
-// Stepper is content-sized - it uses its intrinsic size based on label and controls.
-// Horizontal layout: label on left, value display and stepper buttons on right.
-// Does not expand to fill available space.
+// Stepper expands horizontally to fill available space (stretchAxis from Rust).
+// Horizontal layout: [label] --- flexible space --- [+/- buttons]
+// Label on left, buttons on right, space distributed between.
 //
 // // INTERNAL: Layout Contract for Backend Implementers
-// // - stretchAxis: .none (content-sized, does not expand)
-// // - sizeThatFits: Returns intrinsic size (label + value + stepper)
+// // - stretchAxis: Determined by Rust side (Horizontal for stepper with label)
+// // - sizeThatFits: Returns proposed width (or minimum), intrinsic height
 // // - Priority: 0 (default)
 
 import CWaterUI
@@ -21,14 +21,12 @@ import AppKit
 
 @MainActor
 final class WuiStepper: PlatformView, WuiComponent {
-    static let id: String = decodeViewIdentifier(waterui_stepper_id())
+    static var rawId: CWaterUI.WuiTypeId { waterui_stepper_id() }
 
     #if canImport(UIKit)
     private let stepper = UIStepper()
-    private let valueLabel = UILabel()
     #elseif canImport(AppKit)
     private let stepper = NSStepper()
-    private let valueLabel = NSTextField(labelWithString: "")
     #endif
     private var bindingWatcher: WatcherGuard?
     private var isSyncingFromBinding = false
@@ -38,7 +36,7 @@ final class WuiStepper: PlatformView, WuiComponent {
     private var step: WuiComputed<Int32>
 
     // Layout constants
-    private let spacing: CGFloat = 8.0   // Horizontal spacing between elements
+    private let spacing: CGFloat = 8.0
 
     // MARK: - WuiComponent Init
 
@@ -70,31 +68,29 @@ final class WuiStepper: PlatformView, WuiComponent {
     // MARK: - WuiComponent
 
     func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
-        // Stepper is Content-Sized per LAYOUT_SPEC.md
-        // Content-Sized views ALWAYS return their intrinsic size, regardless of proposal
         let labelSize = labelView.sizeThatFits(WuiProposalSize())
         let stepperSize = stepper.intrinsicContentSize
-        let valueLabelSize = calculateValueLabelSize()
+        let hasLabel = labelSize.width > 0 && labelSize.height > 0
 
-        // Layout: [label] [valueLabel] [stepper]
-        // Only add spacing between elements that exist
-        let hasLabel = labelSize.width > 0
+        // Calculate minimum width needed
+        var minWidth: CGFloat = stepperSize.width
+        var maxHeight: CGFloat = stepperSize.height
 
-        var intrinsicWidth: CGFloat = 0
-        var intrinsicHeight: CGFloat = 0
-
-        // Add label if present
         if hasLabel {
-            intrinsicWidth += labelSize.width + spacing
-            intrinsicHeight = max(intrinsicHeight, labelSize.height)
+            minWidth += spacing + labelSize.width
+            maxHeight = max(maxHeight, labelSize.height)
         }
 
-        // Add value label + spacing + stepper
-        intrinsicWidth += valueLabelSize.width + spacing + stepperSize.width
-        intrinsicHeight = max(intrinsicHeight, valueLabelSize.height, stepperSize.height)
+        // With label: expand horizontally to fill proposed width
+        // Without label: content-sized (just buttons)
+        let finalWidth: CGFloat
+        if hasLabel, let proposedWidth = proposal.width {
+            finalWidth = max(CGFloat(proposedWidth), minWidth)
+        } else {
+            finalWidth = minWidth
+        }
 
-        // Content-Sized: always return intrinsic size (don't expand to proposal)
-        return CGSize(width: intrinsicWidth, height: intrinsicHeight)
+        return CGSize(width: finalWidth, height: maxHeight)
     }
 
     // MARK: - Layout
@@ -113,50 +109,48 @@ final class WuiStepper: PlatformView, WuiComponent {
     override var isFlipped: Bool { true }
     #endif
 
-    /// Shared layout logic for both UIKit and AppKit
     private func performLayout() {
+        let boundsWidth = bounds.width
         let boundsHeight = bounds.height
 
         // Calculate sizes
-        let labelSize = labelView.sizeThatFits(WuiProposalSize())
         let stepperSize = stepper.intrinsicContentSize
-        let valueLabelSize = calculateValueLabelSize()
-        let hasLabel = labelSize.width > 0
+        let labelSize = labelView.sizeThatFits(WuiProposalSize())
+        let hasLabel = labelSize.width > 0 && labelSize.height > 0
 
-        var currentX: CGFloat = 0
-
-        // Layout label on left, vertically centered (if present)
         if hasLabel {
+            // With label: [label] --- flexible space --- [+/- buttons]
+            // Label on left, buttons on right
+
+            // 1. Stepper buttons (rightmost)
+            let stepperX = boundsWidth - stepperSize.width
+            let stepperY = (boundsHeight - stepperSize.height) / 2
+            stepper.frame = CGRect(
+                x: stepperX,
+                y: stepperY,
+                width: stepperSize.width,
+                height: stepperSize.height
+            )
+
+            // 2. Label view (leftmost)
             let labelY = (boundsHeight - labelSize.height) / 2
             labelView.frame = CGRect(
-                x: currentX,
+                x: 0,
                 y: labelY,
                 width: labelSize.width,
                 height: labelSize.height
             )
-            currentX += labelSize.width + spacing
         } else {
+            // Without label: just buttons, left-aligned
             labelView.frame = .zero
+            let stepperY = (boundsHeight - stepperSize.height) / 2
+            stepper.frame = CGRect(
+                x: 0,
+                y: stepperY,
+                width: stepperSize.width,
+                height: stepperSize.height
+            )
         }
-
-        // Layout value label, vertically centered
-        let valueLabelY = (boundsHeight - valueLabelSize.height) / 2
-        valueLabel.frame = CGRect(
-            x: currentX,
-            y: valueLabelY,
-            width: valueLabelSize.width,
-            height: valueLabelSize.height
-        )
-        currentX += valueLabelSize.width + spacing
-
-        // Layout stepper, vertically centered
-        let stepperY = (boundsHeight - stepperSize.height) / 2
-        stepper.frame = CGRect(
-            x: currentX,
-            y: stepperY,
-            width: stepperSize.width,
-            height: stepperSize.height
-        )
     }
 
     // MARK: - Update Methods
@@ -164,8 +158,8 @@ final class WuiStepper: PlatformView, WuiComponent {
     func updateLabel(_ newLabel: WuiAnyView) {
         guard newLabel !== labelView else { return }
         labelView.removeFromSuperview()
-        addSubview(newLabel)
         labelView = newLabel
+        addSubview(newLabel)
         setNeedsLayoutCompat()
     }
 
@@ -175,10 +169,8 @@ final class WuiStepper: PlatformView, WuiComponent {
         binding = newBinding
         #if canImport(UIKit)
         stepper.value = Double(newBinding.value)
-        valueLabel.text = String(newBinding.value)
         #elseif canImport(AppKit)
         stepper.integerValue = Int(newBinding.value)
-        valueLabel.stringValue = String(newBinding.value)
         #endif
         startBindingWatcher()
     }
@@ -196,16 +188,8 @@ final class WuiStepper: PlatformView, WuiComponent {
     // MARK: - Configuration
 
     private func configureSubviews() {
-        // Manual frame layout - just add subviews, performLayout() will position them
         addSubview(labelView)
-        addSubview(valueLabel)
         addSubview(stepper)
-
-        #if canImport(UIKit)
-        valueLabel.text = String(binding.value)
-        #elseif canImport(AppKit)
-        valueLabel.stringValue = String(binding.value)
-        #endif
     }
 
     private func configureStepper() {
@@ -231,12 +215,12 @@ final class WuiStepper: PlatformView, WuiComponent {
             isSyncingFromBinding = true
             #if canImport(UIKit)
             stepper.value = Double(newValue)
-            valueLabel.text = String(newValue)
             #elseif canImport(AppKit)
             stepper.integerValue = Int(newValue)
-            valueLabel.stringValue = String(newValue)
             #endif
             isSyncingFromBinding = false
+            // Trigger layout update since label content may have changed
+            setNeedsLayoutCompat()
         }
     }
 
@@ -248,49 +232,12 @@ final class WuiStepper: PlatformView, WuiComponent {
         #endif
     }
 
-    /// Calculates the size needed for the value label based on current text content.
-    /// Uses boundingRect for accurate text measurement.
-    private func calculateValueLabelSize() -> CGSize {
-        #if canImport(UIKit)
-        guard let text = valueLabel.text, !text.isEmpty else {
-            return valueLabel.intrinsicContentSize
-        }
-        let font = valueLabel.font ?? UIFont.systemFont(ofSize: UIFont.systemFontSize)
-        let attributes: [NSAttributedString.Key: Any] = [.font: font]
-        let boundingRect = (text as NSString).boundingRect(
-            with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading],
-            attributes: attributes,
-            context: nil
-        )
-        // Add small padding for safety
-        return CGSize(width: ceil(boundingRect.width) + 2, height: ceil(boundingRect.height))
-        #elseif canImport(AppKit)
-        let text = valueLabel.stringValue
-        guard !text.isEmpty else {
-            return valueLabel.intrinsicContentSize
-        }
-        let font = valueLabel.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
-        let attributes: [NSAttributedString.Key: Any] = [.font: font]
-        let boundingRect = (text as NSString).boundingRect(
-            with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading],
-            attributes: attributes,
-            context: nil
-        )
-        // Add small padding for safety
-        return CGSize(width: ceil(boundingRect.width) + 2, height: ceil(boundingRect.height))
-        #endif
-    }
-
     @objc private func valueChanged() {
         guard !isSyncingFromBinding else { return }
         #if canImport(UIKit)
         binding.value = Int32(stepper.value)
-        valueLabel.text = String(Int32(stepper.value))
         #elseif canImport(AppKit)
         binding.value = Int32(stepper.integerValue)
-        valueLabel.stringValue = String(stepper.integerValue)
         #endif
     }
 }

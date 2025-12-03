@@ -21,7 +21,7 @@ import AppKit
 
 @MainActor
 final class WuiText: PlatformView, WuiComponent {
-    static let id: String = decodeViewIdentifier(waterui_text_id())
+    static var rawId: CWaterUI.WuiTypeId { waterui_text_id() }
 
     #if canImport(UIKit)
     private let label = UILabel()
@@ -66,31 +66,68 @@ final class WuiText: PlatformView, WuiComponent {
 
     func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
         #if canImport(UIKit)
-        let targetWidth = proposal.width.map { CGFloat($0) } ?? UIView.noIntrinsicMetric
-        let targetHeight = proposal.height.map { CGFloat($0) } ?? UIView.noIntrinsicMetric
-        let fittingSize = CGSize(
-            width: targetWidth == UIView.noIntrinsicMetric ? UIView.layoutFittingCompressedSize.width : targetWidth,
-            height: targetHeight == UIView.noIntrinsicMetric ? UIView.layoutFittingCompressedSize.height : targetHeight
+        // Use attributed string to measure text size directly (more reliable)
+        guard let attributedText = label.attributedText, attributedText.length > 0 else {
+            return .zero
+        }
+
+        // Measure text with unlimited width to get intrinsic single-line size
+        let maxSize = CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        let intrinsicRect = attributedText.boundingRect(
+            with: maxSize,
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            context: nil
         )
-        let horizontalPriority: UILayoutPriority =
-            targetWidth == UIView.noIntrinsicMetric ? .fittingSizeLevel : .required
-        let verticalPriority: UILayoutPriority =
-            targetHeight == UIView.noIntrinsicMetric ? .fittingSizeLevel : .required
-        return label.systemLayoutSizeFitting(
-            fittingSize,
-            withHorizontalFittingPriority: horizontalPriority,
-            verticalFittingPriority: verticalPriority
+        let intrinsicSize = CGSize(
+            width: ceil(intrinsicRect.width),
+            height: ceil(intrinsicRect.height)
         )
+
+        // Text is content-sized: always returns intrinsic width
+        if let proposedWidth = proposal.width {
+            let constrainedWidth = CGFloat(proposedWidth)
+            if intrinsicSize.width <= constrainedWidth {
+                return intrinsicSize
+            } else {
+                // Text wider than proposal - calculate wrapped height
+                let constrainedRect = attributedText.boundingRect(
+                    with: CGSize(width: constrainedWidth, height: CGFloat.greatestFiniteMagnitude),
+                    options: [.usesLineFragmentOrigin, .usesFontLeading],
+                    context: nil
+                )
+                return CGSize(width: intrinsicSize.width, height: ceil(constrainedRect.height))
+            }
+        }
+
+        return intrinsicSize
         #elseif canImport(AppKit)
-        let maxWidth = proposal.width.map { CGFloat($0) } ?? CGFloat.greatestFiniteMagnitude
-        textField.preferredMaxLayoutWidth = maxWidth
-        let intrinsicSize = textField.intrinsicContentSize
+        // Use attributed string to measure text size directly
+        let attributedText = textField.attributedStringValue
+        guard attributedText.length > 0 else {
+            return .zero
+        }
+
+        let maxSize = CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        let intrinsicRect = attributedText.boundingRect(
+            with: maxSize,
+            options: [.usesLineFragmentOrigin, .usesFontLeading]
+        )
+        let intrinsicSize = CGSize(
+            width: ceil(intrinsicRect.width),
+            height: ceil(intrinsicRect.height)
+        )
 
         if let proposedWidth = proposal.width {
             let constrainedWidth = CGFloat(proposedWidth)
-            textField.preferredMaxLayoutWidth = constrainedWidth
-            let height = textField.intrinsicContentSize.height
-            return CGSize(width: min(intrinsicSize.width, constrainedWidth), height: height)
+            if intrinsicSize.width <= constrainedWidth {
+                return intrinsicSize
+            } else {
+                let constrainedRect = attributedText.boundingRect(
+                    with: CGSize(width: constrainedWidth, height: CGFloat.greatestFiniteMagnitude),
+                    options: [.usesLineFragmentOrigin, .usesFontLeading]
+                )
+                return CGSize(width: intrinsicSize.width, height: ceil(constrainedRect.height))
+            }
         }
 
         return intrinsicSize
@@ -101,17 +138,13 @@ final class WuiText: PlatformView, WuiComponent {
 
     private func configureLabel() {
         #if canImport(UIKit)
-        label.translatesAutoresizingMaskIntoConstraints = false
+        // Use manual frame layout - label uses intrinsic size, not bounded by parent
+        label.translatesAutoresizingMaskIntoConstraints = true
         label.numberOfLines = 0
         addSubview(label)
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: leadingAnchor),
-            label.trailingAnchor.constraint(equalTo: trailingAnchor),
-            label.topAnchor.constraint(equalTo: topAnchor),
-            label.bottomAnchor.constraint(equalTo: bottomAnchor)
-        ])
         #elseif canImport(AppKit)
-        textField.translatesAutoresizingMaskIntoConstraints = false
+        // Use manual frame layout - textField uses intrinsic size
+        textField.translatesAutoresizingMaskIntoConstraints = true
         textField.isEditable = false
         textField.isSelectable = false
         textField.isBordered = false
@@ -120,16 +153,25 @@ final class WuiText: PlatformView, WuiComponent {
         textField.maximumNumberOfLines = 0
         textField.cell?.wraps = true
         textField.cell?.isScrollable = false
-
         addSubview(textField)
-        NSLayoutConstraint.activate([
-            textField.leadingAnchor.constraint(equalTo: leadingAnchor),
-            textField.trailingAnchor.constraint(equalTo: trailingAnchor),
-            textField.topAnchor.constraint(equalTo: topAnchor),
-            textField.bottomAnchor.constraint(equalTo: bottomAnchor)
-        ])
         #endif
     }
+
+    #if canImport(UIKit)
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // Use bounds - trust container's layout decision (SwiftUI-like)
+        label.frame = bounds
+    }
+    #elseif canImport(AppKit)
+    override func layout() {
+        super.layout()
+        // Use bounds - trust container's layout decision (SwiftUI-like)
+        textField.frame = bounds
+    }
+
+    override var isFlipped: Bool { true }
+    #endif
 
     private func startWatching() {
         watcher = content.watch { [weak self] value, metadata in
@@ -161,19 +203,26 @@ final class WuiText: PlatformView, WuiComponent {
 
     private func applyText(_ styled: WuiStyledStr) {
         #if canImport(UIKit)
-        let attributed = NSAttributedString(styled.toAttributedString(env: env))
+        let attributed = styled.toAttributedString(env: env)
         label.attributedText = attributed
-        // Trigger layout update up the view hierarchy
+        // Notify layout system that size may have changed
+        label.invalidateIntrinsicContentSize()
+        invalidateIntrinsicContentSize()
+        // Propagate layout invalidation up the entire view hierarchy
         setNeedsLayout()
-        superview?.setNeedsLayout()
+        var parent = superview
+        while let p = parent {
+            p.setNeedsLayout()
+            parent = p.superview
+        }
         #elseif canImport(AppKit)
         let attributed = styled.toAttributedString(env: env)
         textField.attributedStringValue = NSAttributedString(attributedString: attributed)
         // Notify layout system that size may have changed
         textField.invalidateIntrinsicContentSize()
         invalidateIntrinsicContentSize()
+        // Propagate layout invalidation up the entire view hierarchy
         needsLayout = true
-        // Propagate layout invalidation up the view hierarchy
         var parent = superview
         while let p = parent {
             p.needsLayout = true
@@ -181,8 +230,4 @@ final class WuiText: PlatformView, WuiComponent {
         }
         #endif
     }
-
-    #if canImport(AppKit)
-    override var isFlipped: Bool { true }
-    #endif
 }

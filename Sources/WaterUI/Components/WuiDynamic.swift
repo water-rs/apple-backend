@@ -6,7 +6,7 @@
 // Layout behavior matches the current child view.
 //
 // // INTERNAL: Layout Contract for Backend Implementers
-// // - stretchAxis: Delegates to current child
+// // - stretchAxis: Delegates to current child (WuiAnyView)
 // // - sizeThatFits: Delegates to current child
 // // - Priority: Delegates to current child
 
@@ -20,7 +20,7 @@ import AppKit
 
 @MainActor
 final class WuiDynamic: PlatformView, WuiComponent {
-    static let id: String = decodeViewIdentifier(waterui_dynamic_id())
+    static var rawId: CWaterUI.WuiTypeId { waterui_dynamic_id() }
 
     private var dynamicPtr: OpaquePointer
     private var env: WuiEnvironment
@@ -73,16 +73,8 @@ final class WuiDynamic: PlatformView, WuiComponent {
     private func updateChild(with anyView: WuiAnyView) {
         currentChild?.removeFromSuperview()
 
-        anyView.translatesAutoresizingMaskIntoConstraints = false
+        anyView.translatesAutoresizingMaskIntoConstraints = true
         addSubview(anyView)
-
-        NSLayoutConstraint.activate([
-            anyView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            anyView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            anyView.topAnchor.constraint(equalTo: topAnchor),
-            anyView.bottomAnchor.constraint(equalTo: bottomAnchor)
-        ])
-
         currentChild = anyView
 
         #if canImport(UIKit)
@@ -91,6 +83,18 @@ final class WuiDynamic: PlatformView, WuiComponent {
         needsLayout = true
         #endif
     }
+
+    #if canImport(UIKit)
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        currentChild?.frame = bounds
+    }
+    #elseif canImport(AppKit)
+    override func layout() {
+        super.layout()
+        currentChild?.frame = bounds
+    }
+    #endif
 
     #if canImport(AppKit)
     override var isFlipped: Bool { true }
