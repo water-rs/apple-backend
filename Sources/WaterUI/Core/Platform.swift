@@ -42,3 +42,31 @@ public typealias PlatformImage = NSImage
 public typealias PlatformLayoutPriority = NSLayoutConstraint.Priority
 
 #endif
+
+// MARK: - Layout Invalidation
+
+extension PlatformView {
+    /// Invalidates layout for this view and all ancestor views.
+    /// Use when content size changes and the entire hierarchy needs re-layout.
+    func invalidateLayoutHierarchy() {
+        #if canImport(UIKit)
+        invalidateIntrinsicContentSize()
+        setNeedsLayout()
+        var parent = superview
+        while let p = parent {
+            p.invalidateIntrinsicContentSize()
+            p.setNeedsLayout()
+            parent = p.superview
+        }
+        #elseif canImport(AppKit)
+        invalidateIntrinsicContentSize()
+        needsLayout = true
+        var parent = superview
+        while let p = parent {
+            p.invalidateIntrinsicContentSize()
+            p.needsLayout = true
+            parent = p.superview
+        }
+        #endif
+    }
+}

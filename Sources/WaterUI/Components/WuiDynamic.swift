@@ -77,11 +77,8 @@ final class WuiDynamic: PlatformView, WuiComponent {
         addSubview(anyView)
         currentChild = anyView
 
-        #if canImport(UIKit)
-        setNeedsLayout()
-        #elseif canImport(AppKit)
-        needsLayout = true
-        #endif
+        // Invalidate layout up the entire view hierarchy
+        invalidateLayoutHierarchy()
     }
 
     #if canImport(UIKit)

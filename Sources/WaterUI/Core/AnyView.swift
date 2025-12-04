@@ -229,6 +229,7 @@ private func registerBuiltinComponentsIfNeeded() {
     registerMetadataComponent(WuiShadow.self)
     registerMetadataComponent(WuiFocused.self)
     registerMetadataComponent(WuiIgnoreSafeArea.self)
+    registerMetadataComponent(WuiRetain.self)
 
     // Media components
     // TODO: registerComponent(WuiPhoto.self)

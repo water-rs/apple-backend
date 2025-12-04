@@ -167,22 +167,9 @@ class WuiTextBase: PlatformView {
     func invalidateLayout() {
         #if canImport(UIKit)
         label.invalidateIntrinsicContentSize()
-        invalidateIntrinsicContentSize()
-        setNeedsLayout()
-        var parent = superview
-        while let p = parent {
-            p.setNeedsLayout()
-            parent = p.superview
-        }
         #elseif canImport(AppKit)
         textField.invalidateIntrinsicContentSize()
-        invalidateIntrinsicContentSize()
-        needsLayout = true
-        var parent = superview
-        while let p = parent {
-            p.needsLayout = true
-            parent = p.superview
-        }
         #endif
+        invalidateLayoutHierarchy()
     }
 }
