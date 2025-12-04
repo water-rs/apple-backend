@@ -228,3 +228,22 @@ func makeVideoWatcher(_ f: @escaping (WuiVideo, WuiWatcherMetadata) -> Void)
     }
     return watcher
 }
+
+@MainActor
+func makeColorSchemeWatcher(_ f: @escaping (WuiColorScheme, WuiWatcherMetadata) -> Void)
+    -> OpaquePointer
+{
+    let data = wrap(f)
+    let call: @convention(c) (UnsafeMutableRawPointer?, WuiColorScheme, OpaquePointer?) -> Void =
+        {
+            data, value, metadata in
+            callWrapper(data, value, metadata)
+        }
+    let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
+        dropWrapper($0, WuiColorScheme.self)
+    }
+    guard let watcher = waterui_new_watcher_color_scheme(data, call, drop) else {
+        fatalError("Failed to create color scheme watcher")
+    }
+    return watcher
+}

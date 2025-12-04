@@ -20,6 +20,10 @@ import AppKit
 @MainActor
 private var componentRegistry: [WuiViewId: (OpaquePointer, WuiEnvironment) -> any WuiComponent] = [:]
 
+/// Set of metadata component IDs (components that wrap content but aren't "real" content themselves)
+@MainActor
+private var metadataComponentIds: Set<WuiViewId> = []
+
 /// Internal flag to track if builtin components have been registered
 @MainActor
 private var builtinComponentsRegistered = false
@@ -30,6 +34,150 @@ private func registerComponent<T: WuiComponent>(_ type: T.Type) {
     componentRegistry[type.viewId] = { anyview, env in
         type.init(anyview: anyview, env: env)
     }
+}
+
+/// Register a metadata component type (wrappers that modify env/appearance but aren't content).
+@MainActor
+private func registerMetadataComponent<T: WuiComponent>(_ type: T.Type) {
+    registerComponent(type)
+    metadataComponentIds.insert(type.viewId)
+}
+
+// MARK: - Root Theme Controller
+
+#if canImport(UIKit)
+typealias PlatformWindow = UIWindow
+#elseif canImport(AppKit)
+typealias PlatformWindow = NSWindow
+#endif
+
+/// Controls the window's appearance based on the root component's environment theme.
+@MainActor
+final class RootThemeController {
+    private var colorSchemeSignal: OpaquePointer?
+    private var watcherGuard: WatcherGuard?
+    private weak var view: PlatformView?
+    private var currentScheme: WuiColorScheme?
+
+    init(env: WuiEnvironment, view: PlatformView) {
+        self.view = view
+        setupColorSchemeWatcher(env: env)
+    }
+
+    private func setupColorSchemeWatcher(env: WuiEnvironment) {
+        guard let signal = waterui_theme_color_scheme(env.inner) else {
+            print("[RootThemeController] No color scheme signal found")
+            return
+        }
+
+        // Keep signal alive
+        self.colorSchemeSignal = signal
+
+        // Apply initial value
+        let initial = waterui_read_computed_color_scheme(signal)
+        print("[RootThemeController] Initial color scheme: \(initial.rawValue) (0=Light, 1=Dark)")
+        applyColorScheme(initial)
+
+        // Watch for changes
+        let watcher = makeColorSchemeWatcher { [weak self] scheme, _ in
+            print("[RootThemeController] Watcher triggered: color scheme = \(scheme.rawValue)")
+            self?.applyColorScheme(scheme)
+        }
+
+        if let guard_ = waterui_watch_computed_color_scheme(signal, watcher) {
+            self.watcherGuard = WatcherGuard(guard_)
+            print("[RootThemeController] Watcher guard created successfully")
+        } else {
+            print("[RootThemeController] Failed to create watcher guard")
+        }
+    }
+
+    private func applyColorScheme(_ scheme: WuiColorScheme) {
+        currentScheme = scheme
+        applyToWindow()
+    }
+
+    /// Called when the view is added to window
+    func applyToWindow() {
+        guard let scheme = currentScheme, let window = view?.window else {
+            return
+        }
+
+        #if canImport(UIKit)
+        let style: UIUserInterfaceStyle = switch scheme {
+        case WuiColorScheme_Light: .light
+        case WuiColorScheme_Dark: .dark
+        default: .unspecified
+        }
+        window.overrideUserInterfaceStyle = style
+        #elseif canImport(AppKit)
+        let appearance: NSAppearance? = switch scheme {
+        case WuiColorScheme_Light: NSAppearance(named: .aqua)
+        case WuiColorScheme_Dark: NSAppearance(named: .darkAqua)
+        default: nil
+        }
+
+        print("[RootThemeController] Applying macOS appearance: \(appearance?.name.rawValue ?? "nil")")
+
+        // Set appearance on window and all its content
+        window.appearance = appearance
+        window.contentView?.appearance = appearance
+
+        // Force redraw
+        window.contentView?.needsDisplay = true
+        window.contentView?.needsLayout = true
+        window.viewsNeedDisplay = true
+        #endif
+    }
+
+    @MainActor deinit {
+        if let signal = colorSchemeSignal {
+            waterui_drop_computed_color_scheme(signal)
+        }
+    }
+}
+
+/// The current root theme controller (one per app)
+@MainActor
+private var rootThemeController: RootThemeController?
+
+/// The environment of the root content component
+@MainActor
+private var pendingRootEnv: WuiEnvironment?
+
+/// Marks the environment as the root content's env (for theme setup)
+@MainActor
+private func markAsRootContentEnv(_ env: WuiEnvironment) {
+    // Only capture the first one
+    if pendingRootEnv == nil {
+        pendingRootEnv = env
+        // Debug: check what color scheme this env has
+        if let signal = waterui_theme_color_scheme(env.inner) {
+            let scheme = waterui_read_computed_color_scheme(signal)
+            print("[markAsRootContentEnv] Captured env with color scheme: \(scheme.rawValue) (0=Light, 1=Dark)")
+            waterui_drop_computed_color_scheme(signal)
+        }
+    }
+}
+
+/// Sets up the root theme controller when the view is added to window
+@MainActor
+func setupRootThemeController(for view: PlatformView) {
+    guard rootThemeController == nil, let env = pendingRootEnv else { return }
+    rootThemeController = RootThemeController(env: env, view: view)
+}
+
+/// Called when window becomes available to apply pending theme
+@MainActor
+func applyPendingRootTheme() {
+    rootThemeController?.applyToWindow()
+}
+
+/// Resets the root theme controller (for hot reload).
+@MainActor
+public func resetRootThemeController() {
+    rootThemeController = nil
+    pendingRootEnv = nil
 }
 
 /// Register builtin components (called once on first WuiAnyView creation)
@@ -71,16 +219,16 @@ private func registerBuiltinComponentsIfNeeded() {
     registerComponent(WuiDynamic.self)
     // TODO: registerComponent(WuiLazy.self)
 
-    // Metadata components
-    registerComponent(WuiWithEnv.self)
-    registerComponent(WuiSecure.self)
-    registerComponent(WuiGesture.self)
-    registerComponent(WuiOnEvent.self)
-    registerComponent(WuiBackground.self)
-    registerComponent(WuiForeground.self)
-    registerComponent(WuiShadow.self)
-    registerComponent(WuiFocused.self)
-    registerComponent(WuiIgnoreSafeArea.self)
+    // Metadata components (wrappers that modify env/appearance)
+    registerMetadataComponent(WuiWithEnv.self)
+    registerMetadataComponent(WuiSecure.self)
+    registerMetadataComponent(WuiGesture.self)
+    registerMetadataComponent(WuiOnEvent.self)
+    registerMetadataComponent(WuiBackground.self)
+    registerMetadataComponent(WuiForeground.self)
+    registerMetadataComponent(WuiShadow.self)
+    registerMetadataComponent(WuiFocused.self)
+    registerMetadataComponent(WuiIgnoreSafeArea.self)
 
     // Media components
     // TODO: registerComponent(WuiPhoto.self)
@@ -140,6 +288,14 @@ public final class WuiAnyView: UIView, WuiComponent {
         inner.frame = bounds
     }
 
+    override public func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil {
+            setupRootThemeController(for: self)
+            applyPendingRootTheme()
+        }
+    }
+
     // MARK: - Internal Resolution
 
     internal static func resolve(anyview: OpaquePointer, env: WuiEnvironment) -> any WuiComponent {
@@ -151,6 +307,10 @@ public final class WuiAnyView: UIView, WuiComponent {
 
         // Look up registered component factory - O(1) pointer-based lookup
         if let factory = componentRegistry[viewId] {
+            // If this is the first non-metadata component, capture its env for root theme
+            if !metadataComponentIds.contains(viewId) {
+                markAsRootContentEnv(env)
+            }
             return factory(sanitized, env)
         }
 
@@ -217,6 +377,14 @@ public final class WuiAnyView: NSView, WuiComponent {
         inner.frame = bounds
     }
 
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil {
+            setupRootThemeController(for: self)
+            applyPendingRootTheme()
+        }
+    }
+
     // MARK: - Internal Resolution
 
     internal static func resolve(anyview: OpaquePointer, env: WuiEnvironment) -> any WuiComponent {
@@ -228,6 +396,10 @@ public final class WuiAnyView: NSView, WuiComponent {
 
         // Look up registered component factory - O(1) pointer-based lookup
         if let factory = componentRegistry[viewId] {
+            // If this is the first non-metadata component, capture its env for root theme
+            if !metadataComponentIds.contains(viewId) {
+                markAsRootContentEnv(env)
+            }
             return factory(sanitized, env)
         }
 

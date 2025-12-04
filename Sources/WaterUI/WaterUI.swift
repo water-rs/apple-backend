@@ -235,6 +235,80 @@ final class ReactiveColorSignal {
     #endif
 }
 
+/// A native-controlled reactive color scheme signal.
+/// This allows Swift to create and update color scheme signals that notify WaterUI watchers.
+@MainActor
+final class ReactiveColorSchemeSignal {
+    private final class State: @unchecked Sendable {
+        var scheme: WuiColorScheme
+        var watchers: [OpaquePointer] = []  // WuiWatcher_ColorScheme*
+
+        init(scheme: WuiColorScheme) {
+            self.scheme = scheme
+        }
+
+        func addWatcher(_ watcher: OpaquePointer) {
+            watchers.append(watcher)
+        }
+
+        func notifyWatchers() {
+            for watcher in watchers {
+                waterui_call_watcher_color_scheme(watcher, scheme)
+            }
+        }
+
+        func cleanup() {
+            for watcher in watchers {
+                waterui_drop_watcher_color_scheme(watcher)
+            }
+            watchers.removeAll()
+        }
+    }
+
+    private var state: State
+    private var statePtr: UnsafeMutableRawPointer
+    private var computedPtr: OpaquePointer?
+
+    init(scheme: WuiColorScheme) {
+        self.state = State(scheme: scheme)
+        self.statePtr = Unmanaged.passRetained(state).toOpaque()
+    }
+
+    deinit {
+        state.cleanup()
+    }
+
+    func toComputed() -> OpaquePointer? {
+        if computedPtr == nil {
+            computedPtr = waterui_new_computed_color_scheme(
+                statePtr,
+                { ptr -> WuiColorScheme in
+                    guard let ptr = ptr else { return WuiColorScheme_Light }
+                    let state = Unmanaged<State>.fromOpaque(UnsafeMutableRawPointer(mutating: ptr)).takeUnretainedValue()
+                    return state.scheme
+                },
+                { ptr, watcher -> OpaquePointer? in
+                    guard let ptr = ptr, let watcher = watcher else { return nil }
+                    let state = Unmanaged<State>.fromOpaque(UnsafeMutableRawPointer(mutating: ptr)).takeUnretainedValue()
+                    state.addWatcher(watcher)
+                    return waterui_new_watcher_guard(nil) { _ in }
+                },
+                { ptr in
+                    guard let ptr = ptr else { return }
+                    let state = Unmanaged<State>.fromOpaque(ptr).takeRetainedValue()
+                    state.cleanup()
+                }
+            )
+        }
+        return computedPtr
+    }
+
+    func setValue(_ scheme: WuiColorScheme) {
+        state.scheme = scheme
+        state.notifyWatchers()
+    }
+}
+
 /// A native-controlled reactive font signal.
 @MainActor
 final class ReactiveFontSignal {
@@ -317,6 +391,9 @@ final class ReactiveFontSignal {
 /// WaterUI's reactive system.
 @MainActor
 public final class ThemeBridge {
+    // Reactive color scheme signal - can be updated when system appearance changes
+    private var colorSchemeSignal: ReactiveColorSchemeSignal?
+
     // Reactive color signals - stored so we can update them
     private var backgroundSignal: ReactiveColorSignal?
     private var surfaceSignal: ReactiveColorSignal?
@@ -344,10 +421,14 @@ public final class ThemeBridge {
     private func installReactiveTheme(env: WuiEnvironment, colorScheme: ColorScheme) {
         let isDark = colorScheme == .dark
 
-        // Install color scheme (constant for now)
+        // Install REACTIVE color scheme into root env as default.
+        // This signal can be updated when system appearance changes.
+        // Rust can override via .install(Theme::new().color_scheme(...)) in child env.
+        // RootThemeController reads from first component's env (which may be overridden or not).
         let wuiScheme: WuiColorScheme = isDark ? WuiColorScheme_Dark : WuiColorScheme_Light
-        if let signal = waterui_computed_color_scheme_constant(wuiScheme) {
-            waterui_theme_install_color_scheme(env.inner, signal)
+        colorSchemeSignal = ReactiveColorSchemeSignal(scheme: wuiScheme)
+        if let computed = colorSchemeSignal?.toComputed() {
+            waterui_theme_install_color_scheme(env.inner, computed)
         }
 
         // Create reactive color signals
@@ -379,6 +460,12 @@ public final class ThemeBridge {
 
     /// Updates the theme for a new color scheme by updating existing reactive signals
     func updateColorScheme(_ colorScheme: ColorScheme) {
+        let isDark = colorScheme == .dark
+
+        // Update color scheme signal
+        let wuiScheme: WuiColorScheme = isDark ? WuiColorScheme_Dark : WuiColorScheme_Light
+        colorSchemeSignal?.setValue(wuiScheme)
+
         // Update color signals with new system colors
         // The reactive system will automatically propagate these changes
         #if canImport(UIKit)
@@ -527,16 +614,24 @@ public final class WuiRootContext {
     }()
     #endif
 
-    public init(colorScheme: ThemeBridge.ColorScheme = .light) {
+    public init() {
         // 1. Create environment (waterui_init)
         let environment = WuiEnvironment(waterui_init())
         self.env = environment
 
-        // 2. Install theme BEFORE waterui_main
-        // Theme uses reactive signals that can be updated later
-        self.themeBridge = ThemeBridge(env: environment, colorScheme: colorScheme)
+        // 2. Detect system color scheme
+        #if canImport(UIKit)
+        let systemScheme: ThemeBridge.ColorScheme = UITraitCollection.current.userInterfaceStyle == .dark ? .dark : .light
+        #elseif canImport(AppKit)
+        let appearance = NSApp?.effectiveAppearance ?? NSAppearance.currentDrawing()
+        let systemScheme: ThemeBridge.ColorScheme = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .dark : .light
+        #endif
 
-        // 3. Create the main view (waterui_main)
+        // 3. Install system theme (colors, fonts, AND color scheme) into root env
+        // Rust can override color scheme via .install(Theme::new().color_scheme(...))
+        self.themeBridge = ThemeBridge(env: environment, colorScheme: systemScheme)
+
+        // 4. Create the main view (waterui_main)
         guard let mainView = waterui_main() else {
             fatalError("waterui_main() returned nil")
         }
@@ -559,7 +654,7 @@ public final class WaterUIViewController: UIViewController {
     private let context: WuiRootContext
 
     public init() {
-        self.context = WuiRootContext(colorScheme: .light)
+        self.context = WuiRootContext()
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -616,10 +711,9 @@ public final class WaterUIViewController: UIViewController {
 @MainActor
 public final class WaterUIView: NSView {
     private let context: WuiRootContext
-    private nonisolated(unsafe) var appearanceObserver: (any NSObjectProtocol)?
 
     public override init(frame frameRect: NSRect) {
-        self.context = WuiRootContext(colorScheme: .light)
+        self.context = WuiRootContext()
         super.init(frame: frameRect)
         setupView()
     }
@@ -631,7 +725,7 @@ public final class WaterUIView: NSView {
 
     private func setupView() {
         wantsLayer = true
-        layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        // Don't set static backgroundColor - let it follow window appearance
 
         let rootView = context.rootView
         rootView.translatesAutoresizingMaskIntoConstraints = false
@@ -644,21 +738,9 @@ public final class WaterUIView: NSView {
             rootView.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
 
-        // Observe appearance changes
-        appearanceObserver = NotificationCenter.default.addObserver(
-            forName: NSNotification.Name("AppleInterfaceThemeChangedNotification"),
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.updateColorScheme()
-            }
-        }
-    }
-
-    private func updateColorScheme() {
-        let isDark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        context.updateColorScheme(isDark ? .dark : .light)
+        // Note: We don't observe system appearance changes here.
+        // Color scheme is controlled by Rust via .install(Theme::new().color_scheme(...))
+        // and applied to window by RootThemeController.
     }
 
     public override func layout() {
@@ -673,13 +755,8 @@ public final class WaterUIView: NSView {
 
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        updateColorScheme()
-    }
-
-    deinit {
-        if let observer = appearanceObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
+        // Don't interfere with user's color scheme setting.
+        // RootThemeController handles applying the user's color scheme to the window.
     }
 }
 #endif
