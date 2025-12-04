@@ -3,7 +3,7 @@
 //
 // # Layout Behavior
 // Video player expands to fill available space in both dimensions.
-// Maintains aspect ratio when possible using AVPlayerLayer.
+// Maintains aspect ratio when possible using AVPlayerLayer/AVPlayerView.
 //
 // # Volume Control
 // The volume system uses a special encoding:
@@ -12,6 +12,7 @@
 // - When unmuting, the absolute value is restored
 
 import AVFoundation
+import AVKit
 import CWaterUI
 
 #if canImport(UIKit)
@@ -38,7 +39,18 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
     private(set) var stretchAxis: WuiStretchAxis = .both
 
     private let player: AVPlayer
-    private let playerLayer: AVPlayerLayer
+    private let showControls: Bool
+
+    // For controls mode (macOS: AVPlayerView, iOS: AVPlayerViewController's view)
+    #if canImport(AppKit)
+    private var playerView: AVPlayerView?
+    #elseif canImport(UIKit)
+    private var playerViewController: AVPlayerViewController?
+    #endif
+
+    // For no-controls mode (raw AVPlayerLayer)
+    private var playerLayer: AVPlayerLayer?
+
     private var videoComputed: WuiComputed<WuiVideo>
     private var volumeBinding: WuiBinding<Float>
     private var onEvent: CWaterUI.WuiFn_WuiVideoEvent
@@ -74,35 +86,22 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
         self.volumeBinding = volume
         self.onEvent = onEvent
         self.player = AVPlayer()
-        self.playerLayer = AVPlayerLayer(player: player)
-
-        #if canImport(UIKit)
-        if showControls {
-            // iOS/tvOS can show native controls via AVPlayerViewController
-            // For now, just note the preference
-        }
-        #elseif canImport(AppKit)
-        // macOS AVPlayerLayer doesn't have built-in controls
-        // Would need AVPlayerView for controls
-        #endif
+        self.showControls = showControls
 
         super.init(frame: .zero)
 
-        // CRITICAL: Ensure view is layer-backed on macOS BEFORE configuring player layer
-        #if canImport(UIKit)
-        // UIView is always layer-backed
-        #elseif canImport(AppKit)
+        #if canImport(AppKit)
         wantsLayer = true
-        // Force layer creation
         if layer == nil {
             layer = CALayer()
         }
         #endif
 
-        // Set aspect ratio mode
-        playerLayer.videoGravity = aspectRatio
-
-        configurePlayerLayer()
+        if showControls {
+            configureWithControls(aspectRatio: aspectRatio)
+        } else {
+            configureWithoutControls(aspectRatio: aspectRatio)
+        }
 
         updateVideo(video.value)
         updateVolume(volume.value)
@@ -112,6 +111,91 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    // MARK: - Configuration
+
+    private func configureWithControls(aspectRatio: AVLayerVideoGravity) {
+        #if canImport(AppKit)
+        // macOS: Use AVPlayerView for native controls
+        let pv = AVPlayerView()
+        pv.player = player
+        pv.controlsStyle = .inline
+        pv.showsFullScreenToggleButton = true
+        pv.translatesAutoresizingMaskIntoConstraints = false
+
+        // Set video gravity
+        switch aspectRatio {
+        case .resizeAspect:
+            pv.videoGravity = .resizeAspect
+        case .resizeAspectFill:
+            pv.videoGravity = .resizeAspectFill
+        case .resize:
+            pv.videoGravity = .resize
+        default:
+            pv.videoGravity = .resizeAspect
+        }
+
+        addSubview(pv)
+        NSLayoutConstraint.activate([
+            pv.topAnchor.constraint(equalTo: topAnchor),
+            pv.leadingAnchor.constraint(equalTo: leadingAnchor),
+            pv.trailingAnchor.constraint(equalTo: trailingAnchor),
+            pv.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+        self.playerView = pv
+
+        #elseif canImport(UIKit)
+        // iOS/tvOS: Use AVPlayerViewController for native controls
+        let pvc = AVPlayerViewController()
+        pvc.player = player
+        pvc.showsPlaybackControls = true
+        pvc.view.translatesAutoresizingMaskIntoConstraints = false
+
+        // Set video gravity
+        pvc.videoGravity = aspectRatio
+
+        addSubview(pvc.view)
+        NSLayoutConstraint.activate([
+            pvc.view.topAnchor.constraint(equalTo: topAnchor),
+            pvc.view.leadingAnchor.constraint(equalTo: leadingAnchor),
+            pvc.view.trailingAnchor.constraint(equalTo: trailingAnchor),
+            pvc.view.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+        self.playerViewController = pvc
+        #endif
+
+        setupEndNotification()
+    }
+
+    private func configureWithoutControls(aspectRatio: AVLayerVideoGravity) {
+        let layer = AVPlayerLayer(player: player)
+        layer.videoGravity = aspectRatio
+        layer.isHidden = false
+        layer.backgroundColor = nil
+
+        #if canImport(UIKit)
+        self.layer.addSublayer(layer)
+        #elseif canImport(AppKit)
+        guard let viewLayer = self.layer else {
+            print("❌ VideoPlayer: View layer is nil in configureWithoutControls!")
+            return
+        }
+        viewLayer.addSublayer(layer)
+        #endif
+
+        self.playerLayer = layer
+        setupEndNotification()
+    }
+
+    private func setupEndNotification() {
+        // Loop video playback
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(playerItemDidReachEnd),
+            name: .AVPlayerItemDidPlayToEndTime,
+            object: nil
+        )
     }
 
     // MARK: - WuiComponent
@@ -125,9 +209,7 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
         let width = proposal.width.map { CGFloat($0) } ?? defaultWidth
         let height = proposal.height.map { CGFloat($0) } ?? defaultHeight
 
-        let size = CGSize(width: width, height: height)
-        print("📹 VideoPlayer: sizeThatFits called - proposal: \(proposal), returning: \(size)")
-        return size
+        return CGSize(width: width, height: height)
     }
 
     // MARK: - Layout
@@ -135,20 +217,22 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
     #if canImport(UIKit)
     override func layoutSubviews() {
         super.layoutSubviews()
-        print("📹 VideoPlayer: layoutSubviews - bounds = \(bounds)")
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        playerLayer.frame = bounds
-        CATransaction.commit()
+        if !showControls {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            playerLayer?.frame = bounds
+            CATransaction.commit()
+        }
     }
     #elseif canImport(AppKit)
     override func layout() {
         super.layout()
-        print("📹 VideoPlayer: layout - bounds = \(bounds), frame = \(frame)")
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        playerLayer.frame = bounds
-        CATransaction.commit()
+        if !showControls {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            playerLayer?.frame = bounds
+            CATransaction.commit()
+        }
     }
 
     override var isFlipped: Bool { true }
@@ -159,35 +243,7 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
     }
     #endif
 
-    // MARK: - Configuration
-
-    private func configurePlayerLayer() {
-        // videoGravity is set in init based on aspect_ratio parameter
-        playerLayer.isHidden = false  // Ensure player layer is visible by default
-
-        // No background color - let video fill the space naturally
-        playerLayer.backgroundColor = nil
-
-        #if canImport(UIKit)
-        layer.addSublayer(playerLayer)
-        #elseif canImport(AppKit)
-        // Layer should already be created in init - force unwrap to catch issues early
-        guard let viewLayer = layer else {
-            print("❌ VideoPlayer: View layer is nil in configurePlayerLayer!")
-            return
-        }
-        viewLayer.addSublayer(playerLayer)
-        print("📹 VideoPlayer: Added playerLayer to view layer. PlayerLayer frame: \(playerLayer.frame)")
-        #endif
-
-        // Loop video playback
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(playerItemDidReachEnd),
-            name: .AVPlayerItemDidPlayToEndTime,
-            object: nil
-        )
-    }
+    // MARK: - Event Handling
 
     @objc private func playerItemDidReachEnd(_ notification: Notification) {
         guard let playerItem = notification.object as? AVPlayerItem,
@@ -219,10 +275,8 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
     private func updateVideo(_ video: WuiVideo) {
         let urlStr = WuiStr(video.url)
         let urlString = urlStr.toString()
-        print("📹 VideoPlayer: Attempting to load video from URL: \(urlString)")
 
         guard let url = URL(string: urlString) else {
-            print("❌ VideoPlayer: Invalid URL format")
             // Emit error event
             let event = CWaterUI.WuiVideoEvent(
                 event_type: CWaterUI.WuiVideoEventType_Error,
@@ -234,26 +288,20 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
 
         // Avoid reloading if URL hasn't changed
         guard url != currentURL else {
-            print("📹 VideoPlayer: URL unchanged, skipping reload")
             return
         }
         currentURL = url
 
-        // Don't hide error yet - wait until video is ready to play
-        print("📹 VideoPlayer: Creating AVPlayerItem for URL: \(url)")
         let playerItem = AVPlayerItem(url: url)
 
         // Observe player item status for events
         statusObserver = playerItem.observe(\.status, options: [.new]) { [weak self] item, _ in
             DispatchQueue.main.async {
                 guard let self = self else { return }
-                print("📹 VideoPlayer: Status changed to \(item.status.rawValue)")
                 switch item.status {
                 case .failed:
-                    print("❌ VideoPlayer: Failed to load video")
                     let errorMessage: String
                     if let error = item.error {
-                        print("❌ VideoPlayer error: \(error)")
                         errorMessage = error.localizedDescription
                     } else {
                         errorMessage = "Failed to load video. Check network access and sandbox permissions."
@@ -265,7 +313,6 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
                     )
                     self.onEvent.call(self.onEvent.data, event)
                 case .readyToPlay:
-                    print("✅ VideoPlayer: Ready to play")
                     // Emit ready event
                     let event = CWaterUI.WuiVideoEvent(
                         event_type: CWaterUI.WuiVideoEventType_ReadyToPlay,
@@ -273,7 +320,6 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
                     )
                     self.onEvent.call(self.onEvent.data, event)
                 case .unknown:
-                    print("⚠️ VideoPlayer: Status unknown")
                     break
                 @unknown default:
                     break
@@ -286,7 +332,6 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 if item.isPlaybackBufferEmpty && !self.isBuffering {
-                    print("📹 VideoPlayer: Buffering started")
                     self.isBuffering = true
                     let event = CWaterUI.WuiVideoEvent(
                         event_type: CWaterUI.WuiVideoEventType_Buffering,
@@ -302,7 +347,6 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 if item.isPlaybackLikelyToKeepUp && self.isBuffering {
-                    print("📹 VideoPlayer: Buffering ended")
                     self.isBuffering = false
                     let event = CWaterUI.WuiVideoEvent(
                         event_type: CWaterUI.WuiVideoEventType_BufferingEnded,
@@ -315,10 +359,9 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
 
         player.replaceCurrentItem(with: playerItem)
 
-        // Ensure player starts playing
+        // Start playing after a brief delay
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.player.play()
-            print("📹 VideoPlayer: Play called - rate: \(self?.player.rate ?? 0)")
         }
     }
 

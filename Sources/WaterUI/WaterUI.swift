@@ -597,6 +597,11 @@ public final class ThemeBridge {
 
 // MARK: - Root Context
 
+/// Global environment pointer - waterui_init() must only be called once per process.
+/// This is stored globally to survive window close/reopen cycles on macOS.
+@MainActor
+private var globalEnvironment: WuiEnvironment?
+
 @MainActor
 public final class WuiRootContext {
     public let env: WuiEnvironment
@@ -615,8 +620,14 @@ public final class WuiRootContext {
     #endif
 
     public init() {
-        // 1. Create environment (waterui_init)
-        let environment = WuiEnvironment(waterui_init())
+        // 1. Create environment (waterui_init) - only once per process
+        let environment: WuiEnvironment
+        if let existing = globalEnvironment {
+            environment = existing
+        } else {
+            environment = WuiEnvironment(waterui_init())
+            globalEnvironment = environment
+        }
         self.env = environment
 
         // 2. Detect system color scheme
