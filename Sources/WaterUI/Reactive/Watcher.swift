@@ -121,6 +121,22 @@ func makeDoubleWatcher(_ f: @escaping (Double, WuiWatcherMetadata) -> Void) -> O
 }
 
 @MainActor
+func makeFloatWatcher(_ f: @escaping (Float, WuiWatcherMetadata) -> Void) -> OpaquePointer {
+    let data = wrap(f)
+    let call: @convention(c) (UnsafeMutableRawPointer?, Float, OpaquePointer?) -> Void = {
+        data, value, metadata in
+        callWrapper(data, value, metadata)
+    }
+    let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
+        dropWrapper($0, Float.self)
+    }
+    guard let watcher = waterui_new_watcher_f32(data, call, drop) else {
+        fatalError("Failed to create f32 watcher")
+    }
+    return watcher
+}
+
+@MainActor
 func makeStrWatcher(_ f: @escaping (WuiStr, WuiWatcherMetadata) -> Void) -> OpaquePointer {
     let data = wrap(f)
     let call: @convention(c) (UnsafeMutableRawPointer?, CWaterUI.WuiStr, OpaquePointer?) -> Void = {
@@ -190,6 +206,25 @@ func makeResolvedColorWatcher(_ f: @escaping (WuiResolvedColor, WuiWatcherMetada
     }
     guard let watcher = waterui_new_watcher_resolved_color(data, call, drop) else {
         fatalError("Failed to create resolved color watcher")
+    }
+    return watcher
+}
+
+@MainActor
+func makeVideoWatcher(_ f: @escaping (WuiVideo, WuiWatcherMetadata) -> Void)
+    -> OpaquePointer
+{
+    let data = wrap(f)
+    let call: @convention(c) (UnsafeMutableRawPointer?, WuiVideo, OpaquePointer?) -> Void =
+        {
+            data, value, metadata in
+            callWrapper(data, value, metadata)
+        }
+    let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
+        dropWrapper($0, WuiVideo.self)
+    }
+    guard let watcher = waterui_new_watcher_video(data, call, drop) else {
+        fatalError("Failed to create video watcher")
     }
     return watcher
 }

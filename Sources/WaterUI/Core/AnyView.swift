@@ -84,7 +84,7 @@ private func registerBuiltinComponentsIfNeeded() {
 
     // Media components
     // TODO: registerComponent(WuiPhoto.self)
-    // TODO: registerComponent(WuiVideoPlayer.self)
+    registerComponent(WuiVideoPlayer.self)
     // TODO: registerComponent(WuiLivePhoto.self)
     // TODO: registerComponent(WuiLivePhotoSource.self)
 
