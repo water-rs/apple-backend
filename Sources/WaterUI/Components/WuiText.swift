@@ -101,32 +101,35 @@ final class WuiText: PlatformView, WuiComponent {
 
         return intrinsicSize
         #elseif canImport(AppKit)
-        // Use attributed string to measure text size directly
+        // Use NSTextField's cell for accurate text measurement on macOS
+        // boundingRect can underestimate width, causing text truncation
+        guard let cell = textField.cell else {
+            return .zero
+        }
+
         let attributedText = textField.attributedStringValue
         guard attributedText.length > 0 else {
             return .zero
         }
 
-        let maxSize = CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        let intrinsicRect = attributedText.boundingRect(
-            with: maxSize,
-            options: [.usesLineFragmentOrigin, .usesFontLeading]
-        )
-        let intrinsicSize = CGSize(
-            width: ceil(intrinsicRect.width),
-            height: ceil(intrinsicRect.height)
-        )
+        // Use cell's cellSize for accurate measurement - this accounts for
+        // font metrics, line spacing, and other factors that boundingRect misses
+        let intrinsicSize = cell.cellSize(forBounds: CGRect(
+            origin: .zero,
+            size: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        ))
 
         if let proposedWidth = proposal.width {
             let constrainedWidth = CGFloat(proposedWidth)
             if intrinsicSize.width <= constrainedWidth {
                 return intrinsicSize
             } else {
-                let constrainedRect = attributedText.boundingRect(
-                    with: CGSize(width: constrainedWidth, height: CGFloat.greatestFiniteMagnitude),
-                    options: [.usesLineFragmentOrigin, .usesFontLeading]
-                )
-                return CGSize(width: intrinsicSize.width, height: ceil(constrainedRect.height))
+                // Text wider than proposal - calculate wrapped height
+                let constrainedSize = cell.cellSize(forBounds: CGRect(
+                    origin: .zero,
+                    size: CGSize(width: constrainedWidth, height: CGFloat.greatestFiniteMagnitude)
+                ))
+                return CGSize(width: intrinsicSize.width, height: constrainedSize.height)
             }
         }
 

@@ -276,10 +276,31 @@ final class WuiTextField: PlatformView, WuiComponent {
 
     private func applyPrompt(_ styled: WuiStyledStr) {
         let attributed = styled.toAttributedString(env: env)
+        // Apply secondary/placeholder color if no foreground color was specified
+        let mutableAttributed = NSMutableAttributedString(attributedString: attributed)
+        let range = NSRange(location: 0, length: mutableAttributed.length)
+
+        // Check if foreground color is already set
+        var hasForegroundColor = false
+        mutableAttributed.enumerateAttribute(.foregroundColor, in: range, options: []) { value, _, _ in
+            if value != nil {
+                hasForegroundColor = true
+            }
+        }
+
+        // If no foreground color specified, use the standard placeholder color
+        if !hasForegroundColor {
+            #if canImport(UIKit)
+            mutableAttributed.addAttribute(.foregroundColor, value: UIColor.placeholderText, range: range)
+            #elseif canImport(AppKit)
+            mutableAttributed.addAttribute(.foregroundColor, value: NSColor.placeholderTextColor, range: range)
+            #endif
+        }
+
         #if canImport(UIKit)
-        textField.attributedPlaceholder = attributed
+        textField.attributedPlaceholder = mutableAttributed
         #elseif canImport(AppKit)
-        textField.placeholderAttributedString = NSAttributedString(attributedString: attributed)
+        textField.placeholderAttributedString = mutableAttributed
         #endif
     }
 
