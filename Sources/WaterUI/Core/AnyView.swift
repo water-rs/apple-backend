@@ -73,6 +73,14 @@ private func registerBuiltinComponentsIfNeeded() {
 
     // Metadata components
     registerComponent(WuiWithEnv.self)
+    registerComponent(WuiSecure.self)
+    registerComponent(WuiGesture.self)
+    registerComponent(WuiOnEvent.self)
+    registerComponent(WuiBackground.self)
+    registerComponent(WuiForeground.self)
+    registerComponent(WuiShadow.self)
+    registerComponent(WuiFocused.self)
+    registerComponent(WuiIgnoreSafeArea.self)
 
     // Media components
     // TODO: registerComponent(WuiPhoto.self)
