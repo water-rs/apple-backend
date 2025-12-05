@@ -239,6 +239,9 @@ private func registerBuiltinComponentsIfNeeded() {
 
     // Renderer components
     // TODO: registerComponent(WuiRendererView.self)
+
+    // GPU components
+    registerComponent(WuiGpuSurface.self)
 }
 
 // MARK: - WuiAnyView
