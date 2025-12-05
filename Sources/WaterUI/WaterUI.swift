@@ -701,9 +701,6 @@ public final class WaterUIViewController: UIViewController {
     public override func viewWillLayoutSubviews() {
         super.viewWillLayoutSubviews()
 
-        // Debug: Print view info
-        print("[WaterUIViewController] view.bounds: \(view.bounds), safeAreaInsets: \(view.safeAreaInsets)")
-        print("[WaterUIViewController] rootView.frame: \(context.rootView.frame)")
 
         // Measure and layout the root view
         if let component = context.rootView as? (any WuiComponent) {

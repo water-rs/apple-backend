@@ -66,7 +66,6 @@ final class RootThemeController {
 
     private func setupColorSchemeWatcher(env: WuiEnvironment) {
         guard let signal = waterui_theme_color_scheme(env.inner) else {
-            print("[RootThemeController] No color scheme signal found")
             return
         }
 
@@ -75,18 +74,15 @@ final class RootThemeController {
 
         // Apply initial value
         let initial = waterui_read_computed_color_scheme(signal)
-        print("[RootThemeController] Initial color scheme: \(initial.rawValue) (0=Light, 1=Dark)")
         applyColorScheme(initial)
 
         // Watch for changes
         let watcher = makeColorSchemeWatcher { [weak self] scheme, _ in
-            print("[RootThemeController] Watcher triggered: color scheme = \(scheme.rawValue)")
             self?.applyColorScheme(scheme)
         }
 
         if let guard_ = waterui_watch_computed_color_scheme(signal, watcher) {
             self.watcherGuard = WatcherGuard(guard_)
-            print("[RootThemeController] Watcher guard created successfully")
         } else {
             print("[RootThemeController] Failed to create watcher guard")
         }
@@ -117,7 +113,6 @@ final class RootThemeController {
         default: nil
         }
 
-        print("[RootThemeController] Applying macOS appearance: \(appearance?.name.rawValue ?? "nil")")
 
         // Set appearance on window and all its content
         window.appearance = appearance
@@ -154,7 +149,6 @@ private func markAsRootContentEnv(_ env: WuiEnvironment) {
         // Debug: check what color scheme this env has
         if let signal = waterui_theme_color_scheme(env.inner) {
             let scheme = waterui_read_computed_color_scheme(signal)
-            print("[markAsRootContentEnv] Captured env with color scheme: \(scheme.rawValue) (0=Light, 1=Dark)")
             waterui_drop_computed_color_scheme(signal)
         }
     }
@@ -292,8 +286,6 @@ public final class WuiAnyView: UIView, WuiComponent {
         // Manually size inner view to fill bounds
         inner.frame = bounds
 
-        // Debug: print frame info
-        print("[WuiAnyView] bounds: \(bounds), frame: \(frame)")
     }
 
     override public func didMoveToWindow() {

@@ -113,9 +113,6 @@ final class WuiFixedContainer: PlatformView, WuiComponent {
     private func performLayout() {
         guard !childViews.isEmpty else { return }
 
-        // Debug: Print container bounds
-        print("[WuiFixedContainer] bounds: \(bounds), frame: \(frame)")
-
         let proxies = bridge.createSubViewProxies(children: childViews) { child, childProposal in
             child.sizeThatFits(childProposal)
         }
@@ -140,9 +137,6 @@ final class WuiFixedContainer: PlatformView, WuiComponent {
                 frame.origin.y = bounds.height - frame.origin.y - frame.height
             }
             #endif
-
-            // Debug: Print child frame
-            print("[WuiFixedContainer] child[\(index)] frame: \(frame)")
 
             childViews[index].frame = frame
         }
