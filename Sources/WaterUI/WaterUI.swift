@@ -677,6 +677,8 @@ public final class WaterUIViewController: UIViewController {
     public override func loadView() {
         view = UIView()
         view.backgroundColor = .systemBackground
+        // Allow content to extend into safe area
+        view.insetsLayoutMarginsFromSafeArea = false
     }
 
     public override func viewDidLoad() {
@@ -684,8 +686,10 @@ public final class WaterUIViewController: UIViewController {
 
         let rootView = context.rootView
         rootView.translatesAutoresizingMaskIntoConstraints = false
+        rootView.insetsLayoutMarginsFromSafeArea = false
         view.addSubview(rootView)
 
+        // Pin to view edges (not safe area) to allow edge-to-edge content
         NSLayoutConstraint.activate([
             rootView.topAnchor.constraint(equalTo: view.topAnchor),
             rootView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -696,6 +700,10 @@ public final class WaterUIViewController: UIViewController {
 
     public override func viewWillLayoutSubviews() {
         super.viewWillLayoutSubviews()
+
+        // Debug: Print view info
+        print("[WaterUIViewController] view.bounds: \(view.bounds), safeAreaInsets: \(view.safeAreaInsets)")
+        print("[WaterUIViewController] rootView.frame: \(context.rootView.frame)")
 
         // Measure and layout the root view
         if let component = context.rootView as? (any WuiComponent) {

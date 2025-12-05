@@ -233,6 +233,7 @@ private func registerBuiltinComponentsIfNeeded() {
 
     // Media components
     // TODO: registerComponent(WuiPhoto.self)
+    registerComponent(WuiVideo.self)
     registerComponent(WuiVideoPlayer.self)
     // TODO: registerComponent(WuiLivePhoto.self)
     // TODO: registerComponent(WuiLivePhotoSource.self)
@@ -264,6 +265,9 @@ public final class WuiAnyView: UIView, WuiComponent {
         self.inner = Self.resolve(anyview: anyview, env: env)
         super.init(frame: .zero)
 
+        // Allow content to draw outside bounds (needed for ignore_safe_area)
+        clipsToBounds = false
+
         // Embed the resolved view using manual frame layout (not AutoLayout)
         // This is critical: WaterUI uses Rust layout engine, not AutoLayout
         inner.translatesAutoresizingMaskIntoConstraints = true
@@ -287,6 +291,9 @@ public final class WuiAnyView: UIView, WuiComponent {
         super.layoutSubviews()
         // Manually size inner view to fill bounds
         inner.frame = bounds
+
+        // Debug: print frame info
+        print("[WuiAnyView] bounds: \(bounds), frame: \(frame)")
     }
 
     override public func didMoveToWindow() {

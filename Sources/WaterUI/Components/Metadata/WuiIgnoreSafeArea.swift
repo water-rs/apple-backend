@@ -34,9 +34,9 @@ final class WuiIgnoreSafeArea: PlatformView, WuiComponent {
         addSubview(contentView)
 
         #if canImport(UIKit)
-        // iOS: The actual safe area extension is handled during layout
-        // by adjusting the content frame beyond the safe area insets
+        // iOS: Configure the view to ignore safe area
         clipsToBounds = false
+        insetsLayoutMarginsFromSafeArea = false
         #elseif canImport(AppKit)
         // macOS doesn't have safe areas in the same way
         #endif
@@ -59,31 +59,42 @@ final class WuiIgnoreSafeArea: PlatformView, WuiComponent {
     override func layoutSubviews() {
         super.layoutSubviews()
 
-        // Calculate extended frame based on ignored edges
-        var extendedFrame = bounds
-        let safeInsets = safeAreaInsets
+        // Get the safe area insets from the window (most reliable source)
+        let safeInsets = window?.safeAreaInsets ?? super.safeAreaInsets
 
-        if edges.top {
+        // Calculate extended frame to include safe area on ignored edges
+        var extendedFrame = bounds
+
+        if edges.top && safeInsets.top > 0 {
             extendedFrame.origin.y -= safeInsets.top
             extendedFrame.size.height += safeInsets.top
         }
-        if edges.bottom {
+        if edges.bottom && safeInsets.bottom > 0 {
             extendedFrame.size.height += safeInsets.bottom
         }
-        if edges.leading {
+        if edges.leading && safeInsets.left > 0 {
             extendedFrame.origin.x -= safeInsets.left
             extendedFrame.size.width += safeInsets.left
         }
-        if edges.trailing {
+        if edges.trailing && safeInsets.right > 0 {
             extendedFrame.size.width += safeInsets.right
         }
 
         contentView.frame = extendedFrame
+
+        // Debug: Print frame and safe area info
+        print("[WuiIgnoreSafeArea] bounds: \(bounds), frame: \(frame), safeInsets: \(safeInsets), contentFrame: \(extendedFrame)")
     }
 
-    override func safeAreaInsetsDidChange() {
-        super.safeAreaInsetsDidChange()
-        setNeedsLayout()
+    // Override to propagate zero safe area to child views for ignored edges
+    override var safeAreaInsets: UIEdgeInsets {
+        let originalInsets = super.safeAreaInsets
+        return UIEdgeInsets(
+            top: edges.top ? 0 : originalInsets.top,
+            left: edges.leading ? 0 : originalInsets.left,
+            bottom: edges.bottom ? 0 : originalInsets.bottom,
+            right: edges.trailing ? 0 : originalInsets.right
+        )
     }
     #elseif canImport(AppKit)
     override var isFlipped: Bool { true }
