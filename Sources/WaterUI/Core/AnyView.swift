@@ -232,6 +232,11 @@ private func registerBuiltinComponentsIfNeeded() {
     // TODO: registerComponent(WuiLivePhoto.self)
     // TODO: registerComponent(WuiLivePhotoSource.self)
 
+    // Navigation components
+    registerComponent(WuiNavigationStack.self)
+    registerComponent(WuiNavigationView.self)
+    registerComponent(WuiTabs.self)
+
     // Renderer components
     // TODO: registerComponent(WuiRendererView.self)
 }

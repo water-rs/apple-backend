@@ -23,6 +23,10 @@ struct WuiStyledStr {
         }
         return result
     }
+
+    func toString() -> String {
+        chunks.map { $0.text.toString() }.joined()
+    }
 }
 
 @MainActor

@@ -154,3 +154,18 @@ extension WuiBinding where T == Float {
         )
     }
 }
+
+extension WuiBinding where T == WuiId {
+    convenience init(_ inner: OpaquePointer) {
+        self.init(
+            inner: inner,
+            read: waterui_read_binding_id,
+            watch: { inner, f in
+                let g = waterui_watch_binding_id(inner, makeIdWatcher(f))
+                return WatcherGuard(g!)
+            },
+            set: waterui_set_binding_id,
+            drop: waterui_drop_binding_id
+        )
+    }
+}

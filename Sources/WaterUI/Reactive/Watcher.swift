@@ -229,3 +229,19 @@ func makeColorSchemeWatcher(_ f: @escaping (WuiColorScheme, WuiWatcherMetadata) 
     }
     return watcher
 }
+
+@MainActor
+func makeIdWatcher(_ f: @escaping (WuiId, WuiWatcherMetadata) -> Void) -> OpaquePointer {
+    let data = wrap(f)
+    let call: @convention(c) (UnsafeMutableRawPointer?, WuiId, OpaquePointer?) -> Void = {
+        data, value, metadata in
+        callWrapper(data, value, metadata)
+    }
+    let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
+        dropWrapper($0, WuiId.self)
+    }
+    guard let watcher = waterui_new_watcher_id(data, call, drop) else {
+        fatalError("Failed to create id watcher")
+    }
+    return watcher
+}
