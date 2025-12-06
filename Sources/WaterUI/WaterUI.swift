@@ -165,6 +165,13 @@ final class ReactiveColorSignal {
             }
         }
 
+        func removeWatcher(_ watcher: OpaquePointer) {
+            if let index = watchers.firstIndex(of: watcher) {
+                watchers.remove(at: index)
+                waterui_drop_watcher_resolved_color(watcher)
+            }
+        }
+
         func cleanup() {
             for watcher in watchers {
                 waterui_drop_watcher_resolved_color(watcher)
@@ -200,7 +207,25 @@ final class ReactiveColorSignal {
                     guard let ptr = ptr, let watcher = watcher else { return nil }
                     let state = Unmanaged<State>.fromOpaque(UnsafeMutableRawPointer(mutating: ptr)).takeUnretainedValue()
                     _ = state.addWatcher(watcher)
-                    return waterui_new_watcher_guard(nil) { _ in }
+
+                    final class WatcherGuardContext {
+                        let statePtr: UnsafeMutableRawPointer
+                        let watcher: OpaquePointer
+                        init(statePtr: UnsafeMutableRawPointer, watcher: OpaquePointer) {
+                            self.statePtr = statePtr
+                            self.watcher = watcher
+                        }
+                    }
+
+                    let context = WatcherGuardContext(statePtr: UnsafeMutableRawPointer(mutating: ptr), watcher: watcher)
+                    let contextPtr = Unmanaged.passRetained(context).toOpaque()
+
+                    return waterui_new_watcher_guard(contextPtr) { rawPtr in
+                        guard let rawPtr = rawPtr else { return }
+                        let context = Unmanaged<WatcherGuardContext>.fromOpaque(rawPtr).takeRetainedValue()
+                        let state = Unmanaged<State>.fromOpaque(context.statePtr).takeUnretainedValue()
+                        state.removeWatcher(context.watcher)
+                    }
                 },
                 { ptr in
                     guard let ptr = ptr else { return }
