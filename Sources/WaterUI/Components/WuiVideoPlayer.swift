@@ -336,6 +336,12 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
 
     @MainActor deinit {
         NotificationCenter.default.removeObserver(self)
+        sourceWatcher = nil
+        volumeWatcher = nil
+        statusObserver?.invalidate()
+        bufferEmptyObserver?.invalidate()
+        likelyToKeepUpObserver?.invalidate()
         player.pause()
+        player.replaceCurrentItem(with: nil)
     }
 }
