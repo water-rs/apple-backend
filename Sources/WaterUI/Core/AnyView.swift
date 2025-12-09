@@ -226,11 +226,10 @@ private func registerBuiltinComponentsIfNeeded() {
     registerMetadataComponent(WuiRetain.self)
 
     // Media components
-    // TODO: registerComponent(WuiPhoto.self)
+    registerComponent(WuiPhoto.self)
     registerComponent(WuiVideo.self)
     registerComponent(WuiVideoPlayer.self)
-    // TODO: registerComponent(WuiLivePhoto.self)
-    // TODO: registerComponent(WuiLivePhotoSource.self)
+    registerComponent(WuiMediaPicker.self)
 
     // Navigation components
     registerComponent(WuiNavigationStack.self)

@@ -1,9 +1,9 @@
 // WuiPhoto.swift
-// Photo component that displays remote images with placeholders
+// Photo component that displays remote images
 //
 // # Layout Behavior
-// Photo component displays an image from a URL with an optional placeholder view
-// while loading. Uses platform-native image views (UIImageView/NSImageView).
+// Photo component displays an image from a URL.
+// Uses platform-native image views (UIImageView/NSImageView).
 //
 // # Event Handling
 // Emits Loaded event when image successfully loads
@@ -29,7 +29,6 @@ final class WuiPhoto: PlatformView, WuiComponent {
     private let imageView: NSImageView
     #endif
 
-    private var placeholderView: (any WuiComponent)?
     private var onEvent: CWaterUI.WuiFn_WuiPhotoEvent
     private let sourceURL: URL
     private var loadTask: Task<Void, Never>?
@@ -43,24 +42,14 @@ final class WuiPhoto: PlatformView, WuiComponent {
         let sourceURLString = sourceStr.toString()
         let onEvent = ffiPhoto.on_event
 
-        // Placeholder view if provided
-        var placeholderComponent: (any WuiComponent)?
-        if let placeholderPtr = ffiPhoto.placeholder {
-            placeholderComponent = WuiAnyView.resolve(anyview: placeholderPtr, env: env)
-        }
-
-        self.init(sourceURL: sourceURLString, placeholder: placeholderComponent, onEvent: onEvent, env: env)
+        self.init(sourceURL: sourceURLString, onEvent: onEvent)
     }
-
-    private let env: WuiEnvironment
 
     // MARK: - Designated Init
 
-    init(sourceURL: String, placeholder: (any WuiComponent)?, onEvent: CWaterUI.WuiFn_WuiPhotoEvent, env: WuiEnvironment) {
+    init(sourceURL: String, onEvent: CWaterUI.WuiFn_WuiPhotoEvent) {
         self.sourceURL = URL(string: sourceURL) ?? URL(fileURLWithPath: "")
-        self.placeholderView = placeholder
         self.onEvent = onEvent
-        self.env = env
 
         #if canImport(UIKit)
         self.imageView = UIImageView()
@@ -73,11 +62,6 @@ final class WuiPhoto: PlatformView, WuiComponent {
         imageView.imageScaling = .scaleProportionallyUpOrDown
         addSubview(imageView)
         #endif
-
-        // Add placeholder if provided (WuiComponent IS the view - it inherits from PlatformView)
-        if let placeholder = placeholderView {
-            addSubview(placeholder)
-        }
 
         // Start loading image
         loadImage()
@@ -104,13 +88,11 @@ final class WuiPhoto: PlatformView, WuiComponent {
     override func layoutSubviews() {
         super.layoutSubviews()
         imageView.frame = bounds
-        placeholderView?.frame = bounds
     }
     #elseif canImport(AppKit)
     override func layout() {
         super.layout()
         imageView.frame = bounds
-        placeholderView?.frame = bounds
     }
 
     override var isFlipped: Bool { true }
@@ -136,7 +118,6 @@ final class WuiPhoto: PlatformView, WuiComponent {
                     #if canImport(UIKit)
                     if let image = UIImage(data: data) {
                         imageView.image = image
-                        hidePlaceholder()
                         emitLoadedEvent()
                     } else {
                         emitErrorEvent("Failed to decode image")
@@ -144,7 +125,6 @@ final class WuiPhoto: PlatformView, WuiComponent {
                     #elseif canImport(AppKit)
                     if let image = NSImage(data: data) {
                         imageView.image = image
-                        hidePlaceholder()
                         emitLoadedEvent()
                     } else {
                         emitErrorEvent("Failed to decode image")
@@ -158,10 +138,6 @@ final class WuiPhoto: PlatformView, WuiComponent {
                 }
             }
         }
-    }
-
-    private func hidePlaceholder() {
-        placeholderView?.isHidden = true
     }
 
     private func emitLoadedEvent() {
