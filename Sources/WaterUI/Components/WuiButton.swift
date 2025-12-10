@@ -64,27 +64,24 @@ final class WuiButton: PlatformView, WuiComponent {
     // MARK: - WuiComponent
 
     func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
+        // Button has stretchAxis = .none, so it always reports its intrinsic size.
+        // It never expands to fill space, and it should not be compressed below intrinsic.
         #if canImport(UIKit)
-        let targetWidth = proposal.width.map { CGFloat($0) } ?? UIView.noIntrinsicMetric
-        let targetHeight = proposal.height.map { CGFloat($0) } ?? UIView.noIntrinsicMetric
-        let fittingSize = CGSize(
-            width: targetWidth == UIView.noIntrinsicMetric ? UIView.layoutFittingCompressedSize.width : targetWidth,
-            height: targetHeight == UIView.noIntrinsicMetric ? UIView.layoutFittingCompressedSize.height : targetHeight
-        )
-        let horizontalPriority: UILayoutPriority =
-            targetWidth == UIView.noIntrinsicMetric ? .fittingSizeLevel : .required
-        let verticalPriority: UILayoutPriority =
-            targetHeight == UIView.noIntrinsicMetric ? .fittingSizeLevel : .required
         return button.systemLayoutSizeFitting(
-            fittingSize,
-            withHorizontalFittingPriority: horizontalPriority,
-            verticalFittingPriority: verticalPriority
+            UIView.layoutFittingCompressedSize,
+            withHorizontalFittingPriority: .fittingSizeLevel,
+            verticalFittingPriority: .fittingSizeLevel
         )
         #elseif canImport(AppKit)
-        let intrinsic = button.intrinsicContentSize
-        let width = proposal.width.map { CGFloat($0) } ?? intrinsic.width
-        let height = proposal.height.map { CGFloat($0) } ?? intrinsic.height
-        return CGSize(width: max(width, intrinsic.width), height: max(height, intrinsic.height))
+        // Calculate size based on label content plus padding
+        // NSButton.fittingSize doesn't always account for custom embedded views correctly
+        let labelSize = labelView.sizeThatFits(WuiProposalSize())
+        let horizontalPadding: CGFloat = 16 // 8pt on each side
+        let verticalPadding: CGFloat = 8    // 4pt on each side
+        return CGSize(
+            width: labelSize.width + horizontalPadding,
+            height: labelSize.height + verticalPadding
+        )
         #endif
     }
 

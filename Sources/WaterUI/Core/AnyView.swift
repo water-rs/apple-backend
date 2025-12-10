@@ -288,6 +288,12 @@ public final class WuiAnyView: UIView, WuiComponent {
         inner.sizeThatFits(proposal)
     }
 
+    /// Returns intrinsic content size for UIKit Auto Layout integration.
+    /// This allows WaterUI views to participate in Auto Layout constraints.
+    override public var intrinsicContentSize: CGSize {
+        sizeThatFits(WuiProposalSize())
+    }
+
     override public func layoutSubviews() {
         super.layoutSubviews()
         // Manually size inner view to fill bounds
@@ -374,6 +380,12 @@ public final class WuiAnyView: NSView, WuiComponent {
 
     public func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
         inner.sizeThatFits(proposal)
+    }
+
+    /// Returns intrinsic content size for AppKit Auto Layout integration.
+    /// This allows WaterUI views to participate in Auto Layout constraints.
+    override public var intrinsicContentSize: NSSize {
+        sizeThatFits(WuiProposalSize())
     }
 
     override public var isFlipped: Bool { true }

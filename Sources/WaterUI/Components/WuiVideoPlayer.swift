@@ -158,10 +158,52 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
 
         addSubview(pvc.view)
         self.playerViewController = pvc
+
+        // When controls are hidden, make the player transparent to touches
+        // so overlaid views (like custom controls) can receive touches
+        if !showControls {
+            pvc.view.isUserInteractionEnabled = false
+        }
         #endif
 
         setupEndNotification()
     }
+
+    #if canImport(UIKit)
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+
+        // AVPlayerViewController requires proper view controller containment for controls to work
+        guard let pvc = playerViewController else { return }
+
+        if window != nil {
+            // Find the parent view controller and add player as child
+            if let parentVC = findParentViewController() {
+                if pvc.parent == nil {
+                    parentVC.addChild(pvc)
+                    pvc.didMove(toParent: parentVC)
+                }
+            }
+        } else {
+            // Remove from parent when leaving window
+            if pvc.parent != nil {
+                pvc.willMove(toParent: nil)
+                pvc.removeFromParent()
+            }
+        }
+    }
+
+    private func findParentViewController() -> UIViewController? {
+        var responder: UIResponder? = self
+        while let nextResponder = responder?.next {
+            if let viewController = nextResponder as? UIViewController {
+                return viewController
+            }
+            responder = nextResponder
+        }
+        return nil
+    }
+    #endif
 
     private func setupEndNotification() {
         NotificationCenter.default.addObserver(

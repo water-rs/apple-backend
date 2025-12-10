@@ -81,9 +81,6 @@ final class WuiIgnoreSafeArea: PlatformView, WuiComponent {
         }
 
         contentView.frame = extendedFrame
-
-        // Debug: Print frame and safe area info
-        print("[WuiIgnoreSafeArea] bounds: \(bounds), frame: \(frame), safeInsets: \(safeInsets), contentFrame: \(extendedFrame)")
     }
 
     // Override to propagate zero safe area to child views for ignored edges
@@ -95,6 +92,22 @@ final class WuiIgnoreSafeArea: PlatformView, WuiComponent {
             bottom: edges.bottom ? 0 : originalInsets.bottom,
             right: edges.trailing ? 0 : originalInsets.right
         )
+    }
+
+    // Allow touches to reach content that extends beyond bounds (into safe area)
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        // Check if point is within the extended content frame
+        return contentView.frame.contains(point)
+    }
+
+    // Custom hit testing to handle content that extends beyond bounds
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        // Convert point to content view's coordinate system and test there
+        let convertedPoint = convert(point, to: contentView)
+        if let hitView = contentView.hitTest(convertedPoint, with: event) {
+            return hitView
+        }
+        return nil
     }
     #elseif canImport(AppKit)
     override var isFlipped: Bool { true }

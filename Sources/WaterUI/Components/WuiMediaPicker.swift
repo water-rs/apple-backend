@@ -407,12 +407,14 @@ final class WuiMediaPicker: PlatformView, WuiComponent {
 #if canImport(UIKit)
 extension WuiMediaPicker: PHPickerViewControllerDelegate {
     nonisolated func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+        // Register the result immediately on the current thread (nonisolated context)
+        // PHPickerResult is not Sendable, so we must process it before crossing actor boundaries
+        let selectedId: UInt32? = results.first.map { MediaRegistry.shared.register($0) }
+
         Task { @MainActor in
             picker.dismiss(animated: true)
 
-            if let result = results.first {
-                // Register the result and get a unique ID
-                let id = MediaRegistry.shared.register(result)
+            if let id = selectedId {
                 let selected = CWaterUI.WuiSelected(id: id)
                 onSelection.call(onSelection.data, selected)
             }
