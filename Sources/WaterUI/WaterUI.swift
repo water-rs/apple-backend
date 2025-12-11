@@ -684,6 +684,24 @@ public final class WuiRootContext {
 // MARK: - Public UIKit Root View Controller
 
 #if canImport(UIKit)
+/// A custom view that fills the entire window but still propagates safe area insets to children.
+/// This allows ScrollView to receive correct safe area insets for content adjustment.
+@MainActor
+private final class FullScreenView: UIView {
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // Force frame to fill entire window
+        if let window = window {
+            frame = window.bounds
+        }
+    }
+
+    // Propagate actual safe area insets from window to children
+    override var safeAreaInsets: UIEdgeInsets {
+        window?.safeAreaInsets ?? super.safeAreaInsets
+    }
+}
+
 /// A UIKit view controller that hosts the WaterUI root view.
 @MainActor
 public final class WaterUIViewController: UIViewController {
@@ -700,38 +718,36 @@ public final class WaterUIViewController: UIViewController {
     }
 
     public override func loadView() {
-        view = UIView()
+        // Use a custom view that fills the window but propagates safe area insets
+        view = FullScreenView()
         view.backgroundColor = .systemBackground
-        // Allow content to extend into safe area
-        view.insetsLayoutMarginsFromSafeArea = false
     }
 
     public override func viewDidLoad() {
         super.viewDidLoad()
 
         let rootView = context.rootView
-        rootView.translatesAutoresizingMaskIntoConstraints = false
-        rootView.insetsLayoutMarginsFromSafeArea = false
+        // Use manual frame-based layout, not AutoLayout
+        rootView.translatesAutoresizingMaskIntoConstraints = true
         view.addSubview(rootView)
-
-        // Pin to view edges (not safe area) to allow edge-to-edge content
-        NSLayoutConstraint.activate([
-            rootView.topAnchor.constraint(equalTo: view.topAnchor),
-            rootView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            rootView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            rootView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        ])
     }
 
     public override func viewWillLayoutSubviews() {
         super.viewWillLayoutSubviews()
-
-
-        // Measure and layout the root view
-        if let component = context.rootView as? (any WuiComponent) {
-            let proposal = WuiProposalSize(size: view.bounds.size)
-            _ = component.sizeThatFits(proposal)
+        // Force view to fill the entire window
+        if let window = view.window {
+            view.frame = window.bounds
         }
+    }
+
+    public override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+
+        // Root view fills the entire window
+        let fullFrame = view.window?.bounds ?? view.bounds
+        context.rootView.frame = CGRect(origin: .zero, size: fullFrame.size)
+        context.rootView.setNeedsLayout()
+        context.rootView.layoutIfNeeded()
     }
 
     public override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
@@ -769,29 +785,24 @@ public final class WaterUIView: NSView {
         // Don't set static backgroundColor - let it follow window appearance
 
         let rootView = context.rootView
-        rootView.translatesAutoresizingMaskIntoConstraints = false
+        // Use manual frame-based layout, not AutoLayout
+        rootView.translatesAutoresizingMaskIntoConstraints = true
         addSubview(rootView)
-
-        NSLayoutConstraint.activate([
-            rootView.topAnchor.constraint(equalTo: topAnchor),
-            rootView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            rootView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            rootView.bottomAnchor.constraint(equalTo: bottomAnchor)
-        ])
 
         // Note: We don't observe system appearance changes here.
         // Color scheme is controlled by Rust via .install(Theme::new().color_scheme(...))
         // and applied to window by RootThemeController.
     }
 
+    public override var isFlipped: Bool { true }
+
     public override func layout() {
         super.layout()
 
-        // Measure and layout the root view
-        if let component = context.rootView as? (any WuiComponent) {
-            let proposal = WuiProposalSize(size: bounds.size)
-            _ = component.sizeThatFits(proposal)
-        }
+        // Manually size root view to fill bounds and trigger layout
+        context.rootView.frame = bounds
+        context.rootView.needsLayout = true
+        context.rootView.layoutSubtreeIfNeeded()
     }
 
     public override func viewDidChangeEffectiveAppearance() {

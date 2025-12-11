@@ -95,72 +95,35 @@ final class WuiStepper: PlatformView, WuiComponent {
 
     // MARK: - Layout
 
-    #if canImport(UIKit)
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        performLayout()
-    }
-    #elseif canImport(AppKit)
-    override func layout() {
-        super.layout()
-        performLayout()
-    }
-
+    #if canImport(AppKit)
     override var isFlipped: Bool { true }
     #endif
-
-    private func performLayout() {
-        let boundsWidth = bounds.width
-        let boundsHeight = bounds.height
-
-        // Calculate sizes
-        let stepperSize = stepper.intrinsicContentSize
-        let labelSize = labelView.sizeThatFits(WuiProposalSize())
-        let hasLabel = labelSize.width > 0 && labelSize.height > 0
-
-        if hasLabel {
-            // With label: [label] --- flexible space --- [+/- buttons]
-            // Label on left, buttons on right
-
-            // 1. Stepper buttons (rightmost)
-            let stepperX = boundsWidth - stepperSize.width
-            let stepperY = (boundsHeight - stepperSize.height) / 2
-            stepper.frame = CGRect(
-                x: stepperX,
-                y: stepperY,
-                width: stepperSize.width,
-                height: stepperSize.height
-            )
-
-            // 2. Label view (leftmost)
-            let labelY = (boundsHeight - labelSize.height) / 2
-            labelView.frame = CGRect(
-                x: 0,
-                y: labelY,
-                width: labelSize.width,
-                height: labelSize.height
-            )
-        } else {
-            // Without label: just buttons, left-aligned
-            labelView.frame = .zero
-            let stepperY = (boundsHeight - stepperSize.height) / 2
-            stepper.frame = CGRect(
-                x: 0,
-                y: stepperY,
-                width: stepperSize.width,
-                height: stepperSize.height
-            )
-        }
-    }
 
     // MARK: - Update Methods
 
     func updateLabel(_ newLabel: WuiAnyView) {
         guard newLabel !== labelView else { return }
         labelView.removeFromSuperview()
+
         labelView = newLabel
-        addSubview(newLabel)
-        setNeedsLayoutCompat()
+        labelView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(labelView)
+
+        // Set content priorities
+        #if canImport(UIKit)
+        labelView.setContentCompressionResistancePriority(.required, for: .horizontal)
+        labelView.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        #elseif canImport(AppKit)
+        labelView.setContentCompressionResistancePriority(.required, for: .horizontal)
+        labelView.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        #endif
+
+        // Re-establish constraints for new label
+        NSLayoutConstraint.activate([
+            labelView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            labelView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            labelView.trailingAnchor.constraint(lessThanOrEqualTo: stepper.leadingAnchor, constant: -spacing),
+        ])
     }
 
     func updateBinding(_ newBinding: WuiBinding<Int32>) {
@@ -188,8 +151,36 @@ final class WuiStepper: PlatformView, WuiComponent {
     // MARK: - Configuration
 
     private func configureSubviews() {
+        // Use AutoLayout for internal component layout
+        labelView.translatesAutoresizingMaskIntoConstraints = false
+        stepper.translatesAutoresizingMaskIntoConstraints = false
+
         addSubview(labelView)
         addSubview(stepper)
+
+        // Ensure label doesn't get compressed - it should show its full content
+        #if canImport(UIKit)
+        labelView.setContentCompressionResistancePriority(.required, for: .horizontal)
+        labelView.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        #elseif canImport(AppKit)
+        labelView.setContentCompressionResistancePriority(.required, for: .horizontal)
+        labelView.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        #endif
+
+        // Layout: [label] --- flexible space --- [stepper]
+        // Label on leading, stepper on trailing, both vertically centered
+        NSLayoutConstraint.activate([
+            // Label: leading, vertically centered
+            labelView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            labelView.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            // Stepper: trailing, vertically centered
+            stepper.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stepper.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            // Prevent overlap
+            labelView.trailingAnchor.constraint(lessThanOrEqualTo: stepper.leadingAnchor, constant: -spacing),
+        ])
     }
 
     private func configureStepper() {
@@ -219,17 +210,7 @@ final class WuiStepper: PlatformView, WuiComponent {
             stepper.integerValue = Int(newValue)
             #endif
             isSyncingFromBinding = false
-            // Trigger layout update since label content may have changed
-            setNeedsLayoutCompat()
         }
-    }
-
-    private func setNeedsLayoutCompat() {
-        #if canImport(UIKit)
-        setNeedsLayout()
-        #elseif canImport(AppKit)
-        needsLayout = true
-        #endif
     }
 
     @objc private func valueChanged() {

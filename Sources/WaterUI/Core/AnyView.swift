@@ -203,8 +203,7 @@ private func registerBuiltinComponentsIfNeeded() {
     registerComponent(WuiFixedContainer.self)
     registerComponent(WuiContainer.self)
     registerComponent(WuiScroll.self)
-    // TODO: registerComponent(WuiList.self)
-    // TODO: registerComponent(WuiListItem.self)
+    registerComponent(WuiList.self)
     // TODO: registerComponent(WuiTable.self)
     // TODO: registerComponent(WuiTableColumn.self)
     // TODO: registerComponent(WuiNavigationView.self)
@@ -296,9 +295,10 @@ public final class WuiAnyView: UIView, WuiComponent {
 
     override public func layoutSubviews() {
         super.layoutSubviews()
-        // Manually size inner view to fill bounds
+        // Manually size inner view to fill bounds and trigger nested layout
         inner.frame = bounds
-
+        inner.setNeedsLayout()
+        inner.layoutIfNeeded()
     }
 
     override public func didMoveToWindow() {

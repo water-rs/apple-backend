@@ -58,6 +58,10 @@ final class WuiScroll: UIScrollView, WuiComponent, UIScrollViewDelegate {
         showsHorizontalScrollIndicator = isHorizontal
         alwaysBounceVertical = isVertical
         alwaysBounceHorizontal = isHorizontal
+
+        // Use scrollableAxes to adjust content insets only for the scrolling direction
+        // This allows scrolling past safe areas while keeping content properly inset
+        contentInsetAdjustmentBehavior = .scrollableAxes
     }
 
     @available(*, unavailable)
@@ -187,16 +191,20 @@ final class WuiScroll: NSScrollView, WuiComponent {
 
         guard let documentView = documentView else { return }
 
+        // Use bounds (the scroll view's actual size), not contentSize (which is the document size)
+        let visibleWidth = bounds.width
+        let visibleHeight = bounds.height
+
         let contentProposal: WuiProposalSize
         switch axis {
         case WuiAxis_Vertical:
-            contentProposal = WuiProposalSize(width: Float(contentSize.width), height: nil)
+            contentProposal = WuiProposalSize(width: Float(visibleWidth), height: nil)
         case WuiAxis_Horizontal:
-            contentProposal = WuiProposalSize(width: nil, height: Float(contentSize.height))
+            contentProposal = WuiProposalSize(width: nil, height: Float(visibleHeight))
         case WuiAxis_All:
             contentProposal = WuiProposalSize(width: nil, height: nil)
         default:
-            contentProposal = WuiProposalSize(width: Float(contentSize.width), height: nil)
+            contentProposal = WuiProposalSize(width: Float(visibleWidth), height: nil)
         }
 
         let measuredSize = contentHostView.sizeThatFits(contentProposal)
@@ -206,17 +214,17 @@ final class WuiScroll: NSScrollView, WuiComponent {
 
         switch axis {
         case WuiAxis_Vertical:
-            finalWidth = contentSize.width
-            finalHeight = max(measuredSize.height, contentSize.height)
+            finalWidth = visibleWidth
+            finalHeight = max(measuredSize.height, visibleHeight)
         case WuiAxis_Horizontal:
-            finalWidth = max(measuredSize.width, contentSize.width)
-            finalHeight = contentSize.height
+            finalWidth = max(measuredSize.width, visibleWidth)
+            finalHeight = visibleHeight
         case WuiAxis_All:
-            finalWidth = max(measuredSize.width, contentSize.width)
-            finalHeight = max(measuredSize.height, contentSize.height)
+            finalWidth = max(measuredSize.width, visibleWidth)
+            finalHeight = max(measuredSize.height, visibleHeight)
         default:
-            finalWidth = contentSize.width
-            finalHeight = max(measuredSize.height, contentSize.height)
+            finalWidth = visibleWidth
+            finalHeight = max(measuredSize.height, visibleHeight)
         }
 
         let documentFrame = CGRect(x: 0, y: 0, width: finalWidth, height: finalHeight)

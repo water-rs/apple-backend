@@ -88,71 +88,43 @@ final class WuiToggle: PlatformView, WuiComponent {
 
     // MARK: - Layout
 
-    #if canImport(UIKit)
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        performLayout()
-    }
-    #elseif canImport(AppKit)
-    override func layout() {
-        super.layout()
-        performLayout()
-    }
-
+    #if canImport(AppKit)
     override var isFlipped: Bool { true }
     #endif
-
-    /// Shared layout logic for both UIKit and AppKit
-    private func performLayout() {
-        let boundsWidth = bounds.width
-        let boundsHeight = bounds.height
-
-        // Calculate sizes
-        let labelSize = labelView.sizeThatFits(WuiProposalSize())
-        let toggleSize = toggle.intrinsicContentSize
-        let hasLabel = labelSize.width > 0 && labelSize.height > 0
-
-        if hasLabel {
-            // With label: [label] --- flexible space --- [switch]
-            // Label on left, switch on right
-
-            // 1. Toggle switch (rightmost)
-            let toggleX = boundsWidth - toggleSize.width
-            let toggleY = (boundsHeight - toggleSize.height) / 2
-            toggle.frame = CGRect(
-                x: toggleX,
-                y: toggleY,
-                width: toggleSize.width,
-                height: toggleSize.height
-            )
-
-            // 2. Label view (leftmost)
-            let labelY = (boundsHeight - labelSize.height) / 2
-            labelView.frame = CGRect(
-                x: 0,
-                y: labelY,
-                width: labelSize.width,
-                height: labelSize.height
-            )
-        } else {
-            // Without label: just switch, left-aligned
-            labelView.frame = .zero
-            let toggleY = (boundsHeight - toggleSize.height) / 2
-            toggle.frame = CGRect(
-                x: 0,
-                y: toggleY,
-                width: toggleSize.width,
-                height: toggleSize.height
-            )
-        }
-    }
 
     // MARK: - Configuration
 
     private func configureSubviews() {
-        // Manual frame layout - just add subviews, performLayout() will position them
+        // Use AutoLayout for internal component layout
+        labelView.translatesAutoresizingMaskIntoConstraints = false
+        toggle.translatesAutoresizingMaskIntoConstraints = false
+
         addSubview(labelView)
         addSubview(toggle)
+
+        // Ensure label doesn't get compressed - it should show its full content
+        #if canImport(UIKit)
+        labelView.setContentCompressionResistancePriority(.required, for: .horizontal)
+        labelView.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        #elseif canImport(AppKit)
+        labelView.setContentCompressionResistancePriority(.required, for: .horizontal)
+        labelView.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        #endif
+
+        // Layout: [label] --- flexible space --- [toggle]
+        // Label on leading, toggle on trailing, both vertically centered
+        NSLayoutConstraint.activate([
+            // Label: leading, vertically centered
+            labelView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            labelView.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            // Toggle: trailing, vertically centered
+            toggle.trailingAnchor.constraint(equalTo: trailingAnchor),
+            toggle.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            // Prevent overlap: label must not extend past toggle
+            labelView.trailingAnchor.constraint(lessThanOrEqualTo: toggle.leadingAnchor, constant: -horizontalSpacing),
+        ])
     }
 
     private func syncToggleState() {
@@ -194,14 +166,6 @@ final class WuiToggle: PlatformView, WuiComponent {
         }
     }
 
-    private func setNeedsLayoutCompat() {
-        #if canImport(UIKit)
-        setNeedsLayout()
-        #elseif canImport(AppKit)
-        needsLayout = true
-        #endif
-    }
-
     @objc private func valueChanged() {
         #if canImport(UIKit)
         binding.value = toggle.isOn
@@ -215,9 +179,26 @@ final class WuiToggle: PlatformView, WuiComponent {
     func updateLabel(_ label: WuiAnyView) {
         guard label !== labelView else { return }
         labelView.removeFromSuperview()
-        addSubview(label)
+
         labelView = label
-        setNeedsLayoutCompat()
+        labelView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(labelView)
+
+        // Set content priorities
+        #if canImport(UIKit)
+        labelView.setContentCompressionResistancePriority(.required, for: .horizontal)
+        labelView.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        #elseif canImport(AppKit)
+        labelView.setContentCompressionResistancePriority(.required, for: .horizontal)
+        labelView.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        #endif
+
+        // Re-establish constraints for new label
+        NSLayoutConstraint.activate([
+            labelView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            labelView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            labelView.trailingAnchor.constraint(lessThanOrEqualTo: toggle.leadingAnchor, constant: -horizontalSpacing),
+        ])
     }
 
     func updateBinding(_ newBinding: WuiBinding<Bool>) {

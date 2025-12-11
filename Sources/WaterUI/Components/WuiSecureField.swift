@@ -106,54 +106,25 @@ final class WuiSecureField: PlatformView, WuiComponent {
 
     // MARK: - Layout
 
-    #if canImport(UIKit)
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        performLayout()
-    }
-    #elseif canImport(AppKit)
-    override func layout() {
-        super.layout()
-        performLayout()
-    }
-
+    #if canImport(AppKit)
     override var isFlipped: Bool { true }
     #endif
-
-    /// Shared layout logic for both UIKit and AppKit
-    private func performLayout() {
-        let boundsWidth = bounds.width
-
-        // Calculate sizes
-        let labelSize = labelView.sizeThatFits(WuiProposalSize())
-        let textFieldHeight = textField.intrinsicContentSize.height
-
-        // Layout label at top
-        labelView.frame = CGRect(
-            x: 0,
-            y: 0,
-            width: labelSize.width,
-            height: labelSize.height
-        )
-
-        // Layout text field below label
-        let textFieldY = labelSize.height + verticalSpacing
-        textField.frame = CGRect(
-            x: 0,
-            y: textFieldY,
-            width: boundsWidth,
-            height: textFieldHeight
-        )
-    }
 
     // MARK: - Update Methods
 
     func updateLabel(_ newLabel: WuiAnyView) {
         guard newLabel !== labelView else { return }
         labelView.removeFromSuperview()
-        addSubview(newLabel)
+
         labelView = newLabel
-        setNeedsLayoutCompat()
+        labelView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(labelView)
+
+        // Re-establish constraints for new label
+        NSLayoutConstraint.activate([
+            labelView.topAnchor.constraint(equalTo: topAnchor),
+            labelView.leadingAnchor.constraint(equalTo: leadingAnchor),
+        ])
     }
 
     func updateBinding(_ newBinding: WuiBinding<WuiStr>) {
@@ -168,9 +139,24 @@ final class WuiSecureField: PlatformView, WuiComponent {
     // MARK: - Configuration
 
     private func configureSubviews() {
-        // Manual frame layout - just add subviews, performLayout() will position them
+        // Use AutoLayout for internal component layout
+        labelView.translatesAutoresizingMaskIntoConstraints = false
+        textField.translatesAutoresizingMaskIntoConstraints = false
+
         addSubview(labelView)
         addSubview(textField)
+
+        // Layout: label at top-leading, text field below spanning full width
+        NSLayoutConstraint.activate([
+            // Label: top-leading
+            labelView.topAnchor.constraint(equalTo: topAnchor),
+            labelView.leadingAnchor.constraint(equalTo: leadingAnchor),
+
+            // Text field: below label, full width
+            textField.topAnchor.constraint(equalTo: labelView.bottomAnchor, constant: verticalSpacing),
+            textField.leadingAnchor.constraint(equalTo: leadingAnchor),
+            textField.trailingAnchor.constraint(equalTo: trailingAnchor),
+        ])
     }
 
     private func configureTextField() {
@@ -187,14 +173,6 @@ final class WuiSecureField: PlatformView, WuiComponent {
         textField.isEditable = true
         textField.isSelectable = true
         textField.delegate = self
-        #endif
-    }
-
-    private func setNeedsLayoutCompat() {
-        #if canImport(UIKit)
-        setNeedsLayout()
-        #elseif canImport(AppKit)
-        needsLayout = true
         #endif
     }
 
