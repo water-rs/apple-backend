@@ -107,11 +107,12 @@ final class WuiGpuSurface: PlatformView, WuiComponent {
         #endif
     }
 
-    /// Configure the metal layer pixel format
+    /// Configure the metal layer for HDR rendering
     private func configureHDR() {
-        // Use standard sRGB for compatibility (must match Rust side: Bgra8Unorm)
-        metalLayer.colorspace = CGColorSpace(name: CGColorSpace.sRGB)
-        metalLayer.pixelFormat = .bgra8Unorm
+        // Use Rgba16Float for HDR support (must match Rust side)
+        metalLayer.pixelFormat = .rgba16Float
+        metalLayer.colorspace = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)
+        metalLayer.wantsExtendedDynamicRangeContent = true
     }
 
     // MARK: - GPU Initialization
