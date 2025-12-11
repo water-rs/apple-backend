@@ -43,8 +43,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent {
     #if canImport(UIKit)
     private var displayLink: CADisplayLink?
     #elseif canImport(AppKit)
-    private var displayLink: CVDisplayLink?
-    private var displayLinkSource: DispatchSourceUserDataAdd?
+    private var isRendering = false
     #endif
 
     /// Whether we've initialized the GPU resources
@@ -108,19 +107,11 @@ final class WuiGpuSurface: PlatformView, WuiComponent {
         #endif
     }
 
-    /// Configure the metal layer for HDR rendering when available
+    /// Configure the metal layer pixel format
     private func configureHDR() {
-        // Use extended sRGB for HDR content (wide color gamut)
-        // This enables HDR on displays that support it
-        if #available(iOS 16.0, macOS 13.0, tvOS 16.0, *) {
-            metalLayer.colorspace = CGColorSpace(name: CGColorSpace.extendedLinearDisplayP3)
-            metalLayer.pixelFormat = .rgba16Float  // HDR-capable format
-            metalLayer.wantsExtendedDynamicRangeContent = true
-        } else {
-            // Fallback to standard sRGB
-            metalLayer.colorspace = CGColorSpace(name: CGColorSpace.sRGB)
-            metalLayer.pixelFormat = .bgra8Unorm
-        }
+        // Use standard sRGB for compatibility (must match Rust side: Bgra8Unorm)
+        metalLayer.colorspace = CGColorSpace(name: CGColorSpace.sRGB)
+        metalLayer.pixelFormat = .bgra8Unorm
     }
 
     // MARK: - GPU Initialization
@@ -154,8 +145,6 @@ final class WuiGpuSurface: PlatformView, WuiComponent {
         if gpuState != nil {
             isGpuInitialized = true
             startDisplayLink()
-        } else {
-            print("[WuiGpuSurface] Failed to initialize GPU resources")
         }
     }
 
@@ -187,42 +176,21 @@ final class WuiGpuSurface: PlatformView, WuiComponent {
     }
     #elseif canImport(AppKit)
     private func startDisplayLink() {
-        // Create a dispatch source for thread-safe callbacks
-        displayLinkSource = DispatchSource.makeUserDataAddSource(queue: .main)
-        displayLinkSource?.setEventHandler { [weak self] in
-            self?.renderFrame()
+        guard !isRendering else { return }
+        isRendering = true
+        scheduleNextFrame()
+    }
+
+    private func scheduleNextFrame() {
+        guard isRendering else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.008) { [self] in
+            self.renderFrame()
+            self.scheduleNextFrame()
         }
-        displayLinkSource?.resume()
-
-        // Create CVDisplayLink
-        var link: CVDisplayLink?
-        CVDisplayLinkCreateWithActiveCGDisplays(&link)
-
-        guard let displayLink = link else {
-            print("[WuiGpuSurface] Failed to create CVDisplayLink")
-            return
-        }
-
-        self.displayLink = displayLink
-
-        // Set callback
-        let source = displayLinkSource
-        CVDisplayLinkSetOutputCallback(displayLink, { _, _, _, _, _, userInfo -> CVReturn in
-            let source = Unmanaged<DispatchSourceUserDataAdd>.fromOpaque(userInfo!).takeUnretainedValue()
-            source.add(data: 1)
-            return kCVReturnSuccess
-        }, Unmanaged.passUnretained(source!).toOpaque())
-
-        CVDisplayLinkStart(displayLink)
     }
 
     private func stopDisplayLink() {
-        if let displayLink = displayLink {
-            CVDisplayLinkStop(displayLink)
-        }
-        displayLink = nil
-        displayLinkSource?.cancel()
-        displayLinkSource = nil
+        isRendering = false
     }
     #endif
 
@@ -233,8 +201,6 @@ final class WuiGpuSurface: PlatformView, WuiComponent {
         let width = UInt32(bounds.width * currentScaleFactor)
         let height = UInt32(bounds.height * currentScaleFactor)
 
-        // Call Rust to render the frame
-        // This handles resize internally and calls user's render() callback
         _ = waterui_gpu_surface_render(state, width, height)
     }
 
