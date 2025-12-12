@@ -69,29 +69,37 @@ final class WuiButton: PlatformView, WuiComponent {
     // MARK: - WuiComponent
 
     func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
-        // Button has stretchAxis = .none, so it always reports its intrinsic size.
-        // It never expands to fill space, and it should not be compressed below intrinsic.
-        #if canImport(UIKit)
-        return button.systemLayoutSizeFitting(
-            UIView.layoutFittingCompressedSize,
-            withHorizontalFittingPriority: .fittingSizeLevel,
-            verticalFittingPriority: .fittingSizeLevel
-        )
-        #elseif canImport(AppKit)
-        // Always use unspecified proposal for intrinsic size
-        let labelSize = labelView.sizeThatFits(WuiProposalSize())
-        // Link style has no padding, others have standard padding
-        let horizontalPadding: CGFloat = style == WuiButtonStyle_Link ? 0 : 16
-        let verticalPadding: CGFloat = style == WuiButtonStyle_Link ? 0 : 8
-        let result = CGSize(
-            width: labelSize.width + horizontalPadding,
-            height: labelSize.height + verticalPadding
-        )
-        if style == WuiButtonStyle_Link {
-            logger.debug("[Link] sizeThatFits: labelSize=\(labelSize.width, privacy: .public)x\(labelSize.height, privacy: .public), result=\(result.width, privacy: .public)x\(result.height, privacy: .public)")
+        // Button has stretchAxis = .none, so it always reports its content size.
+        // When width/height is constrained, the label measures with that constraint
+        // (allowing text to wrap) and the button grows in the cross-axis as needed.
+
+        // Use minimal padding for Link style, standard padding for others
+        let horizontalPadding: CGFloat = style == WuiButtonStyle_Link ? 0 : 8
+        let verticalPadding: CGFloat = style == WuiButtonStyle_Link ? 0 : 4
+
+        var labelProposal = WuiProposalSize()
+        if let proposedWidth = proposal.width {
+            labelProposal.width = max(proposedWidth - Float(horizontalPadding * 2), 0)
         }
+        if let proposedHeight = proposal.height {
+            labelProposal.height = max(proposedHeight - Float(verticalPadding * 2), 0)
+        }
+
+        let labelSize = labelView.sizeThatFits(labelProposal)
+        var result = CGSize(
+            width: labelSize.width + horizontalPadding * 2,
+            height: labelSize.height + verticalPadding * 2
+        )
+
+        // Defensively clamp to proposal when one is provided.
+        if let proposedWidth = proposal.width {
+            result.width = min(result.width, CGFloat(proposedWidth))
+        }
+        if let proposedHeight = proposal.height {
+            result.height = min(result.height, CGFloat(proposedHeight))
+        }
+
         return result
-        #endif
     }
 
     // MARK: - Update Methods

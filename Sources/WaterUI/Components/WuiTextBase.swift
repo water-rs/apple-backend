@@ -45,11 +45,18 @@ class WuiTextBase: PlatformView {
 
     private func configureTextView() {
         #if canImport(UIKit)
-        label.translatesAutoresizingMaskIntoConstraints = true
+        label.translatesAutoresizingMaskIntoConstraints = false
         label.numberOfLines = 0
+        label.lineBreakMode = .byWordWrapping
         addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: leadingAnchor),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor),
+            label.topAnchor.constraint(equalTo: topAnchor),
+            label.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
         #elseif canImport(AppKit)
-        textField.translatesAutoresizingMaskIntoConstraints = true
+        textField.translatesAutoresizingMaskIntoConstraints = false
         textField.isEditable = false
         textField.isSelectable = false
         textField.isBordered = false
@@ -59,59 +66,26 @@ class WuiTextBase: PlatformView {
         textField.cell?.wraps = true
         textField.cell?.isScrollable = false
         addSubview(textField)
+        NSLayoutConstraint.activate([
+            textField.leadingAnchor.constraint(equalTo: leadingAnchor),
+            textField.trailingAnchor.constraint(equalTo: trailingAnchor),
+            textField.topAnchor.constraint(equalTo: topAnchor),
+            textField.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
         #endif
     }
-
-    // MARK: - Layout
-
-    #if canImport(UIKit)
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        label.frame = bounds
-    }
-    #elseif canImport(AppKit)
-    override func layout() {
-        super.layout()
-        textField.frame = bounds
-    }
-
-    override var isFlipped: Bool { true }
-    #endif
 
     // MARK: - Size Calculation
 
     func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
         #if canImport(UIKit)
-        guard let attributedText = label.attributedText, attributedText.length > 0 else {
-            return .zero
-        }
-
-        let maxSize = CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        let intrinsicRect = attributedText.boundingRect(
-            with: maxSize,
-            options: [.usesLineFragmentOrigin, .usesFontLeading],
-            context: nil
+        let maxWidth = proposal.width.map(CGFloat.init) ?? CGFloat.greatestFiniteMagnitude
+        let maxHeight = proposal.height.map(CGFloat.init) ?? CGFloat.greatestFiniteMagnitude
+        let measured = label.sizeThatFits(CGSize(width: maxWidth, height: maxHeight))
+        return CGSize(
+            width: ceil(min(measured.width, maxWidth)),
+            height: ceil(min(measured.height, maxHeight))
         )
-        let intrinsicSize = CGSize(
-            width: ceil(intrinsicRect.width),
-            height: ceil(intrinsicRect.height)
-        )
-
-        if let proposedWidth = proposal.width {
-            let constrainedWidth = CGFloat(proposedWidth)
-            if intrinsicSize.width <= constrainedWidth {
-                return intrinsicSize
-            } else {
-                let constrainedRect = attributedText.boundingRect(
-                    with: CGSize(width: constrainedWidth, height: CGFloat.greatestFiniteMagnitude),
-                    options: [.usesLineFragmentOrigin, .usesFontLeading],
-                    context: nil
-                )
-                return CGSize(width: intrinsicSize.width, height: ceil(constrainedRect.height))
-            }
-        }
-
-        return intrinsicSize
         #elseif canImport(AppKit)
         guard let cell = textField.cell else {
             return .zero
@@ -122,27 +96,22 @@ class WuiTextBase: PlatformView {
             return .zero
         }
 
-        let intrinsicSize = cell.cellSize(forBounds: CGRect(
+        let maxWidth = proposal.width.map(CGFloat.init) ?? CGFloat.greatestFiniteMagnitude
+        let maxHeight = proposal.height.map(CGFloat.init) ?? CGFloat.greatestFiniteMagnitude
+        let measured = cell.cellSize(forBounds: CGRect(
             origin: .zero,
-            size: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+            size: CGSize(width: maxWidth, height: maxHeight)
         ))
-
-        if let proposedWidth = proposal.width {
-            let constrainedWidth = CGFloat(proposedWidth)
-            if intrinsicSize.width <= constrainedWidth {
-                return intrinsicSize
-            } else {
-                let constrainedSize = cell.cellSize(forBounds: CGRect(
-                    origin: .zero,
-                    size: CGSize(width: constrainedWidth, height: CGFloat.greatestFiniteMagnitude)
-                ))
-                return CGSize(width: intrinsicSize.width, height: constrainedSize.height)
-            }
-        }
-
-        return intrinsicSize
+        return CGSize(
+            width: ceil(min(measured.width, maxWidth)),
+            height: ceil(min(measured.height, maxHeight))
+        )
         #endif
     }
+
+    #if canImport(AppKit)
+    override var isFlipped: Bool { true }
+    #endif
 
     // MARK: - Text Updates
 

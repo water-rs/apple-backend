@@ -252,6 +252,7 @@ public final class WuiAnyView: UIView, WuiComponent {
 
     /// The resolved inner component - never nil after initialization
     private let inner: any WuiComponent
+    private var lastAutoLayoutWidth: CGFloat = 0
 
     public var stretchAxis: WuiStretchAxis {
         inner.stretchAxis
@@ -289,7 +290,21 @@ public final class WuiAnyView: UIView, WuiComponent {
     /// Returns intrinsic content size for UIKit Auto Layout integration.
     /// This allows WaterUI views to participate in Auto Layout constraints.
     override public var intrinsicContentSize: CGSize {
-        sizeThatFits(WuiProposalSize())
+        var intrinsic = sizeThatFits(WuiProposalSize())
+
+        // When the host constrains our width via Auto Layout, keep the natural (content) width
+        // but recompute height using the current width so multiline content can wrap correctly.
+        guard !translatesAutoresizingMaskIntoConstraints, bounds.width > 0 else {
+            return applyStretchAxisToIntrinsicSize(intrinsic)
+        }
+
+        let constrained = sizeThatFits(WuiProposalSize(width: Float(bounds.width), height: nil))
+        intrinsic.height = constrained.height
+        return applyStretchAxisToIntrinsicSize(intrinsic)
+    }
+
+    override public func sizeThatFits(_ size: CGSize) -> CGSize {
+        sizeThatFits(WuiProposalSize(size: size))
     }
 
     override public func layoutSubviews() {
@@ -298,6 +313,26 @@ public final class WuiAnyView: UIView, WuiComponent {
         inner.frame = bounds
         inner.setNeedsLayout()
         inner.layoutIfNeeded()
+
+        // If the host constrains our width via Auto Layout, re-measure with that width so
+        // multiline text (and other width-dependent layouts) can grow vertically.
+        if !translatesAutoresizingMaskIntoConstraints, bounds.width > 0, bounds.width != lastAutoLayoutWidth {
+            lastAutoLayoutWidth = bounds.width
+            invalidateIntrinsicContentSize()
+        }
+    }
+
+    private func applyStretchAxisToIntrinsicSize(_ size: CGSize) -> CGSize {
+        switch stretchAxis {
+        case .none:
+            return size
+        case .horizontal:
+            return CGSize(width: UIView.noIntrinsicMetric, height: size.height)
+        case .vertical:
+            return CGSize(width: size.width, height: UIView.noIntrinsicMetric)
+        case .both, .mainAxis, .crossAxis:
+            return CGSize(width: UIView.noIntrinsicMetric, height: UIView.noIntrinsicMetric)
+        }
     }
 
     override public func didMoveToWindow() {
@@ -350,6 +385,7 @@ public final class WuiAnyView: NSView, WuiComponent {
 
     /// The resolved inner component - never nil after initialization
     private let inner: any WuiComponent
+    private var lastAutoLayoutWidth: CGFloat = 0
 
     public var stretchAxis: WuiStretchAxis {
         inner.stretchAxis
@@ -384,15 +420,49 @@ public final class WuiAnyView: NSView, WuiComponent {
     /// Returns intrinsic content size for AppKit Auto Layout integration.
     /// This allows WaterUI views to participate in Auto Layout constraints.
     override public var intrinsicContentSize: NSSize {
-        sizeThatFits(WuiProposalSize())
+        var intrinsic = sizeThatFits(WuiProposalSize())
+
+        // When the host constrains our width via Auto Layout, keep the natural (content) width
+        // but recompute height using the current width so multiline content can wrap correctly.
+        guard !translatesAutoresizingMaskIntoConstraints, bounds.width > 0 else {
+            return applyStretchAxisToIntrinsicSize(intrinsic)
+        }
+
+        let constrained = sizeThatFits(WuiProposalSize(width: Float(bounds.width), height: nil))
+        intrinsic.height = constrained.height
+        return applyStretchAxisToIntrinsicSize(intrinsic)
     }
 
     override public var isFlipped: Bool { true }
+
+    public func sizeThatFits(_ size: NSSize) -> NSSize {
+        sizeThatFits(WuiProposalSize(size: size))
+    }
 
     override public func layout() {
         super.layout()
         // Manually size inner view to fill bounds
         inner.frame = bounds
+
+        // If the host constrains our width via Auto Layout, re-measure with that width so
+        // multiline text (and other width-dependent layouts) can grow vertically.
+        if !translatesAutoresizingMaskIntoConstraints, bounds.width > 0, bounds.width != lastAutoLayoutWidth {
+            lastAutoLayoutWidth = bounds.width
+            invalidateIntrinsicContentSize()
+        }
+    }
+
+    private func applyStretchAxisToIntrinsicSize(_ size: NSSize) -> NSSize {
+        switch stretchAxis {
+        case .none:
+            return size
+        case .horizontal:
+            return NSSize(width: NSView.noIntrinsicMetric, height: size.height)
+        case .vertical:
+            return NSSize(width: size.width, height: NSView.noIntrinsicMetric)
+        case .both, .mainAxis, .crossAxis:
+            return NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
+        }
     }
 
     override public func viewDidMoveToWindow() {
