@@ -59,9 +59,12 @@ final class WuiScroll: UIScrollView, WuiComponent, UIScrollViewDelegate {
         alwaysBounceVertical = isVertical
         alwaysBounceHorizontal = isHorizontal
 
-        // Use scrollableAxes to adjust content insets only for the scrolling direction
-        // This allows scrolling past safe areas while keeping content properly inset
-        contentInsetAdjustmentBehavior = .scrollableAxes
+        // Don't use automatic adjustment - we handle safe area manually for SwiftUI-like behavior
+        // where ScrollView extends into bottom safe area
+        contentInsetAdjustmentBehavior = .never
+
+        // Allow content to be visible outside scroll view bounds (for bottom safe area extension)
+        clipsToBounds = false
     }
 
     @available(*, unavailable)
@@ -81,6 +84,10 @@ final class WuiScroll: UIScrollView, WuiComponent, UIScrollViewDelegate {
     override func layoutSubviews() {
         super.layoutSubviews()
 
+        // Get bottom safe area for SwiftUI-like extension behavior
+        let safeBottom = window?.safeAreaInsets.bottom ?? 0
+        let isVerticalScroll = axis == WuiAxis_Vertical || axis == WuiAxis_All
+
         // Measure content with the scroll view's width (for vertical scrolling)
         // or height (for horizontal scrolling) as constraint
         let contentProposal: WuiProposalSize
@@ -97,25 +104,31 @@ final class WuiScroll: UIScrollView, WuiComponent, UIScrollViewDelegate {
 
         let measuredSize = contentView.sizeThatFits(contentProposal)
 
+        // Calculate effective scroll height including bottom safe area for vertical scrolling
+        // This allows content to scroll into the bottom safe area like SwiftUI
+        let effectiveScrollHeight = bounds.height + (isVerticalScroll ? safeBottom : 0)
+
         let finalWidth: CGFloat
         let finalHeight: CGFloat
 
         switch axis {
         case WuiAxis_Vertical:
             finalWidth = bounds.width
-            finalHeight = max(measuredSize.height, bounds.height)
+            finalHeight = max(measuredSize.height, effectiveScrollHeight)
         case WuiAxis_Horizontal:
             finalWidth = max(measuredSize.width, bounds.width)
             finalHeight = bounds.height
         case WuiAxis_All:
             finalWidth = max(measuredSize.width, bounds.width)
-            finalHeight = max(measuredSize.height, bounds.height)
+            finalHeight = max(measuredSize.height, effectiveScrollHeight)
         default:
             finalWidth = bounds.width
-            finalHeight = max(measuredSize.height, bounds.height)
+            finalHeight = max(measuredSize.height, effectiveScrollHeight)
         }
 
         contentView.frame = CGRect(x: 0, y: 0, width: finalWidth, height: finalHeight)
+
+        // Content size includes bottom safe area so content can scroll there
         self.contentSize = CGSize(width: finalWidth, height: finalHeight)
 
         contentView.setNeedsLayout()

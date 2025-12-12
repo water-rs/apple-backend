@@ -130,9 +130,20 @@ final class WuiContainer: PlatformView, WuiComponent {
     private func performLayout() {
         guard !childViews.isEmpty else { return }
 
+        // CRITICAL: Create proposal from bounds so children measure with actual available width
+        // This ensures VStack centering works correctly - children know the real container width
+        let boundsProposal = WuiProposalSize(width: Float(bounds.width), height: Float(bounds.height))
+
         let proxies = bridge.createSubViewProxies(children: childViews) { child, childProposal in
             child.sizeThatFits(childProposal)
         }
+
+        // Measure with bounds-based proposal first - this ensures children know available width
+        _ = bridge.containerSize(
+            layout: wuiLayout,
+            parentProposal: boundsProposal,
+            children: proxies
+        )
 
         let rects = bridge.placements(
             layout: wuiLayout,

@@ -204,8 +204,7 @@ private func registerBuiltinComponentsIfNeeded() {
     registerComponent(WuiContainer.self)
     registerComponent(WuiScroll.self)
     registerComponent(WuiList.self)
-    // TODO: registerComponent(WuiTable.self)
-    // TODO: registerComponent(WuiTableColumn.self)
+    registerComponent(WuiTable.self)
     // TODO: registerComponent(WuiNavigationView.self)
 
     // Dynamic components

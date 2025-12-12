@@ -700,6 +700,21 @@ private final class FullScreenView: UIView {
     override var safeAreaInsets: UIEdgeInsets {
         window?.safeAreaInsets ?? super.safeAreaInsets
     }
+
+    // Allow touches to reach content that extends into safe area (e.g., via IgnoreSafeArea)
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let result = super.hitTest(point, with: event)
+        // If no hit in subviews, check if point is in any subview's extended frame
+        if result == self {
+            for subview in subviews.reversed() {
+                let convertedPoint = convert(point, to: subview)
+                if let hit = subview.hitTest(convertedPoint, with: event) {
+                    return hit
+                }
+            }
+        }
+        return result
+    }
 }
 
 /// A UIKit view controller that hosts the WaterUI root view.
@@ -743,9 +758,17 @@ public final class WaterUIViewController: UIViewController {
     public override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
 
-        // Root view fills the entire window
-        let fullFrame = view.window?.bounds ?? view.bounds
-        context.rootView.frame = CGRect(origin: .zero, size: fullFrame.size)
+        // Root content respects safe area by default (like SwiftUI)
+        // Content can extend into safe area using IgnoreSafeArea metadata
+        let safeInsets = view.safeAreaInsets
+        let safeFrame = CGRect(
+            x: safeInsets.left,
+            y: safeInsets.top,
+            width: view.bounds.width - safeInsets.left - safeInsets.right,
+            height: view.bounds.height - safeInsets.top - safeInsets.bottom
+        )
+
+        context.rootView.frame = safeFrame
         context.rootView.setNeedsLayout()
         context.rootView.layoutIfNeeded()
     }

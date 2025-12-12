@@ -12,12 +12,15 @@
 // // - Priority: 0 (default)
 
 import CWaterUI
+import os.log
 
 #if canImport(UIKit)
 import UIKit
 #elseif canImport(AppKit)
 import AppKit
 #endif
+
+private let logger = Logger(subsystem: "dev.waterui", category: "layout")
 
 /// A native container that uses the Rust layout engine for child positioning.
 /// FixedContainer has a fixed array of children - no lazy loading support.
@@ -113,9 +116,20 @@ final class WuiFixedContainer: PlatformView, WuiComponent {
     private func performLayout() {
         guard !childViews.isEmpty else { return }
 
+        // CRITICAL: Create proposal from bounds so children measure with actual available width
+        // This ensures VStack centering works correctly - children know the real container width
+        let boundsProposal = WuiProposalSize(width: Float(bounds.width), height: Float(bounds.height))
+
         let proxies = bridge.createSubViewProxies(children: childViews) { child, childProposal in
             child.sizeThatFits(childProposal)
         }
+
+        // Measure with bounds-based proposal first - this ensures children know available width
+        _ = bridge.containerSize(
+            layout: wuiLayout,
+            parentProposal: boundsProposal,
+            children: proxies
+        )
 
         let rects = bridge.placements(
             layout: wuiLayout,
@@ -123,11 +137,24 @@ final class WuiFixedContainer: PlatformView, WuiComponent {
             children: proxies
         )
 
+        // Debug: log layout info if there are more than 2 children (likely a table or complex layout)
+        if childViews.count > 2 {
+            let boundsDesc = bounds.debugDescription
+            let childCount = childViews.count
+            let rectCount = rects.count
+            logger.info("[WuiFixedContainer] bounds=\(boundsDesc), children=\(childCount), rects=\(rectCount)")
+            for (index, rect) in rects.enumerated() {
+                let rectDesc = rect.debugDescription
+                logger.info("  child[\(index)] rect=\(rectDesc)")
+            }
+        }
+
         for (index, rect) in rects.enumerated() {
             guard index < childViews.count else { break }
             var frame = rect
             guard frame.isValidForLayout else {
-                print("Warning: WuiFixedContainer received invalid rect for child \(index): \(frame)")
+                let frameDesc = frame.debugDescription
+                logger.warning("WuiFixedContainer received invalid rect for child \(index): \(frameDesc)")
                 continue
             }
 

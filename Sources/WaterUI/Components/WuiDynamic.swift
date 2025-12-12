@@ -79,6 +79,13 @@ final class WuiDynamic: PlatformView, WuiComponent {
 
         // Invalidate layout up the entire view hierarchy
         invalidateLayoutHierarchy()
+
+        // Force synchronous layout pass to ensure content updates immediately
+        #if canImport(UIKit)
+        layoutIfNeeded()
+        #elseif canImport(AppKit)
+        layoutSubtreeIfNeeded()
+        #endif
     }
 
     #if canImport(UIKit)
