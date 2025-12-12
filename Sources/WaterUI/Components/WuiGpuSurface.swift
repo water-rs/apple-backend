@@ -20,6 +20,7 @@ import QuartzCore
 import UIKit
 #elseif canImport(AppKit)
 import AppKit
+import CoreVideo
 #endif
 
 /// High-performance GPU rendering surface using wgpu.
@@ -43,7 +44,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent {
     #if canImport(UIKit)
     private var displayLink: CADisplayLink?
     #elseif canImport(AppKit)
-    private var isRendering = false
+    private var displayLink: CVDisplayLink?
     #endif
 
     /// Whether we've initialized the GPU resources
@@ -177,21 +178,35 @@ final class WuiGpuSurface: PlatformView, WuiComponent {
     }
     #elseif canImport(AppKit)
     private func startDisplayLink() {
-        guard !isRendering else { return }
-        isRendering = true
-        scheduleNextFrame()
-    }
+        guard displayLink == nil else { return }
 
-    private func scheduleNextFrame() {
-        guard isRendering else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.008) { [self] in
-            self.renderFrame()
-            self.scheduleNextFrame()
-        }
+        var link: CVDisplayLink?
+        let status = CVDisplayLinkCreateWithActiveCGDisplays(&link)
+        guard status == kCVReturnSuccess, let link else { return }
+
+        displayLink = link
+
+        CVDisplayLinkSetOutputCallback(
+            link,
+            { _, _, _, _, _, userInfo -> CVReturn in
+                guard let userInfo else { return kCVReturnError }
+                let surface = Unmanaged<WuiGpuSurface>.fromOpaque(userInfo).takeUnretainedValue()
+                DispatchQueue.main.async {
+                    surface.renderFrame()
+                }
+                return kCVReturnSuccess
+            },
+            Unmanaged.passUnretained(self).toOpaque()
+        )
+
+        CVDisplayLinkStart(link)
     }
 
     private func stopDisplayLink() {
-        isRendering = false
+        if let link = displayLink {
+            CVDisplayLinkStop(link)
+            displayLink = nil
+        }
     }
     #endif
 
