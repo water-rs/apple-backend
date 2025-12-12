@@ -12,12 +12,15 @@
 // // - Priority: 0 (default)
 
 import CWaterUI
+import os
 
 #if canImport(UIKit)
 import UIKit
 #elseif canImport(AppKit)
 import AppKit
 #endif
+
+private let logger = Logger(subsystem: "dev.waterui", category: "WuiButton")
 
 @MainActor
 final class WuiButton: PlatformView, WuiComponent {
@@ -33,6 +36,7 @@ final class WuiButton: PlatformView, WuiComponent {
 
     private var action: Action
     private var labelView: WuiAnyView
+    private let style: WuiButtonStyle
 
     // MARK: - WuiComponent Init
 
@@ -40,14 +44,15 @@ final class WuiButton: PlatformView, WuiComponent {
         let ffiButton: CWaterUI.WuiButton = waterui_force_as_button(anyview)
         let labelView = WuiAnyView(anyview: ffiButton.label, env: env)
         let action = Action(inner: ffiButton.action, env: env)
-        self.init(label: labelView, action: action)
+        self.init(label: labelView, action: action, style: ffiButton.style)
     }
 
     // MARK: - Designated Init
 
-    init(label: WuiAnyView, action: Action) {
+    init(label: WuiAnyView, action: Action, style: WuiButtonStyle = WuiButtonStyle_Automatic) {
         self.action = action
         self.labelView = label
+        self.style = style
         #if canImport(AppKit)
         self.button = NSButton()
         #endif
@@ -73,15 +78,19 @@ final class WuiButton: PlatformView, WuiComponent {
             verticalFittingPriority: .fittingSizeLevel
         )
         #elseif canImport(AppKit)
-        // Calculate size based on label content plus padding
-        // NSButton.fittingSize doesn't always account for custom embedded views correctly
+        // Always use unspecified proposal for intrinsic size
         let labelSize = labelView.sizeThatFits(WuiProposalSize())
-        let horizontalPadding: CGFloat = 16 // 8pt on each side
-        let verticalPadding: CGFloat = 8    // 4pt on each side
-        return CGSize(
+        // Link style has no padding, others have standard padding
+        let horizontalPadding: CGFloat = style == WuiButtonStyle_Link ? 0 : 16
+        let verticalPadding: CGFloat = style == WuiButtonStyle_Link ? 0 : 8
+        let result = CGSize(
             width: labelSize.width + horizontalPadding,
             height: labelSize.height + verticalPadding
         )
+        if style == WuiButtonStyle_Link {
+            logger.debug("[Link] sizeThatFits: labelSize=\(labelSize.width, privacy: .public)x\(labelSize.height, privacy: .public), result=\(result.width, privacy: .public)x\(result.height, privacy: .public)")
+        }
+        return result
         #endif
     }
 
@@ -99,32 +108,167 @@ final class WuiButton: PlatformView, WuiComponent {
     private func configureButton() {
         button.translatesAutoresizingMaskIntoConstraints = false
         labelContainer.translatesAutoresizingMaskIntoConstraints = false
+
+        // Use minimal padding for Link style, standard padding for others
+        let horizontalPadding: CGFloat = style == WuiButtonStyle_Link ? 0 : 8
+        let verticalPadding: CGFloat = style == WuiButtonStyle_Link ? 0 : 4
+
+        #if canImport(AppKit)
+        // On AppKit, add labelContainer directly to self (not to NSButton)
+        // NSButton's internal layout doesn't properly propagate constraints to subviews
         addSubview(button)
+        addSubview(labelContainer)
 
         NSLayoutConstraint.activate([
             button.leadingAnchor.constraint(equalTo: leadingAnchor),
             button.trailingAnchor.constraint(equalTo: trailingAnchor),
             button.topAnchor.constraint(equalTo: topAnchor),
-            button.bottomAnchor.constraint(equalTo: bottomAnchor)
-        ])
+            button.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-        button.addSubview(labelContainer)
-        NSLayoutConstraint.activate([
-            labelContainer.leadingAnchor.constraint(equalTo: button.leadingAnchor, constant: 8),
-            labelContainer.trailingAnchor.constraint(equalTo: button.trailingAnchor, constant: -8),
-            labelContainer.topAnchor.constraint(equalTo: button.topAnchor, constant: 4),
-            labelContainer.bottomAnchor.constraint(equalTo: button.bottomAnchor, constant: -4)
+            labelContainer.leadingAnchor.constraint(equalTo: leadingAnchor, constant: horizontalPadding),
+            labelContainer.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -horizontalPadding),
+            labelContainer.topAnchor.constraint(equalTo: topAnchor, constant: verticalPadding),
+            labelContainer.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -verticalPadding)
         ])
+        #else
+        addSubview(button)
+        button.addSubview(labelContainer)
+
+        NSLayoutConstraint.activate([
+            button.leadingAnchor.constraint(equalTo: leadingAnchor),
+            button.trailingAnchor.constraint(equalTo: trailingAnchor),
+            button.topAnchor.constraint(equalTo: topAnchor),
+            button.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            labelContainer.leadingAnchor.constraint(equalTo: button.leadingAnchor, constant: horizontalPadding),
+            labelContainer.trailingAnchor.constraint(equalTo: button.trailingAnchor, constant: -horizontalPadding),
+            labelContainer.topAnchor.constraint(equalTo: button.topAnchor, constant: verticalPadding),
+            labelContainer.bottomAnchor.constraint(equalTo: button.bottomAnchor, constant: -verticalPadding)
+        ])
+        #endif
 
         #if canImport(UIKit)
         button.addTarget(self, action: #selector(didTap), for: .touchUpInside)
+        applyStyleUIKit()
         #elseif canImport(AppKit)
-        button.bezelStyle = .rounded
         button.target = self
         button.action = #selector(didTap)
         button.title = ""
+        applyStyleAppKit()
         #endif
     }
+
+    #if canImport(UIKit)
+    private func applyStyleUIKit() {
+        switch style {
+        case WuiButtonStyle_Automatic:
+            // Default system button style
+            break
+        case WuiButtonStyle_Plain:
+            button.configuration = .plain()
+        case WuiButtonStyle_Link:
+            // Link style: blue text, no background
+            button.configuration = .plain()
+            button.tintColor = .systemBlue
+        case WuiButtonStyle_Borderless:
+            button.configuration = .plain()
+        case WuiButtonStyle_Bordered:
+            button.configuration = .bordered()
+        case WuiButtonStyle_BorderedProminent:
+            button.configuration = .borderedProminent()
+        default:
+            break
+        }
+    }
+    #endif
+
+    #if canImport(AppKit)
+    private func applyStyleAppKit() {
+        switch style {
+        case WuiButtonStyle_Automatic:
+            button.bezelStyle = .rounded
+        case WuiButtonStyle_Plain:
+            button.isBordered = false
+        case WuiButtonStyle_Link:
+            // Link style: no border, apply link color to embedded text
+            button.isBordered = false
+            button.contentTintColor = .linkColor
+            // Apply link styling to the label text view
+            applyLinkStylingToLabel(labelView)
+            // Setup hover tracking for cursor change
+            setupLinkTrackingArea()
+        case WuiButtonStyle_Borderless:
+            button.isBordered = false
+            button.bezelStyle = .inline
+        case WuiButtonStyle_Bordered:
+            button.bezelStyle = .rounded
+        case WuiButtonStyle_BorderedProminent:
+            button.bezelStyle = .rounded
+            button.keyEquivalent = "\r"  // Makes it the default button (blue)
+        default:
+            button.bezelStyle = .rounded
+        }
+    }
+
+    /// Recursively applies link styling (blue color, underline) to text views
+    private func applyLinkStylingToLabel(_ view: NSView) {
+        if let textField = view as? NSTextField {
+            // Apply link color and underline via attributed string
+            let originalText = textField.stringValue
+            logger.debug("[Link] applyLinkStyling: found NSTextField with text='\(originalText, privacy: .public)' len=\(originalText.count, privacy: .public)")
+            if let attributedString = textField.attributedStringValue.mutableCopy() as? NSMutableAttributedString {
+                let range = NSRange(location: 0, length: attributedString.length)
+                attributedString.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range)
+                attributedString.addAttribute(.foregroundColor, value: NSColor.linkColor, range: range)
+                textField.attributedStringValue = attributedString
+                logger.debug("[Link] applyLinkStyling: after styling, attributedString.length=\(attributedString.length, privacy: .public)")
+            }
+            textField.invalidateIntrinsicContentSize()
+        }
+        for subview in view.subviews {
+            applyLinkStylingToLabel(subview)
+        }
+    }
+
+    /// Sets up tracking area for hover effects (Link style cursor change)
+    private func setupLinkTrackingArea() {
+        let trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        if style == WuiButtonStyle_Link {
+            NSCursor.pointingHand.push()
+        }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        if style == WuiButtonStyle_Link {
+            NSCursor.pop()
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if style == WuiButtonStyle_Link {
+            // Natural press feedback: reduce opacity like SwiftUI
+            labelView.alphaValue = 0.5
+        }
+        super.mouseDown(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        if style == WuiButtonStyle_Link {
+            // Restore opacity
+            labelView.alphaValue = 1.0
+        }
+        super.mouseUp(with: event)
+    }
+    #endif
 
     private func embedLabel(_ view: WuiAnyView) {
         view.translatesAutoresizingMaskIntoConstraints = false
@@ -144,5 +288,12 @@ final class WuiButton: PlatformView, WuiComponent {
 
     #if canImport(AppKit)
     override var isFlipped: Bool { true }
+
+    override func layout() {
+        super.layout()
+        if style == WuiButtonStyle_Link {
+            logger.debug("[Link] layout: self.bounds=\(self.bounds.width, privacy: .public)x\(self.bounds.height, privacy: .public), button.frame=\(self.button.frame.width, privacy: .public)x\(self.button.frame.height, privacy: .public), labelContainer.frame=\(self.labelContainer.frame.width, privacy: .public)x\(self.labelContainer.frame.height, privacy: .public), labelView.frame=\(self.labelView.frame.width, privacy: .public)x\(self.labelView.frame.height, privacy: .public)")
+        }
+    }
     #endif
 }

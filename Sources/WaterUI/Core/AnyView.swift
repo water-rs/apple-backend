@@ -189,7 +189,7 @@ private func registerBuiltinComponentsIfNeeded() {
 
     // Interactive components
     registerComponent(WuiButton.self)
-    // TODO: registerComponent(WuiLink.self)
+    // Note: Link uses Button with link style, not a separate native component
     registerComponent(WuiToggle.self)
     registerComponent(WuiSlider.self)
     registerComponent(WuiTextField.self)
