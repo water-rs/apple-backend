@@ -46,6 +46,8 @@ class WuiTextBase: PlatformView {
     private func configureTextView() {
         #if canImport(UIKit)
         label.translatesAutoresizingMaskIntoConstraints = false
+        // Match system dynamic label color (fixes dark mode defaults).
+        label.textColor = .label
         label.numberOfLines = 0
         label.lineBreakMode = .byWordWrapping
         addSubview(label)

@@ -227,7 +227,7 @@ private func registerBuiltinComponentsIfNeeded() {
     registerComponent(WuiPhoto.self)
     registerComponent(WuiVideo.self)
     registerComponent(WuiVideoPlayer.self)
-    registerComponent(WuiMediaPicker.self)
+    // WuiMediaPicker removed - now uses Button wrapper in Rust
 
     // Navigation components
     registerComponent(WuiNavigationStack.self)

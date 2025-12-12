@@ -185,6 +185,10 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
                 }
             }
         } else {
+            // Immediately pause playback when removed from window (e.g., during hot reload)
+            // This prevents double sound when the view is being replaced
+            player.pause()
+
             // Remove from parent when leaving window
             if pvc.parent != nil {
                 pvc.willMove(toParent: nil)
@@ -236,6 +240,16 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
         playerViewController?.view.frame = bounds
     }
     #elseif canImport(AppKit)
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+
+        // Pause playback when removed from window (e.g., during hot reload)
+        // This prevents double sound when the view is being replaced
+        if window == nil {
+            player.pause()
+        }
+    }
+
     override func layout() {
         super.layout()
         // AVPlayerView uses auto-layout constraints set during configuration

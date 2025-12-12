@@ -109,6 +109,15 @@ final class WuiButton: PlatformView, WuiComponent {
         labelContainer.subviews.forEach { $0.removeFromSuperview() }
         labelView = newLabel
         embedLabel(newLabel)
+        #if canImport(UIKit)
+        if style == WuiButtonStyle_Link {
+            applyLinkStylingToLabelUIKit(labelView)
+        }
+        #elseif canImport(AppKit)
+        if style == WuiButtonStyle_Link {
+            applyLinkStylingToLabel(labelView)
+        }
+        #endif
     }
 
     // MARK: - Configuration
@@ -116,6 +125,10 @@ final class WuiButton: PlatformView, WuiComponent {
     private func configureButton() {
         button.translatesAutoresizingMaskIntoConstraints = false
         labelContainer.translatesAutoresizingMaskIntoConstraints = false
+        #if canImport(UIKit)
+        // The embedded label should not intercept touches meant for the button.
+        labelContainer.isUserInteractionEnabled = false
+        #endif
 
         // Use minimal padding for Link style, standard padding for others
         let horizontalPadding: CGFloat = style == WuiButtonStyle_Link ? 0 : 8
@@ -178,6 +191,7 @@ final class WuiButton: PlatformView, WuiComponent {
             // Link style: blue text, no background
             button.configuration = .plain()
             button.tintColor = .systemBlue
+            applyLinkStylingToLabelUIKit(labelView)
         case WuiButtonStyle_Borderless:
             button.configuration = .plain()
         case WuiButtonStyle_Bordered:
@@ -186,6 +200,23 @@ final class WuiButton: PlatformView, WuiComponent {
             button.configuration = .borderedProminent()
         default:
             break
+        }
+    }
+
+    /// Recursively applies link styling (blue color, underline) to text views.
+    private func applyLinkStylingToLabelUIKit(_ view: UIView) {
+        if let label = view as? UILabel {
+            let base = label.attributedText ?? NSAttributedString(string: label.text ?? "")
+            let attributed = NSMutableAttributedString(attributedString: base)
+            let range = NSRange(location: 0, length: attributed.length)
+            attributed.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range)
+            attributed.addAttribute(.foregroundColor, value: UIColor.systemBlue, range: range)
+            label.attributedText = attributed
+            label.invalidateIntrinsicContentSize()
+        }
+
+        for subview in view.subviews {
+            applyLinkStylingToLabelUIKit(subview)
         }
     }
     #endif

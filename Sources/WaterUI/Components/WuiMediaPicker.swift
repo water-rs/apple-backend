@@ -1,14 +1,14 @@
 // WuiMediaPicker.swift
-// Media picker component that presents native photo/video picker
+// Media picker manager service that presents native photo/video picker
 //
 // # Platform Support
 // - iOS 14+: Uses PHPickerViewController
-// - macOS: Not fully supported (uses NSOpenPanel as fallback)
+// - macOS: Uses NSOpenPanel
 //
 // # Features
 // - Filters for photos, videos, live photos
-// - Single and multiple selection
-// - Reactive selection updates
+// - Single selection
+// - Unified manager for presenting picker and loading media
 
 import CWaterUI
 import PhotosUI
@@ -91,10 +91,25 @@ private let loadMediaImpl: @convention(c) (UInt32, MediaLoadCallback) -> Void = 
     loadMedia(id: id, callback: callback)
 }
 
-/// Installs the media loader into the environment.
-/// Call this during WaterUI initialization to enable Selected::load().
-public func installMediaLoader(env: OpaquePointer?) {
-    waterui_env_install_media_loader(env, loadMediaImpl)
+/// C-compatible present function
+private let presentImpl: @convention(c) (WuiMediaFilterType, MediaPickerPresentCallback) -> Void = { filter, callback in
+    // Capture callback components
+    // These are C function pointers, safe to send across isolation boundaries
+    nonisolated(unsafe) let callbackData = callback.data
+    guard let callbackFn = callback.call else { return }
+    nonisolated(unsafe) let capturedFn = callbackFn
+
+    Task { @MainActor in
+        MediaPickerManagerImpl.shared.present(filter: filter) { selected in
+            capturedFn(callbackData, selected)
+        }
+    }
+}
+
+/// Installs the MediaPickerManager into the environment.
+/// Call this during WaterUI initialization to enable MediaPicker functionality.
+public func installMediaPickerManager(env: OpaquePointer?) {
+    waterui_env_install_media_picker_manager(env, presentImpl, loadMediaImpl)
 }
 
 /// Loads the media and calls the callback with the file URL.
@@ -236,115 +251,35 @@ private func completeWithURL(_ url: URL, videoURL: URL?, mediaType: MediaType, c
     }
 }
 
-// MARK: - WuiMediaPicker Component
+// MARK: - MediaPickerManager Service
 
+/// Swift implementation of MediaPickerManager
 @MainActor
-final class WuiMediaPicker: PlatformView, WuiComponent {
-    static var rawId: CWaterUI.WuiTypeId { waterui_media_picker_id() }
+final class MediaPickerManagerImpl {
+    static let shared = MediaPickerManagerImpl()
 
-    private(set) var stretchAxis: WuiStretchAxis = .both
+    private var pendingCallback: ((WuiSelected) -> Void)?
 
-    private let filterType: CWaterUI.WuiMediaFilterType
-    private var onSelection: CWaterUI.WuiFn_WuiSelected
+    private init() {}
 
-    #if canImport(UIKit)
-    private weak var presentingViewController: UIViewController?
-    private let button: UIButton
-    #elseif canImport(AppKit)
-    private let button: NSButton
-    #endif
-
-    // MARK: - WuiComponent Init
-
-    convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
-        let ffiPicker: CWaterUI.WuiMediaPicker = waterui_force_as_media_picker(anyview)
-        self.init(
-            filter: ffiPicker.filter,
-            onSelection: ffiPicker.on_selection
-        )
-    }
-
-    // MARK: - Designated Init
-
-    init(filter: CWaterUI.WuiMediaFilterType, onSelection: CWaterUI.WuiFn_WuiSelected) {
-        self.filterType = filter
-        self.onSelection = onSelection
+    /// Present the media picker with the given filter
+    func present(filter: WuiMediaFilterType, callback: @escaping (WuiSelected) -> Void) {
+        self.pendingCallback = callback
 
         #if canImport(UIKit)
-        self.button = UIButton(type: .system)
-        super.init(frame: .zero)
-
-        button.setTitle("Select Media", for: .normal)
-        button.addTarget(self, action: #selector(presentPicker), for: .touchUpInside)
-        addSubview(button)
+        presentIOSPicker(filter: filter)
         #elseif canImport(AppKit)
-        self.button = NSButton(title: "Select Media", target: nil, action: nil)
-        super.init(frame: .zero)
-
-        button.target = self
-        button.action = #selector(presentPicker)
-        addSubview(button)
-        #endif
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    // MARK: - WuiComponent
-
-    func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
-        #if canImport(UIKit)
-        let intrinsic = button.intrinsicContentSize
-        #elseif canImport(AppKit)
-        let intrinsic = button.intrinsicContentSize
-        #endif
-
-        let width = proposal.width.map { CGFloat($0) } ?? intrinsic.width
-        let height = proposal.height.map { CGFloat($0) } ?? intrinsic.height
-        return CGSize(width: max(width, intrinsic.width), height: max(height, intrinsic.height))
-    }
-
-    // MARK: - Layout
-
-    #if canImport(UIKit)
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        button.frame = bounds
-    }
-    #elseif canImport(AppKit)
-    override func layout() {
-        super.layout()
-        button.frame = bounds
-    }
-
-    override var isFlipped: Bool { true }
-
-    override var wantsLayer: Bool {
-        get { true }
-        set { }
-    }
-    #endif
-
-    // MARK: - Picker Presentation
-
-    @objc
-    private func presentPicker() {
-        #if canImport(UIKit)
-        presentIOSPicker()
-        #elseif canImport(AppKit)
-        presentMacOSPicker()
+        presentMacOSPicker(filter: filter)
         #endif
     }
 
     #if canImport(UIKit)
-    private func presentIOSPicker() {
+    private func presentIOSPicker(filter: WuiMediaFilterType) {
         var configuration = PHPickerConfiguration()
         configuration.selectionLimit = 1
 
         // Configure filter based on type
-        switch filterType {
+        switch filter {
         case WuiMediaFilterType_Image:
             configuration.filter = .images
         case WuiMediaFilterType_Video:
@@ -360,26 +295,23 @@ final class WuiMediaPicker: PlatformView, WuiComponent {
         let picker = PHPickerViewController(configuration: configuration)
         picker.delegate = self
 
-        // Find the presenting view controller
-        if let viewController = findViewController() {
-            viewController.present(picker, animated: true)
-        }
-    }
-
-    private func findViewController() -> UIViewController? {
-        var responder: UIResponder? = self
-        while let nextResponder = responder?.next {
-            if let vc = nextResponder as? UIViewController {
-                return vc
+        // Find root view controller to present picker
+        if let window = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .flatMap({ $0.windows })
+            .first(where: { $0.isKeyWindow }),
+           let rootVC = window.rootViewController {
+            var presentingVC = rootVC
+            while let presented = presentingVC.presentedViewController {
+                presentingVC = presented
             }
-            responder = nextResponder
+            presentingVC.present(picker, animated: true)
         }
-        return nil
     }
     #endif
 
     #if canImport(AppKit)
-    private func presentMacOSPicker() {
+    private func presentMacOSPicker(filter: WuiMediaFilterType) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
@@ -387,7 +319,7 @@ final class WuiMediaPicker: PlatformView, WuiComponent {
 
         // Configure allowed content types based on filter
         var contentTypes: [UTType] = []
-        switch filterType {
+        switch filter {
         case WuiMediaFilterType_Image:
             contentTypes = [.image]
         case WuiMediaFilterType_Video:
@@ -407,7 +339,10 @@ final class WuiMediaPicker: PlatformView, WuiComponent {
                 // Register the URL and get a unique ID
                 let id = MediaRegistry.shared.register(url)
                 let selected = CWaterUI.WuiSelected(id: id)
-                self.onSelection.call(self.onSelection.data, selected)
+                if let callback = self.pendingCallback {
+                    callback(selected)
+                    self.pendingCallback = nil
+                }
             }
         }
     }
@@ -415,7 +350,7 @@ final class WuiMediaPicker: PlatformView, WuiComponent {
 }
 
 #if canImport(UIKit)
-extension WuiMediaPicker: PHPickerViewControllerDelegate {
+extension MediaPickerManagerImpl: PHPickerViewControllerDelegate {
     nonisolated func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         // Register the result immediately on the current thread (nonisolated context)
         // PHPickerResult is not Sendable, so we must process it before crossing actor boundaries
@@ -424,9 +359,10 @@ extension WuiMediaPicker: PHPickerViewControllerDelegate {
         Task { @MainActor in
             picker.dismiss(animated: true)
 
-            if let id = selectedId {
+            if let id = selectedId, let callback = self.pendingCallback {
                 let selected = CWaterUI.WuiSelected(id: id)
-                onSelection.call(onSelection.data, selected)
+                callback(selected)
+                self.pendingCallback = nil
             }
         }
     }
