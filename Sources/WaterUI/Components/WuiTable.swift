@@ -235,8 +235,10 @@ final class WuiTable: PlatformView, WuiComponent {
     private var watcher: WatcherGuard?
 
     // Native table view
-    private let scrollView: NSScrollView
     private let tableView: NSTableView
+
+    // Custom header row (to avoid NSTableHeaderView's trailing divider)
+    private var headerLabels: [NSTextField] = []
 
     // Keep strong references to cell views
     private var cellViews: [[WuiAnyView]] = []
@@ -254,33 +256,23 @@ final class WuiTable: PlatformView, WuiComponent {
         self.env = env
         self.columnsPtr = ffiTable.columns
 
-        // Create table view
+        // Create table view without scroll wrapper and without header
         self.tableView = NSTableView()
         tableView.style = .inset
         tableView.usesAlternatingRowBackgroundColors = true
-        tableView.gridStyleMask = []  // No grid lines - inset style provides row separation
+        tableView.gridStyleMask = []
         tableView.rowHeight = 28
         tableView.intercellSpacing = NSSize(width: 12, height: 6)
-        tableView.headerView = NSTableHeaderView()
-        tableView.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
+        tableView.columnAutoresizingStyle = .noColumnAutoresizing
         tableView.backgroundColor = NSColor.controlBackgroundColor
         tableView.allowsColumnReordering = false
         tableView.allowsColumnResizing = false
         tableView.allowsColumnSelection = false
-
-        // Wrap in scroll view (required for NSTableView header to display)
-        self.scrollView = NSScrollView()
-        scrollView.documentView = tableView
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
-        scrollView.autohidesScrollers = true
-        scrollView.borderType = .bezelBorder
-        scrollView.drawsBackground = true
-        scrollView.backgroundColor = NSColor.controlBackgroundColor
+        tableView.headerView = nil  // No native header - we'll draw our own
 
         super.init(frame: .zero)
 
-        addSubview(scrollView)
+        addSubview(tableView)
 
         // Set data source and delegate
         tableView.dataSource = self
@@ -343,54 +335,84 @@ final class WuiTable: PlatformView, WuiComponent {
     }
 
     private func rebuildTable() {
-        // Remove existing columns
+        // Remove existing columns and header labels
         for column in tableView.tableColumns {
             tableView.removeTableColumn(column)
         }
+        for label in headerLabels {
+            label.removeFromSuperview()
+        }
+        headerLabels.removeAll()
 
         guard !nativeColumns.isEmpty else { return }
 
-        // Calculate column widths
+        // Calculate column widths with generous padding
         var columnWidths: [CGFloat] = []
         for colData in nativeColumns {
-            var maxWidth: CGFloat = 80
+            var maxWidth: CGFloat = 100
 
             // Measure header
             let headerSize = (colData.headerTitle as NSString).size(withAttributes: [
-                .font: NSFont.systemFont(ofSize: NSFont.systemFontSize)
+                .font: NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
             ])
-            maxWidth = max(maxWidth, headerSize.width + 24)
+            maxWidth = max(maxWidth, headerSize.width + 48)
 
             // Measure cell content
             for row in colData.rows {
-                let size = row.sizeThatFits(WuiProposalSize(width: nil, height: 24))
-                maxWidth = max(maxWidth, size.width + 16)
+                let size = row.sizeThatFits(WuiProposalSize(width: nil, height: 28))
+                maxWidth = max(maxWidth, size.width + 48)
             }
 
             columnWidths.append(maxWidth)
         }
 
-        // Add columns to table view
+        // Add columns to table view (without titles - we use custom headers)
         for (index, colData) in nativeColumns.enumerated() {
             let column = NSTableColumn(identifier: colData.identifier)
-            column.title = colData.headerTitle
+            column.title = ""  // Empty - we draw custom header
             column.width = columnWidths[index]
             column.minWidth = 50
             column.maxWidth = 500
             tableView.addTableColumn(column)
         }
 
+        // Create custom header labels centered in columns
+        var xOffset: CGFloat = 0
+        for (index, colData) in nativeColumns.enumerated() {
+            let label = NSTextField(labelWithString: colData.headerTitle)
+            label.font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
+            label.textColor = NSColor.secondaryLabelColor
+            label.alignment = .center
+            label.frame = NSRect(x: xOffset, y: 0, width: columnWidths[index], height: 24)
+            addSubview(label)
+            headerLabels.append(label)
+            xOffset += columnWidths[index]
+        }
+
         // Store cell views for reuse
         cellViews = nativeColumns.map { $0.rows }
 
         tableView.reloadData()
+        needsLayout = true
     }
 
     // MARK: - Layout
 
     override func layout() {
         super.layout()
-        scrollView.frame = bounds
+
+        let headerHeight: CGFloat = 28
+
+        // Position table below custom header labels
+        tableView.frame = NSRect(x: 0, y: headerHeight, width: bounds.width, height: bounds.height - headerHeight)
+
+        // Update header label positions based on actual column widths
+        var xOffset: CGFloat = 0
+        for (index, label) in headerLabels.enumerated() {
+            let colWidth = index < tableView.tableColumns.count ? tableView.tableColumns[index].width : 100
+            label.frame = NSRect(x: xOffset, y: 4, width: colWidth, height: headerHeight - 8)
+            xOffset += colWidth
+        }
     }
 
     // MARK: - Reactive Updates
@@ -424,22 +446,22 @@ final class WuiTable: PlatformView, WuiComponent {
         guard !nativeColumns.isEmpty else { return .zero }
 
         let numRows = nativeColumns.map { $0.rows.count }.max() ?? 0
-        let headerHeight: CGFloat = 24
+        let headerHeight: CGFloat = 28
         let rowHeight: CGFloat = tableView.rowHeight + tableView.intercellSpacing.height
 
-        // Calculate total width
+        // Calculate total width with generous padding
         var totalWidth: CGFloat = 0
         for colData in nativeColumns {
-            var colWidth: CGFloat = 80
+            var colWidth: CGFloat = 100
 
             let headerSize = (colData.headerTitle as NSString).size(withAttributes: [
-                .font: NSFont.systemFont(ofSize: NSFont.systemFontSize)
+                .font: NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
             ])
-            colWidth = max(colWidth, headerSize.width + 24)
+            colWidth = max(colWidth, headerSize.width + 48)
 
             for row in colData.rows {
-                let size = row.sizeThatFits(WuiProposalSize(width: nil, height: 24))
-                colWidth = max(colWidth, size.width + 16)
+                let size = row.sizeThatFits(WuiProposalSize(width: nil, height: 28))
+                colWidth = max(colWidth, size.width + 48)
             }
             totalWidth += colWidth
         }
@@ -475,7 +497,7 @@ extension WuiTable: NSTableViewDelegate {
         let colData = nativeColumns[colIndex]
         guard row < colData.rows.count else { return nil }
 
-        // Return the WuiAnyView as the cell view
+        // Return cell view directly - column width includes padding
         let cellView = colData.rows[row]
         cellView.frame = NSRect(x: 0, y: 0, width: tableColumn.width, height: tableView.rowHeight)
         return cellView
