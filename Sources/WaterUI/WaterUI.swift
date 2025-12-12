@@ -651,6 +651,8 @@ public final class WuiRootContext {
             environment = existing
         } else {
             environment = WuiEnvironment(waterui_init())
+            // Install media loader so Selected::load() works
+            installMediaLoader(env: environment.inner)
             globalEnvironment = environment
         }
         self.env = environment

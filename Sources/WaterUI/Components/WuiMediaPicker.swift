@@ -76,7 +76,7 @@ final class MediaRegistry: @unchecked Sendable {
     }
 }
 
-// MARK: - waterui_load_media Implementation
+// MARK: - Media Loader Implementation
 
 /// Media type constants matching Rust's MediaLoadResult.media_type
 private enum MediaType: UInt8 {
@@ -85,10 +85,20 @@ private enum MediaType: UInt8 {
     case livePhoto = 2
 }
 
+/// C-compatible function pointer for loading media.
 /// Called by Rust when Selected::load() is invoked.
+private let loadMediaImpl: @convention(c) (UInt32, MediaLoadCallback) -> Void = { id, callback in
+    loadMedia(id: id, callback: callback)
+}
+
+/// Installs the media loader into the environment.
+/// Call this during WaterUI initialization to enable Selected::load().
+public func installMediaLoader(env: OpaquePointer?) {
+    waterui_env_install_media_loader(env, loadMediaImpl)
+}
+
 /// Loads the media and calls the callback with the file URL.
-@_cdecl("waterui_load_media")
-public func waterui_load_media(id: UInt32, callback: MediaLoadCallback) {
+private func loadMedia(id: UInt32, callback: MediaLoadCallback) {
     #if canImport(UIKit)
     // Try PHPickerResult first (iOS)
     if let result = MediaRegistry.shared.takePHPickerResult(id) {

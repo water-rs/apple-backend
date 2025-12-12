@@ -96,16 +96,25 @@ class WuiTextBase: PlatformView {
             return .zero
         }
 
-        let maxWidth = proposal.width.map(CGFloat.init) ?? CGFloat.greatestFiniteMagnitude
         let maxHeight = proposal.height.map(CGFloat.init) ?? CGFloat.greatestFiniteMagnitude
-        let measured = cell.cellSize(forBounds: CGRect(
+
+        let intrinsic = cell.cellSize(forBounds: CGRect(
             origin: .zero,
-            size: CGSize(width: maxWidth, height: maxHeight)
+            size: CGSize(width: CGFloat.greatestFiniteMagnitude, height: maxHeight)
         ))
-        return CGSize(
-            width: ceil(min(measured.width, maxWidth)),
-            height: ceil(min(measured.height, maxHeight))
-        )
+
+        if let proposedWidth = proposal.width {
+            let maxWidth = CGFloat(proposedWidth)
+            if intrinsic.width > maxWidth {
+                let constrained = cell.cellSize(forBounds: CGRect(
+                    origin: .zero,
+                    size: CGSize(width: maxWidth, height: maxHeight)
+                ))
+                return CGSize(width: ceil(maxWidth), height: ceil(min(constrained.height, maxHeight)))
+            }
+        }
+
+        return CGSize(width: ceil(intrinsic.width), height: ceil(min(intrinsic.height, maxHeight)))
         #endif
     }
 
