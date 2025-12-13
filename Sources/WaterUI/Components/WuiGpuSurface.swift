@@ -23,6 +23,127 @@ import AppKit
 import CoreVideo
 #endif
 
+private final class WuiGpuSurfaceRenderState {
+    private var ffiSurface: CWaterUI.WuiGpuSurface
+    private var gpuState: OpaquePointer?
+    private var isInitializing = false
+    private var isActive = true
+    private var renderInFlight = false
+    private var width: UInt32 = 0
+    private var height: UInt32 = 0
+
+    private let lock = NSLock()
+    private let renderQueue = DispatchQueue(
+        label: "waterui.gpu-surface.render",
+        qos: .userInteractive
+    )
+
+    init(ffiSurface: CWaterUI.WuiGpuSurface) {
+        self.ffiSurface = ffiSurface
+    }
+
+    func updateSize(width: UInt32, height: UInt32) {
+        lock.lock()
+        self.width = width
+        self.height = height
+        lock.unlock()
+    }
+
+    func initializeIfNeeded(
+        layerPtr: UnsafeMutableRawPointer,
+        width: UInt32,
+        height: UInt32,
+        completion: @escaping (Bool) -> Void
+    ) {
+        lock.lock()
+        if !isActive {
+            lock.unlock()
+            completion(false)
+            return
+        }
+
+        self.width = width
+        self.height = height
+
+        if gpuState != nil {
+            lock.unlock()
+            completion(true)
+            return
+        }
+
+        if isInitializing {
+            lock.unlock()
+            return
+        }
+
+        isInitializing = true
+        lock.unlock()
+
+        renderQueue.async { [weak self] in
+            guard let self else { return }
+
+            let state: OpaquePointer? = withUnsafeMutablePointer(to: &self.ffiSurface) { surfacePtr in
+                waterui_gpu_surface_init(surfacePtr, layerPtr, width, height)
+            }
+
+            self.lock.lock()
+            self.isInitializing = false
+
+            guard self.isActive else {
+                self.lock.unlock()
+                if let state { waterui_gpu_surface_drop(state) }
+                return
+            }
+
+            self.gpuState = state
+            let success = (state != nil)
+            self.lock.unlock()
+
+            DispatchQueue.main.async {
+                completion(success)
+            }
+        }
+    }
+
+    func requestRender() {
+        lock.lock()
+        if !isActive {
+            lock.unlock()
+            return
+        }
+
+        guard let state = gpuState, width > 0, height > 0, !renderInFlight else {
+            lock.unlock()
+            return
+        }
+
+        renderInFlight = true
+        let width = self.width
+        let height = self.height
+        lock.unlock()
+
+        renderQueue.async { [weak self] in
+            guard let self else { return }
+            _ = waterui_gpu_surface_render(state, width, height)
+            self.lock.lock()
+            self.renderInFlight = false
+            self.lock.unlock()
+        }
+    }
+
+    func shutdown() {
+        lock.lock()
+        isActive = false
+        let state = gpuState
+        gpuState = nil
+        lock.unlock()
+
+        renderQueue.sync {
+            if let state { waterui_gpu_surface_drop(state) }
+        }
+    }
+}
+
 /// High-performance GPU rendering surface using wgpu.
 /// Uses CAMetalLayer with CADisplayLink for 120fps rendering.
 @MainActor
@@ -31,20 +152,17 @@ final class WuiGpuSurface: PlatformView, WuiComponent {
 
     private(set) var stretchAxis: WuiStretchAxis = .both
 
-    /// The FFI GpuSurface data (contains renderer pointer)
-    private var ffiSurface: CWaterUI.WuiGpuSurface
+    private let renderState: WuiGpuSurfaceRenderState
 
     /// The CAMetalLayer for GPU rendering
     private var metalLayer: CAMetalLayer!
-
-    /// Opaque state from waterui_gpu_surface_init (owns wgpu resources)
-    private var gpuState: OpaquePointer?
 
     /// Display link for frame sync (120fps capable)
     #if canImport(UIKit)
     private var displayLink: CADisplayLink?
     #elseif canImport(AppKit)
     private var displayLink: CVDisplayLink?
+    private var displayLinkUserInfo: UnsafeMutableRawPointer?
     #endif
 
     /// Whether we've initialized the GPU resources
@@ -65,7 +183,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent {
 
     init(stretchAxis: WuiStretchAxis, ffiSurface: CWaterUI.WuiGpuSurface) {
         self.stretchAxis = stretchAxis
-        self.ffiSurface = ffiSurface
+        self.renderState = WuiGpuSurfaceRenderState(ffiSurface: ffiSurface)
 
         super.init(frame: .zero)
 
@@ -119,7 +237,6 @@ final class WuiGpuSurface: PlatformView, WuiComponent {
     // MARK: - GPU Initialization
 
     private func initializeGpuIfNeeded() {
-        guard !isGpuInitialized else { return }
         guard bounds.width > 0 && bounds.height > 0 else { return }
 
         #if canImport(UIKit)
@@ -131,6 +248,8 @@ final class WuiGpuSurface: PlatformView, WuiComponent {
         let width = UInt32(bounds.width * currentScaleFactor)
         let height = UInt32(bounds.height * currentScaleFactor)
 
+        renderState.updateSize(width: width, height: height)
+
         // Update metal layer frame and drawable size
         metalLayer.frame = bounds
         metalLayer.drawableSize = CGSize(width: CGFloat(width), height: CGFloat(height))
@@ -139,14 +258,12 @@ final class WuiGpuSurface: PlatformView, WuiComponent {
         // Get pointer to metal layer for wgpu surface creation
         let layerPtr = Unmanaged.passUnretained(metalLayer).toOpaque()
 
-        // Initialize wgpu resources via FFI
-        gpuState = withUnsafeMutablePointer(to: &ffiSurface) { surfacePtr in
-            waterui_gpu_surface_init(surfacePtr, layerPtr, width, height)
-        }
-
-        if gpuState != nil {
-            isGpuInitialized = true
-            startDisplayLink()
+        guard !isGpuInitialized else { return }
+        renderState.initializeIfNeeded(layerPtr: layerPtr, width: width, height: height) { [weak self] success in
+            guard let self else { return }
+            guard success else { return }
+            self.isGpuInitialized = true
+            self.startDisplayLink()
         }
     }
 
@@ -154,6 +271,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent {
 
     #if canImport(UIKit)
     private func startDisplayLink() {
+        guard displayLink == nil else { return }
         displayLink = CADisplayLink(target: self, selector: #selector(render))
 
         // Request up to 120fps on ProMotion displays
@@ -186,17 +304,18 @@ final class WuiGpuSurface: PlatformView, WuiComponent {
 
         displayLink = link
 
+        let userInfo = Unmanaged.passRetained(renderState).toOpaque()
+        displayLinkUserInfo = userInfo
+
         CVDisplayLinkSetOutputCallback(
             link,
             { _, _, _, _, _, userInfo -> CVReturn in
                 guard let userInfo else { return kCVReturnError }
-                let surface = Unmanaged<WuiGpuSurface>.fromOpaque(userInfo).takeUnretainedValue()
-                DispatchQueue.main.async {
-                    surface.renderFrame()
-                }
+                let state = Unmanaged<WuiGpuSurfaceRenderState>.fromOpaque(userInfo).takeUnretainedValue()
+                state.requestRender()
                 return kCVReturnSuccess
             },
-            Unmanaged.passUnretained(self).toOpaque()
+            userInfo
         )
 
         CVDisplayLinkStart(link)
@@ -207,17 +326,16 @@ final class WuiGpuSurface: PlatformView, WuiComponent {
             CVDisplayLinkStop(link)
             displayLink = nil
         }
+
+        if let userInfo = displayLinkUserInfo {
+            Unmanaged<WuiGpuSurfaceRenderState>.fromOpaque(userInfo).release()
+            displayLinkUserInfo = nil
+        }
     }
     #endif
 
     private func renderFrame() {
-        guard let state = gpuState else { return }
-        guard bounds.width > 0 && bounds.height > 0 else { return }
-
-        let width = UInt32(bounds.width * currentScaleFactor)
-        let height = UInt32(bounds.height * currentScaleFactor)
-
-        _ = waterui_gpu_surface_render(state, width, height)
+        renderState.requestRender()
     }
 
     // MARK: - WuiComponent
@@ -280,6 +398,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent {
         if let newScale = window?.backingScaleFactor, newScale != currentScaleFactor {
             currentScaleFactor = newScale
             updateMetalLayerFrame()
+            initializeGpuIfNeeded()
         }
     }
     #endif
@@ -306,8 +425,6 @@ final class WuiGpuSurface: PlatformView, WuiComponent {
 
     @MainActor deinit {
         stopDisplayLink()
-        if let state = gpuState {
-            waterui_gpu_surface_drop(state)
-        }
+        renderState.shutdown()
     }
 }
