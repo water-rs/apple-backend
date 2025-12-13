@@ -24,6 +24,7 @@ import AppKit
 
 /// Thread-safe registry for pending media selections.
 /// Maps selection IDs to either PHPickerResult (iOS) or file URL (macOS).
+/// Entries are kept after retrieval to allow multiple loads of the same selection.
 final class MediaRegistry: @unchecked Sendable {
     static let shared = MediaRegistry()
 
@@ -32,6 +33,8 @@ final class MediaRegistry: @unchecked Sendable {
 
     #if canImport(UIKit)
     private var pendingResults: [UInt32: PHPickerResult] = [:]
+    /// Cache of loaded URLs from PHPickerResults (for repeated loads)
+    private var loadedURLs: [UInt32: (url: URL, videoURL: URL?, mediaType: UInt8)] = [:]
     #endif
     private var pendingURLs: [UInt32: URL] = [:]
 
@@ -60,19 +63,33 @@ final class MediaRegistry: @unchecked Sendable {
     }
 
     #if canImport(UIKit)
-    /// Get and remove a PHPickerResult by ID.
-    func takePHPickerResult(_ id: UInt32) -> PHPickerResult? {
+    /// Get a PHPickerResult by ID (does not remove).
+    func getPHPickerResult(_ id: UInt32) -> PHPickerResult? {
         lock.lock()
         defer { lock.unlock() }
-        return pendingResults.removeValue(forKey: id)
+        return pendingResults[id]
+    }
+
+    /// Cache a loaded result for future loads.
+    func cacheLoadedResult(_ id: UInt32, url: URL, videoURL: URL?, mediaType: UInt8) {
+        lock.lock()
+        defer { lock.unlock() }
+        loadedURLs[id] = (url, videoURL, mediaType)
+    }
+
+    /// Get a cached loaded result.
+    func getCachedResult(_ id: UInt32) -> (url: URL, videoURL: URL?, mediaType: UInt8)? {
+        lock.lock()
+        defer { lock.unlock() }
+        return loadedURLs[id]
     }
     #endif
 
-    /// Get and remove a URL by ID.
-    func takeURL(_ id: UInt32) -> URL? {
+    /// Get a URL by ID (does not remove).
+    func getURL(_ id: UInt32) -> URL? {
         lock.lock()
         defer { lock.unlock() }
-        return pendingURLs.removeValue(forKey: id)
+        return pendingURLs[id]
     }
 }
 
@@ -115,15 +132,21 @@ public func installMediaPickerManager(env: OpaquePointer?) {
 /// Loads the media and calls the callback with the file URL.
 private func loadMedia(id: UInt32, callback: MediaLoadCallback) {
     #if canImport(UIKit)
-    // Try PHPickerResult first (iOS)
-    if let result = MediaRegistry.shared.takePHPickerResult(id) {
-        loadFromPHPickerResult(result, callback: callback)
+    // Check cached result first (for repeated loads)
+    if let cached = MediaRegistry.shared.getCachedResult(id) {
+        completeWithURL(cached.url, videoURL: cached.videoURL, mediaType: MediaType(rawValue: cached.mediaType) ?? .image, callback: callback)
+        return
+    }
+
+    // Try PHPickerResult (iOS)
+    if let result = MediaRegistry.shared.getPHPickerResult(id) {
+        loadFromPHPickerResult(result, id: id, callback: callback)
         return
     }
     #endif
 
     // Try direct URL (macOS or fallback)
-    if let url = MediaRegistry.shared.takeURL(id) {
+    if let url = MediaRegistry.shared.getURL(id) {
         completeWithURL(url, videoURL: nil, mediaType: .image, callback: callback)
         return
     }
@@ -133,22 +156,22 @@ private func loadMedia(id: UInt32, callback: MediaLoadCallback) {
 
 #if canImport(UIKit)
 /// Load media from a PHPickerResult.
-private func loadFromPHPickerResult(_ result: PHPickerResult, callback: MediaLoadCallback) {
+private func loadFromPHPickerResult(_ result: PHPickerResult, id: UInt32, callback: MediaLoadCallback) {
     let itemProvider = result.itemProvider
 
     // Determine media type and load accordingly
     if itemProvider.hasItemConformingToTypeIdentifier(UTType.livePhoto.identifier) {
-        loadLivePhoto(from: itemProvider, callback: callback)
+        loadLivePhoto(from: itemProvider, id: id, callback: callback)
     } else if itemProvider.hasItemConformingToTypeIdentifier(UTType.movie.identifier) {
-        loadVideo(from: itemProvider, callback: callback)
+        loadVideo(from: itemProvider, id: id, callback: callback)
     } else if itemProvider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
-        loadImage(from: itemProvider, callback: callback)
+        loadImage(from: itemProvider, id: id, callback: callback)
     } else {
         fatalError("waterui_load_media: unsupported media type")
     }
 }
 
-private func loadImage(from itemProvider: NSItemProvider, callback: MediaLoadCallback) {
+private func loadImage(from itemProvider: NSItemProvider, id: UInt32, callback: MediaLoadCallback) {
     itemProvider.loadFileRepresentation(forTypeIdentifier: UTType.image.identifier) { url, error in
         guard let sourceURL = url else {
             fatalError("waterui_load_media: failed to load image: \(error?.localizedDescription ?? "unknown")")
@@ -156,22 +179,26 @@ private func loadImage(from itemProvider: NSItemProvider, callback: MediaLoadCal
 
         // Copy to temp location (file representation is temporary)
         let tempURL = copyToTempDirectory(sourceURL, extension: sourceURL.pathExtension)
+        // Cache for future loads
+        MediaRegistry.shared.cacheLoadedResult(id, url: tempURL, videoURL: nil, mediaType: MediaType.image.rawValue)
         completeWithURL(tempURL, videoURL: nil, mediaType: .image, callback: callback)
     }
 }
 
-private func loadVideo(from itemProvider: NSItemProvider, callback: MediaLoadCallback) {
+private func loadVideo(from itemProvider: NSItemProvider, id: UInt32, callback: MediaLoadCallback) {
     itemProvider.loadFileRepresentation(forTypeIdentifier: UTType.movie.identifier) { url, error in
         guard let sourceURL = url else {
             fatalError("waterui_load_media: failed to load video: \(error?.localizedDescription ?? "unknown")")
         }
 
         let tempURL = copyToTempDirectory(sourceURL, extension: sourceURL.pathExtension)
+        // Cache for future loads
+        MediaRegistry.shared.cacheLoadedResult(id, url: tempURL, videoURL: nil, mediaType: MediaType.video.rawValue)
         completeWithURL(tempURL, videoURL: nil, mediaType: .video, callback: callback)
     }
 }
 
-private func loadLivePhoto(from itemProvider: NSItemProvider, callback: MediaLoadCallback) {
+private func loadLivePhoto(from itemProvider: NSItemProvider, id: UInt32, callback: MediaLoadCallback) {
     // Load Live Photo - need to extract both image and video components
     // PHLivePhoto bundle contains paired HEIC image and MOV video
 
@@ -213,6 +240,8 @@ private func loadLivePhoto(from itemProvider: NSItemProvider, callback: MediaLoa
         guard let imageURL = imageURL, let videoURL = videoURL else {
             fatalError("waterui_load_media: failed to load Live Photo components: \(loadError?.localizedDescription ?? "unknown")")
         }
+        // Cache for future loads
+        MediaRegistry.shared.cacheLoadedResult(id, url: imageURL, videoURL: videoURL, mediaType: MediaType.livePhoto.rawValue)
         completeWithURL(imageURL, videoURL: videoURL, mediaType: .livePhoto, callback: callback)
     }
 }

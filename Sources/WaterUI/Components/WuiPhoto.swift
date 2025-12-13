@@ -48,7 +48,13 @@ final class WuiPhoto: PlatformView, WuiComponent {
     // MARK: - Designated Init
 
     init(sourceURL: String, onEvent: CWaterUI.WuiFn_WuiPhotoEvent) {
-        self.sourceURL = URL(string: sourceURL) ?? URL(fileURLWithPath: "")
+        // Try URL(string:) first for URLs with schemes (http://, file://, etc.)
+        // Fall back to URL(fileURLWithPath:) for plain paths
+        if let url = URL(string: sourceURL) {
+            self.sourceURL = url
+        } else {
+            self.sourceURL = URL(fileURLWithPath: sourceURL)
+        }
         self.onEvent = onEvent
 
         #if canImport(UIKit)
@@ -108,8 +114,16 @@ final class WuiPhoto: PlatformView, WuiComponent {
     private func loadImage() {
         loadTask = Task {
             do {
-                // Download image data
-                let (data, _) = try await URLSession.shared.data(from: sourceURL)
+                let data: Data
+
+                // Handle local file URLs directly
+                if sourceURL.isFileURL {
+                    data = try Data(contentsOf: sourceURL)
+                } else {
+                    // Download remote image data
+                    let (remoteData, _) = try await URLSession.shared.data(from: sourceURL)
+                    data = remoteData
+                }
 
                 // Check if task was cancelled
                 guard !Task.isCancelled else { return }
