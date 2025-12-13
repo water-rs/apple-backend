@@ -147,7 +147,19 @@ private func loadMedia(id: UInt32, callback: MediaLoadCallback) {
 
     // Try direct URL (macOS or fallback)
     if let url = MediaRegistry.shared.getURL(id) {
-        completeWithURL(url, videoURL: nil, mediaType: .image, callback: callback)
+        let mediaType: MediaType
+        if let type = UTType(filenameExtension: url.pathExtension) {
+            if type.conforms(to: .movie) || type.conforms(to: .video) {
+                mediaType = .video
+            } else if type.conforms(to: .image) {
+                mediaType = .image
+            } else {
+                mediaType = .image
+            }
+        } else {
+            mediaType = .image
+        }
+        completeWithURL(url, videoURL: nil, mediaType: mediaType, callback: callback)
         return
     }
 

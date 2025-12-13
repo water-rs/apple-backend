@@ -21,7 +21,7 @@ import AppKit
 final class WuiPhoto: PlatformView, WuiComponent {
     static var rawId: CWaterUI.WuiTypeId { waterui_photo_id() }
 
-    private(set) var stretchAxis: WuiStretchAxis = .both
+    private(set) var stretchAxis: WuiStretchAxis
 
     #if canImport(UIKit)
     private let imageView: UIImageView
@@ -36,18 +36,21 @@ final class WuiPhoto: PlatformView, WuiComponent {
     // MARK: - WuiComponent Init
 
     convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
+        let stretchAxis = WuiStretchAxis(waterui_view_stretch_axis(anyview))
         let ffiPhoto: CWaterUI.WuiPhoto = waterui_force_as_photo(anyview)
 
         let sourceStr = WuiStr(ffiPhoto.source)
         let sourceURLString = sourceStr.toString()
         let onEvent = ffiPhoto.on_event
 
-        self.init(sourceURL: sourceURLString, onEvent: onEvent)
+        self.init(sourceURL: sourceURLString, stretchAxis: stretchAxis, onEvent: onEvent)
     }
 
     // MARK: - Designated Init
 
-    init(sourceURL: String, onEvent: CWaterUI.WuiFn_WuiPhotoEvent) {
+    init(sourceURL: String, stretchAxis: WuiStretchAxis, onEvent: CWaterUI.WuiFn_WuiPhotoEvent) {
+        self.stretchAxis = stretchAxis
+
         // Try URL(string:) first for URLs with schemes (http://, file://, etc.)
         // Fall back to URL(fileURLWithPath:) for plain paths
         if let url = URL(string: sourceURL) {
@@ -62,11 +65,13 @@ final class WuiPhoto: PlatformView, WuiComponent {
         super.init(frame: .zero)
         imageView.contentMode = .scaleAspectFit
         addSubview(imageView)
+        imageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         #elseif canImport(AppKit)
         self.imageView = NSImageView()
         super.init(frame: .zero)
         imageView.imageScaling = .scaleProportionallyUpOrDown
         addSubview(imageView)
+        imageView.autoresizingMask = [.width, .height]
         #endif
 
         // Start loading image
