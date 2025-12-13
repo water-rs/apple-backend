@@ -627,35 +627,72 @@ public final class ThemeBridge {
 @MainActor
 private var globalEnvironment: WuiEnvironment?
 
+/// Represents a window in the application.
+@MainActor
+public struct WuiWindowContext {
+    /// The content view of the window.
+    public let content: OpaquePointer
+    /// Whether the window is closable.
+    public let closable: Bool
+    /// Whether the window is resizable.
+    public let resizable: Bool
+    /// Optional toolbar content (nil if none).
+    public let toolbar: OpaquePointer?
+    /// The visual style of the window.
+    public let style: WuiWindowStyle
+    /// The title binding.
+    public let title: OpaquePointer?
+    /// The frame binding.
+    public let frame: OpaquePointer?
+    /// The state binding.
+    public let state: OpaquePointer?
+
+    init(from window: WuiWindow) {
+        self.content = window.content
+        self.closable = window.closable
+        self.resizable = window.resizable
+        self.toolbar = window.toolbar
+        self.style = window.style
+        self.title = window.title
+        self.frame = window.frame
+        self.state = window.state
+    }
+}
+
 @MainActor
 public final class WuiRootContext {
     public let env: WuiEnvironment
-    private let rootViewPointer: OpaquePointer
+    private let app: WuiApp
+    private let mainWindow: WuiWindowContext
     var themeBridge: ThemeBridge?
 
     /// The root platform view
     #if canImport(UIKit)
     public private(set) lazy var rootView: UIView = {
-        WuiAnyView(anyview: rootViewPointer, env: env)
+        WuiAnyView(anyview: mainWindow.content, env: env)
     }()
     #elseif canImport(AppKit)
     public private(set) lazy var rootView: NSView = {
-        WuiAnyView(anyview: rootViewPointer, env: env)
+        WuiAnyView(anyview: mainWindow.content, env: env)
     }()
     #endif
 
+    /// The main window configuration
+    public var window: WuiWindowContext {
+        mainWindow
+    }
+
     public init() {
         // 1. Create environment (waterui_init) - only once per process
-        let environment: WuiEnvironment
+        let initEnv: WuiEnvironment
         if let existing = globalEnvironment {
-            environment = existing
+            initEnv = existing
         } else {
-            environment = WuiEnvironment(waterui_init())
+            initEnv = WuiEnvironment(waterui_init())
             // Install media picker manager for presenting picker and loading media
-            installMediaPickerManager(env: environment.inner)
-            globalEnvironment = environment
+            installMediaPickerManager(env: initEnv.inner)
+            globalEnvironment = initEnv
         }
-        self.env = environment
 
         // 2. Detect system color scheme
         #if canImport(UIKit)
@@ -665,15 +702,26 @@ public final class WuiRootContext {
         let systemScheme: ThemeBridge.ColorScheme = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .dark : .light
         #endif
 
-        // 3. Install system theme (colors, fonts, AND color scheme) into root env
-        // Rust can override color scheme via .install(Theme::new().color_scheme(...))
-        self.themeBridge = ThemeBridge(env: environment, colorScheme: systemScheme)
+        // 3. Install system theme (colors, fonts, AND color scheme) into env
+        // This must be done BEFORE calling waterui_app so user code sees the theme
+        self.themeBridge = ThemeBridge(env: initEnv, colorScheme: systemScheme)
 
-        // 4. Create the main view (waterui_main)
-        guard let mainView = waterui_main() else {
-            fatalError("waterui_main() returned nil")
+        // 4. Create the app by calling waterui_app(env)
+        // The user's app(env) receives the environment with theme installed,
+        // creates App::new(content, env), and returns App { windows, env }
+        // Native takes ownership of the environment and gets it back in the App.
+        self.app = waterui_app(initEnv.inner)
+
+        // 5. Use the environment returned from the app for rendering
+        // (App::new injects FullScreenOverlayManager into it)
+        self.env = WuiEnvironment(app.env)
+
+        // 6. Extract main window (first window in array)
+        let windowSlice = app.windows.vtable.slice(app.windows.data)
+        guard windowSlice.len > 0, let windowsPtr = windowSlice.head else {
+            fatalError("waterui_app() returned App with no windows")
         }
-        self.rootViewPointer = mainView
+        self.mainWindow = WuiWindowContext(from: windowsPtr.pointee)
     }
 
     /// Updates the theme for a new color scheme.
