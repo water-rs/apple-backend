@@ -227,6 +227,15 @@ private func registerBuiltinComponentsIfNeeded() {
     registerMetadataComponent(WuiIgnoreSafeArea.self)
     registerMetadataComponent(WuiRetain.self)
 
+    // Filter components
+    registerMetadataComponent(WuiBlur.self)
+    registerMetadataComponent(WuiBrightness.self)
+    registerMetadataComponent(WuiSaturation.self)
+    registerMetadataComponent(WuiContrast.self)
+    registerMetadataComponent(WuiHueRotation.self)
+    registerMetadataComponent(WuiGrayscale.self)
+    registerMetadataComponent(WuiOpacity.self)
+
     // Media components
     registerComponent(WuiPhoto.self)
     registerComponent(WuiVideo.self)
