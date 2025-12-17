@@ -299,12 +299,12 @@ private func completeWithURL(_ url: URL, videoURL: URL?, mediaType: MediaType, c
 final class MediaPickerManagerImpl {
     static let shared = MediaPickerManagerImpl()
 
-    private var pendingCallback: ((WuiSelected) -> Void)?
+    private var pendingCallback: ((SelectedId) -> Void)?
 
     private init() {}
 
     /// Present the media picker with the given filter
-    func present(filter: WuiMediaFilterType, callback: @escaping (WuiSelected) -> Void) {
+    func present(filter: WuiMediaFilterType, callback: @escaping (SelectedId) -> Void) {
         self.pendingCallback = callback
 
         #if canImport(UIKit)
@@ -379,9 +379,8 @@ final class MediaPickerManagerImpl {
             if response == .OK, let url = panel.url {
                 // Register the URL and get a unique ID
                 let id = MediaRegistry.shared.register(url)
-                let selected = CWaterUI.WuiSelected(id: id)
                 if let callback = self.pendingCallback {
-                    callback(selected)
+                    callback(id)
                     self.pendingCallback = nil
                 }
             }
@@ -401,8 +400,7 @@ extension MediaPickerManagerImpl: PHPickerViewControllerDelegate {
             picker.dismiss(animated: true)
 
             if let id = selectedId, let callback = self.pendingCallback {
-                let selected = CWaterUI.WuiSelected(id: id)
-                callback(selected)
+                callback(id)
                 self.pendingCallback = nil
             }
         }

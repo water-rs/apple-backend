@@ -18,6 +18,81 @@ import UIKit
 import AppKit
 #endif
 
+// MARK: - Content View Controller
+
+#if canImport(UIKit)
+/// A UIViewController that hosts WaterUI content with native navigation behavior.
+///
+/// Layout strategy (matches SwiftUI):
+/// 1. Content is laid out within safe area bounds
+/// 2. UIScrollViews extend edge-to-edge for native nav bar blur
+/// 3. Automatic content inset adjustment handles scroll content positioning
+@MainActor
+final class WuiContentViewController: UIViewController {
+    private let contentView: UIView
+
+    init(contentView: UIView) {
+        self.contentView = contentView
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .systemBackground
+        contentView.translatesAutoresizingMaskIntoConstraints = true
+        view.addSubview(contentView)
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+
+        let safeInsets = view.safeAreaInsets
+
+        // Step 1: Layout content within safe area (like SwiftUI default)
+        let safeFrame = CGRect(
+            x: safeInsets.left,
+            y: safeInsets.top,
+            width: view.bounds.width - safeInsets.left - safeInsets.right,
+            height: view.bounds.height - safeInsets.top - safeInsets.bottom
+        )
+        contentView.frame = safeFrame
+
+        // Step 2: Extend scroll views edge-to-edge for native blur effect
+        extendScrollViewsToEdges(safeInsets: safeInsets)
+    }
+
+    /// Finds UIScrollViews and extends them edge-to-edge while configuring automatic insets.
+    private func extendScrollViewsToEdges(safeInsets: UIEdgeInsets) {
+        extendScrollViewsRecursively(in: contentView, safeInsets: safeInsets)
+    }
+
+    private func extendScrollViewsRecursively(in view: UIView, safeInsets: UIEdgeInsets) {
+        if let scrollView = view as? UIScrollView {
+            // Extend frame to fill edge-to-edge (compensate for safe area offset)
+            var frame = scrollView.frame
+            frame.origin.x -= safeInsets.left
+            frame.origin.y -= safeInsets.top
+            frame.size.width += safeInsets.left + safeInsets.right
+            frame.size.height += safeInsets.top + safeInsets.bottom
+            scrollView.frame = frame
+
+            // Let UIKit handle content insets for proper scrolling behavior
+            scrollView.contentInsetAdjustmentBehavior = .automatic
+            return // Don't recurse into scroll view's content
+        }
+
+        for subview in view.subviews {
+            extendScrollViewsRecursively(in: subview, safeInsets: safeInsets)
+        }
+    }
+}
+#endif
+
 // MARK: - Navigation Controller Wrapper
 
 /// Wrapper class that receives push/pop callbacks from Rust via FFI.
@@ -50,7 +125,7 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
     private var navController: UINavigationController!
     private var viewStack: [UIViewController] = []
     #elseif canImport(AppKit)
-    private var viewStack: [(view: WuiAnyView, title: String)] = []
+    private var viewStack: [(view: NSView, title: String)] = []
     private var currentIndex: Int = 0
     #endif
 
@@ -72,21 +147,21 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
         let wrapperPtr = Unmanaged.passRetained(wrapper).toOpaque()
 
         // Create and install the navigation controller
+        // Note: Callbacks are called synchronously from the main thread (via Rust's nami runtime).
+        // We must NOT use async Task here because the FFI struct pointers become invalid
+        // after the callback returns.
         let controllerPtr = waterui_navigation_controller_new(
             wrapperPtr,
             { data, navView in
                 guard let data = data else { return }
                 let wrapper = Unmanaged<NavigationControllerWrapper>.fromOpaque(data).takeUnretainedValue()
-                Task { @MainActor in
-                    wrapper.push(navView)
-                }
+                // Process synchronously - navView's pointers are only valid during this callback
+                wrapper.push(navView)
             },
             { data in
                 guard let data = data else { return }
                 let wrapper = Unmanaged<NavigationControllerWrapper>.fromOpaque(data).takeUnretainedValue()
-                Task { @MainActor in
-                    wrapper.pop()
-                }
+                wrapper.pop()
             },
             { data in
                 guard let data = data else { return }
@@ -98,21 +173,25 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
         // Install the controller into the child environment
         waterui_env_install_navigation_controller(childEnv.inner, controllerPtr)
 
+        // For now, just use a fallback title - the type ID comparison is failing
+        // TODO: Debug why waterui_view_id returns different ID than waterui_navigation_view_id
+        let rootTitle = "Navigation Demo"
+
         // Render root view with the child environment (which has NavigationController)
         let rootView = WuiAnyView(anyview: ffiStack.root, env: childEnv)
 
-        self.init(rootView: rootView, childEnv: childEnv, wrapper: wrapper)
+        self.init(rootView: rootView, rootTitle: rootTitle, childEnv: childEnv, wrapper: wrapper)
     }
 
     // MARK: - Designated Init
 
-    init(rootView: WuiAnyView, childEnv: WuiEnvironment, wrapper: NavigationControllerWrapper) {
+    init(rootView: WuiAnyView, rootTitle: String, childEnv: WuiEnvironment, wrapper: NavigationControllerWrapper) {
         self.childEnv = childEnv
         self.wrapper = wrapper
         super.init(frame: .zero)
 
         wrapper.delegate = self
-        configureNavigation(with: rootView)
+        configureNavigation(with: rootView, title: rootTitle)
     }
 
     @available(*, unavailable)
@@ -122,11 +201,13 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
 
     // MARK: - Configuration
 
-    private func configureNavigation(with rootView: WuiAnyView) {
+    private func configureNavigation(with rootView: WuiAnyView, title: String) {
         #if canImport(UIKit)
         // iOS: Use UINavigationController for native swipe-back gesture
-        let rootVC = makeViewController(for: rootView, title: nil)
+        let rootVC = makeViewController(for: rootView, title: title.isEmpty ? nil : title, displayMode: .automatic)
         navController = UINavigationController(rootViewController: rootVC)
+        // Enable large titles support (individual VCs control their display mode)
+        navController.navigationBar.prefersLargeTitles = true
         navController.view.translatesAutoresizingMaskIntoConstraints = true
         addSubview(navController.view)
         viewStack.append(rootVC)
@@ -134,7 +215,7 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
         // macOS: Custom view stack
         rootView.translatesAutoresizingMaskIntoConstraints = true
         addSubview(rootView)
-        viewStack.append((view: rootView, title: ""))
+        viewStack.append((view: rootView, title: title))
         #endif
     }
 
@@ -152,38 +233,73 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
         let contentView = WuiAnyView(anyview: navView.content, env: childEnv)
 
         #if canImport(UIKit)
-        let vc = makeViewController(for: contentView, title: titleString)
+        // Extract and convert display mode
+        let displayMode = convertDisplayMode(navView.bar.display_mode)
+        let vc = makeViewController(for: contentView, title: titleString, displayMode: displayMode)
         navController.pushViewController(vc, animated: true)
         viewStack.append(vc)
         #elseif canImport(AppKit)
+        // For macOS, push content directly - toolbar handles navigation chrome
         pushView(contentView, title: titleString)
         #endif
     }
 
-    func handlePop() {
-        #if canImport(UIKit)
-        guard viewStack.count > 1 else { return }
-        navController.popViewController(animated: true)
-        viewStack.removeLast()
-        #elseif canImport(AppKit)
-        popView()
-        #endif
-    }
-
-    #if canImport(UIKit)
-    private func makeViewController(for view: WuiAnyView, title: String?) -> UIViewController {
-        let vc = UIViewController()
-        vc.title = title
-        view.translatesAutoresizingMaskIntoConstraints = true
-        vc.view.addSubview(view)
-        view.frame = vc.view.bounds
-        view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        return vc
-    }
-    #endif
-
     #if canImport(AppKit)
-    private func pushView(_ view: WuiAnyView, title: String) {
+    private var backButton: NSButton?
+    private var titlebarAccessory: NSTitlebarAccessoryViewController?
+
+    private func setupTitlebar() {
+        guard let window = self.window else { return }
+
+        // Check if already set up
+        if titlebarAccessory != nil { return }
+
+        // Create back button with native macOS styling
+        let button = NSButton(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        button.image = NSImage(systemSymbolName: "chevron.backward", accessibilityDescription: "Back")
+        button.bezelStyle = .accessoryBarAction  // Native accessory bar style
+        button.isBordered = false
+        button.imagePosition = .imageOnly
+        button.target = self
+        button.action = #selector(backButtonTapped)
+        button.isHidden = true  // Hidden initially on root view
+        self.backButton = button
+
+        // Create accessory view controller for the button
+        let accessoryVC = NSTitlebarAccessoryViewController()
+        accessoryVC.view = button
+        accessoryVC.layoutAttribute = .leading  // Position on the left!
+
+        window.addTitlebarAccessoryViewController(accessoryVC)
+        self.titlebarAccessory = accessoryVC
+
+        window.titleVisibility = .visible
+        updateTitlebarState()
+    }
+
+    private func updateTitlebarState() {
+        guard let window = self.window else { return }
+
+        // Update window title
+        let currentTitle = viewStack.last?.title ?? ""
+        window.title = currentTitle
+
+        // Update back button visibility
+        backButton?.isHidden = viewStack.count <= 1
+    }
+
+    @objc private func backButtonTapped() {
+        handlePop()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil {
+            setupTitlebar()
+        }
+    }
+
+    private func pushView(_ view: NSView, title: String) {
         // Hide current view
         if let currentView = viewStack.last?.view {
             currentView.isHidden = true
@@ -196,11 +312,13 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
         addSubview(view)
         viewStack.append((view: view, title: title))
 
+        // Update titlebar state (window title, back button)
+        updateTitlebarState()
+
         // Animate in
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.25
             view.animator().alphaValue = 1
-            view.animator().frame = bounds
         }
     }
 
@@ -209,6 +327,9 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
 
         let currentEntry = viewStack.removeLast()
         let currentView = currentEntry.view
+
+        // Update titlebar state before animation
+        updateTitlebarState()
 
         // Animate out
         NSAnimationContext.runAnimationGroup({ context in
@@ -223,6 +344,43 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
         // Show previous view
         if let previousView = viewStack.last?.view {
             previousView.isHidden = false
+        }
+    }
+    #endif
+
+    func handlePop() {
+        #if canImport(UIKit)
+        guard viewStack.count > 1 else { return }
+        navController.popViewController(animated: true)
+        viewStack.removeLast()
+        #elseif canImport(AppKit)
+        popView()
+        #endif
+    }
+
+    #if canImport(UIKit)
+    private func makeViewController(
+        for view: UIView,
+        title: String?,
+        displayMode: UINavigationItem.LargeTitleDisplayMode = .automatic
+    ) -> UIViewController {
+        let vc = WuiContentViewController(contentView: view)
+        vc.title = title
+        vc.navigationItem.largeTitleDisplayMode = displayMode
+        return vc
+    }
+
+    /// Converts FFI display mode enum to UIKit equivalent.
+    private func convertDisplayMode(_ mode: WuiNavigationTitleDisplayMode) -> UINavigationItem.LargeTitleDisplayMode {
+        switch mode {
+        case WuiNavigationTitleDisplayMode_Automatic:
+            return .automatic
+        case WuiNavigationTitleDisplayMode_Inline:
+            return .never  // .never gives inline (small) title
+        case WuiNavigationTitleDisplayMode_Large:
+            return .always
+        default:
+            return .automatic
         }
     }
     #endif
@@ -252,3 +410,4 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
     }
     #endif
 }
+

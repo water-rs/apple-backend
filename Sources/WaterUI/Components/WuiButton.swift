@@ -32,6 +32,7 @@ final class WuiButton: PlatformView, WuiComponent {
     #elseif canImport(AppKit)
     private let button: NSButton
     private let labelContainer = NSView()
+    private let backgroundView = NSView()  // Custom background that fills the frame
     #endif
 
     private var action: Action
@@ -135,12 +136,22 @@ final class WuiButton: PlatformView, WuiComponent {
         let verticalPadding: CGFloat = style == WuiButtonStyle_Link ? 0 : 4
 
         #if canImport(AppKit)
-        // On AppKit, add labelContainer directly to self (not to NSButton)
-        // NSButton's internal layout doesn't properly propagate constraints to subviews
+        // On AppKit, use a custom backgroundView instead of NSButton's bezel
+        // NSButton's .rounded bezel has fixed intrinsic size and doesn't fill its frame
+        backgroundView.translatesAutoresizingMaskIntoConstraints = false
+        backgroundView.wantsLayer = true
+
+        // Add views in order: background, button (invisible, handles clicks), label
+        addSubview(backgroundView)
         addSubview(button)
         addSubview(labelContainer)
 
         NSLayoutConstraint.activate([
+            backgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            backgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            backgroundView.topAnchor.constraint(equalTo: topAnchor),
+            backgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
             button.leadingAnchor.constraint(equalTo: leadingAnchor),
             button.trailingAnchor.constraint(equalTo: trailingAnchor),
             button.topAnchor.constraint(equalTo: topAnchor),
@@ -223,29 +234,42 @@ final class WuiButton: PlatformView, WuiComponent {
 
     #if canImport(AppKit)
     private func applyStyleAppKit() {
+        // Make NSButton invisible - we use custom backgroundView for appearance
+        button.isBordered = false
+        button.isTransparent = true
+
         switch style {
-        case WuiButtonStyle_Automatic:
-            button.bezelStyle = .rounded
-        case WuiButtonStyle_Plain:
-            button.isBordered = false
+        case WuiButtonStyle_Automatic, WuiButtonStyle_Bordered:
+            // Standard button: gray rounded background
+            backgroundView.layer?.cornerRadius = 5
+            backgroundView.layer?.backgroundColor = NSColor.controlColor.cgColor
+        case WuiButtonStyle_Plain, WuiButtonStyle_Borderless:
+            // No visible background
+            backgroundView.layer?.backgroundColor = nil
         case WuiButtonStyle_Link:
-            // Link style: no border, apply link color to embedded text
-            button.isBordered = false
-            button.contentTintColor = .linkColor
-            // Apply link styling to the label text view
+            // Link style: no background, blue underlined text
+            backgroundView.layer?.backgroundColor = nil
             applyLinkStylingToLabel(labelView)
-            // Setup hover tracking for cursor change
             setupLinkTrackingArea()
-        case WuiButtonStyle_Borderless:
-            button.isBordered = false
-            button.bezelStyle = .inline
-        case WuiButtonStyle_Bordered:
-            button.bezelStyle = .rounded
         case WuiButtonStyle_BorderedProminent:
-            button.bezelStyle = .rounded
-            button.keyEquivalent = "\r"  // Makes it the default button (blue)
+            // Prominent: blue background (accent color)
+            backgroundView.layer?.cornerRadius = 5
+            backgroundView.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
         default:
-            button.bezelStyle = .rounded
+            backgroundView.layer?.cornerRadius = 5
+            backgroundView.layer?.backgroundColor = NSColor.controlColor.cgColor
+        }
+    }
+
+    private func updateBackgroundForHighlight(_ highlighted: Bool) {
+        guard style != WuiButtonStyle_Link && style != WuiButtonStyle_Plain && style != WuiButtonStyle_Borderless else { return }
+
+        if highlighted {
+            backgroundView.layer?.backgroundColor = NSColor.controlColor.withAlphaComponent(0.7).cgColor
+        } else if style == WuiButtonStyle_BorderedProminent {
+            backgroundView.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
+        } else {
+            backgroundView.layer?.backgroundColor = NSColor.controlColor.cgColor
         }
     }
 
@@ -296,6 +320,8 @@ final class WuiButton: PlatformView, WuiComponent {
         if style == WuiButtonStyle_Link {
             // Natural press feedback: reduce opacity like SwiftUI
             labelView.alphaValue = 0.5
+        } else {
+            updateBackgroundForHighlight(true)
         }
         super.mouseDown(with: event)
     }
@@ -304,6 +330,8 @@ final class WuiButton: PlatformView, WuiComponent {
         if style == WuiButtonStyle_Link {
             // Restore opacity
             labelView.alphaValue = 1.0
+        } else {
+            updateBackgroundForHighlight(false)
         }
         super.mouseUp(with: event)
     }
@@ -327,12 +355,5 @@ final class WuiButton: PlatformView, WuiComponent {
 
     #if canImport(AppKit)
     override var isFlipped: Bool { true }
-
-    override func layout() {
-        super.layout()
-        if style == WuiButtonStyle_Link {
-            logger.debug("[Link] layout: self.bounds=\(self.bounds.width, privacy: .public)x\(self.bounds.height, privacy: .public), button.frame=\(self.button.frame.width, privacy: .public)x\(self.button.frame.height, privacy: .public), labelContainer.frame=\(self.labelContainer.frame.width, privacy: .public)x\(self.labelContainer.frame.height, privacy: .public), labelView.frame=\(self.labelView.frame.width, privacy: .public)x\(self.labelView.frame.height, privacy: .public)")
-        }
-    }
     #endif
 }
