@@ -43,7 +43,6 @@ final class WuiTransform: PlatformView, WuiComponent {
         // Enable layer for transforms
         #if canImport(AppKit)
         wantsLayer = true
-        // Set up content view's layer for centered transforms
         contentView.wantsLayer = true
         #endif
 
@@ -117,21 +116,39 @@ final class WuiTransform: PlatformView, WuiComponent {
     }
 
     private func applyTransform() {
-        // Build the combined transform
-        // Order: scale -> rotate -> translate
+        #if canImport(UIKit)
+        // UIKit uses center anchorPoint (0.5, 0.5) by default
         var transform = CGAffineTransform.identity
+        transform = transform.translatedBy(x: currentTranslateX, y: currentTranslateY)
+        transform = transform.rotated(by: currentRotation * .pi / 180.0)
         transform = transform.scaledBy(x: currentScaleX, y: currentScaleY)
-        transform = transform.rotated(by: currentRotation * .pi / 180.0) // Convert degrees to radians
+        contentView.transform = transform
+
+        #elseif canImport(AppKit)
+        // AppKit: Keep default anchorPoint, use matrix math to simulate center transform
+        // This is the safest approach - won't cause frame/layer desync
+
+        let size = bounds.size
+        let centerX = size.width / 2.0
+        let centerY = size.height / 2.0
+
+        var transform = CGAffineTransform.identity
+
+        // Step 1: Apply user's translation
         transform = transform.translatedBy(x: currentTranslateX, y: currentTranslateY)
 
-        #if canImport(UIKit)
-        contentView.transform = transform
-        #elseif canImport(AppKit)
-        // For AppKit, we apply the transform via the layer
-        // anchorPoint is managed in layout() to ensure transforms apply from center
-        if let layer = contentView.layer {
-            layer.setAffineTransform(transform)
-        }
+        // Step 2: Simulate pivot point transform (center-based scale/rotate)
+        // A. Move coordinate origin to view center
+        transform = transform.translatedBy(x: centerX, y: centerY)
+
+        // B. Apply rotation and scale
+        transform = transform.rotated(by: currentRotation * .pi / 180.0)
+        transform = transform.scaledBy(x: currentScaleX, y: currentScaleY)
+
+        // C. Move coordinate origin back to top-left (undo step A)
+        transform = transform.translatedBy(x: -centerX, y: -centerY)
+
+        contentView.layer?.setAffineTransform(transform)
         #endif
     }
 
@@ -147,7 +164,9 @@ final class WuiTransform: PlatformView, WuiComponent {
     #if canImport(UIKit)
     override func layoutSubviews() {
         super.layoutSubviews()
-        contentView.frame = bounds
+        // Don't set frame when transform exists - use bounds and center instead
+        contentView.bounds = CGRect(origin: .zero, size: bounds.size)
+        contentView.center = CGPoint(x: bounds.midX, y: bounds.midY)
     }
     #elseif canImport(AppKit)
     override var isFlipped: Bool { true }
@@ -155,31 +174,11 @@ final class WuiTransform: PlatformView, WuiComponent {
     override func layout() {
         super.layout()
 
-        // For AppKit layer-backed transforms, we need to:
-        // 1. Set the view's frame for proper layout
-        // 2. Set anchorPoint to (0.5, 0.5) so transforms apply from center
-        // 3. Adjust layer position to compensate for anchorPoint change
+        // Simple frame assignment - don't modify anchorPoint
+        // Transform is purely visual, handled by matrix math in applyTransform()
+        contentView.frame = bounds
 
-        let targetFrame = bounds
-
-        // Set view frame first (this also sets layer.frame initially)
-        contentView.frame = targetFrame
-
-        if let layer = contentView.layer {
-            // Change anchorPoint to center for proper transform origin
-            // Default in AppKit is (0, 0), we want (0.5, 0.5)
-            layer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
-
-            // When anchorPoint changes from (0,0) to (0.5,0.5), we must adjust position.
-            // Position should be the center of the view in superlayer coordinates.
-            layer.position = CGPoint(
-                x: targetFrame.midX,
-                y: targetFrame.midY
-            )
-
-            // Reapply transform after anchor point is set
-            applyTransform()
-        }
+        applyTransform()
     }
     #endif
 }
