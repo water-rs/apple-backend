@@ -246,8 +246,8 @@ final class WuiProgress: PlatformView, WuiComponent {
     private func startWatcher() {
         watcher = value.watch { [weak self] newValue, metadata in
             guard let self else { return }
-            let animated = metadata.getAnimation() != nil
-            updateAppearance(for: newValue, animated: animated)
+            let animation = parseAnimation(metadata.getAnimation())
+            updateAppearance(for: newValue, animated: shouldAnimate(animation))
         }
     }
 

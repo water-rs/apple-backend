@@ -219,6 +219,7 @@ private func registerBuiltinComponentsIfNeeded() {
     registerMetadataComponent(WuiBackground.self)
     registerMetadataComponent(WuiForeground.self)
     registerMetadataComponent(WuiShadow.self)
+    registerMetadataComponent(WuiTransform.self)
     registerMetadataComponent(WuiFocused.self)
     registerMetadataComponent(WuiIgnoreSafeArea.self)
     registerMetadataComponent(WuiRetain.self)

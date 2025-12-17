@@ -147,20 +147,15 @@ final class WuiToggle: PlatformView, WuiComponent {
     private func startWatchingBinding() {
         bindingWatcher = binding.watch { [weak self] newValue, metadata in
             guard let self else { return }
+            let animation = parseAnimation(metadata.getAnimation())
             #if canImport(UIKit)
             if toggle.isOn == newValue { return }
-            toggle.setOn(newValue, animated: metadata.getAnimation() != nil)
+            toggle.setOn(newValue, animated: shouldAnimate(animation))
             #elseif canImport(AppKit)
             let newState: NSControl.StateValue = newValue ? .on : .off
             if toggle.state == newState { return }
-            if metadata.getAnimation() != nil {
-                NSAnimationContext.runAnimationGroup { context in
-                    context.duration = 0.15
-                    context.allowsImplicitAnimation = true
-                    toggle.state = newState
-                }
-            } else {
-                toggle.state = newState
+            withPlatformAnimation(metadata) {
+                self.toggle.state = newState
             }
             #endif
         }

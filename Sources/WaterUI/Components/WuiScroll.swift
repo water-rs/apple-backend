@@ -60,8 +60,11 @@ final class WuiScroll: UIScrollView, WuiComponent, UIScrollViewDelegate {
         alwaysBounceHorizontal = isHorizontal
 
         // Use automatic for UINavigationController large title tracking
-        // We'll negate bottom inset in layoutSubviews for edge-to-edge bottom
+        // UIKit handles top (nav bar) and bottom (home indicator) insets automatically
         contentInsetAdjustmentBehavior = .automatic
+
+        // Transparent background to avoid white flash during bounce
+        backgroundColor = .clear
     }
 
     @available(*, unavailable)
@@ -81,13 +84,8 @@ final class WuiScroll: UIScrollView, WuiComponent, UIScrollViewDelegate {
     override func layoutSubviews() {
         super.layoutSubviews()
 
-        // Negate bottom safe area so content extends to edge
-        // adjustedContentInset.bottom = contentInset.bottom + safeAreaInsets.bottom
-        // Setting contentInset.bottom = -safeAreaInsets.bottom makes adjustedContentInset.bottom = 0
-        let bottomSafe = safeAreaInsets.bottom
-        if bottomSafe > 0 && contentInset.bottom != -bottomSafe {
-            contentInset.bottom = -bottomSafe
-        }
+        // Do NOT manually adjust contentInset - trust UIKit's .automatic behavior
+        // UIKit adds top inset for nav bar, bottom inset for home indicator automatically
 
         // Measure content with the scroll view's width (for vertical scrolling)
         // or height (for horizontal scrolling) as constraint
@@ -105,8 +103,6 @@ final class WuiScroll: UIScrollView, WuiComponent, UIScrollViewDelegate {
 
         let measuredSize = contentView.sizeThatFits(contentProposal)
 
-        // Don't stretch content to fill bounds - use natural size (SwiftUI behavior)
-        // Content smaller than bounds just means less/no scrolling
         let finalWidth: CGFloat
         let finalHeight: CGFloat
 
@@ -125,11 +121,14 @@ final class WuiScroll: UIScrollView, WuiComponent, UIScrollViewDelegate {
             finalHeight = measuredSize.height
         }
 
-        contentView.frame = CGRect(x: 0, y: 0, width: finalWidth, height: finalHeight)
-        contentSize = CGSize(width: finalWidth, height: finalHeight)
-
-        contentView.setNeedsLayout()
-        contentView.layoutIfNeeded()
+        // Only update frame when changed to avoid recursive layout loops
+        let newFrame = CGRect(x: 0, y: 0, width: finalWidth, height: finalHeight)
+        if contentView.frame != newFrame {
+            contentView.frame = newFrame
+            contentSize = CGSize(width: finalWidth, height: finalHeight)
+            contentView.setNeedsLayout()
+            contentView.layoutIfNeeded()
+        }
     }
 
     override var intrinsicContentSize: CGSize {

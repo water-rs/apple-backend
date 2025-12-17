@@ -52,24 +52,11 @@ final class WuiText: WuiTextBase, WuiComponent {
         watcher = content.watch { [weak self] value, metadata in
             guard let self else { return }
             #if canImport(UIKit)
-            if metadata.getAnimation() != nil {
-                UIView.transition(
-                    with: label,
-                    duration: 0.15,
-                    options: .transitionCrossDissolve,
-                    animations: { self.applyText(value) }
-                )
-            } else {
+            withCrossDissolveAnimation(self.label, metadata) {
                 self.applyText(value)
             }
             #elseif canImport(AppKit)
-            if metadata.getAnimation() != nil {
-                NSAnimationContext.runAnimationGroup { context in
-                    context.duration = 0.15
-                    context.allowsImplicitAnimation = true
-                    self.applyText(value)
-                }
-            } else {
+            withCrossDissolveAnimation(self.textField, metadata) {
                 self.applyText(value)
             }
             #endif

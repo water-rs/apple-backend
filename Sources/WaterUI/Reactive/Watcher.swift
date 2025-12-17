@@ -25,7 +25,7 @@ class WuiWatcherMetadata {
         self.inner = inner
     }
 
-    func getAnimation() -> WuiAnimation {
+    func getAnimation() -> CWaterUI.WuiAnimation {
         waterui_get_animation(inner)
     }
 

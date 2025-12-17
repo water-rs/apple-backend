@@ -12,75 +12,165 @@ import UIKit
 import AppKit
 #endif
 
-/// Checks if the metadata indicates an animation should be applied.
-@MainActor
-func shouldAnimate(_ metadata: WuiWatcherMetadata) -> Bool {
-    let animation = metadata.getAnimation()
-    return animation == WuiAnimation_Default
+/// Swift-native animation type parsed from FFI tagged union.
+enum Animation {
+    case none
+    case linear(duration: TimeInterval)
+    case easeIn(duration: TimeInterval)
+    case easeOut(duration: TimeInterval)
+    case easeInOut(duration: TimeInterval)
+    case spring(stiffness: CGFloat, damping: CGFloat)
 }
 
-/// Returns the default animation duration based on the animation type.
-func animationDuration(for animation: WuiAnimation) -> TimeInterval {
-    switch animation {
-    case WuiAnimation_Default:
-        return 0.25
+/// Parses FFI animation tagged union to Swift enum.
+func parseAnimation(_ ffiAnimation: CWaterUI.WuiAnimation) -> Animation {
+    switch ffiAnimation.tag {
     case WuiAnimation_None:
-        return 0
+        return .none
+    case WuiAnimation_Default:
+        return .easeInOut(duration: 0.25)
+    case WuiAnimation_Linear:
+        return .linear(duration: TimeInterval(ffiAnimation.linear.duration_ms) / 1000.0)
+    case WuiAnimation_EaseIn:
+        return .easeIn(duration: TimeInterval(ffiAnimation.ease_in.duration_ms) / 1000.0)
+    case WuiAnimation_EaseOut:
+        return .easeOut(duration: TimeInterval(ffiAnimation.ease_out.duration_ms) / 1000.0)
+    case WuiAnimation_EaseInOut:
+        return .easeInOut(duration: TimeInterval(ffiAnimation.ease_in_out.duration_ms) / 1000.0)
+    case WuiAnimation_Spring:
+        return .spring(
+            stiffness: CGFloat(ffiAnimation.spring.stiffness),
+            damping: CGFloat(ffiAnimation.spring.damping)
+        )
     default:
-        return 0
+        return .none
     }
 }
 
+/// Checks if the animation should be applied (not none).
+@MainActor
+func shouldAnimate(_ animation: Animation) -> Bool {
+    if case .none = animation {
+        return false
+    }
+    return true
+}
+
 #if canImport(UIKit)
-/// Performs a UIView animation if the metadata indicates animation should be used.
+/// Performs a UIView animation with the specified animation parameters.
 @MainActor
 func withPlatformAnimation(_ metadata: WuiWatcherMetadata, _ body: @escaping () -> Void) {
-    if shouldAnimate(metadata) {
-        UIView.animate(withDuration: 0.25, animations: body)
-    } else {
+    let animation = parseAnimation(metadata.getAnimation())
+
+    switch animation {
+    case .none:
         body()
+    case .linear(let duration):
+        UIView.animate(withDuration: duration, delay: 0, options: .curveLinear, animations: body)
+    case .easeIn(let duration):
+        UIView.animate(withDuration: duration, delay: 0, options: .curveEaseIn, animations: body)
+    case .easeOut(let duration):
+        UIView.animate(withDuration: duration, delay: 0, options: .curveEaseOut, animations: body)
+    case .easeInOut(let duration):
+        UIView.animate(withDuration: duration, delay: 0, options: .curveEaseInOut, animations: body)
+    case .spring(let stiffness, let damping):
+        let timing = UISpringTimingParameters(
+            mass: 1.0,
+            stiffness: stiffness,
+            damping: damping,
+            initialVelocity: .zero
+        )
+        let animator = UIViewPropertyAnimator(duration: 0, timingParameters: timing)
+        animator.addAnimations(body)
+        animator.startAnimation()
     }
 }
 
 /// Performs a cross-dissolve transition animation on a view if needed.
 @MainActor
-func withCrossDissolveAnimation(_ view: UIView, _ metadata: WuiWatcherMetadata, _ body: @escaping () -> Void) {
-    if shouldAnimate(metadata) {
+func withCrossDissolveAnimation(
+    _ view: UIView,
+    _ metadata: WuiWatcherMetadata,
+    _ body: @escaping () -> Void
+) {
+    let animation = parseAnimation(metadata.getAnimation())
+
+    switch animation {
+    case .none:
+        body()
+    case .linear(let duration), .easeIn(let duration), .easeOut(let duration), .easeInOut(let duration):
+        UIView.transition(
+            with: view,
+            duration: min(duration, 0.15),
+            options: .transitionCrossDissolve,
+            animations: body
+        )
+    case .spring:
+        // Cross-dissolve doesn't support spring, use default timing
         UIView.transition(
             with: view,
             duration: 0.15,
             options: .transitionCrossDissolve,
             animations: body
         )
-    } else {
-        body()
     }
 }
 #elseif canImport(AppKit)
-/// Performs an AppKit animation if the metadata indicates animation should be used.
+/// Performs an AppKit animation with the specified animation parameters.
 @MainActor
 func withPlatformAnimation(_ metadata: WuiWatcherMetadata, _ body: @escaping () -> Void) {
-    if shouldAnimate(metadata) {
+    let animation = parseAnimation(metadata.getAnimation())
+
+    switch animation {
+    case .none:
+        body()
+    case .linear(let duration), .easeIn(let duration), .easeOut(let duration), .easeInOut(let duration):
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.25
+            context.duration = duration
+            context.allowsImplicitAnimation = true
+            // Note: AppKit doesn't support custom timing curves via NSAnimationContext
+            // For full curve support, use CABasicAnimation or CASpringAnimation
+            body()
+        }
+    case .spring(let stiffness, let damping):
+        // AppKit spring animation using CASpringAnimation timing
+        NSAnimationContext.runAnimationGroup { context in
+            // Estimate duration from spring parameters
+            let estimatedDuration = 2.0 * sqrt(1.0 / Double(stiffness)) * Double(damping)
+            context.duration = max(0.1, min(estimatedDuration, 2.0))
             context.allowsImplicitAnimation = true
             body()
         }
-    } else {
-        body()
     }
 }
 
 /// Performs a cross-dissolve transition animation on a view if needed.
 @MainActor
-func withCrossDissolveAnimation(_ view: NSView, _ metadata: WuiWatcherMetadata, _ body: @escaping () -> Void) {
-    if shouldAnimate(metadata) {
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.15
-            context.allowsImplicitAnimation = true
-            body()
-        }
-    } else {
+func withCrossDissolveAnimation(
+    _ view: NSView,
+    _ metadata: WuiWatcherMetadata,
+    _ body: @escaping () -> Void
+) {
+    let animation = parseAnimation(metadata.getAnimation())
+
+    switch animation {
+    case .none:
+        body()
+    case .linear(let duration), .easeIn(let duration), .easeOut(let duration), .easeInOut(let duration):
+        // Use CATransition for actual cross-dissolve effect on AppKit
+        view.wantsLayer = true
+        let transition = CATransition()
+        transition.type = .fade
+        transition.duration = min(duration, 0.15)
+        view.layer?.add(transition, forKey: "crossDissolve")
+        body()
+    case .spring:
+        // Cross-dissolve doesn't support spring, use default timing
+        view.wantsLayer = true
+        let transition = CATransition()
+        transition.type = .fade
+        transition.duration = 0.15
+        view.layer?.add(transition, forKey: "crossDissolve")
         body()
     }
 }

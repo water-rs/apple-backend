@@ -34,6 +34,11 @@ final class WuiContentViewController: UIViewController {
     init(contentView: UIView) {
         self.contentView = contentView
         super.init(nibName: nil, bundle: nil)
+
+        // Extend layout under navigation bar and home indicator
+        // This is crucial for large title smooth transition
+        edgesForExtendedLayout = .all
+        extendedLayoutIncludesOpaqueBars = true
     }
 
     @available(*, unavailable)
@@ -48,9 +53,15 @@ final class WuiContentViewController: UIViewController {
         view.addSubview(contentView)
     }
 
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        // Force navigation bar layout refresh for large title
+        navigationController?.navigationBar.sizeToFit()
+    }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        // Simple edge-to-edge layout - let UIKit handle safe areas via contentInsetAdjustmentBehavior
+        // Edge-to-edge layout - ScrollView handles insets via contentInsetAdjustmentBehavior
         contentView.frame = view.bounds
     }
 }
