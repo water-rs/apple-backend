@@ -24,9 +24,9 @@ import AppKit
 /// A UIViewController that hosts WaterUI content with native navigation behavior.
 ///
 /// Layout strategy (matches SwiftUI):
-/// 1. Content is laid out within safe area bounds
-/// 2. UIScrollViews extend edge-to-edge for native nav bar blur
-/// 3. Automatic content inset adjustment handles scroll content positioning
+/// - If content contains a scroll view: edge-to-edge layout with automatic inset adjustment
+///   This enables proper large title collapse animation and nav bar blur effect
+/// - If content has no scroll view: safe area layout to avoid nav bar overlap
 @MainActor
 final class WuiContentViewController: UIViewController {
     private let contentView: UIView
@@ -50,45 +50,8 @@ final class WuiContentViewController: UIViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-
-        let safeInsets = view.safeAreaInsets
-
-        // Step 1: Layout content within safe area (like SwiftUI default)
-        let safeFrame = CGRect(
-            x: safeInsets.left,
-            y: safeInsets.top,
-            width: view.bounds.width - safeInsets.left - safeInsets.right,
-            height: view.bounds.height - safeInsets.top - safeInsets.bottom
-        )
-        contentView.frame = safeFrame
-
-        // Step 2: Extend scroll views edge-to-edge for native blur effect
-        extendScrollViewsToEdges(safeInsets: safeInsets)
-    }
-
-    /// Finds UIScrollViews and extends them edge-to-edge while configuring automatic insets.
-    private func extendScrollViewsToEdges(safeInsets: UIEdgeInsets) {
-        extendScrollViewsRecursively(in: contentView, safeInsets: safeInsets)
-    }
-
-    private func extendScrollViewsRecursively(in view: UIView, safeInsets: UIEdgeInsets) {
-        if let scrollView = view as? UIScrollView {
-            // Extend frame to fill edge-to-edge (compensate for safe area offset)
-            var frame = scrollView.frame
-            frame.origin.x -= safeInsets.left
-            frame.origin.y -= safeInsets.top
-            frame.size.width += safeInsets.left + safeInsets.right
-            frame.size.height += safeInsets.top + safeInsets.bottom
-            scrollView.frame = frame
-
-            // Let UIKit handle content insets for proper scrolling behavior
-            scrollView.contentInsetAdjustmentBehavior = .automatic
-            return // Don't recurse into scroll view's content
-        }
-
-        for subview in view.subviews {
-            extendScrollViewsRecursively(in: subview, safeInsets: safeInsets)
-        }
+        // Simple edge-to-edge layout - let UIKit handle safe areas via contentInsetAdjustmentBehavior
+        contentView.frame = view.bounds
     }
 }
 #endif

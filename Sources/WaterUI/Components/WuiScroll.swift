@@ -59,12 +59,9 @@ final class WuiScroll: UIScrollView, WuiComponent, UIScrollViewDelegate {
         alwaysBounceVertical = isVertical
         alwaysBounceHorizontal = isHorizontal
 
-        // Don't use automatic adjustment - we handle safe area manually for SwiftUI-like behavior
-        // where ScrollView extends into bottom safe area
-        contentInsetAdjustmentBehavior = .never
-
-        // Allow content to be visible outside scroll view bounds (for bottom safe area extension)
-        clipsToBounds = false
+        // Use automatic for UINavigationController large title tracking
+        // We'll negate bottom inset in layoutSubviews for edge-to-edge bottom
+        contentInsetAdjustmentBehavior = .automatic
     }
 
     @available(*, unavailable)
@@ -84,9 +81,13 @@ final class WuiScroll: UIScrollView, WuiComponent, UIScrollViewDelegate {
     override func layoutSubviews() {
         super.layoutSubviews()
 
-        // Get bottom safe area for SwiftUI-like extension behavior
-        let safeBottom = window?.safeAreaInsets.bottom ?? 0
-        let isVerticalScroll = axis == WuiAxis_Vertical || axis == WuiAxis_All
+        // Negate bottom safe area so content extends to edge
+        // adjustedContentInset.bottom = contentInset.bottom + safeAreaInsets.bottom
+        // Setting contentInset.bottom = -safeAreaInsets.bottom makes adjustedContentInset.bottom = 0
+        let bottomSafe = safeAreaInsets.bottom
+        if bottomSafe > 0 && contentInset.bottom != -bottomSafe {
+            contentInset.bottom = -bottomSafe
+        }
 
         // Measure content with the scroll view's width (for vertical scrolling)
         // or height (for horizontal scrolling) as constraint
@@ -104,32 +105,28 @@ final class WuiScroll: UIScrollView, WuiComponent, UIScrollViewDelegate {
 
         let measuredSize = contentView.sizeThatFits(contentProposal)
 
-        // Calculate effective scroll height including bottom safe area for vertical scrolling
-        // This allows content to scroll into the bottom safe area like SwiftUI
-        let effectiveScrollHeight = bounds.height + (isVerticalScroll ? safeBottom : 0)
-
+        // Don't stretch content to fill bounds - use natural size (SwiftUI behavior)
+        // Content smaller than bounds just means less/no scrolling
         let finalWidth: CGFloat
         let finalHeight: CGFloat
 
         switch axis {
         case WuiAxis_Vertical:
             finalWidth = bounds.width
-            finalHeight = max(measuredSize.height, effectiveScrollHeight)
+            finalHeight = measuredSize.height
         case WuiAxis_Horizontal:
-            finalWidth = max(measuredSize.width, bounds.width)
+            finalWidth = measuredSize.width
             finalHeight = bounds.height
         case WuiAxis_All:
-            finalWidth = max(measuredSize.width, bounds.width)
-            finalHeight = max(measuredSize.height, effectiveScrollHeight)
+            finalWidth = measuredSize.width
+            finalHeight = measuredSize.height
         default:
             finalWidth = bounds.width
-            finalHeight = max(measuredSize.height, effectiveScrollHeight)
+            finalHeight = measuredSize.height
         }
 
         contentView.frame = CGRect(x: 0, y: 0, width: finalWidth, height: finalHeight)
-
-        // Content size includes bottom safe area so content can scroll there
-        self.contentSize = CGSize(width: finalWidth, height: finalHeight)
+        contentSize = CGSize(width: finalWidth, height: finalHeight)
 
         contentView.setNeedsLayout()
         contentView.layoutIfNeeded()
