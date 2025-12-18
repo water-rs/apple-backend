@@ -186,6 +186,7 @@ private func registerBuiltinComponentsIfNeeded() {
     registerComponent(WuiText.self)
     registerComponent(WuiSpacer.self)
     registerComponent(WuiColorView.self)
+    registerComponent(WuiFilledShape.self)
 
     // Interactive components
     registerComponent(WuiButton.self)
@@ -219,6 +220,7 @@ private func registerBuiltinComponentsIfNeeded() {
     registerMetadataComponent(WuiBackground.self)
     registerMetadataComponent(WuiForeground.self)
     registerMetadataComponent(WuiShadow.self)
+    registerMetadataComponent(WuiClipShape.self)
     registerMetadataComponent(WuiTransform.self)
     registerMetadataComponent(WuiScale.self)
     registerMetadataComponent(WuiRotation.self)
