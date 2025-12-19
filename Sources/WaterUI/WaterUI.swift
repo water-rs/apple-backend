@@ -691,6 +691,8 @@ public final class WuiRootContext {
             initEnv = WuiEnvironment(waterui_init())
             // Install media picker manager for presenting picker and loading media
             installMediaPickerManager(env: initEnv.inner)
+            // Install webview controller for WebView component
+            installWebViewController(env: initEnv.inner)
             globalEnvironment = initEnv
         }
 
