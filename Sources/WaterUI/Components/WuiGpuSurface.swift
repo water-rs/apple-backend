@@ -14,13 +14,14 @@
 
 import CWaterUI
 import Metal
+import OSLog
 import QuartzCore
 
 #if canImport(UIKit)
-import UIKit
+    import UIKit
 #elseif canImport(AppKit)
-import AppKit
-import CoreVideo
+    import AppKit
+    import CoreVideo
 #endif
 
 private final class WuiGpuSurfaceRenderState {
@@ -82,7 +83,8 @@ private final class WuiGpuSurfaceRenderState {
         renderQueue.async { [weak self] in
             guard let self else { return }
 
-            let state: OpaquePointer? = withUnsafeMutablePointer(to: &self.ffiSurface) { surfacePtr in
+            let state: OpaquePointer? = withUnsafeMutablePointer(to: &self.ffiSurface) {
+                surfacePtr in
                 waterui_gpu_surface_init(surfacePtr, layerPtr, width, height)
             }
 
@@ -159,10 +161,10 @@ final class WuiGpuSurface: PlatformView, WuiComponent {
 
     /// Display link for frame sync (120fps capable)
     #if canImport(UIKit)
-    private var displayLink: CADisplayLink?
+        private var displayLink: CADisplayLink?
     #elseif canImport(AppKit)
-    private var displayLink: CVDisplayLink?
-    private var displayLinkUserInfo: UnsafeMutableRawPointer?
+        private var displayLink: CVDisplayLink?
+        private var displayLinkUserInfo: UnsafeMutableRawPointer?
     #endif
 
     /// Whether we've initialized the GPU resources
@@ -202,7 +204,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent {
 
         // Get the default Metal device
         guard let device = MTLCreateSystemDefaultDevice() else {
-            print("[WuiGpuSurface] Failed to create Metal device")
+            Logger.waterui.error("[WuiGpuSurface] Failed to create Metal device")
             return
         }
 
@@ -214,15 +216,15 @@ final class WuiGpuSurface: PlatformView, WuiComponent {
         configureHDR()
 
         #if canImport(UIKit)
-        // iOS/tvOS: Add metal layer as sublayer
-        layer.addSublayer(metalLayer)
+            // iOS/tvOS: Add metal layer as sublayer
+            layer.addSublayer(metalLayer)
         #elseif canImport(AppKit)
-        // macOS: Need to set wantsLayer and add sublayer
-        wantsLayer = true
-        if self.layer == nil {
-            self.layer = CALayer()
-        }
-        self.layer?.addSublayer(metalLayer)
+            // macOS: Need to set wantsLayer and add sublayer
+            wantsLayer = true
+            if self.layer == nil {
+                self.layer = CALayer()
+            }
+            self.layer?.addSublayer(metalLayer)
         #endif
     }
 
@@ -240,9 +242,10 @@ final class WuiGpuSurface: PlatformView, WuiComponent {
         guard bounds.width > 0 && bounds.height > 0 else { return }
 
         #if canImport(UIKit)
-        currentScaleFactor = contentScaleFactor
+            currentScaleFactor = contentScaleFactor
         #elseif canImport(AppKit)
-        currentScaleFactor = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1.0
+            currentScaleFactor =
+                window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1.0
         #endif
 
         let width = UInt32(bounds.width * currentScaleFactor)
@@ -259,7 +262,8 @@ final class WuiGpuSurface: PlatformView, WuiComponent {
         let layerPtr = Unmanaged.passUnretained(metalLayer).toOpaque()
 
         guard !isGpuInitialized else { return }
-        renderState.initializeIfNeeded(layerPtr: layerPtr, width: width, height: height) { [weak self] success in
+        renderState.initializeIfNeeded(layerPtr: layerPtr, width: width, height: height) {
+            [weak self] success in
             guard let self else { return }
             guard success else { return }
             self.isGpuInitialized = true
@@ -270,68 +274,69 @@ final class WuiGpuSurface: PlatformView, WuiComponent {
     // MARK: - Display Link
 
     #if canImport(UIKit)
-    private func startDisplayLink() {
-        guard displayLink == nil else { return }
-        displayLink = CADisplayLink(target: self, selector: #selector(render))
+        private func startDisplayLink() {
+            guard displayLink == nil else { return }
+            displayLink = CADisplayLink(target: self, selector: #selector(render))
 
-        // Request up to 120fps on ProMotion displays
-        if #available(iOS 15.0, tvOS 15.0, *) {
-            displayLink?.preferredFrameRateRange = CAFrameRateRange(
-                minimum: 60,
-                maximum: 120,
-                preferred: 120
-            )
+            // Request up to 120fps on ProMotion displays
+            if #available(iOS 15.0, tvOS 15.0, *) {
+                displayLink?.preferredFrameRateRange = CAFrameRateRange(
+                    minimum: 60,
+                    maximum: 120,
+                    preferred: 120
+                )
+            }
+
+            displayLink?.add(to: .main, forMode: .common)
         }
 
-        displayLink?.add(to: .main, forMode: .common)
-    }
-
-    private func stopDisplayLink() {
-        displayLink?.invalidate()
-        displayLink = nil
-    }
-
-    @objc private func render() {
-        renderFrame()
-    }
-    #elseif canImport(AppKit)
-    private func startDisplayLink() {
-        guard displayLink == nil else { return }
-
-        var link: CVDisplayLink?
-        let status = CVDisplayLinkCreateWithActiveCGDisplays(&link)
-        guard status == kCVReturnSuccess, let link else { return }
-
-        displayLink = link
-
-        let userInfo = Unmanaged.passRetained(renderState).toOpaque()
-        displayLinkUserInfo = userInfo
-
-        CVDisplayLinkSetOutputCallback(
-            link,
-            { _, _, _, _, _, userInfo -> CVReturn in
-                guard let userInfo else { return kCVReturnError }
-                let state = Unmanaged<WuiGpuSurfaceRenderState>.fromOpaque(userInfo).takeUnretainedValue()
-                state.requestRender()
-                return kCVReturnSuccess
-            },
-            userInfo
-        )
-
-        CVDisplayLinkStart(link)
-    }
-
-    private func stopDisplayLink() {
-        if let link = displayLink {
-            CVDisplayLinkStop(link)
+        private func stopDisplayLink() {
+            displayLink?.invalidate()
             displayLink = nil
         }
 
-        if let userInfo = displayLinkUserInfo {
-            Unmanaged<WuiGpuSurfaceRenderState>.fromOpaque(userInfo).release()
-            displayLinkUserInfo = nil
+        @objc private func render() {
+            renderFrame()
         }
-    }
+    #elseif canImport(AppKit)
+        private func startDisplayLink() {
+            guard displayLink == nil else { return }
+
+            var link: CVDisplayLink?
+            let status = CVDisplayLinkCreateWithActiveCGDisplays(&link)
+            guard status == kCVReturnSuccess, let link else { return }
+
+            displayLink = link
+
+            let userInfo = Unmanaged.passRetained(renderState).toOpaque()
+            displayLinkUserInfo = userInfo
+
+            CVDisplayLinkSetOutputCallback(
+                link,
+                { _, _, _, _, _, userInfo -> CVReturn in
+                    guard let userInfo else { return kCVReturnError }
+                    let state = Unmanaged<WuiGpuSurfaceRenderState>.fromOpaque(userInfo)
+                        .takeUnretainedValue()
+                    state.requestRender()
+                    return kCVReturnSuccess
+                },
+                userInfo
+            )
+
+            CVDisplayLinkStart(link)
+        }
+
+        private func stopDisplayLink() {
+            if let link = displayLink {
+                CVDisplayLinkStop(link)
+                displayLink = nil
+            }
+
+            if let userInfo = displayLinkUserInfo {
+                Unmanaged<WuiGpuSurfaceRenderState>.fromOpaque(userInfo).release()
+                displayLinkUserInfo = nil
+            }
+        }
     #endif
 
     private func renderFrame() {
@@ -353,54 +358,54 @@ final class WuiGpuSurface: PlatformView, WuiComponent {
     // MARK: - Layout
 
     #if canImport(UIKit)
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        updateMetalLayerFrame()
-        initializeGpuIfNeeded()
-    }
-
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        if window != nil {
-            // Update scale factor when added to window
-            currentScaleFactor = contentScaleFactor
+        override func layoutSubviews() {
+            super.layoutSubviews()
             updateMetalLayerFrame()
             initializeGpuIfNeeded()
         }
-    }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if window != nil {
+                // Update scale factor when added to window
+                currentScaleFactor = contentScaleFactor
+                updateMetalLayerFrame()
+                initializeGpuIfNeeded()
+            }
+        }
     #elseif canImport(AppKit)
-    override func layout() {
-        super.layout()
-        updateMetalLayerFrame()
-        initializeGpuIfNeeded()
-    }
-
-    override var isFlipped: Bool { true }
-
-    override var wantsLayer: Bool {
-        get { true }
-        set { }
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        if window != nil {
-            // Update scale factor when added to window
-            currentScaleFactor = window?.backingScaleFactor ?? 1.0
+        override func layout() {
+            super.layout()
             updateMetalLayerFrame()
             initializeGpuIfNeeded()
         }
-    }
 
-    override func viewDidChangeBackingProperties() {
-        super.viewDidChangeBackingProperties()
-        // Handle display change (e.g., moved to different monitor)
-        if let newScale = window?.backingScaleFactor, newScale != currentScaleFactor {
-            currentScaleFactor = newScale
-            updateMetalLayerFrame()
-            initializeGpuIfNeeded()
+        override var isFlipped: Bool { true }
+
+        override var wantsLayer: Bool {
+            get { true }
+            set {}
         }
-    }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window != nil {
+                // Update scale factor when added to window
+                currentScaleFactor = window?.backingScaleFactor ?? 1.0
+                updateMetalLayerFrame()
+                initializeGpuIfNeeded()
+            }
+        }
+
+        override func viewDidChangeBackingProperties() {
+            super.viewDidChangeBackingProperties()
+            // Handle display change (e.g., moved to different monitor)
+            if let newScale = window?.backingScaleFactor, newScale != currentScaleFactor {
+                currentScaleFactor = newScale
+                updateMetalLayerFrame()
+                initializeGpuIfNeeded()
+            }
+        }
     #endif
 
     private func updateMetalLayerFrame() {

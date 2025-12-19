@@ -67,14 +67,26 @@ final class WuiBlur: PlatformView, WuiComponent {
 
     private func applyBlur() {
         #if canImport(UIKit)
+        // Remove existing blur view if any
+        if let existingBlur = subviews.first(where: { $0 is UIVisualEffectView }) {
+            existingBlur.removeFromSuperview()
+        }
+
         if currentRadius > 0 {
-            // Use CAFilter for layer-based blur on iOS
-            if let blurFilter = CAFilter(name: "gaussianBlur") {
-                blurFilter.setValue(currentRadius, forKey: "inputRadius")
-                contentView.layer.filters = [blurFilter]
-            }
-        } else {
-            contentView.layer.filters = nil
+            // Use UIVisualEffectView for blur on iOS
+            // Map radius to blur style (rough approximation)
+            let blurStyle: UIBlurEffect.Style = currentRadius > 10 ? .regular : .light
+            let blurEffect = UIBlurEffect(style: blurStyle)
+            let blurView = UIVisualEffectView(effect: blurEffect)
+            blurView.translatesAutoresizingMaskIntoConstraints = false
+            blurView.alpha = min(1.0, currentRadius / 20.0)
+            insertSubview(blurView, aboveSubview: contentView)
+            NSLayoutConstraint.activate([
+                blurView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+                blurView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+                blurView.topAnchor.constraint(equalTo: contentView.topAnchor),
+                blurView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
+            ])
         }
         #elseif canImport(AppKit)
         NSAnimationContext.current.allowsImplicitAnimation = true

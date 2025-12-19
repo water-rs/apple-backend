@@ -1,11 +1,12 @@
 import CWaterUI
+import OSLog
 import SwiftUI
-#if canImport(UIKit)
-import UIKit
-#elseif canImport(AppKit)
-import AppKit
-#endif
 
+#if canImport(UIKit)
+    import UIKit
+#elseif canImport(AppKit)
+    import AppKit
+#endif
 // MARK: - WuiStretchAxis
 
 /// Defines how a view stretches to fill available space.
@@ -200,12 +201,14 @@ final class ReactiveColorSignal {
                 statePtr,
                 { ptr -> WuiResolvedColor in
                     guard let ptr = ptr else { return WuiResolvedColor() }
-                    let state = Unmanaged<State>.fromOpaque(UnsafeMutableRawPointer(mutating: ptr)).takeUnretainedValue()
+                    let state = Unmanaged<State>.fromOpaque(UnsafeMutableRawPointer(mutating: ptr))
+                        .takeUnretainedValue()
                     return state.color
                 },
                 { ptr, watcher -> OpaquePointer? in
                     guard let ptr = ptr, let watcher = watcher else { return nil }
-                    let state = Unmanaged<State>.fromOpaque(UnsafeMutableRawPointer(mutating: ptr)).takeUnretainedValue()
+                    let state = Unmanaged<State>.fromOpaque(UnsafeMutableRawPointer(mutating: ptr))
+                        .takeUnretainedValue()
                     _ = state.addWatcher(watcher)
 
                     final class WatcherGuardContext {
@@ -217,13 +220,16 @@ final class ReactiveColorSignal {
                         }
                     }
 
-                    let context = WatcherGuardContext(statePtr: UnsafeMutableRawPointer(mutating: ptr), watcher: watcher)
+                    let context = WatcherGuardContext(
+                        statePtr: UnsafeMutableRawPointer(mutating: ptr), watcher: watcher)
                     let contextPtr = Unmanaged.passRetained(context).toOpaque()
 
                     return waterui_new_watcher_guard(contextPtr) { rawPtr in
                         guard let rawPtr = rawPtr else { return }
-                        let context = Unmanaged<WatcherGuardContext>.fromOpaque(rawPtr).takeRetainedValue()
-                        let state = Unmanaged<State>.fromOpaque(context.statePtr).takeUnretainedValue()
+                        let context = Unmanaged<WatcherGuardContext>.fromOpaque(rawPtr)
+                            .takeRetainedValue()
+                        let state = Unmanaged<State>.fromOpaque(context.statePtr)
+                            .takeUnretainedValue()
                         state.removeWatcher(context.watcher)
                     }
                 },
@@ -245,18 +251,30 @@ final class ReactiveColorSignal {
 
     /// Convenience to set from platform color
     #if canImport(UIKit)
-    func setValue(_ color: UIColor) {
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        color.getRed(&r, green: &g, blue: &b, alpha: &a)
-        setValue(WuiResolvedColor(red: Float(r), green: Float(g), blue: Float(b), opacity: Float(a), headroom: 0.0))
-    }
+        func setValue(_ color: UIColor) {
+            var r: CGFloat = 0
+            var g: CGFloat = 0
+            var b: CGFloat = 0
+            var a: CGFloat = 0
+            color.getRed(&r, green: &g, blue: &b, alpha: &a)
+            setValue(
+                WuiResolvedColor(
+                    red: Float(r), green: Float(g), blue: Float(b), opacity: Float(a), headroom: 0.0
+                ))
+        }
     #elseif canImport(AppKit)
-    func setValue(_ color: NSColor) {
-        let rgbColor = color.usingColorSpace(.sRGB) ?? color
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        rgbColor.getRed(&r, green: &g, blue: &b, alpha: &a)
-        setValue(WuiResolvedColor(red: Float(r), green: Float(g), blue: Float(b), opacity: Float(a), headroom: 0.0))
-    }
+        func setValue(_ color: NSColor) {
+            let rgbColor = color.usingColorSpace(.sRGB) ?? color
+            var r: CGFloat = 0
+            var g: CGFloat = 0
+            var b: CGFloat = 0
+            var a: CGFloat = 0
+            rgbColor.getRed(&r, green: &g, blue: &b, alpha: &a)
+            setValue(
+                WuiResolvedColor(
+                    red: Float(r), green: Float(g), blue: Float(b), opacity: Float(a), headroom: 0.0
+                ))
+        }
     #endif
 }
 
@@ -309,12 +327,14 @@ final class ReactiveColorSchemeSignal {
                 statePtr,
                 { ptr -> WuiColorScheme in
                     guard let ptr = ptr else { return WuiColorScheme_Light }
-                    let state = Unmanaged<State>.fromOpaque(UnsafeMutableRawPointer(mutating: ptr)).takeUnretainedValue()
+                    let state = Unmanaged<State>.fromOpaque(UnsafeMutableRawPointer(mutating: ptr))
+                        .takeUnretainedValue()
                     return state.scheme
                 },
                 { ptr, watcher -> OpaquePointer? in
                     guard let ptr = ptr, let watcher = watcher else { return nil }
-                    let state = Unmanaged<State>.fromOpaque(UnsafeMutableRawPointer(mutating: ptr)).takeUnretainedValue()
+                    let state = Unmanaged<State>.fromOpaque(UnsafeMutableRawPointer(mutating: ptr))
+                        .takeUnretainedValue()
                     state.addWatcher(watcher)
                     return waterui_new_watcher_guard(nil) { _ in }
                 },
@@ -382,12 +402,14 @@ final class ReactiveFontSignal {
                 statePtr,
                 { ptr -> WuiResolvedFont in
                     guard let ptr = ptr else { return WuiResolvedFont() }
-                    let state = Unmanaged<State>.fromOpaque(UnsafeMutableRawPointer(mutating: ptr)).takeUnretainedValue()
+                    let state = Unmanaged<State>.fromOpaque(UnsafeMutableRawPointer(mutating: ptr))
+                        .takeUnretainedValue()
                     return state.font
                 },
                 { ptr, watcher -> OpaquePointer? in
                     guard let ptr = ptr, let watcher = watcher else { return nil }
-                    let state = Unmanaged<State>.fromOpaque(UnsafeMutableRawPointer(mutating: ptr)).takeUnretainedValue()
+                    let state = Unmanaged<State>.fromOpaque(UnsafeMutableRawPointer(mutating: ptr))
+                        .takeUnretainedValue()
                     state.addWatcher(watcher)
                     return waterui_new_watcher_guard(nil) { _ in }
                 },
@@ -458,23 +480,41 @@ public final class ThemeBridge {
 
         // Create reactive color signals
         #if canImport(UIKit)
-        backgroundSignal = createAndInstallColorSignal(env: env, slot: WuiColorSlot_Background, color: UIColor.systemBackground)
-        surfaceSignal = createAndInstallColorSignal(env: env, slot: WuiColorSlot_Surface, color: UIColor.secondarySystemBackground)
-        surfaceVariantSignal = createAndInstallColorSignal(env: env, slot: WuiColorSlot_SurfaceVariant, color: UIColor.tertiarySystemBackground)
-        borderSignal = createAndInstallColorSignal(env: env, slot: WuiColorSlot_Border, color: UIColor.separator)
-        foregroundSignal = createAndInstallColorSignal(env: env, slot: WuiColorSlot_Foreground, color: UIColor.label)
-        mutedForegroundSignal = createAndInstallColorSignal(env: env, slot: WuiColorSlot_MutedForeground, color: UIColor.secondaryLabel)
-        accentSignal = createAndInstallColorSignal(env: env, slot: WuiColorSlot_Accent, color: UIColor.tintColor)
-        accentForegroundSignal = createAndInstallColorSignal(env: env, slot: WuiColorSlot_AccentForeground, color: UIColor.white)
+            backgroundSignal = createAndInstallColorSignal(
+                env: env, slot: WuiColorSlot_Background, color: UIColor.systemBackground)
+            surfaceSignal = createAndInstallColorSignal(
+                env: env, slot: WuiColorSlot_Surface, color: UIColor.secondarySystemBackground)
+            surfaceVariantSignal = createAndInstallColorSignal(
+                env: env, slot: WuiColorSlot_SurfaceVariant, color: UIColor.tertiarySystemBackground
+            )
+            borderSignal = createAndInstallColorSignal(
+                env: env, slot: WuiColorSlot_Border, color: UIColor.separator)
+            foregroundSignal = createAndInstallColorSignal(
+                env: env, slot: WuiColorSlot_Foreground, color: UIColor.label)
+            mutedForegroundSignal = createAndInstallColorSignal(
+                env: env, slot: WuiColorSlot_MutedForeground, color: UIColor.secondaryLabel)
+            accentSignal = createAndInstallColorSignal(
+                env: env, slot: WuiColorSlot_Accent, color: UIColor.tintColor)
+            accentForegroundSignal = createAndInstallColorSignal(
+                env: env, slot: WuiColorSlot_AccentForeground, color: UIColor.white)
         #elseif canImport(AppKit)
-        backgroundSignal = createAndInstallColorSignal(env: env, slot: WuiColorSlot_Background, color: NSColor.windowBackgroundColor)
-        surfaceSignal = createAndInstallColorSignal(env: env, slot: WuiColorSlot_Surface, color: NSColor.controlBackgroundColor)
-        surfaceVariantSignal = createAndInstallColorSignal(env: env, slot: WuiColorSlot_SurfaceVariant, color: NSColor.underPageBackgroundColor)
-        borderSignal = createAndInstallColorSignal(env: env, slot: WuiColorSlot_Border, color: NSColor.separatorColor)
-        foregroundSignal = createAndInstallColorSignal(env: env, slot: WuiColorSlot_Foreground, color: NSColor.labelColor)
-        mutedForegroundSignal = createAndInstallColorSignal(env: env, slot: WuiColorSlot_MutedForeground, color: NSColor.secondaryLabelColor)
-        accentSignal = createAndInstallColorSignal(env: env, slot: WuiColorSlot_Accent, color: NSColor.controlAccentColor)
-        accentForegroundSignal = createAndInstallColorSignal(env: env, slot: WuiColorSlot_AccentForeground, color: NSColor.white)
+            backgroundSignal = createAndInstallColorSignal(
+                env: env, slot: WuiColorSlot_Background, color: NSColor.windowBackgroundColor)
+            surfaceSignal = createAndInstallColorSignal(
+                env: env, slot: WuiColorSlot_Surface, color: NSColor.controlBackgroundColor)
+            surfaceVariantSignal = createAndInstallColorSignal(
+                env: env, slot: WuiColorSlot_SurfaceVariant, color: NSColor.underPageBackgroundColor
+            )
+            borderSignal = createAndInstallColorSignal(
+                env: env, slot: WuiColorSlot_Border, color: NSColor.separatorColor)
+            foregroundSignal = createAndInstallColorSignal(
+                env: env, slot: WuiColorSlot_Foreground, color: NSColor.labelColor)
+            mutedForegroundSignal = createAndInstallColorSignal(
+                env: env, slot: WuiColorSlot_MutedForeground, color: NSColor.secondaryLabelColor)
+            accentSignal = createAndInstallColorSignal(
+                env: env, slot: WuiColorSlot_Accent, color: NSColor.controlAccentColor)
+            accentForegroundSignal = createAndInstallColorSignal(
+                env: env, slot: WuiColorSlot_AccentForeground, color: NSColor.white)
         #endif
 
         // Install fonts (constant - don't change with appearance)
@@ -494,129 +534,163 @@ public final class ThemeBridge {
         // Update color signals with new system colors
         // The reactive system will automatically propagate these changes
         #if canImport(UIKit)
-        backgroundSignal?.setValue(UIColor.systemBackground)
-        surfaceSignal?.setValue(UIColor.secondarySystemBackground)
-        surfaceVariantSignal?.setValue(UIColor.tertiarySystemBackground)
-        borderSignal?.setValue(UIColor.separator)
-        foregroundSignal?.setValue(UIColor.label)
-        mutedForegroundSignal?.setValue(UIColor.secondaryLabel)
-        accentSignal?.setValue(UIColor.tintColor)
-        accentForegroundSignal?.setValue(UIColor.white)
+            backgroundSignal?.setValue(UIColor.systemBackground)
+            surfaceSignal?.setValue(UIColor.secondarySystemBackground)
+            surfaceVariantSignal?.setValue(UIColor.tertiarySystemBackground)
+            borderSignal?.setValue(UIColor.separator)
+            foregroundSignal?.setValue(UIColor.label)
+            mutedForegroundSignal?.setValue(UIColor.secondaryLabel)
+            accentSignal?.setValue(UIColor.tintColor)
+            accentForegroundSignal?.setValue(UIColor.white)
         #elseif canImport(AppKit)
-        backgroundSignal?.setValue(NSColor.windowBackgroundColor)
-        surfaceSignal?.setValue(NSColor.controlBackgroundColor)
-        surfaceVariantSignal?.setValue(NSColor.underPageBackgroundColor)
-        borderSignal?.setValue(NSColor.separatorColor)
-        foregroundSignal?.setValue(NSColor.labelColor)
-        mutedForegroundSignal?.setValue(NSColor.secondaryLabelColor)
-        accentSignal?.setValue(NSColor.controlAccentColor)
-        accentForegroundSignal?.setValue(NSColor.white)
+            backgroundSignal?.setValue(NSColor.windowBackgroundColor)
+            surfaceSignal?.setValue(NSColor.controlBackgroundColor)
+            surfaceVariantSignal?.setValue(NSColor.underPageBackgroundColor)
+            borderSignal?.setValue(NSColor.separatorColor)
+            foregroundSignal?.setValue(NSColor.labelColor)
+            mutedForegroundSignal?.setValue(NSColor.secondaryLabelColor)
+            accentSignal?.setValue(NSColor.controlAccentColor)
+            accentForegroundSignal?.setValue(NSColor.white)
         #endif
     }
 
     #if canImport(UIKit)
-    private func createAndInstallColorSignal(env: WuiEnvironment, slot: WuiColorSlot, color: UIColor) -> ReactiveColorSignal {
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        color.getRed(&r, green: &g, blue: &b, alpha: &a)
-        let resolved = WuiResolvedColor(red: Float(r), green: Float(g), blue: Float(b), opacity: Float(a), headroom: 0.0)
+        private func createAndInstallColorSignal(
+            env: WuiEnvironment, slot: WuiColorSlot, color: UIColor
+        ) -> ReactiveColorSignal {
+            var r: CGFloat = 0
+            var g: CGFloat = 0
+            var b: CGFloat = 0
+            var a: CGFloat = 0
+            color.getRed(&r, green: &g, blue: &b, alpha: &a)
+            let resolved = WuiResolvedColor(
+                red: Float(r), green: Float(g), blue: Float(b), opacity: Float(a), headroom: 0.0)
 
-        let signal = ReactiveColorSignal(color: resolved)
-        if let computed = signal.toComputed() {
-            waterui_theme_install_color(env.inner, slot, computed)
+            let signal = ReactiveColorSignal(color: resolved)
+            if let computed = signal.toComputed() {
+                waterui_theme_install_color(env.inner, slot, computed)
+            }
+            return signal
         }
-        return signal
-    }
     #elseif canImport(AppKit)
-    private func createAndInstallColorSignal(env: WuiEnvironment, slot: WuiColorSlot, color: NSColor) -> ReactiveColorSignal {
-        let rgbColor = color.usingColorSpace(.sRGB) ?? color
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        rgbColor.getRed(&r, green: &g, blue: &b, alpha: &a)
-        let resolved = WuiResolvedColor(red: Float(r), green: Float(g), blue: Float(b), opacity: Float(a), headroom: 0.0)
+        private func createAndInstallColorSignal(
+            env: WuiEnvironment, slot: WuiColorSlot, color: NSColor
+        ) -> ReactiveColorSignal {
+            let rgbColor = color.usingColorSpace(.sRGB) ?? color
+            var r: CGFloat = 0
+            var g: CGFloat = 0
+            var b: CGFloat = 0
+            var a: CGFloat = 0
+            rgbColor.getRed(&r, green: &g, blue: &b, alpha: &a)
+            let resolved = WuiResolvedColor(
+                red: Float(r), green: Float(g), blue: Float(b), opacity: Float(a), headroom: 0.0)
 
-        let signal = ReactiveColorSignal(color: resolved)
-        if let computed = signal.toComputed() {
-            waterui_theme_install_color(env.inner, slot, computed)
+            let signal = ReactiveColorSignal(color: resolved)
+            if let computed = signal.toComputed() {
+                waterui_theme_install_color(env.inner, slot, computed)
+            }
+            return signal
         }
-        return signal
-    }
     #endif
 
     private func installSystemFonts(env: WuiEnvironment) {
         #if canImport(UIKit)
-        installFontSlot(env: env, slot: WuiFontSlot_Body, font: UIFont.preferredFont(forTextStyle: .body))
-        installFontSlot(env: env, slot: WuiFontSlot_Title, font: UIFont.preferredFont(forTextStyle: .title1))
-        installFontSlot(env: env, slot: WuiFontSlot_Headline, font: UIFont.preferredFont(forTextStyle: .headline))
-        installFontSlot(env: env, slot: WuiFontSlot_Subheadline, font: UIFont.preferredFont(forTextStyle: .subheadline))
-        installFontSlot(env: env, slot: WuiFontSlot_Caption, font: UIFont.preferredFont(forTextStyle: .caption1))
-        installFontSlot(env: env, slot: WuiFontSlot_Footnote, font: UIFont.preferredFont(forTextStyle: .footnote))
+            installFontSlot(
+                env: env, slot: WuiFontSlot_Body, font: UIFont.preferredFont(forTextStyle: .body))
+            installFontSlot(
+                env: env, slot: WuiFontSlot_Title, font: UIFont.preferredFont(forTextStyle: .title1)
+            )
+            installFontSlot(
+                env: env, slot: WuiFontSlot_Headline,
+                font: UIFont.preferredFont(forTextStyle: .headline))
+            installFontSlot(
+                env: env, slot: WuiFontSlot_Subheadline,
+                font: UIFont.preferredFont(forTextStyle: .subheadline))
+            installFontSlot(
+                env: env, slot: WuiFontSlot_Caption,
+                font: UIFont.preferredFont(forTextStyle: .caption1))
+            installFontSlot(
+                env: env, slot: WuiFontSlot_Footnote,
+                font: UIFont.preferredFont(forTextStyle: .footnote))
         #elseif canImport(AppKit)
-        installFontSlot(env: env, slot: WuiFontSlot_Body, font: NSFont.systemFont(ofSize: NSFont.systemFontSize))
-        installFontSlot(env: env, slot: WuiFontSlot_Title, font: NSFont.systemFont(ofSize: 28, weight: .bold))
-        installFontSlot(env: env, slot: WuiFontSlot_Headline, font: NSFont.systemFont(ofSize: 17, weight: .semibold))
-        installFontSlot(env: env, slot: WuiFontSlot_Subheadline, font: NSFont.systemFont(ofSize: 15))
-        installFontSlot(env: env, slot: WuiFontSlot_Caption, font: NSFont.systemFont(ofSize: 12))
-        installFontSlot(env: env, slot: WuiFontSlot_Footnote, font: NSFont.systemFont(ofSize: 13))
+            installFontSlot(
+                env: env, slot: WuiFontSlot_Body,
+                font: NSFont.systemFont(ofSize: NSFont.systemFontSize))
+            installFontSlot(
+                env: env, slot: WuiFontSlot_Title,
+                font: NSFont.systemFont(ofSize: 28, weight: .bold))
+            installFontSlot(
+                env: env, slot: WuiFontSlot_Headline,
+                font: NSFont.systemFont(ofSize: 17, weight: .semibold))
+            installFontSlot(
+                env: env, slot: WuiFontSlot_Subheadline, font: NSFont.systemFont(ofSize: 15))
+            installFontSlot(
+                env: env, slot: WuiFontSlot_Caption, font: NSFont.systemFont(ofSize: 12))
+            installFontSlot(
+                env: env, slot: WuiFontSlot_Footnote, font: NSFont.systemFont(ofSize: 13))
         #endif
     }
 
     #if canImport(UIKit)
-    private func installFontSlot(env: WuiEnvironment, slot: WuiFontSlot, font: UIFont) {
-        let weight = fontWeight(font)
-        let signal = ReactiveFontSignal(size: Float(font.pointSize), weight: weight)
-        if let computed = signal.toComputed() {
-            waterui_theme_install_font(env.inner, slot, computed)
+        private func installFontSlot(env: WuiEnvironment, slot: WuiFontSlot, font: UIFont) {
+            let weight = fontWeight(font)
+            let signal = ReactiveFontSignal(size: Float(font.pointSize), weight: weight)
+            if let computed = signal.toComputed() {
+                waterui_theme_install_font(env.inner, slot, computed)
+            }
         }
-    }
 
-    private func fontWeight(_ font: UIFont) -> WuiFontWeight {
-        let traits = font.fontDescriptor.object(forKey: .traits) as? [UIFontDescriptor.TraitKey: Any]
-        let weightValue = traits?[.weight] as? CGFloat ?? UIFont.Weight.regular.rawValue
-        return uiFontWeightToWuiFontWeight(weightValue)
-    }
-
-    private func uiFontWeightToWuiFontWeight(_ weight: CGFloat) -> WuiFontWeight {
-        // UIFont.Weight ranges from -1.0 (ultra-light) to 1.0 (black), with 0.0 being regular
-        switch weight {
-        case ...(-0.8): return WuiFontWeight_Thin
-        case (-0.8)...(-0.6): return WuiFontWeight_UltraLight
-        case (-0.6)...(-0.4): return WuiFontWeight_Light
-        case (-0.4)...(0.0): return WuiFontWeight_Normal
-        case (0.0)...(0.23): return WuiFontWeight_Medium
-        case (0.23)...(0.3): return WuiFontWeight_SemiBold
-        case (0.3)...(0.5): return WuiFontWeight_Bold
-        case (0.5)...(0.8): return WuiFontWeight_UltraBold
-        default: return WuiFontWeight_Black
+        private func fontWeight(_ font: UIFont) -> WuiFontWeight {
+            let traits =
+                font.fontDescriptor.object(forKey: .traits) as? [UIFontDescriptor.TraitKey: Any]
+            let weightValue = traits?[.weight] as? CGFloat ?? UIFont.Weight.regular.rawValue
+            return uiFontWeightToWuiFontWeight(weightValue)
         }
-    }
+
+        private func uiFontWeightToWuiFontWeight(_ weight: CGFloat) -> WuiFontWeight {
+            // UIFont.Weight ranges from -1.0 (ultra-light) to 1.0 (black), with 0.0 being regular
+            switch weight {
+            case ...(-0.8): return WuiFontWeight_Thin
+            case (-0.8)...(-0.6): return WuiFontWeight_UltraLight
+            case (-0.6)...(-0.4): return WuiFontWeight_Light
+            case (-0.4)...(0.0): return WuiFontWeight_Normal
+            case (0.0)...(0.23): return WuiFontWeight_Medium
+            case (0.23)...(0.3): return WuiFontWeight_SemiBold
+            case (0.3)...(0.5): return WuiFontWeight_Bold
+            case (0.5)...(0.8): return WuiFontWeight_UltraBold
+            default: return WuiFontWeight_Black
+            }
+        }
     #elseif canImport(AppKit)
-    private func installFontSlot(env: WuiEnvironment, slot: WuiFontSlot, font: NSFont) {
-        let weight = fontWeight(font)
-        let signal = ReactiveFontSignal(size: Float(font.pointSize), weight: weight)
-        if let computed = signal.toComputed() {
-            waterui_theme_install_font(env.inner, slot, computed)
+        private func installFontSlot(env: WuiEnvironment, slot: WuiFontSlot, font: NSFont) {
+            let weight = fontWeight(font)
+            let signal = ReactiveFontSignal(size: Float(font.pointSize), weight: weight)
+            if let computed = signal.toComputed() {
+                waterui_theme_install_font(env.inner, slot, computed)
+            }
         }
-    }
 
-    private func fontWeight(_ font: NSFont) -> WuiFontWeight {
-        let traits = font.fontDescriptor.object(forKey: .traits) as? [NSFontDescriptor.TraitKey: Any]
-        let weightValue = traits?[.weight] as? CGFloat ?? NSFont.Weight.regular.rawValue
-        return nsFontWeightToWuiFontWeight(weightValue)
-    }
-
-    private func nsFontWeightToWuiFontWeight(_ weight: CGFloat) -> WuiFontWeight {
-        // NSFont.Weight ranges from -1.0 to 1.0, similar to UIFont.Weight
-        switch weight {
-        case ...(-0.8): return WuiFontWeight_Thin
-        case (-0.8)...(-0.6): return WuiFontWeight_UltraLight
-        case (-0.6)...(-0.4): return WuiFontWeight_Light
-        case (-0.4)...(0.0): return WuiFontWeight_Normal
-        case (0.0)...(0.23): return WuiFontWeight_Medium
-        case (0.23)...(0.3): return WuiFontWeight_SemiBold
-        case (0.3)...(0.5): return WuiFontWeight_Bold
-        case (0.5)...(0.8): return WuiFontWeight_UltraBold
-        default: return WuiFontWeight_Black
+        private func fontWeight(_ font: NSFont) -> WuiFontWeight {
+            let traits =
+                font.fontDescriptor.object(forKey: .traits) as? [NSFontDescriptor.TraitKey: Any]
+            let weightValue = traits?[.weight] as? CGFloat ?? NSFont.Weight.regular.rawValue
+            return nsFontWeightToWuiFontWeight(weightValue)
         }
-    }
+
+        private func nsFontWeightToWuiFontWeight(_ weight: CGFloat) -> WuiFontWeight {
+            // NSFont.Weight ranges from -1.0 to 1.0, similar to UIFont.Weight
+            switch weight {
+            case ...(-0.8): return WuiFontWeight_Thin
+            case (-0.8)...(-0.6): return WuiFontWeight_UltraLight
+            case (-0.6)...(-0.4): return WuiFontWeight_Light
+            case (-0.4)...(0.0): return WuiFontWeight_Normal
+            case (0.0)...(0.23): return WuiFontWeight_Medium
+            case (0.23)...(0.3): return WuiFontWeight_SemiBold
+            case (0.3)...(0.5): return WuiFontWeight_Bold
+            case (0.5)...(0.8): return WuiFontWeight_UltraBold
+            default: return WuiFontWeight_Black
+            }
+        }
     #endif
 }
 
@@ -668,13 +742,13 @@ public final class WuiRootContext {
 
     /// The root platform view
     #if canImport(UIKit)
-    public private(set) lazy var rootView: UIView = {
-        WuiAnyView(anyview: mainWindow.content, env: env)
-    }()
+        public private(set) lazy var rootView: UIView = {
+            WuiAnyView(anyview: mainWindow.content, env: env)
+        }()
     #elseif canImport(AppKit)
-    public private(set) lazy var rootView: NSView = {
-        WuiAnyView(anyview: mainWindow.content, env: env)
-    }()
+        public private(set) lazy var rootView: NSView = {
+            WuiAnyView(anyview: mainWindow.content, env: env)
+        }()
     #endif
 
     /// The main window configuration
@@ -698,10 +772,12 @@ public final class WuiRootContext {
 
         // 2. Detect system color scheme
         #if canImport(UIKit)
-        let systemScheme: ThemeBridge.ColorScheme = UITraitCollection.current.userInterfaceStyle == .dark ? .dark : .light
+            let systemScheme: ThemeBridge.ColorScheme =
+                UITraitCollection.current.userInterfaceStyle == .dark ? .dark : .light
         #elseif canImport(AppKit)
-        let appearance = NSApp?.effectiveAppearance ?? NSAppearance.currentDrawing()
-        let systemScheme: ThemeBridge.ColorScheme = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .dark : .light
+            let appearance = NSApp?.effectiveAppearance ?? NSAppearance.currentDrawing()
+            let systemScheme: ThemeBridge.ColorScheme =
+                appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .dark : .light
         #endif
 
         // 3. Install system theme (colors, fonts, AND color scheme) into env
@@ -736,156 +812,158 @@ public final class WuiRootContext {
 // MARK: - Public UIKit Root View Controller
 
 #if canImport(UIKit)
-/// A custom view that fills the entire window but still propagates safe area insets to children.
-/// This allows ScrollView to receive correct safe area insets for content adjustment.
-@MainActor
-private final class FullScreenView: UIView {
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        // Force frame to fill entire window
-        if let window = window {
-            frame = window.bounds
-        }
-    }
-
-    // Propagate actual safe area insets from window to children
-    override var safeAreaInsets: UIEdgeInsets {
-        window?.safeAreaInsets ?? super.safeAreaInsets
-    }
-
-    // Allow touches to reach content that extends into safe area (e.g., via IgnoreSafeArea)
-    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        let result = super.hitTest(point, with: event)
-        // If no hit in subviews, check if point is in any subview's extended frame
-        if result == self {
-            for subview in subviews.reversed() {
-                let convertedPoint = convert(point, to: subview)
-                if let hit = subview.hitTest(convertedPoint, with: event) {
-                    return hit
-                }
+    /// A custom view that fills the entire window but still propagates safe area insets to children.
+    /// This allows ScrollView to receive correct safe area insets for content adjustment.
+    @MainActor
+    private final class FullScreenView: UIView {
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            // Force frame to fill entire window
+            if let window = window {
+                frame = window.bounds
             }
         }
-        return result
-    }
-}
 
-/// A UIKit view controller that hosts the WaterUI root view.
-@MainActor
-public final class WaterUIViewController: UIViewController {
-    private let context: WuiRootContext
+        // Propagate actual safe area insets from window to children
+        override var safeAreaInsets: UIEdgeInsets {
+            window?.safeAreaInsets ?? super.safeAreaInsets
+        }
 
-    public init() {
-        self.context = WuiRootContext()
-        super.init(nibName: nil, bundle: nil)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    public override func loadView() {
-        // Use a custom view that fills the window but propagates safe area insets
-        view = FullScreenView()
-        view.backgroundColor = .systemBackground
-    }
-
-    public override func viewDidLoad() {
-        super.viewDidLoad()
-
-        let rootView = context.rootView
-        // Use manual frame-based layout, not AutoLayout
-        rootView.translatesAutoresizingMaskIntoConstraints = true
-        view.addSubview(rootView)
-    }
-
-    public override func viewWillLayoutSubviews() {
-        super.viewWillLayoutSubviews()
-        // Force view to fill the entire window
-        if let window = view.window {
-            view.frame = window.bounds
+        // Allow touches to reach content that extends into safe area (e.g., via IgnoreSafeArea)
+        override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+            let result = super.hitTest(point, with: event)
+            // If no hit in subviews, check if point is in any subview's extended frame
+            if result == self {
+                for subview in subviews.reversed() {
+                    let convertedPoint = convert(point, to: subview)
+                    if let hit = subview.hitTest(convertedPoint, with: event) {
+                        return hit
+                    }
+                }
+            }
+            return result
         }
     }
 
-    public override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
+    /// A UIKit view controller that hosts the WaterUI root view.
+    @MainActor
+    public final class WaterUIViewController: UIViewController {
+        private let context: WuiRootContext
 
-        // Root content respects safe area by default (like SwiftUI)
-        // Content can extend into safe area using IgnoreSafeArea metadata
-        let safeInsets = view.safeAreaInsets
-        let safeFrame = CGRect(
-            x: safeInsets.left,
-            y: safeInsets.top,
-            width: view.bounds.width - safeInsets.left - safeInsets.right,
-            height: view.bounds.height - safeInsets.top - safeInsets.bottom
-        )
+        public init() {
+            self.context = WuiRootContext()
+            super.init(nibName: nil, bundle: nil)
+        }
 
-        context.rootView.frame = safeFrame
-        context.rootView.setNeedsLayout()
-        context.rootView.layoutIfNeeded()
-    }
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
 
-    public override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
+        public override func loadView() {
+            // Use a custom view that fills the window but propagates safe area insets
+            view = FullScreenView()
+            view.backgroundColor = .systemBackground
+        }
 
-        if traitCollection.userInterfaceStyle != previousTraitCollection?.userInterfaceStyle {
-            let colorScheme: ThemeBridge.ColorScheme = traitCollection.userInterfaceStyle == .dark ? .dark : .light
-            context.updateColorScheme(colorScheme)
+        public override func viewDidLoad() {
+            super.viewDidLoad()
+
+            let rootView = context.rootView
+            // Use manual frame-based layout, not AutoLayout
+            rootView.translatesAutoresizingMaskIntoConstraints = true
+            view.addSubview(rootView)
+        }
+
+        public override func viewWillLayoutSubviews() {
+            super.viewWillLayoutSubviews()
+            // Force view to fill the entire window
+            if let window = view.window {
+                view.frame = window.bounds
+            }
+        }
+
+        public override func viewDidLayoutSubviews() {
+            super.viewDidLayoutSubviews()
+
+            // Root content respects safe area by default (like SwiftUI)
+            // Content can extend into safe area using IgnoreSafeArea metadata
+            let safeInsets = view.safeAreaInsets
+            let safeFrame = CGRect(
+                x: safeInsets.left,
+                y: safeInsets.top,
+                width: view.bounds.width - safeInsets.left - safeInsets.right,
+                height: view.bounds.height - safeInsets.top - safeInsets.bottom
+            )
+
+            context.rootView.frame = safeFrame
+            context.rootView.setNeedsLayout()
+            context.rootView.layoutIfNeeded()
+        }
+
+        public override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?)
+        {
+            super.traitCollectionDidChange(previousTraitCollection)
+
+            if traitCollection.userInterfaceStyle != previousTraitCollection?.userInterfaceStyle {
+                let colorScheme: ThemeBridge.ColorScheme =
+                    traitCollection.userInterfaceStyle == .dark ? .dark : .light
+                context.updateColorScheme(colorScheme)
+            }
         }
     }
-}
 #endif
 
 // MARK: - Public AppKit Root View
 
 #if canImport(AppKit) && !targetEnvironment(macCatalyst)
-/// An AppKit view that hosts the WaterUI root view.
-@MainActor
-public final class WaterUIView: NSView {
-    private let context: WuiRootContext
+    /// An AppKit view that hosts the WaterUI root view.
+    @MainActor
+    public final class WaterUIView: NSView {
+        private let context: WuiRootContext
 
-    public override init(frame frameRect: NSRect) {
-        self.context = WuiRootContext()
-        super.init(frame: frameRect)
-        setupView()
+        public override init(frame frameRect: NSRect) {
+            self.context = WuiRootContext()
+            super.init(frame: frameRect)
+            setupView()
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        private func setupView() {
+            wantsLayer = true
+            // Don't set static backgroundColor - let it follow window appearance
+
+            let rootView = context.rootView
+            // Use manual frame-based layout, not AutoLayout
+            rootView.translatesAutoresizingMaskIntoConstraints = true
+            addSubview(rootView)
+
+            // Note: We don't observe system appearance changes here.
+            // Color scheme is controlled by Rust via .install(Theme::new().color_scheme(...))
+            // and applied to window by RootThemeController.
+        }
+
+        public override var isFlipped: Bool { true }
+
+        public override func layout() {
+            super.layout()
+
+            // Manually size root view to fill bounds and trigger layout
+            context.rootView.frame = bounds
+            context.rootView.needsLayout = true
+            context.rootView.layoutSubtreeIfNeeded()
+        }
+
+        public override func viewDidChangeEffectiveAppearance() {
+            super.viewDidChangeEffectiveAppearance()
+            // Don't interfere with user's color scheme setting.
+            // RootThemeController handles applying the user's color scheme to the window.
+        }
     }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    private func setupView() {
-        wantsLayer = true
-        // Don't set static backgroundColor - let it follow window appearance
-
-        let rootView = context.rootView
-        // Use manual frame-based layout, not AutoLayout
-        rootView.translatesAutoresizingMaskIntoConstraints = true
-        addSubview(rootView)
-
-        // Note: We don't observe system appearance changes here.
-        // Color scheme is controlled by Rust via .install(Theme::new().color_scheme(...))
-        // and applied to window by RootThemeController.
-    }
-
-    public override var isFlipped: Bool { true }
-
-    public override func layout() {
-        super.layout()
-
-        // Manually size root view to fill bounds and trigger layout
-        context.rootView.frame = bounds
-        context.rootView.needsLayout = true
-        context.rootView.layoutSubtreeIfNeeded()
-    }
-
-    public override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        // Don't interfere with user's color scheme setting.
-        // RootThemeController handles applying the user's color scheme to the window.
-    }
-}
 #endif
 
 // MARK: - SwiftUI Integration
@@ -893,27 +971,33 @@ public final class WaterUIView: NSView {
 /// A SwiftUI view that hosts the WaterUI root view.
 /// This provides backward compatibility for SwiftUI-based host apps.
 #if os(macOS)
-public struct App: NSViewRepresentable {
-    public init() {}
+    public struct App: NSViewRepresentable {
+        public init() {}
 
-    public func makeNSView(context: Context) -> WaterUIView {
-        WaterUIView(frame: .zero)
-    }
+        public func makeNSView(context: Context) -> WaterUIView {
+            WaterUIView(frame: .zero)
+        }
 
-    public func updateNSView(_ nsView: WaterUIView, context: Context) {
-        // No updates needed - WaterUI handles its own reactivity
+        public func updateNSView(_ nsView: WaterUIView, context: Context) {
+            // No updates needed - WaterUI handles its own reactivity
+        }
     }
-}
 #else
-public struct App: UIViewControllerRepresentable {
-    public init() {}
+    public struct App: UIViewControllerRepresentable {
+        public init() {}
 
-    public func makeUIViewController(context: Context) -> WaterUIViewController {
-        WaterUIViewController()
-    }
+        public func makeUIViewController(context: Context) -> WaterUIViewController {
+            WaterUIViewController()
+        }
 
-    public func updateUIViewController(_ uiViewController: WaterUIViewController, context: Context) {
-        // No updates needed - WaterUI handles its own reactivity
+        public func updateUIViewController(
+            _ uiViewController: WaterUIViewController, context: Context
+        ) {
+            // No updates needed - WaterUI handles its own reactivity
+        }
     }
-}
 #endif
+
+extension Logger {
+    static let waterui = Logger(subsystem: "dev.waterui", category: "WaterUI")
+}

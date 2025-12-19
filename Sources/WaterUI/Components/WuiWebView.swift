@@ -9,9 +9,9 @@ import WebKit
 import os
 
 #if canImport(UIKit)
-import UIKit
+    import UIKit
 #elseif canImport(AppKit)
-import AppKit
+    import AppKit
 #endif
 
 private let logger = Logger(subsystem: "dev.waterui", category: "WuiWebView")
@@ -28,8 +28,8 @@ final class WebViewWrapper: NSObject {
     override init() {
         let config = WKWebViewConfiguration()
         #if canImport(UIKit)
-        config.allowsInlineMediaPlayback = true
-        config.mediaTypesRequiringUserActionForPlayback = []
+            config.allowsInlineMediaPlayback = true
+            config.mediaTypesRequiringUserActionForPlayback = []
         #endif
 
         webView = WKWebView(frame: .zero, configuration: config)
@@ -50,7 +50,6 @@ final class WebViewWrapper: NSObject {
 
     func goTo(_ urlString: String) {
         guard let url = URL(string: urlString) else {
-            logger.warning("Invalid URL: \(urlString)")
             return
         }
         webView.load(URLRequest(url: url))
@@ -81,7 +80,8 @@ final class WebViewWrapper: NSObject {
     }
 
     func injectScript(_ script: String, time: CWaterUI.WuiScriptInjectionTime) {
-        let injectionTime: WKUserScriptInjectionTime = time == WuiScriptInjectionTime_DocumentStart
+        let injectionTime: WKUserScriptInjectionTime =
+            time == WuiScriptInjectionTime_DocumentStart
             ? .atDocumentStart
             : .atDocumentEnd
 
@@ -133,7 +133,8 @@ final class WebViewWrapper: NSObject {
                 let resultStr: String
                 if let result = result {
                     if let jsonData = try? JSONSerialization.data(withJSONObject: result),
-                       let jsonStr = String(data: jsonData, encoding: .utf8) {
+                        let jsonStr = String(data: jsonData, encoding: .utf8)
+                    {
                         resultStr = jsonStr
                     } else {
                         resultStr = String(describing: result)
@@ -226,7 +227,9 @@ final class WebViewWrapper: NSObject {
 // MARK: - WKNavigationDelegate
 
 extension WebViewWrapper: WKNavigationDelegate {
-    nonisolated func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+    nonisolated func webView(
+        _ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!
+    ) {
         Task { @MainActor in
             let urlStr = webView.url?.absoluteString ?? ""
             let event = CWaterUI.WuiWebViewEvent(
@@ -259,7 +262,9 @@ extension WebViewWrapper: WKNavigationDelegate {
         }
     }
 
-    nonisolated func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+    nonisolated func webView(
+        _ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error
+    ) {
         Task { @MainActor in
             let event = CWaterUI.WuiWebViewEvent(
                 event_type: WuiWebViewEventType_Error,
@@ -274,7 +279,10 @@ extension WebViewWrapper: WKNavigationDelegate {
         }
     }
 
-    nonisolated func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+    nonisolated func webView(
+        _ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
+        withError error: Error
+    ) {
         Task { @MainActor in
             let event = CWaterUI.WuiWebViewEvent(
                 event_type: WuiWebViewEventType_Error,
@@ -289,7 +297,10 @@ extension WebViewWrapper: WKNavigationDelegate {
         }
     }
 
-    nonisolated func webView(_ webView: WKWebView, didReceiveServerRedirectForProvisionalNavigation navigation: WKNavigation!) {
+    nonisolated func webView(
+        _ webView: WKWebView,
+        didReceiveServerRedirectForProvisionalNavigation navigation: WKNavigation!
+    ) {
         Task { @MainActor in
             // Note: We don't have access to the original URL here easily
             // The redirect event is emitted with the new URL
@@ -307,7 +318,12 @@ extension WebViewWrapper: WKNavigationDelegate {
         }
     }
 
-    nonisolated func webView(_ webView: WKWebView, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping @MainActor @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+    nonisolated func webView(
+        _ webView: WKWebView, didReceive challenge: URLAuthenticationChallenge,
+        completionHandler:
+            @escaping @MainActor @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) ->
+            Void
+    ) {
         // Handle SSL certificate challenges
         if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust {
             // For development, you might want to accept all certificates
@@ -333,19 +349,78 @@ extension WebViewWrapper: WKNavigationDelegate {
 @MainActor
 public func installWebViewController(env: OpaquePointer?) {
     let createFn: @convention(c) () -> CWaterUI.WuiWebViewHandle = {
-        // This runs on whatever thread Rust calls it from
-        // We need to dispatch to main actor
-        var result: CWaterUI.WuiWebViewHandle?
-        let semaphore = DispatchSemaphore(value: 0)
-
-        DispatchQueue.main.async {
-            let wrapper = WebViewWrapper()
-            result = wrapper.toFFIHandle()
-            semaphore.signal()
+        // This runs on whatever thread Rust calls it from.
+        // Ensure WebView creation happens on the main thread without blocking it.
+        if Thread.isMainThread {
+            return WebViewWrapper().toFFIHandle()
         }
-
-        semaphore.wait()
-        return result!
+        return DispatchQueue.main.sync {
+            WebViewWrapper().toFFIHandle()
+        }
     }
     waterui_env_install_webview_controller(env, createFn)
+}
+
+// MARK: - WebView Component for Rendering
+
+/// Native component that renders a WebView in the view hierarchy.
+@MainActor
+final class WuiWebViewComponent: PlatformView, WuiComponent {
+    static var rawId: CWaterUI.WuiTypeId { waterui_webview_id() }
+
+    private(set) var stretchAxis: WuiStretchAxis = .both
+    private var webViewWrapper: WebViewWrapper?
+
+    required init(anyview: OpaquePointer, env: WuiEnvironment) {
+        super.init(frame: .zero)
+
+        logger.warning("WuiWebViewComponent init started")
+
+        // Get the WuiWebView opaque pointer
+        let wuiWebView = waterui_force_as_webview(anyview)
+        logger.warning("Got WuiWebView pointer: \(String(describing: wuiWebView))")
+
+        // Get the native handle pointer (points to WebViewWrapper)
+        let handlePtr = waterui_webview_native_handle(wuiWebView)
+        logger.warning("Got native handle pointer: \(String(describing: handlePtr))")
+
+        // Clean up the WuiWebView
+        waterui_drop_web_view(wuiWebView)
+
+        guard let handlePtr = handlePtr else {
+            logger.error("ERROR: WebView native handle is null - downcast failed!")
+            return
+        }
+
+        // Get the WebViewWrapper from the raw pointer
+        let wrapper = Unmanaged<WebViewWrapper>.fromOpaque(handlePtr).takeUnretainedValue()
+        self.webViewWrapper = wrapper
+        logger.warning(
+            "Got WebViewWrapper, webView URL: \(String(describing: wrapper.webView.url))")
+
+        // Add the WKWebView as a subview
+        let webView = wrapper.webView
+        webView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(webView)
+
+        NSLayoutConstraint.activate([
+            webView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            webView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            webView.topAnchor.constraint(equalTo: topAnchor),
+            webView.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+        logger.warning("WuiWebViewComponent setup complete - added WKWebView as subview")
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
+        // WebView is greedy - it takes all available space
+        let width = proposal.width.map { CGFloat($0) } ?? 320
+        let height = proposal.height.map { CGFloat($0) } ?? 480
+        return CGSize(width: width, height: height)
+    }
 }

@@ -12,11 +12,12 @@
 // // - Priority: 0 (default)
 
 import CWaterUI
+import OSLog
 
 #if canImport(UIKit)
-import UIKit
+    import UIKit
 #elseif canImport(AppKit)
-import AppKit
+    import AppKit
 #endif
 
 /// A native container that uses the Rust layout engine for child positioning.
@@ -46,7 +47,8 @@ final class WuiContainer: PlatformView, WuiComponent {
 
     // MARK: - Designated Init
 
-    init(stretchAxis: WuiStretchAxis, layout: WuiLayout, anyViews: WuiAnyViews, env: WuiEnvironment) {
+    init(stretchAxis: WuiStretchAxis, layout: WuiLayout, anyViews: WuiAnyViews, env: WuiEnvironment)
+    {
         self.stretchAxis = stretchAxis
         self.wuiLayout = layout
         self.anyViews = anyViews
@@ -97,34 +99,34 @@ final class WuiContainer: PlatformView, WuiComponent {
     // MARK: - Layout
 
     #if canImport(UIKit)
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        performLayout()
-    }
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            performLayout()
+        }
 
-    override func sizeThatFits(_ size: CGSize) -> CGSize {
-        let proposal = WuiProposalSize(size: size)
-        return sizeThatFits(proposal)
-    }
+        override func sizeThatFits(_ size: CGSize) -> CGSize {
+            let proposal = WuiProposalSize(size: size)
+            return sizeThatFits(proposal)
+        }
 
-    override var intrinsicContentSize: CGSize {
-        sizeThatFits(WuiProposalSize())
-    }
+        override var intrinsicContentSize: CGSize {
+            sizeThatFits(WuiProposalSize())
+        }
     #elseif canImport(AppKit)
-    override func layout() {
-        super.layout()
-        performLayout()
-    }
+        override func layout() {
+            super.layout()
+            performLayout()
+        }
 
-    override var fittingSize: NSSize {
-        sizeThatFits(WuiProposalSize())
-    }
+        override var fittingSize: NSSize {
+            sizeThatFits(WuiProposalSize())
+        }
 
-    override var intrinsicContentSize: NSSize {
-        sizeThatFits(WuiProposalSize())
-    }
+        override var intrinsicContentSize: NSSize {
+            sizeThatFits(WuiProposalSize())
+        }
 
-    override var isFlipped: Bool { true }
+        override var isFlipped: Bool { true }
     #endif
 
     private func performLayout() {
@@ -132,7 +134,8 @@ final class WuiContainer: PlatformView, WuiComponent {
 
         // CRITICAL: Create proposal from bounds so children measure with actual available width
         // This ensures VStack centering works correctly - children know the real container width
-        let boundsProposal = WuiProposalSize(width: Float(bounds.width), height: Float(bounds.height))
+        let boundsProposal = WuiProposalSize(
+            width: Float(bounds.width), height: Float(bounds.height))
 
         let proxies = bridge.createSubViewProxies(children: childViews) { child, childProposal in
             child.sizeThatFits(childProposal)
@@ -155,15 +158,17 @@ final class WuiContainer: PlatformView, WuiComponent {
             guard index < childViews.count else { break }
             var frame = rect
             guard frame.isValidForLayout else {
-                print("Warning: WuiContainer received invalid rect for child \(index): \(frame)")
+                let warn =
+                    "[WuiLayout] Warning: WuiContainer received invalid rect for child \(index): \(frame)"
+                Logger.waterui.warning("\(warn)")
                 continue
             }
 
             #if canImport(AppKit)
-            // Convert to AppKit coordinate system if not flipped
-            if !isFlipped {
-                frame.origin.y = bounds.height - frame.origin.y - frame.height
-            }
+                // Convert to AppKit coordinate system if not flipped
+                if !isFlipped {
+                    frame.origin.y = bounds.height - frame.origin.y - frame.height
+                }
             #endif
 
             childViews[index].frame = frame
@@ -184,9 +189,9 @@ final class WuiContainer: PlatformView, WuiComponent {
         }
 
         #if canImport(UIKit)
-        setNeedsLayout()
+            setNeedsLayout()
         #elseif canImport(AppKit)
-        needsLayout = true
+            needsLayout = true
         #endif
     }
 }
