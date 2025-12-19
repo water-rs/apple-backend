@@ -73,7 +73,6 @@ final class WuiBrightness: PlatformView, WuiComponent {
             contentView.layer.filters = [filter]
         }
         #elseif canImport(AppKit)
-        NSAnimationContext.current.allowsImplicitAnimation = true
         if let filter = CIFilter(name: "CIColorControls") {
             filter.setValue(currentBrightness, forKey: kCIInputBrightnessKey)
             contentView.layer?.filters = [filter]

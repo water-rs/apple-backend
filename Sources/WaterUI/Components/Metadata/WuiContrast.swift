@@ -73,7 +73,6 @@ final class WuiContrast: PlatformView, WuiComponent {
             contentView.layer.filters = [filter]
         }
         #elseif canImport(AppKit)
-        NSAnimationContext.current.allowsImplicitAnimation = true
         if let filter = CIFilter(name: "CIColorControls") {
             filter.setValue(currentContrast, forKey: kCIInputContrastKey)
             contentView.layer?.filters = [filter]

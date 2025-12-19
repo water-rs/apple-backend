@@ -89,7 +89,6 @@ final class WuiBlur: PlatformView, WuiComponent {
             ])
         }
         #elseif canImport(AppKit)
-        NSAnimationContext.current.allowsImplicitAnimation = true
         if currentRadius > 0, let filter = CIFilter(name: "CIGaussianBlur") {
             filter.setValue(currentRadius, forKey: kCIInputRadiusKey)
             contentView.layer?.filters = [filter]

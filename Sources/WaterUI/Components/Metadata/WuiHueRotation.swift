@@ -76,7 +76,6 @@ final class WuiHueRotation: PlatformView, WuiComponent {
             contentView.layer.filters = [filter]
         }
         #elseif canImport(AppKit)
-        NSAnimationContext.current.allowsImplicitAnimation = true
         if let filter = CIFilter(name: "CIHueAdjust") {
             filter.setValue(angleInRadians, forKey: kCIInputAngleKey)
             contentView.layer?.filters = [filter]

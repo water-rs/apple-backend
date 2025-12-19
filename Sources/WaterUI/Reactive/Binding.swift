@@ -169,3 +169,18 @@ extension WuiBinding where T == WuiId {
         )
     }
 }
+
+extension WuiBinding where T == CWaterUI.WuiDate {
+    convenience init(_ inner: OpaquePointer) {
+        self.init(
+            inner: inner,
+            read: waterui_read_binding_date,
+            watch: { inner, f in
+                let g = waterui_watch_binding_date(inner, makeDateWatcher(f))
+                return WatcherGuard(g!)
+            },
+            set: waterui_set_binding_date,
+            drop: waterui_drop_binding_date
+        )
+    }
+}

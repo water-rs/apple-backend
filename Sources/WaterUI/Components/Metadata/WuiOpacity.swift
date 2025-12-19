@@ -67,7 +67,6 @@ final class WuiOpacity: PlatformView, WuiComponent {
         #if canImport(UIKit)
         contentView.alpha = currentOpacity
         #elseif canImport(AppKit)
-        NSAnimationContext.current.allowsImplicitAnimation = true
         contentView.alphaValue = currentOpacity
         #endif
     }

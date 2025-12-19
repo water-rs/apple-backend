@@ -87,14 +87,18 @@ final class WuiScale: PlatformView, WuiComponent {
     }
 
     private func applyTransform() {
-        let transform = CGAffineTransform(scaleX: currentScaleX, y: currentScaleY)
-
         #if canImport(UIKit)
+        let transform = CGAffineTransform(scaleX: currentScaleX, y: currentScaleY)
         contentView.transform = transform
-
         #elseif canImport(AppKit)
-        // Enable implicit animation so WaterUI animation context applies to layer transform
-        NSAnimationContext.current.allowsImplicitAnimation = true
+        let size = contentView.bounds.size
+        let anchorPoint = CGPoint(x: size.width * anchor.x, y: size.height * anchor.y)
+        let centerPoint = CGPoint(x: size.width * 0.5, y: size.height * 0.5)
+        let offset = CGPoint(x: anchorPoint.x - centerPoint.x, y: anchorPoint.y - centerPoint.y)
+        var transform = CGAffineTransform.identity
+        transform = transform.translatedBy(x: offset.x, y: offset.y)
+        transform = transform.scaledBy(x: currentScaleX, y: currentScaleY)
+        transform = transform.translatedBy(x: -offset.x, y: -offset.y)
         contentView.layer?.setAffineTransform(transform)
         #endif
     }
@@ -127,21 +131,6 @@ final class WuiScale: PlatformView, WuiComponent {
 
         // First set frame to trigger contentView's internal layout
         contentView.frame = bounds
-
-        guard let layer = contentView.layer else {
-            applyTransform()
-            return
-        }
-
-        // Set anchor point for transform pivot
-        layer.anchorPoint = anchor
-
-        // Calculate position to keep view visually in place after anchorPoint change
-        // Position = frame.origin + anchorPoint * frame.size
-        layer.position = CGPoint(
-            x: bounds.origin.x + anchor.x * bounds.size.width,
-            y: bounds.origin.y + anchor.y * bounds.size.height
-        )
 
         applyTransform()
     }

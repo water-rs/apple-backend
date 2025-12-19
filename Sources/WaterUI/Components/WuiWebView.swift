@@ -24,6 +24,7 @@ final class WebViewWrapper: NSObject {
     let webView: WKWebView
     private var eventCallback: CWaterUI.WuiFn_WuiWebViewEvent?
     private var userScripts: [(String, CWaterUI.WuiScriptInjectionTime)] = []
+    private var redirectsEnabled = true
 
     override init() {
         let config = WKWebViewConfiguration()
@@ -36,6 +37,7 @@ final class WebViewWrapper: NSObject {
         super.init()
 
         webView.navigationDelegate = self
+        webView.uiDelegate = self
     }
 
     // MARK: - Navigation
@@ -77,6 +79,10 @@ final class WebViewWrapper: NSObject {
 
     func setUserAgent(_ userAgent: String) {
         webView.customUserAgent = userAgent
+    }
+
+    func setRedirectsEnabled(_ enabled: Bool) {
+        redirectsEnabled = enabled
     }
 
     func injectScript(_ script: String, time: CWaterUI.WuiScriptInjectionTime) {
@@ -132,7 +138,9 @@ final class WebViewWrapper: NSObject {
             } else {
                 let resultStr: String
                 if let result = result {
-                    if let jsonData = try? JSONSerialization.data(withJSONObject: result),
+                    // JSONSerialization raises NSException on invalid objects, so validate first.
+                    if JSONSerialization.isValidJSONObject(result),
+                        let jsonData = try? JSONSerialization.data(withJSONObject: result),
                         let jsonStr = String(data: jsonData, encoding: .utf8)
                     {
                         resultStr = jsonStr
@@ -198,6 +206,11 @@ final class WebViewWrapper: NSObject {
                 let uaString = WuiStr(userAgent).toString()
                 Task { @MainActor in wrapper.setUserAgent(uaString) }
             },
+            set_redirects_enabled: { rawPtr, enabled in
+                guard let rawPtr = rawPtr else { return }
+                let wrapper = Unmanaged<WebViewWrapper>.fromOpaque(rawPtr).takeUnretainedValue()
+                Task { @MainActor in wrapper.setRedirectsEnabled(enabled) }
+            },
             inject_script: { rawPtr, script, time in
                 guard let rawPtr = rawPtr else { return }
                 let wrapper = Unmanaged<WebViewWrapper>.fromOpaque(rawPtr).takeUnretainedValue()
@@ -227,6 +240,64 @@ final class WebViewWrapper: NSObject {
 // MARK: - WKNavigationDelegate
 
 extension WebViewWrapper: WKNavigationDelegate {
+    nonisolated func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
+    ) {
+        Task { @MainActor in
+            if navigationAction.targetFrame == nil {
+                webView.load(navigationAction.request)
+                decisionHandler(.cancel)
+                return
+            }
+            decisionHandler(.allow)
+        }
+    }
+
+    nonisolated func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationResponse: WKNavigationResponse,
+        decisionHandler: @escaping @MainActor @Sendable (WKNavigationResponsePolicy) -> Void
+    ) {
+        Task { @MainActor in
+            guard let response = navigationResponse.response as? HTTPURLResponse else {
+                decisionHandler(.allow)
+                return
+            }
+
+            let statusCode = response.statusCode
+            guard (300..<400).contains(statusCode) else {
+                decisionHandler(.allow)
+                return
+            }
+
+            if !redirectsEnabled {
+                let fromUrl = response.url?.absoluteString ?? ""
+                let location = response.allHeaderFields.first { key, _ in
+                    (key as? String)?.caseInsensitiveCompare("location") == .orderedSame
+                }?.value as? String ?? ""
+                let toUrl = URL(string: location, relativeTo: response.url)?.absoluteString
+                    ?? location
+
+                let event = CWaterUI.WuiWebViewEvent(
+                    event_type: WuiWebViewEventType_Redirect,
+                    url: WuiStr(string: fromUrl).intoInner(),
+                    url2: WuiStr(string: toUrl).intoInner(),
+                    message: WuiStr(string: "").intoInner(),
+                    progress: 0,
+                    can_go_back: false,
+                    can_go_forward: false
+                )
+                emitEvent(event)
+                decisionHandler(.cancel)
+                return
+            }
+
+            decisionHandler(.allow)
+        }
+    }
+
     nonisolated func webView(
         _ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!
     ) {
@@ -302,6 +373,9 @@ extension WebViewWrapper: WKNavigationDelegate {
         didReceiveServerRedirectForProvisionalNavigation navigation: WKNavigation!
     ) {
         Task { @MainActor in
+            if !redirectsEnabled {
+                return
+            }
             // Note: We don't have access to the original URL here easily
             // The redirect event is emitted with the new URL
             let urlStr = webView.url?.absoluteString ?? ""
@@ -339,6 +413,24 @@ extension WebViewWrapper: WKNavigationDelegate {
         Task { @MainActor in
             completionHandler(.performDefaultHandling, nil)
         }
+    }
+}
+
+// MARK: - WKUIDelegate
+
+extension WebViewWrapper: WKUIDelegate {
+    nonisolated func webView(
+        _ webView: WKWebView,
+        createWebViewWith configuration: WKWebViewConfiguration,
+        for navigationAction: WKNavigationAction,
+        windowFeatures: WKWindowFeatures
+    ) -> WKWebView? {
+        Task { @MainActor in
+            if navigationAction.targetFrame == nil {
+                webView.load(navigationAction.request)
+            }
+        }
+        return nil
     }
 }
 

@@ -77,7 +77,6 @@ final class WuiGrayscale: PlatformView, WuiComponent {
             contentView.layer.filters = [filter]
         }
         #elseif canImport(AppKit)
-        NSAnimationContext.current.allowsImplicitAnimation = true
         if let filter = CIFilter(name: "CIColorControls") {
             filter.setValue(saturation, forKey: kCIInputSaturationKey)
             contentView.layer?.filters = [filter]
