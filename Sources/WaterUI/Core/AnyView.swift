@@ -233,6 +233,7 @@ private func registerBuiltinComponentsIfNeeded() {
     registerMetadataComponent(WuiFocused.self)
     registerMetadataComponent(WuiIgnoreSafeArea.self)
     registerMetadataComponent(WuiRetain.self)
+    registerMetadataComponent(WuiContextMenu.self)
 
     // Filter components
     registerMetadataComponent(WuiBlur.self)
