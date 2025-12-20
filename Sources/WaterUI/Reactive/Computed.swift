@@ -169,4 +169,20 @@ extension WuiComputed where T == WuiStyledStr {
     }
 }
 
+extension WuiComputed where T == CWaterUI.WuiArray_WuiPickerItem {
+    convenience init(_ inner: OpaquePointer) {
+        self.init(
+            inner: inner,
+            read: { inner in
+                return waterui_read_computed_picker_items(inner)
+            },
+            watch: { inner, f in
+                let g = waterui_watch_computed_picker_items(inner, makePickerItemsWatcher(f))
+                return WatcherGuard(g!)
+            },
+            drop: waterui_drop_computed_picker_items
+        )
+    }
+}
+
 

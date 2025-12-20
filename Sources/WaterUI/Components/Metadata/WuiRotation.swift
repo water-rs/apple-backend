@@ -4,6 +4,7 @@ import CWaterUI
 import UIKit
 #elseif canImport(AppKit)
 import AppKit
+import QuartzCore
 #endif
 
 /// Component for Metadata<Rotation>.
@@ -20,6 +21,7 @@ final class WuiRotation: PlatformView, WuiComponent {
     // Current transform value
     private var currentRotation: CGFloat = 0.0
     private let anchor: CGPoint
+    private var lastBoundsSize: CGSize = .zero
 
     var stretchAxis: WuiStretchAxis {
         contentView.stretchAxis
@@ -68,9 +70,14 @@ final class WuiRotation: PlatformView, WuiComponent {
         rotationWatcher = rotationComputed.watch { [weak self] value, metadata in
             guard let self else { return }
             self.currentRotation = CGFloat(value)
+            #if canImport(UIKit)
             withPlatformAnimation(metadata) {
                 self.applyTransform()
             }
+            #elseif canImport(AppKit)
+            let animation = parseAnimation(metadata.getAnimation())
+            self.applyTransform(animation: animation)
+            #endif
         }
     }
 
@@ -84,15 +91,91 @@ final class WuiRotation: PlatformView, WuiComponent {
         #elseif canImport(AppKit)
         let size = contentView.bounds.size
         let anchorPoint = CGPoint(x: size.width * anchor.x, y: size.height * anchor.y)
-        let centerPoint = CGPoint(x: size.width * 0.5, y: size.height * 0.5)
-        let offset = CGPoint(x: anchorPoint.x - centerPoint.x, y: anchorPoint.y - centerPoint.y)
         var transform = CGAffineTransform.identity
-        transform = transform.translatedBy(x: offset.x, y: offset.y)
+        transform = transform.translatedBy(x: anchorPoint.x, y: anchorPoint.y)
         transform = transform.rotated(by: radians)
-        transform = transform.translatedBy(x: -offset.x, y: -offset.y)
-        contentView.layer?.setAffineTransform(transform)
+        transform = transform.translatedBy(x: -anchorPoint.x, y: -anchorPoint.y)
+        applyAffineTransform(transform, animation: nil)
         #endif
     }
+
+    #if canImport(AppKit)
+    private func applyTransform(animation: Animation) {
+        let radians = currentRotation * .pi / 180.0
+        let size = contentView.bounds.size
+        let anchorPoint = CGPoint(x: size.width * anchor.x, y: size.height * anchor.y)
+        var transform = CGAffineTransform.identity
+        transform = transform.translatedBy(x: anchorPoint.x, y: anchorPoint.y)
+        transform = transform.rotated(by: radians)
+        transform = transform.translatedBy(x: -anchorPoint.x, y: -anchorPoint.y)
+        applyAffineTransform(transform, animation: animation)
+    }
+
+    private func applyAffineTransform(_ transform: CGAffineTransform, animation: Animation?) {
+        guard let layer = contentView.layer else { return }
+
+        let resolvedAnimation = animation ?? .none
+        guard shouldAnimate(resolvedAnimation) else {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer.transform = CATransform3DMakeAffineTransform(transform)
+            CATransaction.commit()
+            return
+        }
+
+        let fromTransform = layer.presentation()?.transform ?? layer.transform
+        let toTransform = CATransform3DMakeAffineTransform(transform)
+        let animationKey = "wuiRotation"
+        layer.removeAnimation(forKey: animationKey)
+
+        let caAnimation: CABasicAnimation
+        switch resolvedAnimation {
+        case .linear(let duration):
+            let basic = CABasicAnimation(keyPath: "transform")
+            basic.duration = duration
+            basic.timingFunction = CAMediaTimingFunction(name: .linear)
+            caAnimation = basic
+        case .easeIn(let duration):
+            let basic = CABasicAnimation(keyPath: "transform")
+            basic.duration = duration
+            basic.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            caAnimation = basic
+        case .easeOut(let duration):
+            let basic = CABasicAnimation(keyPath: "transform")
+            basic.duration = duration
+            basic.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            caAnimation = basic
+        case .easeInOut(let duration):
+            let basic = CABasicAnimation(keyPath: "transform")
+            basic.duration = duration
+            basic.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            caAnimation = basic
+        case .spring(let stiffness, let damping):
+            let spring = CASpringAnimation(keyPath: "transform")
+            spring.mass = 1.0
+            spring.stiffness = stiffness
+            spring.damping = damping
+            spring.initialVelocity = 0.0
+            spring.duration = spring.settlingDuration
+            caAnimation = spring
+        case .none:
+            let basic = CABasicAnimation(keyPath: "transform")
+            basic.duration = 0.0
+            caAnimation = basic
+        }
+
+        caAnimation.fromValue = NSValue(caTransform3D: fromTransform)
+        caAnimation.toValue = NSValue(caTransform3D: toTransform)
+        caAnimation.isRemovedOnCompletion = true
+        caAnimation.fillMode = .both
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.transform = toTransform
+        CATransaction.commit()
+        layer.add(caAnimation, forKey: animationKey)
+    }
+    #endif
 
     func layoutPriority() -> Int32 {
         contentView.layoutPriority()
@@ -122,8 +205,10 @@ final class WuiRotation: PlatformView, WuiComponent {
 
         // First set frame to trigger contentView's internal layout
         contentView.frame = bounds
-
-        applyTransform()
+        if bounds.size != lastBoundsSize {
+            lastBoundsSize = bounds.size
+            applyTransform()
+        }
     }
     #endif
 }

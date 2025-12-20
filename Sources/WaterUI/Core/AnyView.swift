@@ -202,7 +202,7 @@ private func registerBuiltinComponentsIfNeeded() {
     registerComponent(WuiStepper.self)
     registerComponent(WuiDatePicker.self)
     // TODO: registerComponent(WuiColorPicker.self)
-    // TODO: registerComponent(WuiPicker.self)
+    registerComponent(WuiPicker.self)
     registerComponent(WuiProgress.self)
 
     // Container components

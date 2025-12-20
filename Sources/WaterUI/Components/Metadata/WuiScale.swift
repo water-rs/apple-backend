@@ -93,12 +93,10 @@ final class WuiScale: PlatformView, WuiComponent {
         #elseif canImport(AppKit)
         let size = contentView.bounds.size
         let anchorPoint = CGPoint(x: size.width * anchor.x, y: size.height * anchor.y)
-        let centerPoint = CGPoint(x: size.width * 0.5, y: size.height * 0.5)
-        let offset = CGPoint(x: anchorPoint.x - centerPoint.x, y: anchorPoint.y - centerPoint.y)
         var transform = CGAffineTransform.identity
-        transform = transform.translatedBy(x: offset.x, y: offset.y)
+        transform = transform.translatedBy(x: anchorPoint.x, y: anchorPoint.y)
         transform = transform.scaledBy(x: currentScaleX, y: currentScaleY)
-        transform = transform.translatedBy(x: -offset.x, y: -offset.y)
+        transform = transform.translatedBy(x: -anchorPoint.x, y: -anchorPoint.y)
         contentView.layer?.setAffineTransform(transform)
         #endif
     }

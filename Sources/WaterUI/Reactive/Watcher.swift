@@ -262,3 +262,19 @@ func makeDateWatcher(_ f: @escaping (CWaterUI.WuiDate, WuiWatcherMetadata) -> Vo
     return watcher
 }
 
+@MainActor
+func makePickerItemsWatcher(_ f: @escaping (CWaterUI.WuiArray_WuiPickerItem, WuiWatcherMetadata) -> Void) -> OpaquePointer {
+    let data = wrap(f)
+    let call: @convention(c) (UnsafeMutableRawPointer?, CWaterUI.WuiArray_WuiPickerItem, OpaquePointer?) -> Void = {
+        data, value, metadata in
+        callWrapper(data, value, metadata)
+    }
+    let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
+        dropWrapper($0, CWaterUI.WuiArray_WuiPickerItem.self)
+    }
+    guard let watcher = waterui_new_watcher_picker_items(data, call, drop) else {
+        fatalError("Failed to create picker items watcher")
+    }
+    return watcher
+}
+

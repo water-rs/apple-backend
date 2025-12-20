@@ -25,6 +25,8 @@ final class WebViewWrapper: NSObject {
     private var eventCallback: CWaterUI.WuiFn_WuiWebViewEvent?
     private var userScripts: [(String, CWaterUI.WuiScriptInjectionTime)] = []
     private var redirectsEnabled = true
+    private var lastNavigationUrl: String?
+    private var allowedNavigationUrl: String?
 
     override init() {
         let config = WKWebViewConfiguration()
@@ -54,6 +56,7 @@ final class WebViewWrapper: NSObject {
         guard let url = URL(string: urlString) else {
             return
         }
+        allowProgrammaticNavigation(url.absoluteString)
         webView.load(URLRequest(url: url))
     }
 
@@ -78,7 +81,8 @@ final class WebViewWrapper: NSObject {
     // MARK: - Configuration
 
     func setUserAgent(_ userAgent: String) {
-        webView.customUserAgent = userAgent
+        let trimmed = userAgent.trimmingCharacters(in: .whitespacesAndNewlines)
+        webView.customUserAgent = trimmed.isEmpty ? nil : trimmed
     }
 
     func setRedirectsEnabled(_ enabled: Bool) {
@@ -120,6 +124,52 @@ final class WebViewWrapper: NSObject {
             progress: 0,
             can_go_back: webView.canGoBack,
             can_go_forward: webView.canGoForward
+        )
+        emitEvent(event)
+    }
+
+    private func allowProgrammaticNavigation(_ urlString: String) {
+        if !urlString.isEmpty {
+            allowedNavigationUrl = urlString
+        }
+    }
+
+    private func consumeProgrammaticAllowance(for urlString: String) -> Bool {
+        guard let allowed = allowedNavigationUrl else { return false }
+        if isUrlEquivalent(allowed, urlString) {
+            allowedNavigationUrl = nil
+            return true
+        }
+        return false
+    }
+
+    private func isUrlEquivalent(_ lhs: String, _ rhs: String) -> Bool {
+        if lhs == rhs {
+            return true
+        }
+        if lhs.hasSuffix("/") && String(lhs.dropLast()) == rhs {
+            return true
+        }
+        if rhs.hasSuffix("/") && String(rhs.dropLast()) == lhs {
+            return true
+        }
+        return false
+    }
+
+    private func emitWillNavigate(_ urlString: String, allowRepeat: Bool) {
+        guard !urlString.isEmpty else { return }
+        if !allowRepeat, lastNavigationUrl == urlString {
+            return
+        }
+        lastNavigationUrl = urlString
+        let event = CWaterUI.WuiWebViewEvent(
+            event_type: WuiWebViewEventType_WillNavigate,
+            url: WuiStr(string: urlString).intoInner(),
+            url2: WuiStr(string: "").intoInner(),
+            message: WuiStr(string: "").intoInner(),
+            progress: 0,
+            can_go_back: false,
+            can_go_forward: false
         )
         emitEvent(event)
     }
@@ -246,10 +296,37 @@ extension WebViewWrapper: WKNavigationDelegate {
         decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
     ) {
         Task { @MainActor in
+            let isMainFrame = navigationAction.targetFrame?.isMainFrame ?? true
+            let requestUrl = navigationAction.request.url?.absoluteString ?? ""
+            let allowRepeat =
+                navigationAction.navigationType == .reload
+                || navigationAction.navigationType == .backForward
+                || navigationAction.navigationType == .formSubmitted
+                || navigationAction.navigationType == .formResubmitted
+
             if navigationAction.targetFrame == nil {
+                allowProgrammaticNavigation(requestUrl)
                 webView.load(navigationAction.request)
                 decisionHandler(.cancel)
                 return
+            }
+
+            let programmaticAllowed = consumeProgrammaticAllowance(for: requestUrl)
+            if !redirectsEnabled && isMainFrame && navigationAction.navigationType == .other {
+                if requestUrl.isEmpty || programmaticAllowed {
+                    if isMainFrame {
+                        emitWillNavigate(requestUrl, allowRepeat: allowRepeat)
+                    }
+                    decisionHandler(.allow)
+                    return
+                }
+                webView.stopLoading()
+                decisionHandler(.cancel)
+                return
+            }
+
+            if isMainFrame {
+                emitWillNavigate(requestUrl, allowRepeat: allowRepeat)
             }
             decisionHandler(.allow)
         }
@@ -290,6 +367,7 @@ extension WebViewWrapper: WKNavigationDelegate {
                     can_go_forward: false
                 )
                 emitEvent(event)
+                webView.stopLoading()
                 decisionHandler(.cancel)
                 return
             }
@@ -303,16 +381,7 @@ extension WebViewWrapper: WKNavigationDelegate {
     ) {
         Task { @MainActor in
             let urlStr = webView.url?.absoluteString ?? ""
-            let event = CWaterUI.WuiWebViewEvent(
-                event_type: WuiWebViewEventType_WillNavigate,
-                url: WuiStr(string: urlStr).intoInner(),
-                url2: WuiStr(string: "").intoInner(),
-                message: WuiStr(string: "").intoInner(),
-                progress: 0,
-                can_go_back: false,
-                can_go_forward: false
-            )
-            emitEvent(event)
+            emitWillNavigate(urlStr, allowRepeat: false)
             emitStateChanged()
         }
     }
@@ -374,6 +443,7 @@ extension WebViewWrapper: WKNavigationDelegate {
     ) {
         Task { @MainActor in
             if !redirectsEnabled {
+                webView.stopLoading()
                 return
             }
             // Note: We don't have access to the original URL here easily
