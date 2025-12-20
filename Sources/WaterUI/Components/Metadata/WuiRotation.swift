@@ -89,42 +89,33 @@ final class WuiRotation: PlatformView, WuiComponent {
         contentView.transform = transform
 
         #elseif canImport(AppKit)
-        let size = contentView.bounds.size
-        let anchorPoint = CGPoint(x: size.width * anchor.x, y: size.height * anchor.y)
-        var transform = CGAffineTransform.identity
-        transform = transform.translatedBy(x: anchorPoint.x, y: anchorPoint.y)
-        transform = transform.rotated(by: radians)
-        transform = transform.translatedBy(x: -anchorPoint.x, y: -anchorPoint.y)
-        applyAffineTransform(transform, animation: nil)
+        guard let layer = contentView.layer else { return }
+        updateAnchorPointIfNeeded()
+        let transform = CATransform3DMakeRotation(radians, 0, 0, 1)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.transform = transform
+        CATransaction.commit()
         #endif
     }
 
     #if canImport(AppKit)
     private func applyTransform(animation: Animation) {
         let radians = currentRotation * .pi / 180.0
-        let size = contentView.bounds.size
-        let anchorPoint = CGPoint(x: size.width * anchor.x, y: size.height * anchor.y)
-        var transform = CGAffineTransform.identity
-        transform = transform.translatedBy(x: anchorPoint.x, y: anchorPoint.y)
-        transform = transform.rotated(by: radians)
-        transform = transform.translatedBy(x: -anchorPoint.x, y: -anchorPoint.y)
-        applyAffineTransform(transform, animation: animation)
-    }
-
-    private func applyAffineTransform(_ transform: CGAffineTransform, animation: Animation?) {
         guard let layer = contentView.layer else { return }
+        updateAnchorPointIfNeeded()
+        let toTransform = CATransform3DMakeRotation(radians, 0, 0, 1)
 
-        let resolvedAnimation = animation ?? .none
+        let resolvedAnimation = animation
         guard shouldAnimate(resolvedAnimation) else {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            layer.transform = CATransform3DMakeAffineTransform(transform)
+            layer.transform = toTransform
             CATransaction.commit()
             return
         }
 
         let fromTransform = layer.presentation()?.transform ?? layer.transform
-        let toTransform = CATransform3DMakeAffineTransform(transform)
         let animationKey = "wuiRotation"
         layer.removeAnimation(forKey: animationKey)
 
@@ -175,6 +166,25 @@ final class WuiRotation: PlatformView, WuiComponent {
         CATransaction.commit()
         layer.add(caAnimation, forKey: animationKey)
     }
+
+    private func updateAnchorPointIfNeeded() {
+        guard let layer = contentView.layer else { return }
+        let size = contentView.bounds.size
+        let expectedAnchor = anchor
+        let expectedPosition = CGPoint(
+            x: contentView.frame.origin.x + size.width * anchor.x,
+            y: contentView.frame.origin.y + size.height * anchor.y
+        )
+        let needsUpdate = size != lastBoundsSize || layer.anchorPoint != expectedAnchor
+            || layer.position != expectedPosition
+        guard needsUpdate else { return }
+        lastBoundsSize = size
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.anchorPoint = expectedAnchor
+        layer.position = expectedPosition
+        CATransaction.commit()
+    }
     #endif
 
     func layoutPriority() -> Int32 {
@@ -204,9 +214,10 @@ final class WuiRotation: PlatformView, WuiComponent {
         super.layout()
 
         // First set frame to trigger contentView's internal layout
-        contentView.frame = bounds
+        if contentView.frame != bounds {
+            contentView.frame = bounds
+        }
         if bounds.size != lastBoundsSize {
-            lastBoundsSize = bounds.size
             applyTransform()
         }
     }

@@ -4,6 +4,7 @@ import CWaterUI
 import UIKit
 #elseif canImport(AppKit)
 import AppKit
+import QuartzCore
 #endif
 
 /// Component for Metadata<Scale>.
@@ -22,6 +23,7 @@ final class WuiScale: PlatformView, WuiComponent {
     private var currentScaleX: CGFloat = 1.0
     private var currentScaleY: CGFloat = 1.0
     private let anchor: CGPoint
+    private var lastBoundsSize: CGSize = .zero
 
     var stretchAxis: WuiStretchAxis {
         contentView.stretchAxis
@@ -72,17 +74,27 @@ final class WuiScale: PlatformView, WuiComponent {
         scaleXWatcher = scaleX.watch { [weak self] value, metadata in
             guard let self else { return }
             self.currentScaleX = CGFloat(value)
+            #if canImport(UIKit)
             withPlatformAnimation(metadata) {
                 self.applyTransform()
             }
+            #elseif canImport(AppKit)
+            let animation = parseAnimation(metadata.getAnimation())
+            self.applyTransform(animation: animation)
+            #endif
         }
 
         scaleYWatcher = scaleY.watch { [weak self] value, metadata in
             guard let self else { return }
             self.currentScaleY = CGFloat(value)
+            #if canImport(UIKit)
             withPlatformAnimation(metadata) {
                 self.applyTransform()
             }
+            #elseif canImport(AppKit)
+            let animation = parseAnimation(metadata.getAnimation())
+            self.applyTransform(animation: animation)
+            #endif
         }
     }
 
@@ -91,15 +103,102 @@ final class WuiScale: PlatformView, WuiComponent {
         let transform = CGAffineTransform(scaleX: currentScaleX, y: currentScaleY)
         contentView.transform = transform
         #elseif canImport(AppKit)
-        let size = contentView.bounds.size
-        let anchorPoint = CGPoint(x: size.width * anchor.x, y: size.height * anchor.y)
-        var transform = CGAffineTransform.identity
-        transform = transform.translatedBy(x: anchorPoint.x, y: anchorPoint.y)
-        transform = transform.scaledBy(x: currentScaleX, y: currentScaleY)
-        transform = transform.translatedBy(x: -anchorPoint.x, y: -anchorPoint.y)
-        contentView.layer?.setAffineTransform(transform)
+        guard let layer = contentView.layer else { return }
+        updateAnchorPointIfNeeded()
+        let transform = CATransform3DMakeScale(currentScaleX, currentScaleY, 1.0)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.transform = transform
+        CATransaction.commit()
         #endif
     }
+
+    #if canImport(AppKit)
+    private func applyTransform(animation: Animation) {
+        guard let layer = contentView.layer else { return }
+        updateAnchorPointIfNeeded()
+        let toTransform = CATransform3DMakeScale(currentScaleX, currentScaleY, 1.0)
+
+        let resolvedAnimation = animation
+        guard shouldAnimate(resolvedAnimation) else {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer.transform = toTransform
+            CATransaction.commit()
+            return
+        }
+
+        let fromTransform = layer.presentation()?.transform ?? layer.transform
+        let animationKey = "wuiScale"
+        layer.removeAnimation(forKey: animationKey)
+
+        let caAnimation: CABasicAnimation
+        switch resolvedAnimation {
+        case .linear(let duration):
+            let basic = CABasicAnimation(keyPath: "transform")
+            basic.duration = duration
+            basic.timingFunction = CAMediaTimingFunction(name: .linear)
+            caAnimation = basic
+        case .easeIn(let duration):
+            let basic = CABasicAnimation(keyPath: "transform")
+            basic.duration = duration
+            basic.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            caAnimation = basic
+        case .easeOut(let duration):
+            let basic = CABasicAnimation(keyPath: "transform")
+            basic.duration = duration
+            basic.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            caAnimation = basic
+        case .easeInOut(let duration):
+            let basic = CABasicAnimation(keyPath: "transform")
+            basic.duration = duration
+            basic.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            caAnimation = basic
+        case .spring(let stiffness, let damping):
+            let spring = CASpringAnimation(keyPath: "transform")
+            spring.mass = 1.0
+            spring.stiffness = stiffness
+            spring.damping = damping
+            spring.initialVelocity = 0.0
+            spring.duration = spring.settlingDuration
+            caAnimation = spring
+        case .none:
+            let basic = CABasicAnimation(keyPath: "transform")
+            basic.duration = 0.0
+            caAnimation = basic
+        }
+
+        caAnimation.fromValue = NSValue(caTransform3D: fromTransform)
+        caAnimation.toValue = NSValue(caTransform3D: toTransform)
+        caAnimation.isRemovedOnCompletion = true
+        caAnimation.fillMode = .both
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.transform = toTransform
+        CATransaction.commit()
+        layer.add(caAnimation, forKey: animationKey)
+    }
+
+    private func updateAnchorPointIfNeeded() {
+        guard let layer = contentView.layer else { return }
+        let size = contentView.bounds.size
+        let expectedAnchor = anchor
+        let expectedPosition = CGPoint(
+            x: contentView.frame.origin.x + size.width * anchor.x,
+            y: contentView.frame.origin.y + size.height * anchor.y
+        )
+        let needsUpdate = size != lastBoundsSize || layer.anchorPoint != expectedAnchor
+            || layer.position != expectedPosition
+        guard needsUpdate else { return }
+        lastBoundsSize = size
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.anchorPoint = expectedAnchor
+        layer.position = expectedPosition
+        CATransaction.commit()
+    }
+    #endif
 
     func layoutPriority() -> Int32 {
         contentView.layoutPriority()
@@ -128,9 +227,12 @@ final class WuiScale: PlatformView, WuiComponent {
         super.layout()
 
         // First set frame to trigger contentView's internal layout
-        contentView.frame = bounds
-
-        applyTransform()
+        if contentView.frame != bounds {
+            contentView.frame = bounds
+        }
+        if bounds.size != lastBoundsSize {
+            applyTransform()
+        }
     }
     #endif
 }
