@@ -1986,6 +1986,8 @@ typedef struct WuiStepper {
 typedef struct WuiColorPicker {
   struct WuiAnyView *label;
   WuiBinding_Color *value;
+  bool support_alpha;
+  bool support_hdr;
 } WuiColorPicker;
 
 typedef struct Computed_Vec_PickerItem_Id WuiComputed_Vec_PickerItem_Id;

@@ -278,3 +278,21 @@ func makePickerItemsWatcher(_ f: @escaping (CWaterUI.WuiArray_WuiPickerItem, Wui
     return watcher
 }
 
+@MainActor
+func makeColorWatcher(_ f: @escaping (OpaquePointer, WuiWatcherMetadata) -> Void) -> OpaquePointer {
+    let data = wrap(f)
+    // The callback receives an opaque pointer to WuiColor
+    let call: @convention(c) (UnsafeMutableRawPointer?, OpaquePointer?, OpaquePointer?) -> Void = {
+        data, value, metadata in
+        guard let value = value else { return }
+        callWrapper(data, value, metadata)
+    }
+    let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
+        dropWrapper($0, OpaquePointer.self)
+    }
+    guard let watcher = waterui_new_watcher_color(data, call, drop) else {
+        fatalError("Failed to create color watcher")
+    }
+    return watcher
+}
+
