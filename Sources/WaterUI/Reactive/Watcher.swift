@@ -231,6 +231,25 @@ func makeColorSchemeWatcher(_ f: @escaping (WuiColorScheme, WuiWatcherMetadata) 
 }
 
 @MainActor
+func makeCursorStyleWatcher(_ f: @escaping (WuiCursorStyle, WuiWatcherMetadata) -> Void)
+    -> OpaquePointer
+{
+    let data = wrap(f)
+    let call: @convention(c) (UnsafeMutableRawPointer?, WuiCursorStyle, OpaquePointer?) -> Void =
+        {
+            data, value, metadata in
+            callWrapper(data, value, metadata)
+        }
+    let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
+        dropWrapper($0, WuiCursorStyle.self)
+    }
+    guard let watcher = waterui_new_watcher_cursor_style(data, call, drop) else {
+        fatalError("Failed to create cursor style watcher")
+    }
+    return watcher
+}
+
+@MainActor
 func makeIdWatcher(_ f: @escaping (WuiId, WuiWatcherMetadata) -> Void) -> OpaquePointer {
     let data = wrap(f)
     let call: @convention(c) (UnsafeMutableRawPointer?, WuiId, OpaquePointer?) -> Void = {

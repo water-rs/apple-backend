@@ -8,7 +8,8 @@ import AppKit
 
 /// Component for Metadata<OnEvent>.
 ///
-/// Handles lifecycle events (appear/disappear) for the wrapped view.
+/// Handles interaction events (hover enter/exit) for the wrapped view.
+/// The handler can be called multiple times (repeatable handler).
 @MainActor
 final class WuiOnEvent: PlatformView, WuiComponent {
     static var rawId: CWaterUI.WuiTypeId { waterui_metadata_on_event_id() }
@@ -17,7 +18,10 @@ final class WuiOnEvent: PlatformView, WuiComponent {
     private let env: WuiEnvironment
     private let event: WuiEvent
     private var handlerPtr: OpaquePointer?
-    private var hasCalledHandler = false
+
+    #if canImport(AppKit)
+    private var trackingArea: NSTrackingArea?
+    #endif
 
     var stretchAxis: WuiStretchAxis {
         contentView.stretchAxis
@@ -37,6 +41,10 @@ final class WuiOnEvent: PlatformView, WuiComponent {
 
         contentView.translatesAutoresizingMaskIntoConstraints = true
         addSubview(contentView)
+
+        #if canImport(AppKit)
+        setupTrackingArea()
+        #endif
     }
 
     @available(*, unavailable)
@@ -44,47 +52,86 @@ final class WuiOnEvent: PlatformView, WuiComponent {
         fatalError("init(coder:) has not been implemented")
     }
 
-    #if canImport(UIKit)
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        if window != nil {
-            handleAppear()
-        } else {
-            handleDisappear()
+    #if canImport(AppKit)
+    private func setupTrackingArea() {
+        let options: NSTrackingArea.Options = [
+            .mouseEnteredAndExited,
+            .activeInKeyWindow,
+            .inVisibleRect
+        ]
+        trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: options,
+            owner: self,
+            userInfo: nil
+        )
+        if let trackingArea = trackingArea {
+            addTrackingArea(trackingArea)
         }
     }
-    #elseif canImport(AppKit)
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        if window != nil {
-            handleAppear()
-        } else {
-            handleDisappear()
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+
+        if let oldTrackingArea = trackingArea {
+            removeTrackingArea(oldTrackingArea)
+        }
+
+        setupTrackingArea()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        handleHoverEnter()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        handleHoverExit()
+    }
+    #endif
+
+    #if canImport(UIKit)
+    // iOS doesn't have native hover support without external trackpad
+    // iPadOS 13.4+ has pointer interaction support
+    override func didMoveToSuperview() {
+        super.didMoveToSuperview()
+
+        if #available(iOS 13.4, *) {
+            // Add pointer interaction for iPadOS trackpad support
+            let hoverGesture = UIHoverGestureRecognizer(target: self, action: #selector(handleHover(_:)))
+            addGestureRecognizer(hoverGesture)
+        }
+    }
+
+    @available(iOS 13.4, *)
+    @objc private func handleHover(_ gesture: UIHoverGestureRecognizer) {
+        switch gesture.state {
+        case .began:
+            handleHoverEnter()
+        case .ended, .cancelled:
+            handleHoverExit()
+        default:
+            break
         }
     }
     #endif
 
-    private func handleAppear() {
-        guard !hasCalledHandler else { return }
-        if event == WuiEvent_Appear, let handler = handlerPtr {
-            hasCalledHandler = true
+    private func handleHoverEnter() {
+        if event == WuiEvent_HoverEnter, let handler = handlerPtr {
             waterui_call_on_event(handler, env.inner)
-            handlerPtr = nil
         }
     }
 
-    private func handleDisappear() {
-        guard !hasCalledHandler else { return }
-        if event == WuiEvent_Disappear, let handler = handlerPtr {
-            hasCalledHandler = true
+    private func handleHoverExit() {
+        if event == WuiEvent_HoverExit, let handler = handlerPtr {
             waterui_call_on_event(handler, env.inner)
-            handlerPtr = nil
         }
     }
 
     @MainActor deinit {
-        // If handler was never called, drop it to avoid memory leak
-        if let handler = handlerPtr, !hasCalledHandler {
+        // Drop the handler to avoid memory leak
+        if let handler = handlerPtr {
             waterui_drop_on_event(handler)
         }
     }
