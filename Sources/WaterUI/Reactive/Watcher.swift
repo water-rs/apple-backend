@@ -29,6 +29,14 @@ class WuiWatcherMetadata {
         waterui_get_animation(inner)
     }
 
+    var animation: Animation? {
+        let parsed = parseAnimation(getAnimation())
+        if case .none = parsed {
+            return nil
+        }
+        return parsed
+    }
+
     @MainActor deinit {
         waterui_drop_watcher_metadata(inner)
     }
@@ -314,4 +322,3 @@ func makeColorWatcher(_ f: @escaping (OpaquePointer, WuiWatcherMetadata) -> Void
     }
     return watcher
 }
-

@@ -204,6 +204,7 @@ private func registerBuiltinComponentsIfNeeded() {
     registerComponent(WuiColorPicker.self)
     registerComponent(WuiPicker.self)
     registerComponent(WuiProgress.self)
+    registerComponent(WuiMenu.self)
 
     // Container components
     registerComponent(WuiFixedContainer.self)

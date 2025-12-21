@@ -886,8 +886,6 @@ public final class WuiRootContext {
         public override func viewDidLayoutSubviews() {
             super.viewDidLayoutSubviews()
 
-            // Root content respects safe area by default (like SwiftUI)
-            // Content can extend into safe area using IgnoreSafeArea metadata
             let safeInsets = view.safeAreaInsets
             let safeFrame = CGRect(
                 x: safeInsets.left,
@@ -896,9 +894,40 @@ public final class WuiRootContext {
                 height: view.bounds.height - safeInsets.top - safeInsets.bottom
             )
 
-            context.rootView.frame = safeFrame
+            let usesSafeArea = shouldApplySafeArea(to: context.rootView)
+            context.rootView.frame = usesSafeArea ? safeFrame : view.bounds
             context.rootView.setNeedsLayout()
             context.rootView.layoutIfNeeded()
+        }
+
+        private func shouldApplySafeArea(to rootView: UIView) -> Bool {
+            guard let contentView = primaryContentView(from: rootView) else {
+                return true
+            }
+            return !isScrollableRootView(contentView)
+        }
+
+        private func primaryContentView(from rootView: UIView) -> UIView? {
+            guard let inner = rootView.subviews.first else { return nil }
+            guard !inner.subviews.isEmpty else { return inner }
+            // App::new wraps content + overlay in a ZStack; use the main content layer.
+            return inner.subviews.first
+        }
+
+        private func isScrollableRootView(_ view: UIView) -> Bool {
+            var current: UIView? = view
+            while let node = current {
+                if node is WuiScroll || node is WuiList {
+                    return true
+                }
+                let children = node.subviews
+                if children.count == 1 {
+                    current = children.first
+                    continue
+                }
+                return false
+            }
+            return false
         }
 
         public override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?)

@@ -194,7 +194,7 @@ final class WuiCursor: PlatformView, WuiComponent {
 #if canImport(UIKit)
 @available(iOS 13.4, *)
 extension WuiCursor: UIPointerInteractionDelegate {
-    nonisolated func pointerInteraction(
+    func pointerInteraction(
         _ interaction: UIPointerInteraction,
         styleFor region: UIPointerRegion
     ) -> UIPointerStyle? {

@@ -187,26 +187,6 @@ final class WuiColorPicker: PlatformView, WuiComponent {
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         color.getRed(&r, green: &g, blue: &b, alpha: &a)
 
-        // Convert from gamma-corrected sRGB to linear RGB
-        let resolved = WuiResolvedColor(
-            red: srgbToLinear(Float(r)),
-            green: srgbToLinear(Float(g)),
-            blue: srgbToLinear(Float(b)),
-            opacity: Float(a),
-            headroom: supportHdr ? 1.0 : 0.0
-        )
-
-        // Create a new computed color from the resolved color
-        guard let computedPtr = waterui_new_computed_resolved_color(
-            nil,
-            { _ in resolved },
-            { _, _ in nil },
-            { _, _, _ in }
-        ) else {
-            logger.error("Failed to create computed resolved color")
-            return
-        }
-
         // Note: The binding expects a Color, but we have a ResolvedColor.
         // We need to create a new Color from the resolved color components.
         // For now, we'll use sRGB values to create a new color.
@@ -221,8 +201,6 @@ final class WuiColorPicker: PlatformView, WuiComponent {
         //
         // For now, log a warning - this needs additional FFI support
         logger.debug("Color changed to r=\(r) g=\(g) b=\(b) a=\(a)")
-
-        waterui_drop_computed_resolved_color(computedPtr)
     }
 
     // MARK: - Color Space Conversion
