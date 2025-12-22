@@ -221,6 +221,8 @@ private func registerBuiltinComponentsIfNeeded() {
     // Metadata components (wrappers that modify env/appearance)
     registerMetadataComponent(WuiWithEnv.self)
     registerMetadataComponent(WuiSecure.self)
+    registerMetadataComponent(WuiStandardDynamicRange.self)
+    registerMetadataComponent(WuiHighDynamicRange.self)
     registerMetadataComponent(WuiGesture.self)
     registerMetadataComponent(WuiLifeCycleHook.self)
     registerMetadataComponent(WuiOnEvent.self)

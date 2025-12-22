@@ -6,7 +6,6 @@
 // In a stack, it takes only the space it needs.
 
 import CWaterUI
-import os.log
 
 #if canImport(UIKit)
 import UIKit
@@ -14,7 +13,6 @@ import UIKit
 import AppKit
 #endif
 
-private let logger = Logger(subsystem: "dev.waterui", category: "WuiColorPicker")
 
 #if canImport(UIKit)
 @MainActor
@@ -160,66 +158,36 @@ final class WuiColorPicker: PlatformView, WuiComponent {
     }
 
     private func resolvedColorToUIColor(_ resolved: WuiResolvedColor) -> UIColor {
-        // ResolvedColor stores linear RGB values, convert to gamma-corrected sRGB
-        let r = linearToSrgb(resolved.red)
-        let g = linearToSrgb(resolved.green)
-        let b = linearToSrgb(resolved.blue)
-
-        if supportHdr, resolved.headroom > 0 {
-            // For HDR, use extended sRGB color space
-            if let cgColor = CGColor(
-                colorSpace: CGColorSpace(name: CGColorSpace.extendedSRGB)!,
-                components: [CGFloat(r), CGFloat(g), CGFloat(b), CGFloat(resolved.opacity)]
-            ) {
-                return UIColor(cgColor: cgColor)
-            }
-        }
-
-        return UIColor(
-            red: CGFloat(r.clamped(to: 0...1)),
-            green: CGFloat(g.clamped(to: 0...1)),
-            blue: CGFloat(b.clamped(to: 0...1)),
-            alpha: CGFloat(resolved.opacity)
-        )
+        resolved.toUIColor(allowHdr: supportHdr)
     }
 
     private func updateBindingWithColor(_ color: UIColor) {
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        color.getRed(&r, green: &g, blue: &b, alpha: &a)
-
-        // Note: The binding expects a Color, but we have a ResolvedColor.
-        // We need to create a new Color from the resolved color components.
-        // For now, we'll use sRGB values to create a new color.
-        // This is a simplification - ideally we'd have a waterui_color_from_resolved function.
-
-        // Since we can't easily create a WuiColor from Swift, we need to use the binding
-        // value update mechanism differently. The current binding system expects to set
-        // the same WuiColor pointer type, which represents a Color abstraction.
-        //
-        // For a proper implementation, we need an FFI function like:
-        // waterui_color_from_srgb(r, g, b, a) -> WuiColor*
-        //
-        // For now, log a warning - this needs additional FFI support
-        logger.debug("Color changed to r=\(r) g=\(g) b=\(b) a=\(a)")
-    }
-
-    // MARK: - Color Space Conversion
-
-    private func linearToSrgb(_ linear: Float) -> Float {
-        if linear <= 0.0031308 {
-            return linear * 12.92
-        } else {
-            return 1.055 * pow(linear, 1.0 / 2.4) - 0.055
+        var headroom: Float = 0.0
+        var baseColor = color
+        if #available(iOS 26.0, tvOS 26.0, visionOS 26.0, watchOS 26.0, macCatalyst 26.0, *) {
+            let exposure = Float(color.linearExposure)
+            if exposure > 1.0 {
+                baseColor = color.standardDynamicRange
+                headroom = max(0.0, exposure - 1.0)
+            }
         }
+        let srgb = baseColor.usingColorSpace(.extendedSRGB) ?? baseColor
+        guard srgb.getRed(&r, green: &g, blue: &b, alpha: &a) else { return }
+
+        let linearR = wuiSrgbToLinear(Float(r))
+        let linearG = wuiSrgbToLinear(Float(g))
+        let linearB = wuiSrgbToLinear(Float(b))
+        guard let colorPtr = waterui_color_from_linear_rgba_headroom(
+            linearR,
+            linearG,
+            linearB,
+            Float(a),
+            headroom
+        ) else { return }
+        binding.set(colorPtr)
     }
 
-    private func srgbToLinear(_ srgb: Float) -> Float {
-        if srgb <= 0.04045 {
-            return srgb / 12.92
-        } else {
-            return pow((srgb + 0.055) / 1.055, 2.4)
-        }
-    }
 }
 
 #elseif canImport(AppKit)
@@ -380,64 +348,39 @@ final class WuiColorPicker: PlatformView, WuiComponent {
     }
 
     private func resolvedColorToNSColor(_ resolved: WuiResolvedColor) -> NSColor {
-        let r = linearToSrgb(resolved.red)
-        let g = linearToSrgb(resolved.green)
-        let b = linearToSrgb(resolved.blue)
-
-        if supportHdr, resolved.headroom > 0 {
-            // For HDR, use extended sRGB color space
-            if let colorSpace = CGColorSpace(name: CGColorSpace.extendedSRGB),
-               let cgColor = CGColor(
-                   colorSpace: colorSpace,
-                   components: [CGFloat(r), CGFloat(g), CGFloat(b), CGFloat(resolved.opacity)]
-               ) {
-                return NSColor(cgColor: cgColor) ?? NSColor.systemBlue
-            }
-        }
-
-        return NSColor(
-            srgbRed: CGFloat(r.clamped(to: 0...1)),
-            green: CGFloat(g.clamped(to: 0...1)),
-            blue: CGFloat(b.clamped(to: 0...1)),
-            alpha: CGFloat(resolved.opacity)
-        )
+        resolved.toNSColor(allowHdr: supportHdr)
     }
 
     private func updateBindingWithColor(_ color: NSColor) {
-        guard let rgbColor = color.usingColorSpace(.sRGB) else { return }
+        var headroom: Float = 0.0
+        var baseColor = color
+        if supportHdr, #available(macOS 26.0, *) {
+            let exposure = color.linearExposure
+            if exposure > 1.0 {
+                headroom = Float(exposure - 1.0)
+                baseColor = color.standardDynamicRange
+            }
+        }
+
+        let rgbColor = baseColor.usingColorSpace(.extendedSRGB) ?? baseColor.usingColorSpace(.sRGB)
+        guard let rgbColor else { return }
 
         let r = Float(rgbColor.redComponent)
         let g = Float(rgbColor.greenComponent)
         let b = Float(rgbColor.blueComponent)
         let a = Float(rgbColor.alphaComponent)
-
-        logger.debug("Color changed to r=\(r) g=\(g) b=\(b) a=\(a)")
+        let linearR = wuiSrgbToLinear(r)
+        let linearG = wuiSrgbToLinear(g)
+        let linearB = wuiSrgbToLinear(b)
+        guard let colorPtr = waterui_color_from_linear_rgba_headroom(
+            linearR,
+            linearG,
+            linearB,
+            a,
+            headroom
+        ) else { return }
+        binding.set(colorPtr)
     }
 
-    // MARK: - Color Space Conversion
-
-    private func linearToSrgb(_ linear: Float) -> Float {
-        if linear <= 0.0031308 {
-            return linear * 12.92
-        } else {
-            return 1.055 * pow(linear, 1.0 / 2.4) - 0.055
-        }
-    }
-
-    private func srgbToLinear(_ srgb: Float) -> Float {
-        if srgb <= 0.04045 {
-            return srgb / 12.92
-        } else {
-            return pow((srgb + 0.055) / 1.055, 2.4)
-        }
-    }
 }
 #endif
-
-// MARK: - Helper Extensions
-
-private extension Float {
-    func clamped(to range: ClosedRange<Float>) -> Float {
-        return Swift.min(Swift.max(self, range.lowerBound), range.upperBound)
-    }
-}

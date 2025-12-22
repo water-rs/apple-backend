@@ -18,6 +18,7 @@ final class WuiFilledShape: PlatformView, WuiComponent {
 
     private var pathCommands: [WuiPathCommand] = []
     private var fillColor: PlatformColor = .clear
+    private var usesHdr = false
     private let shapeLayer = CAShapeLayer()
 
     // FilledShape fills available space like Color
@@ -39,29 +40,36 @@ final class WuiFilledShape: PlatformView, WuiComponent {
             let resolvedColor = waterui_resolve_color(fillPtr, env.inner)
             let color = waterui_read_computed_resolved_color(resolvedColor)
             waterui_drop_computed_resolved_color(resolvedColor)
+            usesHdr = color.headroom > 0
 
             #if canImport(UIKit)
-            fillColor = UIColor(
-                red: CGFloat(color.red),
-                green: CGFloat(color.green),
-                blue: CGFloat(color.blue),
-                alpha: CGFloat(color.opacity)
-            )
+            fillColor = color.toUIColor()
             #elseif canImport(AppKit)
-            fillColor = NSColor(
-                calibratedRed: CGFloat(color.red),
-                green: CGFloat(color.green),
-                blue: CGFloat(color.blue),
-                alpha: CGFloat(color.opacity)
-            )
+            fillColor = color.toNSColor()
             #endif
         }
 
         #if canImport(UIKit)
         layer.addSublayer(shapeLayer)
+        if #available(iOS 26.0, tvOS 26.0, visionOS 26.0, watchOS 26.0, macCatalyst 26.0, *) {
+            let range: CALayer.DynamicRange = usesHdr ? .high : .standard
+            shapeLayer.preferredDynamicRange = range
+            layer.preferredDynamicRange = range
+        } else if #available(iOS 15.0, tvOS 15.0, visionOS 1.0, watchOS 8.0, macCatalyst 15.0, *) {
+            shapeLayer.wantsExtendedDynamicRangeContent = usesHdr
+            layer.wantsExtendedDynamicRangeContent = usesHdr
+        }
         #elseif canImport(AppKit)
         wantsLayer = true
         layer?.addSublayer(shapeLayer)
+        if #available(macOS 26.0, *) {
+            let range: CALayer.DynamicRange = usesHdr ? .high : .standard
+            shapeLayer.preferredDynamicRange = range
+            layer?.preferredDynamicRange = range
+        } else if #available(macOS 12.0, *) {
+            shapeLayer.wantsExtendedDynamicRangeContent = usesHdr
+            layer?.wantsExtendedDynamicRangeContent = usesHdr
+        }
         #endif
     }
 

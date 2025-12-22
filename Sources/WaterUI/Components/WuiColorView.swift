@@ -73,19 +73,9 @@ final class WuiColorView: PlatformView, WuiComponent {
 
     private func apply(color: WuiResolvedColor) {
         #if canImport(UIKit)
-        backgroundColor = UIColor(
-            red: CGFloat(color.red),
-            green: CGFloat(color.green),
-            blue: CGFloat(color.blue),
-            alpha: CGFloat(color.opacity)
-        )
+        backgroundColor = color.toUIColor()
         #elseif canImport(AppKit)
-        layer?.backgroundColor = NSColor(
-            calibratedRed: CGFloat(color.red),
-            green: CGFloat(color.green),
-            blue: CGFloat(color.blue),
-            alpha: CGFloat(color.opacity)
-        ).cgColor
+        layer?.backgroundColor = color.toNSColor().cgColor
         #endif
     }
 

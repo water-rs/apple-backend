@@ -252,28 +252,11 @@ final class ReactiveColorSignal {
     /// Convenience to set from platform color
     #if canImport(UIKit)
         func setValue(_ color: UIColor) {
-            var r: CGFloat = 0
-            var g: CGFloat = 0
-            var b: CGFloat = 0
-            var a: CGFloat = 0
-            color.getRed(&r, green: &g, blue: &b, alpha: &a)
-            setValue(
-                WuiResolvedColor(
-                    red: Float(r), green: Float(g), blue: Float(b), opacity: Float(a), headroom: 0.0
-                ))
+            setValue(WuiResolvedColor.fromUIColor(color))
         }
     #elseif canImport(AppKit)
         func setValue(_ color: NSColor) {
-            let rgbColor = color.usingColorSpace(.sRGB) ?? color
-            var r: CGFloat = 0
-            var g: CGFloat = 0
-            var b: CGFloat = 0
-            var a: CGFloat = 0
-            rgbColor.getRed(&r, green: &g, blue: &b, alpha: &a)
-            setValue(
-                WuiResolvedColor(
-                    red: Float(r), green: Float(g), blue: Float(b), opacity: Float(a), headroom: 0.0
-                ))
+            setValue(WuiResolvedColor.fromNSColor(color))
         }
     #endif
 }
@@ -558,13 +541,7 @@ public final class ThemeBridge {
         private func createAndInstallColorSignal(
             env: WuiEnvironment, slot: WuiColorSlot, color: UIColor
         ) -> ReactiveColorSignal {
-            var r: CGFloat = 0
-            var g: CGFloat = 0
-            var b: CGFloat = 0
-            var a: CGFloat = 0
-            color.getRed(&r, green: &g, blue: &b, alpha: &a)
-            let resolved = WuiResolvedColor(
-                red: Float(r), green: Float(g), blue: Float(b), opacity: Float(a), headroom: 0.0)
+            let resolved = WuiResolvedColor.fromUIColor(color)
 
             let signal = ReactiveColorSignal(color: resolved)
             if let computed = signal.toComputed() {
@@ -576,14 +553,7 @@ public final class ThemeBridge {
         private func createAndInstallColorSignal(
             env: WuiEnvironment, slot: WuiColorSlot, color: NSColor
         ) -> ReactiveColorSignal {
-            let rgbColor = color.usingColorSpace(.sRGB) ?? color
-            var r: CGFloat = 0
-            var g: CGFloat = 0
-            var b: CGFloat = 0
-            var a: CGFloat = 0
-            rgbColor.getRed(&r, green: &g, blue: &b, alpha: &a)
-            let resolved = WuiResolvedColor(
-                red: Float(r), green: Float(g), blue: Float(b), opacity: Float(a), headroom: 0.0)
+            let resolved = WuiResolvedColor.fromNSColor(color)
 
             let signal = ReactiveColorSignal(color: resolved)
             if let computed = signal.toComputed() {

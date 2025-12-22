@@ -111,9 +111,7 @@ final class WuiButton: PlatformView, WuiComponent {
         labelView = newLabel
         embedLabel(newLabel)
         #if canImport(UIKit)
-        if style == WuiButtonStyle_Link {
-            applyLinkStylingToLabelUIKit(labelView)
-        }
+        applyLabelStylingUIKit()
         #elseif canImport(AppKit)
         if style == WuiButtonStyle_Link {
             applyLinkStylingToLabel(labelView)
@@ -181,6 +179,8 @@ final class WuiButton: PlatformView, WuiComponent {
 
         #if canImport(UIKit)
         button.addTarget(self, action: #selector(didTap), for: .touchUpInside)
+        button.addTarget(self, action: #selector(handleTouchDown), for: [.touchDown, .touchDragEnter])
+        button.addTarget(self, action: #selector(handleTouchUp), for: [.touchUpInside, .touchUpOutside, .touchCancel, .touchDragExit])
         applyStyleUIKit()
         #elseif canImport(AppKit)
         button.target = self
@@ -194,14 +194,12 @@ final class WuiButton: PlatformView, WuiComponent {
     private func applyStyleUIKit() {
         switch style {
         case WuiButtonStyle_Automatic:
-            // Default system button style
-            break
+            button.configuration = .plain()
         case WuiButtonStyle_Plain:
             button.configuration = .plain()
         case WuiButtonStyle_Link:
             // Link style: blue text, no background
             button.configuration = .plain()
-            button.tintColor = .systemBlue
             applyLinkStylingToLabelUIKit(labelView)
         case WuiButtonStyle_Borderless:
             button.configuration = .plain()
@@ -212,6 +210,26 @@ final class WuiButton: PlatformView, WuiComponent {
         default:
             break
         }
+        applyLabelStylingUIKit()
+    }
+
+    private func applyLabelStylingUIKit() {
+        if style == WuiButtonStyle_Link {
+            applyLinkStylingToLabelUIKit(labelView)
+        } else {
+            applyTintStylingToLabelUIKit(labelView, tintColor: button.currentTitleColor)
+        }
+    }
+
+    private func applyTintStylingToLabelUIKit(_ view: UIView, tintColor: UIColor) {
+        if let label = view as? UILabel {
+            label.textColor = tintColor
+            label.invalidateIntrinsicContentSize()
+        }
+
+        for subview in view.subviews {
+            applyTintStylingToLabelUIKit(subview, tintColor: tintColor)
+        }
     }
 
     /// Recursively applies link styling (blue color, underline) to text views.
@@ -221,7 +239,7 @@ final class WuiButton: PlatformView, WuiComponent {
             let attributed = NSMutableAttributedString(attributedString: base)
             let range = NSRange(location: 0, length: attributed.length)
             attributed.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range)
-            attributed.addAttribute(.foregroundColor, value: UIColor.systemBlue, range: range)
+            attributed.addAttribute(.foregroundColor, value: button.currentTitleColor, range: range)
             label.attributedText = attributed
             label.invalidateIntrinsicContentSize()
         }
@@ -229,6 +247,26 @@ final class WuiButton: PlatformView, WuiComponent {
         for subview in view.subviews {
             applyLinkStylingToLabelUIKit(subview)
         }
+    }
+
+    @objc
+    private func handleTouchDown() {
+        updateHighlight(true)
+    }
+
+    @objc
+    private func handleTouchUp() {
+        updateHighlight(false)
+    }
+
+    private func updateHighlight(_ highlighted: Bool) {
+        let targetAlpha: CGFloat = highlighted ? 0.5 : 1.0
+        labelContainer.alpha = targetAlpha
+    }
+
+    override func tintColorDidChange() {
+        super.tintColorDidChange()
+        applyLabelStylingUIKit()
     }
     #endif
 
