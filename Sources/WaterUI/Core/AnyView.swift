@@ -194,7 +194,6 @@ private func registerBuiltinComponentsIfNeeded() {
 
     // Interactive components
     registerComponent(WuiButton.self)
-    // Note: Link uses Button with link style, not a separate native component
     registerComponent(WuiToggle.self)
     registerComponent(WuiSlider.self)
     registerComponent(WuiTextField.self)
@@ -248,19 +247,20 @@ private func registerBuiltinComponentsIfNeeded() {
     registerMetadataComponent(WuiGrayscale.self)
     registerMetadataComponent(WuiOpacity.self)
 
+    // Drag and drop components
+    registerMetadataComponent(WuiDraggable.self)
+    registerMetadataComponent(WuiDropDestination.self)
+
     // Media components
     registerComponent(WuiPhoto.self)
     registerComponent(WuiVideo.self)
     registerComponent(WuiVideoPlayer.self)
-    // WuiMediaPicker removed - now uses Button wrapper in Rust
 
     // Navigation components
     registerComponent(WuiNavigationStack.self)
     registerComponent(WuiNavigationView.self)
     registerComponent(WuiTabs.self)
 
-    // Renderer components
-    // TODO: registerComponent(WuiRendererView.self)
 
     // GPU components
     registerComponent(WuiGpuSurface.self)
