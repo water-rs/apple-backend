@@ -43,8 +43,8 @@ final class WuiDropDestination: PlatformView, WuiComponent {
         self.addInteraction(dropInteraction)
         self.isUserInteractionEnabled = true
         #elseif canImport(AppKit)
-        // macOS: Register as drop destination
-        registerForDraggedTypes([.string, .URL])
+        // macOS: Register as drop destination (including file URLs)
+        registerForDraggedTypes([.string, .URL, .fileURL])
         #endif
     }
     
@@ -109,19 +109,25 @@ final class WuiDropDestination: PlatformView, WuiComponent {
     
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         let pasteboard = sender.draggingPasteboard
-        
-        // Try URL first
+
+        // Try file URL first (for dropped files)
+        if let fileURL = pasteboard.string(forType: .fileURL) {
+            callDropHandler(tag: WuiDragDataTag_Url, value: fileURL)
+            return true
+        }
+
+        // Try URL
         if let url = pasteboard.string(forType: .URL) {
             callDropHandler(tag: WuiDragDataTag_Url, value: url)
             return true
         }
-        
+
         // Fall back to string
         if let string = pasteboard.string(forType: .string) {
             callDropHandler(tag: WuiDragDataTag_Text, value: string)
             return true
         }
-        
+
         return false
     }
     #endif

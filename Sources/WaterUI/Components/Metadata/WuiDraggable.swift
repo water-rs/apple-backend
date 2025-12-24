@@ -81,17 +81,33 @@ final class WuiDraggable: PlatformView, WuiComponent {
     }
     #elseif canImport(AppKit)
     override var isFlipped: Bool { true }
-    
+
     override func layout() {
         super.layout()
         contentView.frame = bounds
     }
-    
+
     // MARK: - macOS Drag Source
-    
+
+    private var dragOrigin: NSPoint?
+
     override func mouseDown(with event: NSEvent) {
+        dragOrigin = event.locationInWindow
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let origin = dragOrigin else { return }
+
+        let current = event.locationInWindow
+        let distance = hypot(current.x - origin.x, current.y - origin.y)
+
+        // Only start drag after moving a minimum distance (3 points)
+        guard distance > 3 else { return }
+
+        dragOrigin = nil  // Prevent re-triggering
+
         let (tag, value) = getDragData()
-        
+
         let pasteboardItem = NSPasteboardItem()
         if tag == WuiDragDataTag_Url {
             if let url = URL(string: value) {
@@ -100,17 +116,24 @@ final class WuiDraggable: PlatformView, WuiComponent {
         } else {
             pasteboardItem.setString(value, forType: .string)
         }
-        
+
         let draggingItem = NSDraggingItem(pasteboardWriter: pasteboardItem)
         draggingItem.setDraggingFrame(bounds, contents: snapshot())
-        
+
         beginDraggingSession(with: [draggingItem], event: event, source: self)
     }
-    
+
+    override func mouseUp(with event: NSEvent) {
+        dragOrigin = nil
+    }
+
     private func snapshot() -> NSImage {
         let image = NSImage(size: bounds.size)
         image.lockFocus()
         if let ctx = NSGraphicsContext.current?.cgContext {
+            // Flip the context since NSView.isFlipped = true but CGContext is not flipped
+            ctx.translateBy(x: 0, y: bounds.height)
+            ctx.scaleBy(x: 1, y: -1)
             layer?.render(in: ctx)
         }
         image.unlockFocus()
