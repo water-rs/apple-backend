@@ -322,3 +322,20 @@ func makeColorWatcher(_ f: @escaping (OpaquePointer, WuiWatcherMetadata) -> Void
     }
     return watcher
 }
+
+@MainActor
+func makeRegionWatcher(_ f: @escaping (WuiRegion, WuiWatcherMetadata) -> Void) -> OpaquePointer {
+    let data = wrap(f)
+    let call: @convention(c) (UnsafeMutableRawPointer?, WuiRegion, OpaquePointer?) -> Void = {
+        data, value, metadata in
+        callWrapper(data, value, metadata)
+    }
+    let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
+        dropWrapper($0, WuiRegion.self)
+    }
+    guard let watcher = waterui_new_watcher_region(data, call, drop) else {
+        fatalError("Failed to create region watcher")
+    }
+    return watcher
+}
+

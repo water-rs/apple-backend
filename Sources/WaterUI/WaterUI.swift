@@ -668,8 +668,9 @@ public final class ThemeBridge {
 
 /// Global environment pointer - waterui_init() must only be called once per process.
 /// This is stored globally to survive window close/reopen cycles on macOS.
+/// Internal access for window manager to use when creating new windows.
 @MainActor
-private var globalEnvironment: WuiEnvironment?
+var globalEnvironment: WuiEnvironment?
 
 /// Represents a window in the application.
 @MainActor
@@ -728,16 +729,23 @@ public final class WuiRootContext {
 
     public init() {
         // 1. Create environment (waterui_init) - only once per process
-        let initEnv: WuiEnvironment
+        // IMPORTANT: We use a raw pointer here because waterui_app() takes ownership.
+        // We must NOT wrap it in WuiEnvironment until after waterui_app() returns,
+        // otherwise we'd have an invalid pointer when WuiEnvironment tries to drop.
+        let initEnvPtr: OpaquePointer
+        let isFirstInit: Bool
         if let existing = globalEnvironment {
-            initEnv = existing
+            // Hot reload / subsequent init - reuse existing valid environment
+            initEnvPtr = existing.inner
+            isFirstInit = false
         } else {
-            initEnv = WuiEnvironment(waterui_init())
-            // Install media picker manager for presenting picker and loading media
-            installMediaPickerManager(env: initEnv.inner)
-            // Install webview controller for WebView component
-            installWebViewController(env: initEnv.inner)
-            globalEnvironment = initEnv
+            // First time - create new environment
+            initEnvPtr = waterui_init()
+            // Install services into the raw pointer (before ownership transfers)
+            installMediaPickerManager(env: initEnvPtr)
+            installWebViewController(env: initEnvPtr)
+            installWindowManager(env: initEnvPtr)
+            isFirstInit = true
         }
 
         // 2. Detect system color scheme
@@ -752,19 +760,33 @@ public final class WuiRootContext {
 
         // 3. Install system theme (colors, fonts, AND color scheme) into env
         // This must be done BEFORE calling waterui_app so user code sees the theme
-        self.themeBridge = ThemeBridge(env: initEnv, colorScheme: systemScheme)
+        // Use a temporary WuiEnvironment wrapper for ThemeBridge API compatibility
+        let tempEnv = WuiEnvironment(initEnvPtr)
+        self.themeBridge = ThemeBridge(env: tempEnv, colorScheme: systemScheme)
 
         // 4. Create the app by calling waterui_app(env)
         // The user's app(env) receives the environment with theme installed,
         // creates App::new(content, env), and returns App { windows, env }
         // Native takes ownership of the environment and gets it back in the App.
-        self.app = waterui_app(initEnv.inner)
+        // IMPORTANT: After this call, initEnvPtr is invalid - ownership transferred to Rust.
+        self.app = waterui_app(initEnvPtr)
+
+        // Prevent tempEnv from dropping the now-invalid pointer
+        // by replacing its inner with the valid app.env
+        tempEnv.inner = app.env
 
         // 5. Use the environment returned from the app for rendering
         // (App::new injects FullScreenOverlayManager into it)
-        self.env = WuiEnvironment(app.env)
+        // Reuse tempEnv since it now has the valid pointer
+        self.env = tempEnv
 
-        // 6. Extract main window (first window in array)
+        // 6. Update globalEnvironment to point to the valid environment
+        // This is critical - the original initEnvPtr is now owned by Rust
+        if isFirstInit {
+            globalEnvironment = self.env
+        }
+
+        // 7. Extract main window (first window in array)
         let windowSlice = app.windows.vtable.slice(app.windows.data)
         guard windowSlice.len > 0, let windowsPtr = windowSlice.head else {
             fatalError("waterui_app() returned App with no windows")

@@ -25,27 +25,26 @@ final class WuiMapViewComponent: PlatformView, WuiComponent {
 
     private(set) var stretchAxis: WuiStretchAxis = .both
     private let mapView: MKMapView
-    private var regionWatcher: Watcher<WuiRegion>?
-    private var annotationsWatcher: Watcher<Void>?
-    private var currentAnnotations: [MKPointAnnotation] = []
+    private var regionWatcherGuard: WatcherGuard?
 
-    required init(anyview: OpaquePointer, env: WuiEnvironment) {
+    convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
+        // Get the WuiMap config (returns by value)
+        let config = waterui_force_as_map(anyview)
+        self.init(config: config)
+    }
+    
+    init(config: WuiMap) {
         self.mapView = MKMapView(frame: .zero)
         super.init(frame: .zero)
 
         logger.debug("WuiMapViewComponent init started")
 
-        // Get the WuiMap config (returns by value, no drop needed)
-        let config = waterui_force_as_map(anyview)
-
         // Set initial configuration
         #if canImport(UIKit)
         mapView.isUserInteractionEnabled = config.is_interactive
-        #endif
-        mapView.showsCompass = config.shows_compass
-        #if canImport(UIKit)
         mapView.showsScale = config.shows_scale
         #endif
+        mapView.showsCompass = config.shows_compass
         mapView.showsUserLocation = config.shows_user_location
         
         // Set map style
@@ -60,31 +59,24 @@ final class WuiMapViewComponent: PlatformView, WuiComponent {
             mapView.mapType = .standard
         }
 
-        // Watch for region changes
+        // Read initial region and set it
         if let regionComputed = config.region {
-            self.regionWatcher = Watcher(regionComputed) { [weak self] region in
-                self?.updateRegion(region)
+            let initialRegion = waterui_read_computed_region(regionComputed)
+            updateRegion(initialRegion, animated: false)
+            
+            // Watch for region changes
+            let watcher = makeRegionWatcher { [weak self] region, metadata in
+                let animated = metadata.animation != nil
+                self?.updateRegion(region, animated: animated)
+            }
+            if let guard_ = waterui_watch_computed_region(regionComputed, watcher) {
+                self.regionWatcherGuard = WatcherGuard(guard_)
             }
         }
 
-        // Watch for annotation changes
-        if let annotationsComputed = config.annotations {
-            self.annotationsWatcher = Watcher(annotationsComputed) { [weak self] _ in
-                guard let self = self, let annotationsComputed = config.annotations else { return }
-                self.updateAnnotations(annotationsComputed)
-            }
-        }
-
-        // Add map view as subview
-        mapView.translatesAutoresizingMaskIntoConstraints = false
+        // Add map view as subview using manual frame layout
+        mapView.translatesAutoresizingMaskIntoConstraints = true
         addSubview(mapView)
-
-        NSLayoutConstraint.activate([
-            mapView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            mapView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            mapView.topAnchor.constraint(equalTo: topAnchor),
-            mapView.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
 
         logger.debug("WuiMapViewComponent setup complete")
     }
@@ -94,7 +86,7 @@ final class WuiMapViewComponent: PlatformView, WuiComponent {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private func updateRegion(_ wuiRegion: WuiRegion) {
+    private func updateRegion(_ wuiRegion: WuiRegion, animated: Bool) {
         let center = CLLocationCoordinate2D(
             latitude: wuiRegion.center.latitude,
             longitude: wuiRegion.center.longitude
@@ -104,19 +96,7 @@ final class WuiMapViewComponent: PlatformView, WuiComponent {
             longitudeDelta: wuiRegion.longitude_delta
         )
         let region = MKCoordinateRegion(center: center, span: span)
-        mapView.setRegion(region, animated: true)
-    }
-
-    private func updateAnnotations(_ annotationsPtr: OpaquePointer) {
-        // Remove existing annotations
-        mapView.removeAnnotations(currentAnnotations)
-        currentAnnotations.removeAll()
-
-        // Get new annotations from the computed signal
-        // Note: This is simplified - in production you'd want to properly iterate the Vec
-        // For now, we just clear and set up watching for changes
-        
-        logger.debug("Annotations updated")
+        mapView.setRegion(region, animated: animated)
     }
 
     func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
@@ -125,21 +105,20 @@ final class WuiMapViewComponent: PlatformView, WuiComponent {
         let height = proposal.height.map { CGFloat($0) } ?? 480
         return CGSize(width: width, height: height)
     }
-}
-
-// MARK: - FFI Helper Types
-
-/// Wrapper for watching a Computed signal
-private class Watcher<T> {
-    private var guard_: OpaquePointer?
-
-    init(_ computed: OpaquePointer, callback: @escaping (T) -> Void) {
-        // Store reference for cleanup
-        self.guard_ = computed
-        // Note: Actual watcher implementation would use waterui_computed_watch functions
+    
+    // MARK: - Layout
+    
+    #if canImport(UIKit)
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        mapView.frame = bounds
     }
-
-    deinit {
-        // Cleanup watcher guard
+    #elseif canImport(AppKit)
+    override func layout() {
+        super.layout()
+        mapView.frame = bounds
     }
+    
+    override var isFlipped: Bool { true }
+    #endif
 }

@@ -269,6 +269,9 @@ private func registerBuiltinComponentsIfNeeded() {
 
     // WebView component
     registerComponent(WuiWebViewComponent.self)
+
+    // Map component
+    registerComponent(WuiMapViewComponent.self)
 }
 
 // MARK: - WuiAnyView
