@@ -35,20 +35,13 @@ final class WuiMapViewComponent: PlatformView, WuiComponent {
 
         logger.debug("WuiMapViewComponent init started")
 
-        // Get the WuiMap config
-        let wuiMap = waterui_force_as_map(anyview)
-        defer { waterui_drop_map(wuiMap) }
+        // Get the WuiMap config (returns by value, no drop needed)
+        let config = waterui_force_as_map(anyview)
 
-        guard let wuiMap = wuiMap else {
-            logger.error("Failed to get WuiMap from anyview")
-            return
-        }
-
-        // Configure the map view
-        let config = wuiMap.pointee
-        
         // Set initial configuration
+        #if canImport(UIKit)
         mapView.isUserInteractionEnabled = config.is_interactive
+        #endif
         mapView.showsCompass = config.shows_compass
         #if canImport(UIKit)
         mapView.showsScale = config.shows_scale
@@ -114,7 +107,7 @@ final class WuiMapViewComponent: PlatformView, WuiComponent {
         mapView.setRegion(region, animated: true)
     }
 
-    private func updateAnnotations(_ annotationsPtr: UnsafeMutablePointer<WuiComputed__Vec_Annotation_>) {
+    private func updateAnnotations(_ annotationsPtr: OpaquePointer) {
         // Remove existing annotations
         mapView.removeAnnotations(currentAnnotations)
         currentAnnotations.removeAll()
@@ -138,9 +131,9 @@ final class WuiMapViewComponent: PlatformView, WuiComponent {
 
 /// Wrapper for watching a Computed signal
 private class Watcher<T> {
-    private var guard_: UnsafeMutableRawPointer?
+    private var guard_: OpaquePointer?
 
-    init(_ computed: UnsafeMutableRawPointer, callback: @escaping (T) -> Void) {
+    init(_ computed: OpaquePointer, callback: @escaping (T) -> Void) {
         // Store reference for cleanup
         self.guard_ = computed
         // Note: Actual watcher implementation would use waterui_computed_watch functions
