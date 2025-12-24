@@ -371,7 +371,7 @@ final class ReactiveFontSignal {
     private var computedPtr: OpaquePointer?
 
     init(size: Float, weight: WuiFontWeight) {
-        self.state = State(font: WuiResolvedFont(size: size, weight: weight))
+        self.state = State(font: waterui_resolved_font_new(size, weight))
         self.statePtr = Unmanaged.passRetained(state).toOpaque()
     }
 
@@ -407,7 +407,7 @@ final class ReactiveFontSignal {
     }
 
     func setValue(size: Float, weight: WuiFontWeight) {
-        state.font = WuiResolvedFont(size: size, weight: weight)
+        state.font = waterui_resolved_font_new(size, weight)
         state.notifyWatchers()
     }
 }

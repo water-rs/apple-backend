@@ -18,7 +18,7 @@ final class WuiDraggable: PlatformView, WuiComponent {
     static var rawId: CWaterUI.WuiTypeId { waterui_metadata_draggable_id() }
     
     private let contentView: any WuiComponent
-    private let draggable: WuiDraggable_t
+    private nonisolated(unsafe) let draggable: WuiDraggable_t
     private let env: WuiEnvironment
     
     var stretchAxis: WuiStretchAxis {
@@ -60,8 +60,9 @@ final class WuiDraggable: PlatformView, WuiComponent {
     }
     
     private func getDragData() -> (tag: WuiDragDataTag, value: String) {
-        let data = waterui_draggable_get_data(&draggable)
-        let value = String(wuiStr: data.value)
+        var mutableDraggable = draggable
+        let data = waterui_draggable_get_data(&mutableDraggable)
+        let value = WuiStr(data.value).toString()
         return (data.tag, value)
     }
     

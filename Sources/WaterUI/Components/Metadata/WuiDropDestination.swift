@@ -18,7 +18,7 @@ final class WuiDropDestination: PlatformView, WuiComponent {
     static var rawId: CWaterUI.WuiTypeId { waterui_metadata_drop_destination_id() }
     
     private let contentView: any WuiComponent
-    private let dropDest: WuiDropDestination_t
+    private nonisolated(unsafe) let dropDest: WuiDropDestination_t
     private let env: WuiEnvironment
     
     var stretchAxis: WuiStretchAxis {
@@ -59,17 +59,20 @@ final class WuiDropDestination: PlatformView, WuiComponent {
     }
     
     private func callDropHandler(tag: WuiDragDataTag, value: String) {
+        var mutableDest = dropDest
         value.withCString { cString in
-            waterui_call_drop_handler(&dropDest, env.inner, tag, cString)
+            waterui_call_drop_handler(&mutableDest, env.inner, tag, cString)
         }
     }
-    
+
     private func callEnterHandler() {
-        waterui_call_drop_enter_handler(&dropDest, env.inner)
+        var mutableDest = dropDest
+        waterui_call_drop_enter_handler(&mutableDest, env.inner)
     }
-    
+
     private func callExitHandler() {
-        waterui_call_drop_exit_handler(&dropDest, env.inner)
+        var mutableDest = dropDest
+        waterui_call_drop_exit_handler(&mutableDest, env.inner)
     }
     
     func layoutPriority() -> Int32 {
