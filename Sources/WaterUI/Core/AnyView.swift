@@ -189,7 +189,6 @@ private func registerBuiltinComponentsIfNeeded() {
     registerComponent(WuiPlain.self)
     registerComponent(WuiText.self)
     registerComponent(WuiSpacer.self)
-    registerComponent(WuiColorView.self)
     registerComponent(WuiFilledShape.self)
     registerComponent(WuiSystemIcon.self)
     registerComponent(WuiSvg.self)
