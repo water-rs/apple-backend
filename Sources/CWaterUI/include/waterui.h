@@ -126,6 +126,18 @@ typedef enum WuiKeyboardType {
   WuiKeyboardType_PhoneNumber,
 } WuiKeyboardType;
 
+typedef enum WuiToggleStyle {
+  WuiToggleStyle_Automatic,
+  WuiToggleStyle_Switch,
+  WuiToggleStyle_Checkbox,
+} WuiToggleStyle;
+
+typedef enum WuiPickerStyle {
+  WuiPickerStyle_Automatic,
+  WuiPickerStyle_Menu,
+  WuiPickerStyle_Radio,
+} WuiPickerStyle;
+
 typedef enum WuiDatePickerType {
   WuiDatePickerType_Date,
   WuiDatePickerType_HourAndMinute,
@@ -270,6 +282,24 @@ typedef enum WuiWebViewEventType {
    */
   WuiWebViewEventType_StateChanged = 7,
 } WuiWebViewEventType;
+
+/**
+ * FFI representation of map display style.
+ */
+typedef enum WuiMapStyle {
+  /**
+   * Standard road map.
+   */
+  WuiMapStyle_Standard = 0,
+  /**
+   * Satellite imagery.
+   */
+  WuiMapStyle_Satellite = 1,
+  /**
+   * Hybrid of satellite and roads.
+   */
+  WuiMapStyle_Hybrid = 2,
+} WuiMapStyle;
 
 /**
  * FFI-safe cursor style enum.
@@ -468,6 +498,17 @@ typedef enum WuiWindowStyle {
    */
   WuiWindowStyle_FullSizeContentView = 2,
 } WuiWindowStyle;
+
+/**
+ * FFI-safe representation of a material blur style.
+ */
+typedef enum WuiMaterial {
+  WuiMaterial_UltraThin = 0,
+  WuiMaterial_Thin = 1,
+  WuiMaterial_Regular = 2,
+  WuiMaterial_Thick = 3,
+  WuiMaterial_UltraThick = 4,
+} WuiMaterial;
 
 /**
  * FFI-compatible representation of [`WindowState`].
@@ -695,6 +736,14 @@ typedef struct Computed_MenuItems Computed_MenuItems;
  * This type represents a computation that can be evaluated to produce a result of type `T`.
  * The computation is stored as a boxed trait object, allowing for dynamic dispatch.
  */
+typedef struct Computed_Region Computed_Region;
+
+/**
+ * A wrapper around a boxed implementation of the `ComputedImpl` trait.
+ *
+ * This type represents a computation that can be evaluated to produce a result of type `T`.
+ * The computation is stored as a boxed trait object, allowing for dynamic dispatch.
+ */
 typedef struct Computed_ResolvedColor Computed_ResolvedColor;
 
 /**
@@ -720,6 +769,14 @@ typedef struct Computed_Str Computed_Str;
  * The computation is stored as a boxed trait object, allowing for dynamic dispatch.
  */
 typedef struct Computed_StyledStr Computed_StyledStr;
+
+/**
+ * A wrapper around a boxed implementation of the `ComputedImpl` trait.
+ *
+ * This type represents a computation that can be evaluated to produce a result of type `T`.
+ * The computation is stored as a boxed trait object, allowing for dynamic dispatch.
+ */
+typedef struct Computed_Vec_Annotation Computed_Vec_Annotation;
 
 /**
  * A wrapper around a boxed implementation of the `ComputedImpl` trait.
@@ -797,6 +854,28 @@ typedef struct EdgeSet EdgeSet;
  * Children are free to return any size; the proposal is just a suggestion.
  */
 typedef struct ProposalSize ProposalSize;
+
+/**
+ * A point in normalized unit coordinate space (0.0 to 1.0).
+ *
+ * Unit points are used to specify gradient start/end points and centers
+ * in a resolution-independent way. The point (0.0, 0.0) is the top-left
+ * corner and (1.0, 1.0) is the bottom-right corner.
+ *
+ * # Predefined Constants
+ *
+ * Common positions are available as constants:
+ * - `UnitPoint::TOP_LEADING` - Top-left corner
+ * - `UnitPoint::TOP` - Top center
+ * - `UnitPoint::TOP_TRAILING` - Top-right corner
+ * - `UnitPoint::LEADING` - Left center
+ * - `UnitPoint::CENTER` - Center
+ * - `UnitPoint::TRAILING` - Right center
+ * - `UnitPoint::BOTTOM_LEADING` - Bottom-left corner
+ * - `UnitPoint::BOTTOM` - Bottom center
+ * - `UnitPoint::BOTTOM_TRAILING` - Bottom-right corner
+ */
+typedef struct UnitPoint UnitPoint;
 
 typedef struct WuiAction WuiAction;
 
@@ -1231,6 +1310,60 @@ typedef struct WuiMetadata_WuiShadow {
  */
 typedef struct WuiMetadata_WuiShadow WuiMetadataShadow;
 
+/**
+ * FFI-safe representation of edge set for safe area.
+ */
+typedef struct WuiEdgeSet {
+  /**
+   * Ignore safe area on top edge.
+   */
+  bool top;
+  /**
+   * Ignore safe area on leading edge.
+   */
+  bool leading;
+  /**
+   * Ignore safe area on bottom edge.
+   */
+  bool bottom;
+  /**
+   * Ignore safe area on trailing edge.
+   */
+  bool trailing;
+} WuiEdgeSet;
+
+/**
+ * FFI-safe representation of a border.
+ */
+typedef struct WuiBorder {
+  /**
+   * Border color (as opaque pointer - needs environment to resolve).
+   */
+  struct WuiColor *color;
+  /**
+   * Border width in points.
+   */
+  float width;
+  /**
+   * Corner radius in points (0 = square corners).
+   */
+  float corner_radius;
+  /**
+   * Which edges to draw the border on.
+   */
+  struct WuiEdgeSet edges;
+} WuiBorder;
+
+typedef struct WuiMetadata_WuiBorder {
+  struct WuiAnyView *content;
+  struct WuiBorder value;
+} WuiMetadata_WuiBorder;
+
+/**
+ * Type alias for Metadata<Border> FFI struct
+ */
+typedef struct WuiMetadata_WuiBorder WuiMetadataBorder;
+
 typedef struct Computed_f32 WuiComputed_f32;
 
 /**
@@ -1495,28 +1628,6 @@ typedef struct WuiMetadata_WuiFocused {
  * Type alias for Metadata<Focused> FFI struct
  */
 typedef struct WuiMetadata_WuiFocused WuiMetadataFocused;
-
-/**
- * FFI-safe representation of edge set for safe area.
- */
-typedef struct WuiEdgeSet {
-  /**
-   * Ignore safe area on top edge.
-   */
-  bool top;
-  /**
-   * Ignore safe area on leading edge.
-   */
-  bool leading;
-  /**
-   * Ignore safe area on bottom edge.
-   */
-  bool bottom;
-  /**
-   * Ignore safe area on trailing edge.
-   */
-  bool trailing;
-} WuiEdgeSet;
 
 /**
  * FFI-safe representation of IgnoreSafeArea.
@@ -2141,9 +2252,22 @@ typedef struct Binding_Font WuiBinding_Font;
 
 typedef struct Computed_Font WuiComputed_Font;
 
+/**
+ * FFI representation of a resolved font.
+ */
 typedef struct WuiResolvedFont {
+  /**
+   * Font size in points.
+   */
   float size;
+  /**
+   * Font weight.
+   */
   enum WuiFontWeight weight;
+  /**
+   * Font family name (empty string means system default).
+   */
+  struct WuiStr family;
 } WuiResolvedFont;
 
 typedef struct Computed_ResolvedFont WuiComputed_ResolvedFont;
@@ -2160,6 +2284,7 @@ typedef struct WuiTextField {
 typedef struct WuiToggle {
   struct WuiAnyView *label;
   WuiBinding_bool *toggle;
+  enum WuiToggleStyle style;
 } WuiToggle;
 
 /**
@@ -2225,6 +2350,7 @@ typedef struct Binding_Id WuiBinding_Id;
 typedef struct WuiPicker {
   WuiComputed_Vec_PickerItem_Id *items;
   WuiBinding_Id *selection;
+  enum WuiPickerStyle style;
 } WuiPicker;
 
 typedef struct Binding_Secure WuiBinding_Secure;
@@ -2667,6 +2793,45 @@ typedef struct WuiGpuSurface {
 } WuiGpuSurface;
 
 /**
+ * FFI representation of the Svg component.
+ *
+ * The SVG content can be either path data (d attribute) or full SVG markup.
+ * Native backends parse and render using platform-native vector graphics.
+ */
+typedef struct WuiSvg {
+  /**
+   * SVG content (path data or full SVG markup).
+   */
+  struct WuiStr content;
+  /**
+   * Intrinsic width (0 means unspecified).
+   */
+  float width;
+  /**
+   * Intrinsic height (0 means unspecified).
+   */
+  float height;
+  /**
+   * Optional tint color (null means no tint, use original colors).
+   */
+  struct WuiColor *tint;
+} WuiSvg;
+
+/**
+ * FFI representation of the SystemIcon component.
+ *
+ * Native backends render this as platform-native icons:
+ * - Apple: SF Symbols
+ * - Android: Material Icons (with placeholder fallback)
+ */
+typedef struct WuiSystemIcon {
+  /**
+   * The name of the system icon.
+   */
+  struct WuiStr name;
+} WuiSystemIcon;
+
+/**
  * FFI representation of a WebView event.
  */
 typedef struct WuiWebViewEvent {
@@ -2795,6 +2960,44 @@ typedef struct WuiWebViewHandle {
  */
 typedef struct WuiWebViewHandle (*WuiCreateWebViewFn)(void);
 
+typedef struct Computed_Region WuiComputed_Region;
+
+typedef struct Computed_Vec_Annotation WuiComputed_Vec_Annotation;
+
+/**
+ * FFI representation of the Map component.
+ */
+typedef struct WuiMap {
+  /**
+   * The region to display (reactive).
+   */
+  WuiComputed_Region *region;
+  /**
+   * Annotations to display (reactive).
+   */
+  WuiComputed_Vec_Annotation *annotations;
+  /**
+   * The map display style.
+   */
+  enum WuiMapStyle style;
+  /**
+   * Whether to show the user's current location.
+   */
+  bool shows_user_location;
+  /**
+   * Whether the map is interactive (pan/zoom enabled).
+   */
+  bool is_interactive;
+  /**
+   * Whether to show the compass.
+   */
+  bool shows_compass;
+  /**
+   * Whether to show the scale.
+   */
+  bool shows_scale;
+} WuiMap;
+
 /**
  * FFI-safe representation of drag data.
  */
@@ -2864,6 +3067,45 @@ typedef struct Binding_Rect WuiBinding_Rect;
 typedef struct Binding_WindowState WuiBinding_WindowState;
 
 /**
+ * FFI-compatible representation of [`WindowBackground`].
+ */
+typedef enum WuiWindowBackground_Tag {
+  /**
+   * Opaque system default background.
+   */
+  WuiWindowBackground_Opaque,
+  /**
+   * Fully transparent window (no background).
+   */
+  WuiWindowBackground_Transparent,
+  /**
+   * Solid color background (can be semi-transparent via alpha).
+   * Native must resolve the color using the environment.
+   */
+  WuiWindowBackground_Color,
+  /**
+   * Material blur effect.
+   */
+  WuiWindowBackground_Material,
+} WuiWindowBackground_Tag;
+
+typedef struct WuiWindowBackground_Color_Body {
+  struct WuiColor *color;
+} WuiWindowBackground_Color_Body;
+
+typedef struct WuiWindowBackground_Material_Body {
+  enum WuiMaterial material;
+} WuiWindowBackground_Material_Body;
+
+typedef struct WuiWindowBackground {
+  WuiWindowBackground_Tag tag;
+  union {
+    WuiWindowBackground_Color_Body color;
+    WuiWindowBackground_Material_Body material;
+  };
+} WuiWindowBackground;
+
+/**
  * FFI-compatible representation of a window.
  */
 typedef struct WuiWindow {
@@ -2899,6 +3141,10 @@ typedef struct WuiWindow {
    * The visual style of the window.
    */
   enum WuiWindowStyle style;
+  /**
+   * The background style of the window.
+   */
+  struct WuiWindowBackground background;
 } WuiWindow;
 
 typedef struct WuiArraySlice_WuiWindow {
@@ -2940,6 +3186,24 @@ typedef struct WuiApp {
    */
   struct WuiEnv *env;
 } WuiApp;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3204,6 +3468,21 @@ struct WuiTypeId waterui_metadata_shadow_id(void);
  * that contains a `Metadata<$ty>`.
  */
 WuiMetadataShadow waterui_force_as_metadata_shadow(struct WuiAnyView *view);
+
+/**
+ * Returns the type ID as a 128-bit value for O(1) comparison.
+ * Uses TypeId in normal builds, type_name hash in hot reload builds.
+ */
+struct WuiTypeId waterui_metadata_border_id(void);
+
+/**
+ * Force-casts an AnyView to this metadata type
+ *
+ * # Safety
+ * The caller must ensure that `view` is a valid pointer to an `AnyView`
+ * that contains a `Metadata<$ty>`.
+ */
+WuiMetadataBorder waterui_force_as_metadata_border(struct WuiAnyView *view);
 
 /**
  * Returns the type ID as a 128-bit value for O(1) comparison.
@@ -4083,6 +4362,14 @@ WuiComputed_ResolvedFont *waterui_new_computed_resolved_font(void *data,
                                                                                               struct WuiWatcher_ResolvedFont*),
                                                              void (*drop)(void*));
 
+/**
+ * Creates a new WuiResolvedFont with a properly initialized empty family string.
+ *
+ * This function is needed for native code (Android JNI) to create WuiResolvedFont
+ * structs with valid vtables for the family field.
+ */
+struct WuiResolvedFont waterui_resolved_font_new(float size, enum WuiFontWeight weight);
+
 WuiComputed_ResolvedFont *waterui_resolve_font(const struct WuiFont *font,
                                                const struct WuiEnv *env);
 
@@ -4631,6 +4918,32 @@ void waterui_gpu_surface_drop(struct WuiGpuSurfaceState *state);
 
 /**
  * # Safety
+ * This function is unsafe because it dereferences a raw pointer and performs unchecked downcasting.
+ * The caller must ensure that `view` is a valid pointer to an `AnyView` that contains the expected view type.
+ */
+struct WuiSvg waterui_force_as_svg(struct WuiAnyView *view);
+
+/**
+ * Returns the type ID as a 128-bit value for O(1) comparison.
+ * Uses TypeId in normal builds, type_name hash in hot reload builds.
+ */
+struct WuiTypeId waterui_svg_id(void);
+
+/**
+ * # Safety
+ * This function is unsafe because it dereferences a raw pointer and performs unchecked downcasting.
+ * The caller must ensure that `view` is a valid pointer to an `AnyView` that contains the expected view type.
+ */
+struct WuiSystemIcon waterui_force_as_system_icon(struct WuiAnyView *view);
+
+/**
+ * Returns the type ID as a 128-bit value for O(1) comparison.
+ * Uses TypeId in normal builds, type_name hash in hot reload builds.
+ */
+struct WuiTypeId waterui_system_icon_id(void);
+
+/**
+ * # Safety
  * The caller must ensure that `value` is a valid pointer obtained from the corresponding FFI function.
  */
 void waterui_drop_web_view(struct WuiWebView *value);
@@ -4677,6 +4990,19 @@ void *waterui_webview_native_handle(struct WuiWebView *webview);
  * - `create_fn` is a valid function pointer that returns a properly initialized `WuiWebViewHandle`
  */
 void waterui_env_install_webview_controller(struct WuiEnv *env, WuiCreateWebViewFn create_fn);
+
+/**
+ * # Safety
+ * This function is unsafe because it dereferences a raw pointer and performs unchecked downcasting.
+ * The caller must ensure that `view` is a valid pointer to an `AnyView` that contains the expected view type.
+ */
+struct WuiMap waterui_force_as_map(struct WuiAnyView *view);
+
+/**
+ * Returns the type ID as a 128-bit value for O(1) comparison.
+ * Uses TypeId in normal builds, type_name hash in hot reload builds.
+ */
+struct WuiTypeId waterui_map_id(void);
 
 /**
  * Reads the current value from a computed

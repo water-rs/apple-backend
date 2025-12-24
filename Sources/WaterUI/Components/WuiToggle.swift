@@ -5,11 +5,6 @@
 // Toggle expands horizontally when it has a label (stretchAxis from Rust).
 // Horizontal layout: [label] --- flexible space --- [switch]
 // Label on left, switch on right, space distributed between.
-//
-// // INTERNAL: Layout Contract for Backend Implementers
-// // - stretchAxis: Determined by Rust side (Horizontal when has label, None otherwise)
-// // - sizeThatFits: Returns proposed width (or minimum), intrinsic height
-// // - Priority: 0 (default)
 
 import CWaterUI
 
@@ -19,15 +14,32 @@ import UIKit
 import AppKit
 #endif
 
+/// Toggle style determines the visual representation
+enum ToggleStyle {
+    case automatic
+    case switchStyle
+    case checkbox
+
+    init(from ffiStyle: WuiToggleStyle) {
+        switch ffiStyle {
+        case WuiToggleStyle_Automatic: self = .automatic
+        case WuiToggleStyle_Switch: self = .switchStyle
+        case WuiToggleStyle_Checkbox: self = .checkbox
+        default: self = .automatic
+        }
+    }
+}
+
 @MainActor
 final class WuiToggle: PlatformView, WuiComponent {
     static var rawId: CWaterUI.WuiTypeId { waterui_toggle_id() }
 
     // Shared fields
-    private let toggle = PlatformSwitch()
+    private var toggleControl: PlatformView!
     private var bindingWatcher: WatcherGuard?
     private var binding: WuiBinding<Bool>
     private var labelView: WuiAnyView
+    private let style: ToggleStyle
 
     // Layout constants
     private let horizontalSpacing: CGFloat = 8.0
@@ -38,20 +50,55 @@ final class WuiToggle: PlatformView, WuiComponent {
         let ffiToggle: CWaterUI.WuiToggle = waterui_force_as_toggle(anyview)
         let labelView = WuiAnyView(anyview: ffiToggle.label, env: env)
         let binding: WuiBinding<Bool> = WuiBinding(ffiToggle.toggle)
-        self.init(label: labelView, binding: binding)
+        let style = ToggleStyle(from: ffiToggle.style)
+        self.init(label: labelView, binding: binding, style: style)
     }
 
     // MARK: - Designated Init
 
-    init(label: WuiAnyView, binding: WuiBinding<Bool>) {
+    init(label: WuiAnyView, binding: WuiBinding<Bool>, style: ToggleStyle = .automatic) {
         self.binding = binding
         self.labelView = label
+        self.style = style
         super.init(frame: .zero)
+        createToggleControl()
         configureSubviews()
         syncToggleState()
         setupAction()
         startWatchingBinding()
     }
+
+    // MARK: - Toggle Control Creation
+
+    private func createToggleControl() {
+        switch style {
+        case .automatic, .switchStyle:
+            toggleControl = PlatformSwitch()
+        case .checkbox:
+            toggleControl = createCheckbox()
+        }
+    }
+
+    #if canImport(UIKit)
+    private func createCheckbox() -> UIButton {
+        let button = UIButton(type: .system)
+        button.setPreferredSymbolConfiguration(
+            UIImage.SymbolConfiguration(pointSize: 22, weight: .regular),
+            forImageIn: .normal
+        )
+        updateCheckboxImage(button, isChecked: binding.value)
+        return button
+    }
+
+    private func updateCheckboxImage(_ button: UIButton, isChecked: Bool) {
+        let imageName = isChecked ? "checkmark.square.fill" : "square"
+        button.setImage(UIImage(systemName: imageName), for: .normal)
+    }
+    #elseif canImport(AppKit)
+    private func createCheckbox() -> NSButton {
+        return NSButton(checkboxWithTitle: "", target: nil, action: nil)
+    }
+    #endif
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
@@ -62,10 +109,9 @@ final class WuiToggle: PlatformView, WuiComponent {
 
     func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
         let labelSize = labelView.sizeThatFits(WuiProposalSize())
-        let toggleSize = toggle.intrinsicContentSize
+        let toggleSize = toggleControl.intrinsicContentSize
         let hasLabel = labelSize.width > 0 && labelSize.height > 0
 
-        // Calculate minimum width needed
         var minWidth: CGFloat = toggleSize.width
         var maxHeight: CGFloat = toggleSize.height
 
@@ -74,8 +120,6 @@ final class WuiToggle: PlatformView, WuiComponent {
             maxHeight = max(maxHeight, labelSize.height)
         }
 
-        // With label: expand horizontally to fill proposed width (Rust controls stretchAxis)
-        // Without label: content-sized (just switch)
         let finalWidth: CGFloat
         if hasLabel, let proposedWidth = proposal.width {
             finalWidth = max(CGFloat(proposedWidth), minWidth)
@@ -95,104 +139,136 @@ final class WuiToggle: PlatformView, WuiComponent {
     // MARK: - Configuration
 
     private func configureSubviews() {
-        // Use AutoLayout for internal component layout
         labelView.translatesAutoresizingMaskIntoConstraints = false
-        toggle.translatesAutoresizingMaskIntoConstraints = false
+        toggleControl.translatesAutoresizingMaskIntoConstraints = false
 
         addSubview(labelView)
-        addSubview(toggle)
+        addSubview(toggleControl)
 
-        // Ensure label doesn't get compressed - it should show its full content
-        #if canImport(UIKit)
         labelView.setContentCompressionResistancePriority(.required, for: .horizontal)
         labelView.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-        #elseif canImport(AppKit)
-        labelView.setContentCompressionResistancePriority(.required, for: .horizontal)
-        labelView.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-        #endif
 
-        // Layout: [label] --- flexible space --- [toggle]
-        // Label on leading, toggle on trailing, both vertically centered
         NSLayoutConstraint.activate([
-            // Label: leading, vertically centered
             labelView.leadingAnchor.constraint(equalTo: leadingAnchor),
             labelView.centerYAnchor.constraint(equalTo: centerYAnchor),
-
-            // Toggle: trailing, vertically centered
-            toggle.trailingAnchor.constraint(equalTo: trailingAnchor),
-            toggle.centerYAnchor.constraint(equalTo: centerYAnchor),
-
-            // Prevent overlap: label must not extend past toggle
-            labelView.trailingAnchor.constraint(lessThanOrEqualTo: toggle.leadingAnchor, constant: -horizontalSpacing),
+            toggleControl.trailingAnchor.constraint(equalTo: trailingAnchor),
+            toggleControl.centerYAnchor.constraint(equalTo: centerYAnchor),
+            labelView.trailingAnchor.constraint(lessThanOrEqualTo: toggleControl.leadingAnchor, constant: -horizontalSpacing),
         ])
     }
 
     private func syncToggleState() {
-        #if canImport(UIKit)
-        toggle.isOn = binding.value
-        #elseif canImport(AppKit)
-        toggle.state = binding.value ? .on : .off
-        #endif
+        let value = binding.value
+        switch style {
+        case .automatic, .switchStyle:
+            #if canImport(UIKit)
+            (toggleControl as? UISwitch)?.isOn = value
+            #elseif canImport(AppKit)
+            (toggleControl as? NSSwitch)?.state = value ? .on : .off
+            #endif
+        case .checkbox:
+            #if canImport(UIKit)
+            if let button = toggleControl as? UIButton {
+                updateCheckboxImage(button, isChecked: value)
+            }
+            #elseif canImport(AppKit)
+            (toggleControl as? NSButton)?.state = value ? .on : .off
+            #endif
+        }
     }
 
     private func setupAction() {
-        #if canImport(UIKit)
-        toggle.addTarget(self, action: #selector(valueChanged), for: .valueChanged)
-        #elseif canImport(AppKit)
-        toggle.target = self
-        toggle.action = #selector(valueChanged)
-        #endif
-    }
-
-    private func startWatchingBinding() {
-        bindingWatcher = binding.watch { [weak self] newValue, metadata in
-            guard let self else { return }
-            let animation = parseAnimation(metadata.getAnimation())
+        switch style {
+        case .automatic, .switchStyle:
             #if canImport(UIKit)
-            if toggle.isOn == newValue { return }
-            toggle.setOn(newValue, animated: shouldAnimate(animation))
+            (toggleControl as? UISwitch)?.addTarget(self, action: #selector(valueChanged), for: .valueChanged)
             #elseif canImport(AppKit)
-            let newState: NSControl.StateValue = newValue ? .on : .off
-            if toggle.state == newState { return }
-            withPlatformAnimation(metadata) {
-                self.toggle.state = newState
+            if let toggle = toggleControl as? NSSwitch {
+                toggle.target = self
+                toggle.action = #selector(valueChanged)
+            }
+            #endif
+        case .checkbox:
+            #if canImport(UIKit)
+            (toggleControl as? UIButton)?.addTarget(self, action: #selector(checkboxTapped), for: .touchUpInside)
+            #elseif canImport(AppKit)
+            if let button = toggleControl as? NSButton {
+                button.target = self
+                button.action = #selector(valueChanged)
             }
             #endif
         }
     }
 
-    @objc private func valueChanged() {
-        #if canImport(UIKit)
-        binding.value = toggle.isOn
-        #elseif canImport(AppKit)
-        binding.value = toggle.state == .on
-        #endif
+    private func startWatchingBinding() {
+        bindingWatcher = binding.watch { [weak self] newValue, metadata in
+            guard let self else { return }
+            switch style {
+            case .automatic, .switchStyle:
+                #if canImport(UIKit)
+                guard let toggle = toggleControl as? UISwitch else { return }
+                if toggle.isOn == newValue { return }
+                let animation = parseAnimation(metadata.getAnimation())
+                toggle.setOn(newValue, animated: shouldAnimate(animation))
+                #elseif canImport(AppKit)
+                guard let toggle = toggleControl as? NSSwitch else { return }
+                let newState: NSControl.StateValue = newValue ? .on : .off
+                if toggle.state == newState { return }
+                withPlatformAnimation(metadata) { toggle.state = newState }
+                #endif
+            case .checkbox:
+                #if canImport(UIKit)
+                guard let button = toggleControl as? UIButton else { return }
+                withPlatformAnimation(metadata) { self.updateCheckboxImage(button, isChecked: newValue) }
+                #elseif canImport(AppKit)
+                guard let button = toggleControl as? NSButton else { return }
+                let newState: NSControl.StateValue = newValue ? .on : .off
+                if button.state == newState { return }
+                withPlatformAnimation(metadata) { button.state = newState }
+                #endif
+            }
+        }
     }
+
+    @objc private func valueChanged() {
+        switch style {
+        case .automatic, .switchStyle:
+            #if canImport(UIKit)
+            binding.value = (toggleControl as? UISwitch)?.isOn ?? false
+            #elseif canImport(AppKit)
+            binding.value = (toggleControl as? NSSwitch)?.state == .on
+            #endif
+        case .checkbox:
+            #if canImport(AppKit)
+            binding.value = (toggleControl as? NSButton)?.state == .on
+            #endif
+        }
+    }
+
+    #if canImport(UIKit)
+    @objc private func checkboxTapped() {
+        let newValue = !binding.value
+        binding.value = newValue
+        if let button = toggleControl as? UIButton {
+            updateCheckboxImage(button, isChecked: newValue)
+        }
+    }
+    #endif
 
     // MARK: - Update Methods
 
     func updateLabel(_ label: WuiAnyView) {
         guard label !== labelView else { return }
         labelView.removeFromSuperview()
-
         labelView = label
         labelView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(labelView)
-
-        // Set content priorities
-        #if canImport(UIKit)
         labelView.setContentCompressionResistancePriority(.required, for: .horizontal)
         labelView.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-        #elseif canImport(AppKit)
-        labelView.setContentCompressionResistancePriority(.required, for: .horizontal)
-        labelView.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-        #endif
-
-        // Re-establish constraints for new label
         NSLayoutConstraint.activate([
             labelView.leadingAnchor.constraint(equalTo: leadingAnchor),
             labelView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            labelView.trailingAnchor.constraint(lessThanOrEqualTo: toggle.leadingAnchor, constant: -horizontalSpacing),
+            labelView.trailingAnchor.constraint(lessThanOrEqualTo: toggleControl.leadingAnchor, constant: -horizontalSpacing),
         ])
     }
 
@@ -200,11 +276,7 @@ final class WuiToggle: PlatformView, WuiComponent {
         guard newBinding !== binding else { return }
         bindingWatcher = nil
         binding = newBinding
-        #if canImport(UIKit)
-        toggle.setOn(newBinding.value, animated: false)
-        #elseif canImport(AppKit)
-        toggle.state = newBinding.value ? .on : .off
-        #endif
+        syncToggleState()
         startWatchingBinding()
     }
 }
