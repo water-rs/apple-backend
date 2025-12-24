@@ -128,6 +128,18 @@ extension WuiResolvedFont {
         let resolvedSize = CGFloat(self.size)
         let size = resolvedSize > 0 ? resolvedSize : UIFont.systemFontSize
         let weight = self.weight.toUIFontWeight()
+
+        // Check if a custom font family is specified
+        let familyName = WuiStr(self.family).toString()
+        if !familyName.isEmpty {
+            // Try to load the custom font
+            if let customFont = UIFont(name: familyName, size: size) {
+                return customFont
+            }
+            // Font not found - this is a configuration error
+            fatalError("WaterUI: Font family '\(familyName)' not found. Ensure the font is bundled and registered.")
+        }
+
         return UIFont.systemFont(ofSize: size, weight: weight)
     }
     #elseif canImport(AppKit)
@@ -136,6 +148,18 @@ extension WuiResolvedFont {
         let resolvedSize = CGFloat(self.size)
         let size = resolvedSize > 0 ? resolvedSize : NSFont.systemFontSize
         let weight = self.weight.toNSFontWeight()
+
+        // Check if a custom font family is specified
+        let familyName = WuiStr(self.family).toString()
+        if !familyName.isEmpty {
+            // Try to load the custom font
+            if let customFont = NSFont(name: familyName, size: size) {
+                return customFont
+            }
+            // Font not found - this is a configuration error
+            fatalError("WaterUI: Font family '\(familyName)' not found. Ensure the font is bundled and registered.")
+        }
+
         return NSFont.systemFont(ofSize: size, weight: weight)
     }
     #endif

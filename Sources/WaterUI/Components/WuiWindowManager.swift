@@ -119,31 +119,13 @@ final class WindowManagerImpl {
         let contentView = WuiAnyView(anyview: contentPtr, env: globalEnv)
 
         // Create container and apply background
-        // For Material backgrounds, NSVisualEffectView IS the container
-        let containerView: NSView
+        // Note: Material blur is now handled via MaterialBackground metadata on content,
+        // not as a window background style. Window only supports Opaque and Color.
+        let containerView = NSView(frame: contentRect)
+        containerView.wantsLayer = true
+
         switch wuiWindow.background.tag {
-        case WuiWindowBackground_Material:
-            let material = wuiWindow.background.material.material
-            let visualEffect = NSVisualEffectView(frame: contentRect)
-            visualEffect.autoresizingMask = [.width, .height]
-            visualEffect.blendingMode = .behindWindow
-            visualEffect.state = .active
-            visualEffect.material = nsMaterial(from: material)
-            containerView = visualEffect
-            window.backgroundColor = .clear
-            window.isOpaque = false
-            window.hasShadow = true
-
-        case WuiWindowBackground_Transparent:
-            containerView = NSView(frame: contentRect)
-            containerView.wantsLayer = true
-            window.backgroundColor = .clear
-            window.isOpaque = false
-            window.hasShadow = true
-
         case WuiWindowBackground_Color:
-            containerView = NSView(frame: contentRect)
-            containerView.wantsLayer = true
             if let colorPtr = wuiWindow.background.color.color {
                 let env = globalEnv.inner
                 if let resolvedSignal = waterui_resolve_color(colorPtr, env) {
@@ -156,13 +138,12 @@ final class WindowManagerImpl {
                     )
                     window.backgroundColor = nsColor
                     window.isOpaque = resolvedColor.opacity >= 1.0
+                    window.hasShadow = true
                     waterui_drop_computed_resolved_color(resolvedSignal)
                 }
             }
 
         default: // Opaque
-            containerView = NSView(frame: contentRect)
-            containerView.wantsLayer = true
             window.backgroundColor = .windowBackgroundColor
             window.isOpaque = true
         }
@@ -262,23 +243,6 @@ final class WindowManagerImpl {
         }
     }
 
-    /// Convert WuiMaterial to NSVisualEffectView.Material
-    private func nsMaterial(from material: WuiMaterial) -> NSVisualEffectView.Material {
-        switch material {
-        case WuiMaterial_UltraThin:
-            return .hudWindow            // Light, subtle blur
-        case WuiMaterial_Thin:
-            return .popover              // Popover-style blur
-        case WuiMaterial_Regular:
-            return .fullScreenUI         // Standard window blur
-        case WuiMaterial_Thick:
-            return .menu                 // Menu-style blur
-        case WuiMaterial_UltraThick:
-            return .sidebar              // Sidebar-style blur
-        default:
-            return .fullScreenUI
-        }
-    }
 }
 
 /// Window delegate to track state changes and cleanup
