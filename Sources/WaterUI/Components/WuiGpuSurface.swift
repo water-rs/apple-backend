@@ -211,6 +211,8 @@ final class WuiGpuSurface: PlatformView, WuiComponent {
         metalLayer.device = device
         metalLayer.framebufferOnly = true
         metalLayer.maximumDrawableCount = 3  // Triple buffering for smooth 120fps
+        metalLayer.isOpaque = false  // Allow transparency for compositing with background
+        metalLayer.backgroundColor = CGColor.clear  // Ensure no black background
 
         // Configure HDR support if available
         configureHDR()
@@ -224,6 +226,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent {
             if self.layer == nil {
                 self.layer = CALayer()
             }
+            self.layer?.backgroundColor = CGColor.clear
             self.layer?.addSublayer(metalLayer)
         #endif
     }
