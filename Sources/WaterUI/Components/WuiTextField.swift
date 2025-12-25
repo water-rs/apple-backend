@@ -105,7 +105,8 @@ final class WuiTextField: PlatformView, WuiComponent {
         self.prompt = prompt
         self.keyboard = keyboard
         self.env = env
-        super.init(frame: .zero)
+        // Initialize with a default frame to prevent constraint conflicts.
+        super.init(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
         configureSubviews()
         configureTextField()
         applyPrompt(prompt.value)
@@ -126,7 +127,8 @@ final class WuiTextField: PlatformView, WuiComponent {
         self.binding = binding
         self.prompt = prompt
         self.env = env
-        super.init(frame: .zero)
+        // Initialize with a default frame to prevent constraint conflicts.
+        super.init(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
         configureSubviews()
         configureTextField()
         applyPrompt(prompt.value)
