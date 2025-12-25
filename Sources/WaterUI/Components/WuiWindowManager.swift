@@ -178,16 +178,21 @@ final class WindowManagerImpl {
         // Track the window
         activeWindows.append(window)
 
-        // Show the window
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-
-        // Layout the content with autoresizing
+        // Layout the content with autoresizing (before waiting for ready)
         contentView.frame = containerView.bounds
         contentView.autoresizingMask = [.width, .height]
         contentView.needsLayout = true
 
-        logger.debug("Window '\(title)' shown successfully")
+        // Wait for all GpuSurfaces to be ready before showing window
+        // This prevents flicker from surfaces appearing one-by-one
+        Task {
+            await contentView.ready()
+
+            // Show the window after all GPU surfaces are ready
+            window.center()
+            window.makeKeyAndOrderFront(nil)
+            logger.debug("Window '\(title)' shown successfully")
+        }
     }
 
     /// Watch the window state binding for programmatic close requests

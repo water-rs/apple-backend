@@ -190,7 +190,6 @@ private func registerBuiltinComponentsIfNeeded() {
     registerComponent(WuiText.self)
     registerComponent(WuiSpacer.self)
     registerComponent(WuiSystemIcon.self)
-    registerComponent(WuiSvg.self)
 
     // Interactive components
     registerComponent(WuiButton.self)
@@ -254,7 +253,6 @@ private func registerBuiltinComponentsIfNeeded() {
     registerMetadataComponent(WuiDropDestination.self)
 
     // Media components
-    registerComponent(WuiPhoto.self)
     registerComponent(WuiVideo.self)
     registerComponent(WuiVideoPlayer.self)
 
@@ -375,6 +373,39 @@ private func registerBuiltinComponentsIfNeeded() {
             if window != nil {
                 setupRootThemeController(for: self)
                 applyPendingRootTheme()
+            }
+        }
+
+        // MARK: - Async Ready
+
+        /// Wait for all GpuSurfaces in the view tree to complete setup and first render.
+        /// Call this before showing the window to prevent flicker.
+        public nonisolated func ready() async {
+            let surfaces = await MainActor.run { collectGpuSurfaces() }
+            guard !surfaces.isEmpty else { return }
+
+            await withTaskGroup(of: Void.self) { group in
+                for surface in surfaces {
+                    group.addTask {
+                        await surface.waitForReady()
+                    }
+                }
+            }
+        }
+
+        /// Recursively collects all WuiGpuSurface instances from the view hierarchy.
+        private func collectGpuSurfaces() -> [WuiGpuSurface] {
+            var surfaces: [WuiGpuSurface] = []
+            collectGpuSurfacesRecursive(from: self, into: &surfaces)
+            return surfaces
+        }
+
+        private func collectGpuSurfacesRecursive(from view: UIView, into surfaces: inout [WuiGpuSurface]) {
+            if let gpuSurface = view as? WuiGpuSurface {
+                surfaces.append(gpuSurface)
+            }
+            for subview in view.subviews {
+                collectGpuSurfacesRecursive(from: subview, into: &surfaces)
             }
         }
 
@@ -509,6 +540,39 @@ private func registerBuiltinComponentsIfNeeded() {
             if window != nil {
                 setupRootThemeController(for: self)
                 applyPendingRootTheme()
+            }
+        }
+
+        // MARK: - Async Ready
+
+        /// Wait for all GpuSurfaces in the view tree to complete setup and first render.
+        /// Call this before showing the window to prevent flicker.
+        public nonisolated func ready() async {
+            let surfaces = await MainActor.run { collectGpuSurfaces() }
+            guard !surfaces.isEmpty else { return }
+
+            await withTaskGroup(of: Void.self) { group in
+                for surface in surfaces {
+                    group.addTask {
+                        await surface.waitForReady()
+                    }
+                }
+            }
+        }
+
+        /// Recursively collects all WuiGpuSurface instances from the view hierarchy.
+        private func collectGpuSurfaces() -> [WuiGpuSurface] {
+            var surfaces: [WuiGpuSurface] = []
+            collectGpuSurfacesRecursive(from: self, into: &surfaces)
+            return surfaces
+        }
+
+        private func collectGpuSurfacesRecursive(from view: NSView, into surfaces: inout [WuiGpuSurface]) {
+            if let gpuSurface = view as? WuiGpuSurface {
+                surfaces.append(gpuSurface)
+            }
+            for subview in view.subviews {
+                collectGpuSurfacesRecursive(from: subview, into: &surfaces)
             }
         }
 

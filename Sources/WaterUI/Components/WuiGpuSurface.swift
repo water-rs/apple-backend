@@ -24,7 +24,7 @@ import QuartzCore
     import CoreVideo
 #endif
 
-private final class WuiGpuSurfaceRenderState {
+private final class WuiGpuSurfaceRenderState: @unchecked Sendable {
     private var ffiSurface: CWaterUI.WuiGpuSurface
     private var gpuState: OpaquePointer?
     private var isInitializing = false
@@ -130,6 +130,56 @@ private final class WuiGpuSurfaceRenderState {
             self.lock.lock()
             self.renderInFlight = false
             self.lock.unlock()
+        }
+    }
+
+    /// Get current state and initialization status (thread-safe).
+    private func getStateInfo() -> (state: OpaquePointer?, isInitializing: Bool) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (gpuState, isInitializing)
+    }
+
+    /// Await GPU setup completion and first frame render.
+    /// This is used to ensure all GpuSurfaces are ready before showing the window.
+    func awaitReady() async {
+        // Wait for state to be available
+        var state: OpaquePointer?
+        while true {
+            let info = getStateInfo()
+            state = info.state
+
+            if state != nil {
+                break
+            }
+            if !info.isInitializing {
+                // Not initialized and not initializing - nothing to wait for
+                return
+            }
+            // Poll every 10ms while initializing
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        guard let state else { return }
+
+        // Call await_ready on render queue with callback
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            renderQueue.async {
+                // Create a context to pass through the callback
+                let context = Unmanaged.passRetained(continuation as AnyObject).toOpaque()
+
+                waterui_gpu_surface_await_ready(
+                    state,
+                    { userData in
+                        guard let userData else { return }
+                        let cont = Unmanaged<AnyObject>.fromOpaque(userData).takeRetainedValue()
+                        if let continuation = cont as? CheckedContinuation<Void, Never> {
+                            continuation.resume()
+                        }
+                    },
+                    context
+                )
+            }
         }
     }
 
@@ -271,6 +321,8 @@ final class WuiGpuSurface: PlatformView, WuiComponent {
             guard success else { return }
             self.isGpuInitialized = true
             self.startDisplayLink()
+            // Trigger immediate first render to avoid empty frame on window open
+            self.renderFrame()
         }
     }
 
@@ -344,6 +396,14 @@ final class WuiGpuSurface: PlatformView, WuiComponent {
 
     private func renderFrame() {
         renderState.requestRender()
+    }
+
+    // MARK: - Async Ready
+
+    /// Wait for GPU setup and first frame to complete.
+    /// Call this before showing the window to prevent flicker.
+    nonisolated func waitForReady() async {
+        await renderState.awaitReady()
     }
 
     // MARK: - WuiComponent
