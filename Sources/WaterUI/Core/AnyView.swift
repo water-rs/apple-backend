@@ -246,6 +246,9 @@ private func registerBuiltinComponentsIfNeeded() {
     registerMetadataComponent(WuiGrayscale.self)
     registerMetadataComponent(WuiOpacity.self)
 
+    // Material background (blur effect)
+    registerMetadataComponent(WuiMaterialBackground.self)
+
     // Drag and drop components
     registerMetadataComponent(WuiDraggable.self)
     registerMetadataComponent(WuiDropDestination.self)

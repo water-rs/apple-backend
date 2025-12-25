@@ -54,7 +54,11 @@ final class WuiStepper: PlatformView, WuiComponent {
         self.labelView = label
         self.binding = binding
         self.step = step
-        super.init(frame: .zero)
+        // Initialize with a default frame to prevent constraint conflicts.
+        // WuiStepper sets .required compression resistance on its label, which conflicts
+        // with a .zero frame (autoresizing mask forces width=0).
+        // The actual frame will be set by the layout system (WuiFixedContainer) later.
+        super.init(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
         configureSubviews()
         configureStepper()
         startBindingWatcher()

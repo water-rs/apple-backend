@@ -8,7 +8,8 @@
 // # Features
 // - Creates native windows from WuiWindow configuration
 // - Supports different window styles (Titled, Borderless, FullSizeContentView)
-// - Supports different backgrounds (Opaque, Transparent, Color, Material)
+// - Supports window backgrounds (Opaque, Color)
+// - Material blur effects are handled via MaterialBackground metadata on content
 
 import CWaterUI
 import os.log

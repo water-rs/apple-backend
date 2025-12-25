@@ -60,7 +60,11 @@ final class WuiToggle: PlatformView, WuiComponent {
         self.binding = binding
         self.labelView = label
         self.style = style
-        super.init(frame: .zero)
+        // Initialize with a default frame to prevent constraint conflicts.
+        // WuiToggle sets .required compression resistance on its label, which conflicts
+        // with a .zero frame (autoresizing mask forces width=0).
+        // The actual frame will be set by the layout system (WuiFixedContainer) later.
+        super.init(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
         createToggleControl()
         configureSubviews()
         syncToggleState()
