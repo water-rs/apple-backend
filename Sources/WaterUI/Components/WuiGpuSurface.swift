@@ -199,7 +199,7 @@ private final class WuiGpuSurfaceRenderState: @unchecked Sendable {
 /// High-performance GPU rendering surface using wgpu.
 /// Uses CAMetalLayer with CADisplayLink for 120fps rendering.
 @MainActor
-final class WuiGpuSurface: PlatformView, WuiComponent {
+final class WuiGpuSurface: PlatformView, WuiComponent, WuiDisplayLinkObserver {
     static var rawId: CWaterUI.WuiTypeId { waterui_gpu_surface_id() }
 
     private(set) var stretchAxis: WuiStretchAxis = .both
@@ -208,14 +208,6 @@ final class WuiGpuSurface: PlatformView, WuiComponent {
 
     /// The CAMetalLayer for GPU rendering
     private var metalLayer: CAMetalLayer!
-
-    /// Display link for frame sync (120fps capable)
-    #if canImport(UIKit)
-        private var displayLink: CADisplayLink?
-    #elseif canImport(AppKit)
-        private var displayLink: CVDisplayLink?
-        private var displayLinkUserInfo: UnsafeMutableRawPointer?
-    #endif
 
     /// Whether we've initialized the GPU resources
     private var isGpuInitialized = false
@@ -328,71 +320,17 @@ final class WuiGpuSurface: PlatformView, WuiComponent {
 
     // MARK: - Display Link
 
-    #if canImport(UIKit)
-        private func startDisplayLink() {
-            guard displayLink == nil else { return }
-            displayLink = CADisplayLink(target: self, selector: #selector(render))
+    private func startDisplayLink() {
+        WuiDisplayLinkManager.shared.addObserver(self)
+    }
 
-            // Request up to 120fps on ProMotion displays
-            if #available(iOS 15.0, tvOS 15.0, *) {
-                displayLink?.preferredFrameRateRange = CAFrameRateRange(
-                    minimum: 60,
-                    maximum: 120,
-                    preferred: 120
-                )
-            }
+    private func stopDisplayLink() {
+        WuiDisplayLinkManager.shared.removeObserver(self)
+    }
 
-            displayLink?.add(to: .main, forMode: .common)
-        }
-
-        private func stopDisplayLink() {
-            displayLink?.invalidate()
-            displayLink = nil
-        }
-
-        @objc private func render() {
-            renderFrame()
-        }
-    #elseif canImport(AppKit)
-        private func startDisplayLink() {
-            guard displayLink == nil else { return }
-
-            var link: CVDisplayLink?
-            let status = CVDisplayLinkCreateWithActiveCGDisplays(&link)
-            guard status == kCVReturnSuccess, let link else { return }
-
-            displayLink = link
-
-            let userInfo = Unmanaged.passRetained(renderState).toOpaque()
-            displayLinkUserInfo = userInfo
-
-            CVDisplayLinkSetOutputCallback(
-                link,
-                { _, _, _, _, _, userInfo -> CVReturn in
-                    guard let userInfo else { return kCVReturnError }
-                    let state = Unmanaged<WuiGpuSurfaceRenderState>.fromOpaque(userInfo)
-                        .takeUnretainedValue()
-                    state.requestRender()
-                    return kCVReturnSuccess
-                },
-                userInfo
-            )
-
-            CVDisplayLinkStart(link)
-        }
-
-        private func stopDisplayLink() {
-            if let link = displayLink {
-                CVDisplayLinkStop(link)
-                displayLink = nil
-            }
-
-            if let userInfo = displayLinkUserInfo {
-                Unmanaged<WuiGpuSurfaceRenderState>.fromOpaque(userInfo).release()
-                displayLinkUserInfo = nil
-            }
-        }
-    #endif
+    func onFrame() {
+        renderState.requestRender()
+    }
 
     private func renderFrame() {
         renderState.requestRender()
@@ -434,6 +372,8 @@ final class WuiGpuSurface: PlatformView, WuiComponent {
                 currentScaleFactor = contentScaleFactor
                 updateMetalLayerFrame()
                 initializeGpuIfNeeded()
+            } else {
+                stopDisplayLink()
             }
         }
     #elseif canImport(AppKit)
@@ -457,6 +397,8 @@ final class WuiGpuSurface: PlatformView, WuiComponent {
                 currentScaleFactor = window?.backingScaleFactor ?? 1.0
                 updateMetalLayerFrame()
                 initializeGpuIfNeeded()
+            } else {
+                stopDisplayLink()
             }
         }
 
