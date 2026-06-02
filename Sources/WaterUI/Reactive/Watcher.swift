@@ -6,6 +6,7 @@
 //
 
 import CWaterUI
+import Foundation
 
 @MainActor
 class WatcherGuard {
@@ -73,6 +74,13 @@ final class Wrapper<T> {
 func callWrapper<T>(
     _ data: UnsafeMutableRawPointer?, _ value: T, _ metadata: OpaquePointer?
 ) {
+    if !Thread.isMainThread {
+        DispatchQueue.main.sync {
+            callWrapper(data, value, metadata)
+        }
+        return
+    }
+
     guard let data else {
         if let metadata {
             waterui_drop_watcher_metadata(metadata)

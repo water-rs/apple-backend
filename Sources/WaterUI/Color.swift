@@ -283,43 +283,17 @@ extension WuiResolvedColor {
             }
         }
 
-        func components(in colorSpaceName: CFString) -> (CGFloat, CGFloat, CGFloat, CGFloat)? {
-            guard let colorSpace = CGColorSpace(name: colorSpaceName),
-                  let converted = sourceColor.cgColor.converted(
-                      to: colorSpace,
-                      intent: .defaultIntent,
-                      options: nil
-                  ),
-                  let components = converted.components,
-                  components.count >= 3
-            else {
+        func components(in colorSpace: NSColorSpace) -> (CGFloat, CGFloat, CGFloat, CGFloat)? {
+            guard let converted = sourceColor.usingColorSpace(colorSpace),
+                  let components = converted.cgColor.components,
+                  components.count >= 3 else {
                 return nil
             }
             let alpha = components.count > 3 ? components[3] : 1.0
             return (components[0], components[1], components[2], alpha)
         }
 
-        if let (r, g, b, a) = components(in: CGColorSpace.extendedLinearSRGB) {
-            return WuiResolvedColor(
-                red: Float(r),
-                green: Float(g),
-                blue: Float(b),
-                opacity: Float(a),
-                headroom: headroom
-            )
-        }
-
-        if let (r, g, b, a) = components(in: CGColorSpace.linearSRGB) {
-            return WuiResolvedColor(
-                red: Float(r),
-                green: Float(g),
-                blue: Float(b),
-                opacity: Float(a),
-                headroom: headroom
-            )
-        }
-
-        if let (r, g, b, a) = components(in: CGColorSpace.extendedSRGB) {
+        if let (r, g, b, a) = components(in: .extendedSRGB) {
             return WuiResolvedColor(
                 red: wuiSrgbToLinear(Float(r)),
                 green: wuiSrgbToLinear(Float(g)),
@@ -329,7 +303,7 @@ extension WuiResolvedColor {
             )
         }
 
-        if let (r, g, b, a) = components(in: CGColorSpace.sRGB) {
+        if let (r, g, b, a) = components(in: .sRGB) {
             return WuiResolvedColor(
                 red: wuiSrgbToLinear(Float(r)),
                 green: wuiSrgbToLinear(Float(g)),
@@ -339,7 +313,7 @@ extension WuiResolvedColor {
             )
         }
 
-        return WuiResolvedColor()
+        fatalError("WaterUI: NSColor '\(color)' could not be resolved to an RGB color space.")
     }
 }
 #endif

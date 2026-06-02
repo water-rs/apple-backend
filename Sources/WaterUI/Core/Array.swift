@@ -12,14 +12,48 @@ private final class ArrayInfo {
     let baseAddress: UnsafeMutableRawPointer?
     let count: Int
     let elementSize: Int
-    let retainedArray: Any  // Keeps the original array alive
+    private let destroyStorage: (UnsafeMutableRawPointer?, Int) -> Void
 
-    init(baseAddress: UnsafeMutableRawPointer?, count: Int, elementSize: Int, retainedArray: Any) {
+    init(
+        baseAddress: UnsafeMutableRawPointer?,
+        count: Int,
+        elementSize: Int,
+        destroyStorage: @escaping (UnsafeMutableRawPointer?, Int) -> Void
+    ) {
         self.baseAddress = baseAddress
         self.count = count
         self.elementSize = elementSize
-        self.retainedArray = retainedArray
+        self.destroyStorage = destroyStorage
     }
+
+    func destroy() {
+        destroyStorage(baseAddress, count)
+    }
+}
+
+private let wuiArrayDropFunction: @convention(c) (UnsafeMutableRawPointer?) -> Void = { ptr in
+    guard let ptr else { return }
+    let box = Unmanaged<AnyObject>.fromOpaque(ptr).takeRetainedValue()
+    guard let arrayInfo = box as? ArrayInfo else {
+        fatalError("WaterUI FFI array drop received an invalid ArrayInfo object")
+    }
+    arrayInfo.destroy()
+}
+
+private let wuiArraySliceFunction: @convention(c) (UnsafeRawPointer?) -> WuiArraySlice = { ptr in
+    guard let ptr else {
+        fatalError("WaterUI FFI array slice received a null ArrayInfo pointer")
+    }
+
+    let box = Unmanaged<AnyObject>.fromOpaque(ptr).takeUnretainedValue()
+    guard let arrayInfo = box as? ArrayInfo else {
+        fatalError("WaterUI FFI array slice received an invalid ArrayInfo object")
+    }
+
+    return WuiArraySlice(
+        head: arrayInfo.baseAddress,
+        len: UInt(arrayInfo.count)
+    )
 }
 
 final class WuiRawArray {
@@ -36,43 +70,29 @@ final class WuiRawArray {
     }
 
     init<T>(array: [T]) {
-        let contiguousArray = ContiguousArray(array)
-
-        // Simplified drop function
-        let dropFunction: @convention(c) (UnsafeMutableRawPointer?) -> Void = { ptr in
-            guard let ptr = ptr else { return }
-            // This releases the ArrayInfo object
-            _ = Unmanaged<AnyObject>.fromOpaque(ptr).takeRetainedValue()
+        let baseAddress: UnsafeMutableRawPointer?
+        if array.isEmpty {
+            baseAddress = nil
+        } else {
+            let typedPointer = UnsafeMutablePointer<T>.allocate(capacity: array.count)
+            typedPointer.initialize(from: array, count: array.count)
+            baseAddress = UnsafeMutableRawPointer(typedPointer)
         }
 
-        let sliceFunction: @convention(c) (UnsafeRawPointer?) -> WuiArraySlice = { ptr in
-            guard let ptr = ptr else {
-                return WuiArraySlice(head: nil, len: 0)
+        let vtable = WuiArrayVTable(drop: wuiArrayDropFunction, slice: wuiArraySliceFunction)
+        let arrayInfo = ArrayInfo(
+            baseAddress: baseAddress,
+            count: array.count,
+            elementSize: MemoryLayout<T>.size,
+            destroyStorage: { rawPointer, count in
+                guard let rawPointer else { return }
+                let typedPointer = rawPointer.assumingMemoryBound(to: T.self)
+                typedPointer.deinitialize(count: count)
+                typedPointer.deallocate()
             }
-
-            let box = Unmanaged<AnyObject>.fromOpaque(ptr).takeUnretainedValue()
-            if let arrayInfo = box as? ArrayInfo {
-                return WuiArraySlice(
-                    head: arrayInfo.baseAddress,
-                    len: UInt(arrayInfo.count)
-                )
-            }
-
-            return WuiArraySlice(head: nil, len: 0)
-        }
-
-        let vtable = WuiArrayVTable(drop: dropFunction, slice: sliceFunction)
-
-        let innerArray = contiguousArray.withUnsafeBufferPointer { buffer in
-            let arrayInfo = ArrayInfo(
-                baseAddress: UnsafeMutableRawPointer(mutating: buffer.baseAddress),
-                count: buffer.count,
-                elementSize: MemoryLayout<T>.size,
-                retainedArray: contiguousArray
-            )
-            let ptr = Unmanaged.passRetained(arrayInfo as AnyObject).toOpaque()
-            return CWaterUI.WuiArray(data: ptr, vtable: vtable)
-        }
+        )
+        let ptr = Unmanaged.passRetained(arrayInfo as AnyObject).toOpaque()
+        let innerArray = CWaterUI.WuiArray(data: ptr, vtable: vtable)
 
         self.inner = innerArray
     }
@@ -152,6 +172,13 @@ extension WuiArray where T == CWaterUI.WuiMenuItem {
 
 extension WuiArray where T == CWaterUI.WuiId {
     init(_ inner: CWaterUI.WuiArray_WuiId) {
+        let raw = unsafeBitCast(inner, to: CWaterUI.WuiArray.self)
+        self.init(c: raw)
+    }
+}
+
+extension WuiArray where T == CWaterUI.WuiResolvedGradientStop {
+    init(_ inner: CWaterUI.WuiArray_WuiResolvedGradientStop) {
         let raw = unsafeBitCast(inner, to: CWaterUI.WuiArray.self)
         self.init(c: raw)
     }

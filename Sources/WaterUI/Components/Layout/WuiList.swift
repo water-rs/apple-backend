@@ -555,6 +555,7 @@ final class WuiList: NSScrollView, WuiComponent, NSTableViewDataSource, NSTableV
     /// `tableView.numberOfRows == flatLayout.count`.
     private var flatLayout: [TableLayoutEntry] = []
     private let tableView: NSTableView
+    private var lastColumnWidth: CGFloat = 0
 
     // Edit mode state
     private var editingComputed: WuiComputed<Bool>?
@@ -743,6 +744,21 @@ final class WuiList: NSScrollView, WuiComponent, NSTableViewDataSource, NSTableV
 
     override var isFlipped: Bool { true }
 
+    override func layout() {
+        super.layout()
+
+        let width = contentView.bounds.width
+        guard width > 0, abs(width - lastColumnWidth) > 0.5 else { return }
+        lastColumnWidth = width
+
+        guard let column = tableView.tableColumns.first else {
+            fatalError("WuiList requires one NSTableColumn")
+        }
+        column.width = width
+        tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<flatLayout.count))
+        tableView.reloadData()
+    }
+
     // MARK: - NSTableViewDataSource
 
     func numberOfRows(in tableView: NSTableView) -> Int {
@@ -812,7 +828,7 @@ final class WuiList: NSScrollView, WuiComponent, NSTableViewDataSource, NSTableV
             let item = resolveListItem(from: contents, at: itemIndex, env: env)
             let itemId = itemIds[itemIndex]
             let containerView = WuiListRowContainerView()
-            containerView.translatesAutoresizingMaskIntoConstraints = false
+            containerView.translatesAutoresizingMaskIntoConstraints = true
             containerView.configure(
                 with: item.view,
                 itemId: itemId,
@@ -879,7 +895,7 @@ private final class WuiListSectionHeaderView: NSView {
 
     init(text: String, kind: Kind) {
         super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
+        translatesAutoresizingMaskIntoConstraints = true
         wantsLayer = true
 
         let label = NSTextField(labelWithString: text.uppercased())

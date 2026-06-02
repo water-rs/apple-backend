@@ -174,8 +174,8 @@ final class WuiDatePicker: PlatformView, WuiComponent {
         default:
             datePicker.datePickerMode = .dateAndTime
         }
-        datePicker.minimumDate = wuiDateTimeToDate(range.start)
-        datePicker.maximumDate = wuiDateTimeToDate(range.end)
+        datePicker.minimumDate = nativeRangeBound(range.start)
+        datePicker.maximumDate = nativeRangeBound(range.end)
         syncControls(with: binding.value)
         datePicker.addTarget(self, action: #selector(dateChanged), for: .valueChanged)
 
@@ -195,8 +195,8 @@ final class WuiDatePicker: PlatformView, WuiComponent {
         default:
             datePicker.datePickerElements = [.yearMonthDay, .hourMinute]
         }
-        datePicker.minDate = wuiDateTimeToDate(range.start)
-        datePicker.maxDate = wuiDateTimeToDate(range.end)
+        datePicker.minDate = nativeRangeBound(range.start)
+        datePicker.maxDate = nativeRangeBound(range.end)
         syncControls(with: binding.value)
         datePicker.target = self
         datePicker.action = #selector(dateChanged)
@@ -330,6 +330,32 @@ final class WuiDatePicker: PlatformView, WuiComponent {
         )
     }
 
+    private func nativeRangeBound(_ wuiDateTime: CWaterUI.WuiDateTime) -> Date? {
+        if isJiffFullRangeBound(wuiDateTime) {
+            return nil
+        }
+        return wuiDateTimeToDate(wuiDateTime)
+    }
+
+    private func isJiffFullRangeBound(_ wuiDateTime: CWaterUI.WuiDateTime) -> Bool {
+        (
+            wuiDateTime.year == -9999
+                && wuiDateTime.month == 1
+                && wuiDateTime.day == 1
+                && wuiDateTime.hour == 0
+                && wuiDateTime.minute == 0
+                && wuiDateTime.second == 0
+        )
+            || (
+                wuiDateTime.year == 9999
+                    && wuiDateTime.month == 12
+                    && wuiDateTime.day == 31
+                    && wuiDateTime.hour == 23
+                    && wuiDateTime.minute == 59
+                    && wuiDateTime.second == 59
+            )
+    }
+
     private func wuiDateTimeToDate(_ wuiDateTime: CWaterUI.WuiDateTime) -> Date {
         var components = DateComponents()
         components.year = Int(wuiDateTime.year)
@@ -338,6 +364,11 @@ final class WuiDatePicker: PlatformView, WuiComponent {
         components.hour = Int(wuiDateTime.hour)
         components.minute = Int(wuiDateTime.minute)
         components.second = Int(wuiDateTime.second)
-        return calendar.date(from: components) ?? Date()
+        guard let date = calendar.date(from: components) else {
+            fatalError(
+                "WaterUI DatePicker cannot represent date-time \(wuiDateTime.year)-\(wuiDateTime.month)-\(wuiDateTime.day) \(wuiDateTime.hour):\(wuiDateTime.minute):\(wuiDateTime.second)"
+            )
+        }
+        return date
     }
 }

@@ -329,24 +329,32 @@ final class WuiPicker: PlatformView, WuiComponent {
         guard !isSyncingFromBinding else { return }
         let selectedIndex = segmentedControl.selectedSegmentIndex
         guard selectedIndex >= 0 && selectedIndex < items.count else { return }
-        selectionBinding.set(items[selectedIndex].id)
+        let selectedId = items[selectedIndex].id
+        guard selectedId != selectionBinding.value else { return }
+        selectionBinding.set(selectedId)
     }
 
     @objc private func radioTapped(_ sender: UIButton) {
         guard !isSyncingFromBinding, sender.tag >= 0, sender.tag < items.count else { return }
-        selectionBinding.set(items[sender.tag].id)
+        let selectedId = items[sender.tag].id
+        guard selectedId != selectionBinding.value else { return }
+        selectionBinding.set(selectedId)
     }
     #elseif canImport(AppKit)
     @objc private func popupChanged() {
         guard !isSyncingFromBinding else { return }
         let selectedIndex = popupButton.indexOfSelectedItem
         guard selectedIndex >= 0 && selectedIndex < items.count else { return }
-        selectionBinding.set(items[selectedIndex].id)
+        let selectedId = items[selectedIndex].id
+        guard selectedId != selectionBinding.value else { return }
+        selectionBinding.set(selectedId)
     }
 
     @objc private func radioTapped(_ sender: NSButton) {
         guard !isSyncingFromBinding, sender.tag >= 0, sender.tag < items.count else { return }
-        selectionBinding.set(items[sender.tag].id)
+        let selectedId = items[sender.tag].id
+        guard selectedId != selectionBinding.value else { return }
+        selectionBinding.set(selectedId)
     }
     #endif
 }

@@ -406,11 +406,11 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiFirstPaintReadyPart
         #if canImport(UIKit)
             layer.addSublayer(outputLayer)
         #elseif canImport(AppKit)
-            if self.layer == nil {
-                self.layer = CALayer()
+            guard let layer = self.layer else {
+                fatalError("AppliedFilter host view must be layer-backed before output layer setup")
             }
-            self.layer?.backgroundColor = NSColor.clear.cgColor
-            self.layer?.addSublayer(outputLayer)
+            layer.backgroundColor = NSColor.clear.cgColor
+            layer.addSublayer(outputLayer)
         #endif
 
         configureOutputDynamicRange()
@@ -426,10 +426,10 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiFirstPaintReadyPart
         #if canImport(UIKit)
             layer.addSublayer(outputLayer)
         #elseif canImport(AppKit)
-            if self.layer == nil {
-                self.layer = CALayer()
+            guard let layer = self.layer else {
+                fatalError("AppliedFilter host view must be layer-backed before content setup")
             }
-            self.layer?.addSublayer(outputLayer)
+            layer.addSublayer(outputLayer)
         #endif
 
         configureOutputDynamicRange()
@@ -509,6 +509,7 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiFirstPaintReadyPart
                             width: width,
                             height: height
                         )
+                        nativeCaptureFence?.waitUntilCompleted()
                     } else {
                         guard let overlay = self.ensureOverlayTexture(
                             device: outputDevice,
@@ -527,6 +528,7 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiFirstPaintReadyPart
                                 width: width,
                                 height: height
                             )
+                            nativeCaptureFence?.waitUntilCompleted()
                         }
                     }
                     capturePrepared = true
@@ -538,7 +540,6 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiFirstPaintReadyPart
             guard capturePrepared, let device, let captureTexture, let nativeCaptureFence else {
                 return false
             }
-            nativeCaptureFence.waitUntilCompleted()
 
             if !snapshots.isEmpty {
                 guard self.renderGpuSurfaces(
@@ -582,7 +583,12 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiFirstPaintReadyPart
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layer.isHidden = false
+        CATransaction.commit()
+
         work()
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         layer.isHidden = wasHidden
         CATransaction.commit()
     }
@@ -590,6 +596,10 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiFirstPaintReadyPart
     private func prepareCaptureView(_ view: PlatformView) {
         #if canImport(AppKit)
             ensureLayerBacked(view)
+            view.needsLayout = true
+            view.layoutSubtreeIfNeeded()
+            view.layer?.setNeedsLayout()
+            view.layer?.layoutIfNeeded()
             view.needsDisplay = true
             view.displayIfNeeded()
         #elseif canImport(UIKit)
@@ -736,6 +746,16 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiFirstPaintReadyPart
             if subview is WuiComponent {
                 collectGpuSurfaces(in: subview, into: &surfaces)
             }
+        }
+    }
+
+    private func containsGpuSurface(in view: PlatformView) -> Bool {
+        if view is WuiGpuSurface {
+            return true
+        }
+
+        return view.subviews.contains { subview in
+            subview is WuiComponent && containsGpuSurface(in: subview)
         }
     }
 
@@ -1297,8 +1317,8 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiFirstPaintReadyPart
         override var isFlipped: Bool { true }
 
         override var wantsLayer: Bool {
-            get { true }
-            set {}
+            get { super.wantsLayer }
+            set { super.wantsLayer = newValue }
         }
 
         override func layout() {

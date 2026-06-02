@@ -23,6 +23,9 @@ private func wui_drop_binding_styled_str(_ _: OpaquePointer?)
 @_silgen_name("waterui_set_binding_styled_str")
 private func wui_set_binding_styled_str(_ _: OpaquePointer?, _ _: CWaterUI.WuiStyledStr)
 
+@_silgen_name("waterui_set_binding_styled_str_utf8")
+private func wui_set_binding_styled_str_utf8(_ _: OpaquePointer?, _ _: UnsafePointer<UInt8>?, _ _: UInt)
+
 @MainActor
 final class WuiBinding<T> {
     private var inner: OpaquePointer
@@ -135,6 +138,13 @@ extension WuiBinding where T == WuiStyledStr {
             },
             drop: wui_drop_binding_styled_str
         )
+    }
+
+    func setPlain(_ value: String) {
+        let bytes = Array(value.utf8)
+        bytes.withUnsafeBufferPointer { buffer in
+            wui_set_binding_styled_str_utf8(inner, buffer.baseAddress, UInt(buffer.count))
+        }
     }
 }
 

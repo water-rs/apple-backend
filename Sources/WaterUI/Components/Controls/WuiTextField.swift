@@ -437,8 +437,7 @@ extension WuiTextField: UITextViewDelegate {
             updatePlaceholderVisibility()
             return
         }
-        let attributed = textView.attributedText ?? NSAttributedString(string: "")
-        binding.set(WuiStyledStr.fromAttributedString(attributed))
+        binding.setPlain(textView.text)
         updatePlaceholderVisibility()
     }
 
@@ -476,13 +475,20 @@ extension WuiTextField: UITextViewDelegate {
 
 #if canImport(AppKit)
 extension WuiTextField: NSTextFieldDelegate {
+    private func editingString() -> String {
+        guard let editor = textField.currentEditor() else {
+            fatalError("WaterUI AppKit text field changed without an active field editor")
+        }
+        return editor.string
+    }
+
     func controlTextDidBeginEditing(_ obj: Notification) {
         focusTarget.emitPlatformFocusChange(true)
     }
 
     func controlTextDidChange(_ obj: Notification) {
         guard !isSyncingFromBinding else { return }
-        binding.set(WuiStyledStr.fromAttributedString(textField.attributedStringValue))
+        binding.setPlain(editingString())
     }
 
     func controlTextDidEndEditing(_ obj: Notification) {

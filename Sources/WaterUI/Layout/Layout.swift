@@ -297,18 +297,38 @@ final class CachedSubViewArray {
         )
         return unsafeBitCast(raw, to: CWaterUI.WuiArray_WuiSubView.self)
     }
+
+    func resetMeasurements() {
+        for proxy in proxies {
+            proxy.resetMeasurementCache()
+        }
+    }
 }
 
 /// A proxy for child views that provides measurement via callback.
 /// This mirrors Rust's SubView trait.
 @MainActor
 final class SubViewProxy {
+    private struct ProposalCacheKey: Hashable {
+        private static let none = UInt32.max
+
+        let width: UInt32
+        let height: UInt32
+
+        init(_ proposal: WuiProposalSize) {
+            self.width = proposal.width.map { $0.bitPattern } ?? Self.none
+            self.height = proposal.height.map { $0.bitPattern } ?? Self.none
+        }
+    }
+
     /// Closure that measures the child given a proposal.
-    let measure: (WuiProposalSize) -> WuiViewDimensions
+    private let measure: (WuiProposalSize) -> WuiViewDimensions
     /// Which axis this view stretches to fill available space
     let stretchAxis: WuiStretchAxis
     /// Layout priority (higher = measured first)
     let priority: Int32
+    private var measurementCache: [ProposalCacheKey: WuiViewDimensions] = [:]
+    private var activeMeasurements = Set<ProposalCacheKey>()
 
     init(
         stretchAxis: WuiStretchAxis = .none,
@@ -328,7 +348,7 @@ final class SubViewProxy {
                 }
                 let proxy = Unmanaged<SubViewProxy>.fromOpaque(contextPtr).takeUnretainedValue()
                 let swiftProposal = WuiProposalSize(proposal)
-                return proxy.measure(swiftProposal).toCStruct()
+                return proxy.measureCached(swiftProposal).toCStruct()
             },
             drop: { _ in }
         )
@@ -339,6 +359,25 @@ final class SubViewProxy {
             stretch_axis: stretchAxis.ffiValue,
             priority: priority
         )
+    }
+
+    func resetMeasurementCache() {
+        measurementCache.removeAll(keepingCapacity: true)
+        activeMeasurements.removeAll(keepingCapacity: true)
+    }
+
+    private func measureCached(_ proposal: WuiProposalSize) -> WuiViewDimensions {
+        let key = ProposalCacheKey(proposal)
+        if let cached = measurementCache[key] {
+            return cached
+        }
+        guard activeMeasurements.insert(key).inserted else {
+            fatalError("WaterUI: recursive layout measurement for proposal \(proposal)")
+        }
+        let dimensions = measure(proposal)
+        activeMeasurements.remove(key)
+        measurementCache[key] = dimensions
+        return dimensions
     }
 }
 

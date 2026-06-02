@@ -334,11 +334,17 @@ final class ReactiveColorSchemeSignal {
 @MainActor
 final class ReactiveFontSignal {
     private final class State: @unchecked Sendable {
-        var font: WuiResolvedFont
+        var size: Float
+        var weight: WuiFontWeight
         var watchers: [OpaquePointer] = []  // WuiWatcher_ResolvedFont*
 
-        init(font: WuiResolvedFont) {
-            self.font = font
+        init(size: Float, weight: WuiFontWeight) {
+            self.size = size
+            self.weight = weight
+        }
+
+        func resolvedFont() -> WuiResolvedFont {
+            waterui_resolved_font_new(size, weight)
         }
 
         func addWatcher(_ watcher: OpaquePointer) {
@@ -358,7 +364,7 @@ final class ReactiveFontSignal {
     private var computedPtr: OpaquePointer?
 
     init(size: Float, weight: WuiFontWeight) {
-        self.state = State(font: waterui_resolved_font_new(size, weight))
+        self.state = State(size: size, weight: weight)
         self.statePtr = Unmanaged.passRetained(state).toOpaque()
     }
 
@@ -371,13 +377,20 @@ final class ReactiveFontSignal {
             computedPtr = waterui_new_computed_resolved_font(
                 statePtr,
                 { ptr -> WuiResolvedFont in
-                    guard let ptr = ptr else { return WuiResolvedFont() }
+                    guard let ptr = ptr else {
+                        fatalError("ReactiveFontSignal get received a null state pointer")
+                    }
                     let state = Unmanaged<State>.fromOpaque(UnsafeMutableRawPointer(mutating: ptr))
                         .takeUnretainedValue()
-                    return state.font
+                    return state.resolvedFont()
                 },
                 { ptr, watcher -> OpaquePointer? in
-                    guard let ptr = ptr, let watcher = watcher else { return nil }
+                    guard let ptr = ptr else {
+                        fatalError("ReactiveFontSignal watch received a null state pointer")
+                    }
+                    guard let watcher = watcher else {
+                        fatalError("ReactiveFontSignal watch received a null watcher pointer")
+                    }
                     let state = Unmanaged<State>.fromOpaque(UnsafeMutableRawPointer(mutating: ptr))
                         .takeUnretainedValue()
                     state.addWatcher(watcher)
@@ -504,6 +517,8 @@ public final class ThemeBridge {
 
     // Track if initial installation is done
     private var installed = false
+    private var observedColorSchemeSignal: OpaquePointer?
+    private var observedColorSchemeWatcher: WatcherGuard?
     private let configuredTheme = WaterUIThemeConfiguration.load()
 
     public enum ColorScheme {
@@ -514,6 +529,27 @@ public final class ThemeBridge {
     init(env: WuiEnvironment, colorScheme: ColorScheme) {
         // Initial installation with reactive signals
         installReactiveTheme(env: env, colorScheme: colorScheme)
+    }
+
+    func bindToEnvironmentColorScheme(env: WuiEnvironment) {
+        guard let signal = waterui_theme_color_scheme(env.inner) else {
+            fatalError("WaterUI: failed to read root color scheme signal from the environment.")
+        }
+
+        if let observedColorSchemeSignal {
+            waterui_drop_computed_color_scheme(observedColorSchemeSignal)
+        }
+
+        observedColorSchemeSignal = signal
+        applyColors(for: Self.bridgeColorScheme(waterui_read_computed_color_scheme(signal)))
+
+        let watcher = makeColorSchemeWatcher { [weak self] scheme, _ in
+            self?.applyColors(for: Self.bridgeColorScheme(scheme))
+        }
+        guard let guardPtr = waterui_watch_computed_color_scheme(signal, watcher) else {
+            fatalError("WaterUI: failed to watch root color scheme signal.")
+        }
+        observedColorSchemeWatcher = WatcherGuard(guardPtr)
     }
 
     /// First-time installation creates reactive signals and installs them
@@ -590,12 +626,13 @@ public final class ThemeBridge {
 
     /// Updates the theme for a new color scheme by updating existing reactive signals
     func updateColorScheme(_ colorScheme: ColorScheme) {
-        let isDark = colorScheme == .dark
-
         // Update color scheme signal
-        let wuiScheme: WuiColorScheme = isDark ? WuiColorScheme_Dark : WuiColorScheme_Light
+        let wuiScheme = Self.wuiColorScheme(colorScheme)
         colorSchemeSignal?.setValue(wuiScheme)
+        applyColors(for: colorScheme)
+    }
 
+    private func applyColors(for colorScheme: ColorScheme) {
         // Update color signals with new system colors
         // The reactive system will automatically propagate these changes
         #if canImport(UIKit)
@@ -610,15 +647,42 @@ public final class ThemeBridge {
             accentForegroundSignal?.setValue(theme?.accentForegroundColor ?? UIColor.white)
         #elseif canImport(AppKit)
             let theme = configuredTheme
-            backgroundSignal?.setValue(theme?.backgroundColor ?? NSColor.windowBackgroundColor)
-            surfaceSignal?.setValue(theme?.surfaceColor ?? NSColor.controlBackgroundColor)
-            surfaceVariantSignal?.setValue(theme?.surfaceVariantColor ?? NSColor.underPageBackgroundColor)
-            borderSignal?.setValue(theme?.borderColor ?? NSColor.separatorColor)
-            foregroundSignal?.setValue(theme?.foregroundColor ?? NSColor.labelColor)
-            mutedForegroundSignal?.setValue(theme?.mutedForegroundColor ?? NSColor.secondaryLabelColor)
-            accentSignal?.setValue(theme?.accentColor ?? NSColor.controlAccentColor)
-            accentForegroundSignal?.setValue(theme?.accentForegroundColor ?? NSColor.white)
+            let appearanceName: NSAppearance.Name = colorScheme == .dark ? .darkAqua : .aqua
+            guard let appearance = NSAppearance(named: appearanceName) else {
+                fatalError("WaterUI: failed to create AppKit appearance '\(appearanceName.rawValue)'.")
+            }
+            appearance.performAsCurrentDrawingAppearance {
+                backgroundSignal?.setValue(theme?.backgroundColor ?? NSColor.windowBackgroundColor)
+                surfaceSignal?.setValue(theme?.surfaceColor ?? NSColor.controlBackgroundColor)
+                surfaceVariantSignal?.setValue(theme?.surfaceVariantColor ?? NSColor.underPageBackgroundColor)
+                borderSignal?.setValue(theme?.borderColor ?? NSColor.separatorColor)
+                foregroundSignal?.setValue(theme?.foregroundColor ?? NSColor.labelColor)
+                mutedForegroundSignal?.setValue(theme?.mutedForegroundColor ?? NSColor.secondaryLabelColor)
+                accentSignal?.setValue(theme?.accentColor ?? NSColor.controlAccentColor)
+                accentForegroundSignal?.setValue(theme?.accentForegroundColor ?? NSColor.white)
+            }
         #endif
+    }
+
+    private static func wuiColorScheme(_ colorScheme: ColorScheme) -> WuiColorScheme {
+        colorScheme == .dark ? WuiColorScheme_Dark : WuiColorScheme_Light
+    }
+
+    private static func bridgeColorScheme(_ colorScheme: WuiColorScheme) -> ColorScheme {
+        switch colorScheme {
+        case WuiColorScheme_Light:
+            return .light
+        case WuiColorScheme_Dark:
+            return .dark
+        default:
+            fatalError("WaterUI: unknown WuiColorScheme value \(colorScheme)")
+        }
+    }
+
+    @MainActor deinit {
+        if let observedColorSchemeSignal {
+            waterui_drop_computed_color_scheme(observedColorSchemeSignal)
+        }
     }
 
     #if canImport(UIKit)
@@ -876,6 +940,7 @@ public final class WuiRootContext {
             fatalError("waterui_app() returned App with no windows")
         }
         self.mainWindow = WuiWindowContext(from: windowsPtr.pointee)
+        self.themeBridge?.bindToEnvironmentColorScheme(env: self.env)
     }
 
     /// Updates the theme for a new color scheme.

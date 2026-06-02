@@ -8,7 +8,7 @@ import AppKit
 
 /// Component for Metadata<OnEvent>.
 ///
-/// Handles interaction events (hover enter/exit) for the wrapped view.
+/// Handles interaction events (hover enter/move/exit) for the wrapped view.
 /// The handler can be called multiple times (repeatable handler).
 @MainActor
 final class WuiOnEvent: PlatformView, WuiComponent {
@@ -56,6 +56,7 @@ final class WuiOnEvent: PlatformView, WuiComponent {
     private func setupTrackingArea() {
         let options: NSTrackingArea.Options = [
             .mouseEnteredAndExited,
+            .mouseMoved,
             .activeInKeyWindow,
             .inVisibleRect
         ]
@@ -85,6 +86,12 @@ final class WuiOnEvent: PlatformView, WuiComponent {
         handleHoverEnter()
     }
 
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        let localPoint = convert(event.locationInWindow, from: nil)
+        handleHoverMove(x: Float(localPoint.x), y: Float(localPoint.y))
+    }
+
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
         handleHoverExit()
@@ -109,6 +116,9 @@ final class WuiOnEvent: PlatformView, WuiComponent {
         switch gesture.state {
         case .began:
             handleHoverEnter()
+        case .changed:
+            let localPoint = gesture.location(in: self)
+            handleHoverMove(x: Float(localPoint.x), y: Float(localPoint.y))
         case .ended, .cancelled:
             handleHoverExit()
         default:
@@ -126,6 +136,12 @@ final class WuiOnEvent: PlatformView, WuiComponent {
     private func handleHoverExit() {
         if event == WuiEvent_HoverExit, let handler = handlerPtr {
             waterui_call_on_event(handler, env.inner)
+        }
+    }
+
+    private func handleHoverMove(x: Float, y: Float) {
+        if event == WuiEvent_HoverMove, let handler = handlerPtr {
+            waterui_call_on_hover_event(handler, env.inner, x, y)
         }
     }
 

@@ -288,6 +288,8 @@ private func registerBuiltinComponentsIfNeeded() {
     registerComponent(WuiText.self)
     registerComponent(WuiSpacer.self)
     registerComponent(WuiResolvedColorView.self)
+    registerComponent(WuiResolvedGradientView.self)
+    registerComponent(WuiResolvedShape.self)
     registerComponent(WuiSystemIcon.self)
 
     // Interactive components

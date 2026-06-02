@@ -27,7 +27,8 @@ struct NativeLayoutBridge {
         parentProposal: WuiProposalSize,
         children: CachedSubViewArray
     ) -> WuiViewDimensions {
-        layout.measure(proposal: parentProposal, children: children)
+        children.resetMeasurements()
+        return layout.measure(proposal: parentProposal, children: children)
     }
 
     /// Calculate the container size using Rust layout engine.
@@ -46,6 +47,7 @@ struct NativeLayoutBridge {
         bounds: CGRect,
         children: CachedSubViewArray
     ) -> [CGRect] {
-        layout.place(bounds: bounds, children: children)
+        children.resetMeasurements()
+        return layout.place(bounds: bounds, children: children)
     }
 }

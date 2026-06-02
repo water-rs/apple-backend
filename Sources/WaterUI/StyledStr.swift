@@ -286,6 +286,9 @@ extension WuiResolvedFont {
 
         let familyName = WuiStr(self.family).toString()
         if !familyName.isEmpty {
+            if let genericFont = genericUIFont(familyName: familyName, size: size, weight: weight) {
+                return genericFont
+            }
             if let customFont = UIFont(name: familyName, size: size) {
                 return customFont
             }
@@ -302,6 +305,9 @@ extension WuiResolvedFont {
 
         let familyName = WuiStr(self.family).toString()
         if !familyName.isEmpty {
+            if let genericFont = genericNSFont(familyName: familyName, size: size, weight: weight) {
+                return genericFont
+            }
             if let customFont = NSFont(name: familyName, size: size) {
                 return customFont
             }
@@ -314,6 +320,17 @@ extension WuiResolvedFont {
 }
 
 #if canImport(UIKit)
+private func genericUIFont(familyName: String, size: CGFloat, weight: UIFont.Weight) -> UIFont? {
+    switch familyName {
+    case "monospace":
+        return UIFont.monospacedSystemFont(ofSize: size, weight: weight)
+    case "system", "sans-serif":
+        return UIFont.systemFont(ofSize: size, weight: weight)
+    default:
+        return nil
+    }
+}
+
 extension CWaterUI.WuiFontWeight {
     func toUIFontWeight() -> UIFont.Weight {
         switch self {
@@ -331,6 +348,17 @@ extension CWaterUI.WuiFontWeight {
     }
 }
 #elseif canImport(AppKit)
+private func genericNSFont(familyName: String, size: CGFloat, weight: NSFont.Weight) -> NSFont? {
+    switch familyName {
+    case "monospace":
+        return NSFont.monospacedSystemFont(ofSize: size, weight: weight)
+    case "system", "sans-serif":
+        return NSFont.systemFont(ofSize: size, weight: weight)
+    default:
+        return nil
+    }
+}
+
 extension CWaterUI.WuiFontWeight {
     func toNSFontWeight() -> NSFont.Weight {
         switch self {
