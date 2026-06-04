@@ -89,91 +89,31 @@ final class WuiRotation: PlatformView, WuiComponent {
         contentView.transform = transform
 
         #elseif canImport(AppKit)
-        guard let layer = contentView.layer else { return }
-        updateAnchorPointIfNeeded()
+        let layer = transformedContentLayer()
         let transform = CATransform3DMakeRotation(radians, 0, 0, 1)
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        layer.transform = transform
-        CATransaction.commit()
+        wuiSetLayerTransformWithoutImplicitAnimation(layer, transform)
         #endif
     }
 
     #if canImport(AppKit)
     private func applyTransform(animation: Animation) {
         let radians = currentRotation * .pi / 180.0
-        guard let layer = contentView.layer else { return }
-        updateAnchorPointIfNeeded()
+        let layer = transformedContentLayer()
         let toTransform = CATransform3DMakeRotation(radians, 0, 0, 1)
-
-        let resolvedAnimation = animation
-        guard shouldAnimate(resolvedAnimation) else {
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            layer.transform = toTransform
-            CATransaction.commit()
-            return
-        }
-
-        let fromTransform = layer.presentation()?.transform ?? layer.transform
-        let animationKey = "wuiRotation"
-        layer.removeAnimation(forKey: animationKey)
-
-        let caAnimation: CABasicAnimation
-        switch resolvedAnimation {
-        case .bezier(let duration, let x1, let y1, let x2, let y2):
-            let basic = CABasicAnimation(keyPath: "transform")
-            basic.duration = duration
-            basic.timingFunction = CAMediaTimingFunction(
-                controlPoints: Float(x1),
-                Float(y1),
-                Float(x2),
-                Float(y2)
-            )
-            caAnimation = basic
-        case .spring(let stiffness, let damping):
-            let spring = CASpringAnimation(keyPath: "transform")
-            spring.mass = 1.0
-            spring.stiffness = stiffness
-            spring.damping = damping
-            spring.initialVelocity = 0.0
-            spring.duration = spring.settlingDuration
-            caAnimation = spring
-        case .none:
-            let basic = CABasicAnimation(keyPath: "transform")
-            basic.duration = 0.0
-            caAnimation = basic
-        }
-
-        caAnimation.fromValue = NSValue(caTransform3D: fromTransform)
-        caAnimation.toValue = NSValue(caTransform3D: toTransform)
-        caAnimation.isRemovedOnCompletion = true
-        caAnimation.fillMode = .both
-
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        layer.transform = toTransform
-        CATransaction.commit()
-        layer.add(caAnimation, forKey: animationKey)
+        wuiApplyLayerTransform(layer, to: toTransform, animation: animation, key: "wuiRotation")
     }
 
-    private func updateAnchorPointIfNeeded() {
-        guard let layer = contentView.layer else { return }
-        let size = contentView.bounds.size
-        let expectedAnchor = anchor
-        let expectedPosition = CGPoint(
-            x: contentView.frame.origin.x + size.width * anchor.x,
-            y: contentView.frame.origin.y + size.height * anchor.y
+    private func transformedContentLayer() -> CALayer {
+        wuiLayoutTransformedContent(
+            contentView,
+            in: bounds,
+            anchor: anchor,
+            lastBoundsSize: &lastBoundsSize
         )
-        let needsUpdate = size != lastBoundsSize || layer.anchorPoint != expectedAnchor
-            || layer.position != expectedPosition
-        guard needsUpdate else { return }
-        lastBoundsSize = size
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        layer.anchorPoint = expectedAnchor
-        layer.position = expectedPosition
-        CATransaction.commit()
+        guard let layer = contentView.layer else {
+            fatalError("WuiRotation content must be layer-backed after transformed layout")
+        }
+        return layer
     }
     #endif
 
@@ -203,11 +143,12 @@ final class WuiRotation: PlatformView, WuiComponent {
     override func layout() {
         super.layout()
 
-        // First set frame to trigger contentView's internal layout
-        if contentView.frame != bounds {
-            contentView.frame = bounds
-        }
-        if bounds.size != lastBoundsSize {
+        if wuiLayoutTransformedContent(
+            contentView,
+            in: bounds,
+            anchor: anchor,
+            lastBoundsSize: &lastBoundsSize
+        ) {
             applyTransform()
         }
     }
