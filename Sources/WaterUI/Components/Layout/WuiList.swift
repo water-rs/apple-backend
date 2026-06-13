@@ -152,6 +152,41 @@ private func computeListSectionGroups(
     return groups
 }
 
+/// Whether `groups` is exactly one plain (unlabeled, no-footer) section, i.e. the
+/// flat list whose row indices map 1:1 to `itemIds` positions. Only this shape is
+/// safe to update with a row-level diff; any header/footer or cross-section move
+/// is reloaded instead.
+private func isSinglePlainSection(_ groups: [ListSectionGroup]) -> Bool {
+    guard groups.count == 1 else { return false }
+    let only = groups[0]
+    return only.label == nil && only.footer == nil
+}
+
+/// Row-level diff between two id orderings for a single plain section. Returns the
+/// old-list indices to delete and the new-list indices to insert, or `nil` when a
+/// pure insert/delete cannot express the change (duplicate ids, or the ids common
+/// to both reordered) — in which case the caller falls back to a full reload.
+/// Restricting to the no-reorder case keeps the batch update crash-safe (no move
+/// math) while still preserving every surviving row's view, animation, and a11y.
+private func singleSectionRowDiff(old: [Int32], new: [Int32])
+    -> (deletes: [Int], inserts: [Int])?
+{
+    var oldIndex: [Int32: Int] = [:]
+    for (i, id) in old.enumerated() where oldIndex.updateValue(i, forKey: id) != nil {
+        return nil
+    }
+    var newSet = Set<Int32>()
+    for id in new where !newSet.insert(id).inserted {
+        return nil
+    }
+    let commonOld = old.filter { newSet.contains($0) }
+    let commonNew = new.filter { oldIndex[$0] != nil }
+    guard commonOld == commonNew else { return nil }
+    let deletes = old.enumerated().compactMap { newSet.contains($0.element) ? nil : $0.offset }
+    let inserts = new.enumerated().compactMap { oldIndex[$0.element] == nil ? $0.offset : nil }
+    return (deletes, inserts)
+}
+
 #if canImport(UIKit)
 @MainActor
 final class WuiList: UITableView, WuiComponent, UITableViewDataSource, UITableViewDelegate {
@@ -255,19 +290,49 @@ final class WuiList: UITableView, WuiComponent, UITableViewDataSource, UITableVi
     }
 
     private func applyRustUpdate(ids: [Int32], metadata: WuiWatcherMetadata) {
-        updateFromRust(ids: ids, animated: false)
+        updateFromRust(ids: ids, animated: metadata.animation != nil)
     }
 
-    private func updateFromRust(ids: [Int32], animated _: Bool) {
-        // Sectioned layout invalidates row-position-based diffs (rows can move
-        // between sections without their id changing), so always rebuild and
-        // reload. Animated reordering can be re-introduced once we track id
-        // positions per-section.
-        itemIds = ids
-        sectionGroups = computeListSectionGroups(contents: contents, count: ids.count)
-        if sectionGroups.isEmpty {
-            sectionGroups = [ListSectionGroup(label: nil, footer: nil, itemIndices: [])]
+    private func updateFromRust(ids: [Int32], animated: Bool) {
+        let oldIds = itemIds
+        let oldGroups = sectionGroups
+        var newGroups = computeListSectionGroups(contents: contents, count: ids.count)
+        if newGroups.isEmpty {
+            newGroups = [ListSectionGroup(label: nil, footer: nil, itemIndices: [])]
         }
+
+        // Plain single-section membership changes diff at the row level so every
+        // surviving cell (and its in-flight animation / accessibility node) is
+        // preserved and the change animates. Sectioned layouts — where rows can
+        // move between sections without their id changing — and reorders fall
+        // back to a full reload.
+        if window != nil,
+            isSinglePlainSection(oldGroups),
+            isSinglePlainSection(newGroups),
+            let diff = singleSectionRowDiff(old: oldIds, new: ids)
+        {
+            itemIds = ids
+            sectionGroups = newGroups
+            let rowAnimation: UITableView.RowAnimation = animated ? .automatic : .none
+            performBatchUpdates {
+                if !diff.deletes.isEmpty {
+                    deleteRows(
+                        at: diff.deletes.map { IndexPath(row: $0, section: 0) },
+                        with: rowAnimation
+                    )
+                }
+                if !diff.inserts.isEmpty {
+                    insertRows(
+                        at: diff.inserts.map { IndexPath(row: $0, section: 0) },
+                        with: rowAnimation
+                    )
+                }
+            }
+            return
+        }
+
+        itemIds = ids
+        sectionGroups = newGroups
         reloadData()
     }
 
@@ -666,20 +731,48 @@ final class WuiList: NSScrollView, WuiComponent, NSTableViewDataSource, NSTableV
         }
     }
 
-    private func applyRustUpdate(ids: [Int32], metadata _: WuiWatcherMetadata) {
-        updateFromRust(ids: ids, animated: false)
+    private func applyRustUpdate(ids: [Int32], metadata: WuiWatcherMetadata) {
+        updateFromRust(ids: ids, animated: metadata.animation != nil)
     }
 
     private func reloadFromRust(animated: Bool) {
         updateFromRust(ids: contents.allIds(), animated: animated)
     }
 
-    private func updateFromRust(ids: [Int32], animated _: Bool) {
-        // Sectioned layout invalidates row-position-based diffs because rows
-        // can move between sections without their id changing. Always rebuild
-        // and reload until id-aware section diffing is added.
+    private func updateFromRust(ids: [Int32], animated: Bool) {
+        let oldIds = itemIds
+        let oldGroups = sectionGroups
+        var newGroups = computeListSectionGroups(contents: contents, count: ids.count)
+        if newGroups.isEmpty {
+            newGroups = [ListSectionGroup(label: nil, footer: nil, itemIndices: [])]
+        }
+
+        // Plain single-section membership changes diff at the row level (flat row
+        // index == id position when there are no headers/footers) so surviving row
+        // views, their animations, and accessibility survive. Sectioned layouts
+        // and reorders fall back to a full reload.
+        if tableView.window != nil,
+            isSinglePlainSection(oldGroups),
+            isSinglePlainSection(newGroups),
+            let diff = singleSectionRowDiff(old: oldIds, new: ids)
+        {
+            itemIds = ids
+            sectionGroups = newGroups
+            flatLayout = Self.buildFlatLayout(from: sectionGroups)
+            let animation: NSTableView.AnimationOptions = animated ? .effectFade : []
+            tableView.beginUpdates()
+            if !diff.deletes.isEmpty {
+                tableView.removeRows(at: IndexSet(diff.deletes), withAnimation: animation)
+            }
+            if !diff.inserts.isEmpty {
+                tableView.insertRows(at: IndexSet(diff.inserts), withAnimation: animation)
+            }
+            tableView.endUpdates()
+            return
+        }
+
         itemIds = ids
-        sectionGroups = computeListSectionGroups(contents: contents, count: ids.count)
+        sectionGroups = newGroups
         flatLayout = Self.buildFlatLayout(from: sectionGroups)
         tableView.reloadData()
     }

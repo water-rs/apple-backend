@@ -172,16 +172,50 @@ final class WuiContainer: PlatformView, WuiComponent {
     }
 
     private func syncChildren(ids: [Int32]) {
-        var children: [WuiAnyView] = []
-        children.reserveCapacity(ids.count)
+        // Id-keyed reconcile: reuse the already-materialized view of every
+        // unchanged id (preserving its in-flight animation, focus, and
+        // accessibility node) and only call `getView` for the ids that joined
+        // the collection. Mirrors the lazy path's `updateVirtualIds`, so a
+        // membership change of a `ForEach`/`List` no longer rebuilds every child.
         var seenIds = Set<Int32>()
+        var ordered: [WuiAnyView] = []
+        ordered.reserveCapacity(ids.count)
         for (index, id) in ids.enumerated() {
             precondition(seenIds.insert(id).inserted, "Duplicate child view id in WuiContainer: \(id)")
-            let child = anyViews.getView(at: index, env: env)
+            let child = renderedChildren[id] ?? anyViews.getView(at: index, env: env)
+            renderedChildren[id] = child
             child.translatesAutoresizingMaskIntoConstraints = true
-            children.append(child)
+            ordered.append(child)
         }
-        setChildren(children)
+        for (id, child) in renderedChildren where !seenIds.contains(id) {
+            child.removeFromSuperview()
+        }
+        renderedChildren = renderedChildren.filter { seenIds.contains($0.key) }
+        reconcileSubviews(ordered)
+        childViews = ordered
+        cachedSubViews = nil
+
+        #if canImport(UIKit)
+            setNeedsLayout()
+        #elseif canImport(AppKit)
+            needsLayout = true
+        #endif
+    }
+
+    /// Makes the receiver's subviews exactly `ordered`, in that z-order, reusing
+    /// the existing subview instances already attached for unchanged children.
+    private func reconcileSubviews(_ ordered: [WuiAnyView]) {
+        #if canImport(UIKit)
+            let wanted = Set(ordered.map(ObjectIdentifier.init))
+            for sub in subviews where !wanted.contains(ObjectIdentifier(sub)) {
+                sub.removeFromSuperview()
+            }
+            for (index, child) in ordered.enumerated() {
+                insertSubview(child, at: index)
+            }
+        #elseif canImport(AppKit)
+            subviews = ordered
+        #endif
     }
 
     func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
