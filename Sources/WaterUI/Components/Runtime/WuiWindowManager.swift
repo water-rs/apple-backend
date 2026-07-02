@@ -59,9 +59,17 @@ private final class WindowResources {
     var stateBinding: OpaquePointer?
     var stateWatcher: WatcherGuard?
 
+    var minSize: OpaquePointer?
+    var minSizeWatcher: WatcherGuard?
+
+    var maxSize: OpaquePointer?
+    var maxSizeWatcher: WatcherGuard?
+
     func stopWatchers() {
         titleWatcher = nil
         stateWatcher = nil
+        minSizeWatcher = nil
+        maxSizeWatcher = nil
     }
 
     deinit {
@@ -72,6 +80,12 @@ private final class WindowResources {
         }
         if let title {
             waterui_drop_computed_str(title)
+        }
+        if let minSize {
+            waterui_drop_computed_size(minSize)
+        }
+        if let maxSize {
+            waterui_drop_computed_size(maxSize)
         }
     }
 }
@@ -118,6 +132,8 @@ final class WindowManagerImpl {
         let resources = WindowResources()
         resources.title = wuiWindow.title.map { OpaquePointer(UnsafeMutableRawPointer($0)) }
         resources.stateBinding = wuiWindow.state.map { OpaquePointer(UnsafeMutableRawPointer($0)) }
+        resources.minSize = wuiWindow.min_size.map { OpaquePointer(UnsafeMutableRawPointer($0)) }
+        resources.maxSize = wuiWindow.max_size.map { OpaquePointer(UnsafeMutableRawPointer($0)) }
 
         // Get window title
         let title = getWindowTitle(resources.title)
@@ -231,6 +247,35 @@ final class WindowManagerImpl {
             }
             if let guardPtr = waterui_watch_computed_str(titlePtr, watcher) {
                 resources.titleWatcher = WatcherGuard(guardPtr)
+            }
+        }
+
+        // Explicit Window::min_size: overrides the measured-content resize floor
+        // (without it, the content view keeps deriving contentMinSize from layout).
+        if let minPtr = resources.minSize {
+            let initial = waterui_read_computed_size(minPtr)
+            contentView.explicitWindowMinSize = NSSize(
+                width: CGFloat(initial.width), height: CGFloat(initial.height))
+            let watcher = makeSizeWatcher { [weak contentView] size, _ in
+                contentView?.explicitWindowMinSize = NSSize(
+                    width: CGFloat(size.width), height: CGFloat(size.height))
+            }
+            if let guardPtr = waterui_watch_computed_size(minPtr, watcher) {
+                resources.minSizeWatcher = WatcherGuard(guardPtr)
+            }
+        }
+
+        // Explicit Window::max_size: without one the window stays unconstrained.
+        if let maxPtr = resources.maxSize {
+            let initial = waterui_read_computed_size(maxPtr)
+            window.contentMaxSize = NSSize(
+                width: CGFloat(initial.width), height: CGFloat(initial.height))
+            let watcher = makeSizeWatcher { [weak window] size, _ in
+                window?.contentMaxSize = NSSize(
+                    width: CGFloat(size.width), height: CGFloat(size.height))
+            }
+            if let guardPtr = waterui_watch_computed_size(maxPtr, watcher) {
+                resources.maxSizeWatcher = WatcherGuard(guardPtr)
             }
         }
 

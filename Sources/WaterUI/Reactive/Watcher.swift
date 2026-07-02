@@ -183,6 +183,22 @@ func makeStrWatcher(_ f: @escaping (WuiStr, WuiWatcherMetadata) -> Void) -> Opaq
 }
 
 @MainActor
+func makeSizeWatcher(_ f: @escaping (CWaterUI.WuiSize, WuiWatcherMetadata) -> Void) -> OpaquePointer {
+    let data = wrap(f)
+    let call: @convention(c) (UnsafeMutableRawPointer?, CWaterUI.WuiSize, OpaquePointer?) -> Void = {
+        data, value, metadata in
+        callWrapper(data, value, metadata)
+    }
+    let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
+        dropWrapper($0, CWaterUI.WuiSize.self)
+    }
+    guard let watcher = waterui_new_watcher_size(data, call, drop) else {
+        fatalError("Failed to create size watcher")
+    }
+    return watcher
+}
+
+@MainActor
 func makeSecureWatcher(_ f: @escaping (WuiStr, WuiWatcherMetadata) -> Void) -> OpaquePointer {
     let data = wrap(f)
     let call: @convention(c) (UnsafeMutableRawPointer?, CWaterUI.WuiStr, OpaquePointer?) -> Void = {

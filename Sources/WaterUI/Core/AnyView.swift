@@ -583,6 +583,13 @@ private func registerBuiltinComponentsIfNeeded() {
         private var lastAutoLayoutWidth: CGFloat = 0
         private var pendingWindowMinSizeUpdate = false
         private var lastWindowMinSize: NSSize = .zero
+
+        /// Explicit `Window::min_size` from the app. When set, it drives
+        /// `NSWindow.contentMinSize` and the measured content minimum no longer
+        /// applies (the app has taken over the resize floor).
+        public var explicitWindowMinSize: NSSize? {
+            didSet { updateWindowMinSizeIfNeeded(force: true) }
+        }
         private var lastMinSizeProbeBounds: NSSize = .zero
 
         public var stretchAxis: WuiStretchAxis {
@@ -703,6 +710,16 @@ private func registerBuiltinComponentsIfNeeded() {
         private func updateWindowMinSizeIfNeeded(force: Bool) {
             guard let window else { return }
             guard isWindowRootContent() else { return }
+
+            if let explicit = explicitWindowMinSize {
+                let didChange = abs(explicit.width - lastWindowMinSize.width) > 0.5
+                    || abs(explicit.height - lastWindowMinSize.height) > 0.5
+                if force || didChange {
+                    window.contentMinSize = explicit
+                    lastWindowMinSize = explicit
+                }
+                return
+            }
 
             let minMeasured = sizeThatFits(WuiProposalSize(width: 0, height: 0))
             let idealMeasured = sizeThatFits(WuiProposalSize())
