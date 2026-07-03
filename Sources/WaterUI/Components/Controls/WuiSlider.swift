@@ -37,6 +37,8 @@ final class WuiSlider: PlatformView, WuiComponent {
     private var maxLabelView: WuiAnyView
     private var binding: WuiBinding<Double>
     private var range: WuiRange_f64
+    private let disabled: WuiComputed<Bool>?
+    private var disabledWatcher: WatcherGuard?
 
     // Layout constants
     private let verticalSpacing: CGFloat = 4.0
@@ -54,13 +56,15 @@ final class WuiSlider: PlatformView, WuiComponent {
         let minLabelView = WuiAnyView(anyview: ffiSlider.min_value_label, env: env)
         let maxLabelView = WuiAnyView(anyview: ffiSlider.max_value_label, env: env)
         let binding = WuiBinding<Double>(ffiSlider.value)
+        let disabled = ffiSlider.disabled.map { WuiComputed<Bool>($0) }
         self.init(
             stretchAxis: stretchAxis,
             label: labelView,
             minLabel: minLabelView,
             maxLabel: maxLabelView,
             range: ffiSlider.range,
-            binding: binding
+            binding: binding,
+            disabled: disabled
         )
     }
 
@@ -72,8 +76,10 @@ final class WuiSlider: PlatformView, WuiComponent {
         minLabel: WuiAnyView,
         maxLabel: WuiAnyView,
         range: WuiRange_f64,
-        binding: WuiBinding<Double>
+        binding: WuiBinding<Double>,
+        disabled: WuiComputed<Bool>? = nil
     ) {
+        self.disabled = disabled
         self.stretchAxis = stretchAxis
         self.labelView = label
         self.minLabelView = minLabel
@@ -88,6 +94,19 @@ final class WuiSlider: PlatformView, WuiComponent {
         updateMaxLabel(maxLabel, force: true)
         updateRange(range)
         updateBinding(binding, force: true)
+        startWatchingDisabled()
+    }
+
+    private func startWatchingDisabled() {
+        guard let disabled else { return }
+        applyDisabled(disabled.value)
+        disabledWatcher = disabled.watch { [weak self] isDisabled, _ in
+            self?.applyDisabled(isDisabled)
+        }
+    }
+
+    private func applyDisabled(_ isDisabled: Bool) {
+        slider.isEnabled = !isDisabled
     }
 
     @available(*, unavailable)

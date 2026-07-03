@@ -40,6 +40,8 @@ final class WuiButton: PlatformView, WuiComponent {
     private let style: WuiButtonStyle
     private let semanticAccessibilityLabel: WuiComputed<WuiStyledStr>?
     private var semanticAccessibilityLabelWatcher: WatcherGuard?
+    private let disabled: WuiComputed<Bool>?
+    private var disabledWatcher: WatcherGuard?
 
     // MARK: - WuiComponent Init
 
@@ -52,11 +54,13 @@ final class WuiButton: PlatformView, WuiComponent {
         let accessibilityLabel = WuiComputed<WuiStyledStr>(
             OpaquePointer(UnsafeMutableRawPointer(ffiButton.label.accessibility_label))
         )
+        let disabled = ffiButton.disabled.map { WuiComputed<Bool>($0) }
         self.init(
             label: labelView,
             action: action,
             style: ffiButton.style,
-            semanticAccessibilityLabel: accessibilityLabel
+            semanticAccessibilityLabel: accessibilityLabel,
+            disabled: disabled
         )
     }
 
@@ -66,12 +70,14 @@ final class WuiButton: PlatformView, WuiComponent {
         label: WuiAnyView,
         action: Action,
         style: WuiButtonStyle = WuiButtonStyle_Automatic,
-        semanticAccessibilityLabel: WuiComputed<WuiStyledStr>? = nil
+        semanticAccessibilityLabel: WuiComputed<WuiStyledStr>? = nil,
+        disabled: WuiComputed<Bool>? = nil
     ) {
         self.action = action
         self.labelView = label
         self.style = style
         self.semanticAccessibilityLabel = semanticAccessibilityLabel
+        self.disabled = disabled
         #if canImport(AppKit)
         self.button = NSButton()
         #endif
@@ -79,6 +85,19 @@ final class WuiButton: PlatformView, WuiComponent {
         configureButton()
         updateLabel(label)
         configureSemanticAccessibility()
+        startWatchingDisabled()
+    }
+
+    private func startWatchingDisabled() {
+        guard let disabled else { return }
+        applyDisabled(disabled.value)
+        disabledWatcher = disabled.watch { [weak self] isDisabled, _ in
+            self?.applyDisabled(isDisabled)
+        }
+    }
+
+    private func applyDisabled(_ isDisabled: Bool) {
+        button.isEnabled = !isDisabled
     }
 
     @available(*, unavailable)

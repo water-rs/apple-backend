@@ -40,6 +40,8 @@ final class WuiToggle: PlatformView, WuiComponent {
     private var binding: WuiBinding<Bool>
     private var labelView: WuiAnyView
     private let style: ToggleStyle
+    private let disabled: WuiComputed<Bool>?
+    private var disabledWatcher: WatcherGuard?
 
     // Layout constants
     private let horizontalSpacing: CGFloat = 8.0
@@ -51,15 +53,22 @@ final class WuiToggle: PlatformView, WuiComponent {
         let labelView = WuiAnyView(anyview: ffiToggle.label.view, env: env)
         let binding: WuiBinding<Bool> = WuiBinding(ffiToggle.toggle)
         let style = ToggleStyle(from: ffiToggle.style)
-        self.init(label: labelView, binding: binding, style: style)
+        let disabled = ffiToggle.disabled.map { WuiComputed<Bool>($0) }
+        self.init(label: labelView, binding: binding, style: style, disabled: disabled)
     }
 
     // MARK: - Designated Init
 
-    init(label: WuiAnyView, binding: WuiBinding<Bool>, style: ToggleStyle = .automatic) {
+    init(
+        label: WuiAnyView,
+        binding: WuiBinding<Bool>,
+        style: ToggleStyle = .automatic,
+        disabled: WuiComputed<Bool>? = nil
+    ) {
         self.binding = binding
         self.labelView = label
         self.style = style
+        self.disabled = disabled
         // Initialize with a default frame to prevent constraint conflicts.
         // WuiToggle sets .required compression resistance on its label, which conflicts
         // with a .zero frame (autoresizing mask forces width=0).
@@ -70,6 +79,7 @@ final class WuiToggle: PlatformView, WuiComponent {
         setupAction()
         updateLabel(label, force: true)
         updateBinding(binding, force: true)
+        startWatchingDisabled()
     }
 
     // MARK: - Toggle Control Creation
@@ -202,6 +212,22 @@ final class WuiToggle: PlatformView, WuiComponent {
             }
             #endif
         }
+    }
+
+    private func startWatchingDisabled() {
+        guard let disabled else { return }
+        applyDisabled(disabled.value)
+        disabledWatcher = disabled.watch { [weak self] isDisabled, _ in
+            self?.applyDisabled(isDisabled)
+        }
+    }
+
+    private func applyDisabled(_ isDisabled: Bool) {
+        #if canImport(UIKit)
+        (toggleControl as? UIControl)?.isEnabled = !isDisabled
+        #elseif canImport(AppKit)
+        (toggleControl as? NSControl)?.isEnabled = !isDisabled
+        #endif
     }
 
     private func startWatchingBinding() {
