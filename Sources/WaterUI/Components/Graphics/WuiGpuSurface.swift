@@ -1098,6 +1098,16 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
 	            } else {
 	                return
 	            }
+
+	            // Request up to 120fps on ProMotion displays, mirroring the
+	            // UIKit path: without an explicit range the panel is free to
+	            // stay at a lower cadence.
+	            link.preferredFrameRateRange = CAFrameRateRange(
+	                minimum: 60,
+	                maximum: 120,
+	                preferred: 120
+	            )
+
 	            link.add(to: .main, forMode: .common)
 	            displayLink = link
 	        }
