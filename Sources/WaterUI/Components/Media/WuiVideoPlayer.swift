@@ -138,18 +138,10 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
     private var volumeBinding: WuiBinding<Float>
     private var playbackRateBinding: WuiBinding<Float>
     private var preservePitchBinding: WuiBinding<Bool>
-    private var onEvent: CWaterUI.WuiFn_WuiVideoEvent
-    private var sourceWatcher: WatcherGuard?
-    private var titleWatcher: WatcherGuard?
-    private var artistWatcher: WatcherGuard?
-    private var albumWatcher: WatcherGuard?
-    private var artworkURLWatcher: WatcherGuard?
-    private var durationSecondsWatcher: WatcherGuard?
-    private var hasNextWatcher: WatcherGuard?
-    private var hasPreviousWatcher: WatcherGuard?
-    private var volumeWatcher: WatcherGuard?
-    private var playbackRateWatcher: WatcherGuard?
-    private var preservePitchWatcher: WatcherGuard?
+    private var subtitleSelectionBinding: WuiBinding<Int32>
+    private let playbackPolicy: CWaterUI.WuiPlaybackPolicy
+    private let eventEmitter: WuiVideoEventEmitter
+    private var observers: WuiAVPlayerObservers?
     private var statusObserver: NSKeyValueObservation?
     private var bufferEmptyObserver: NSKeyValueObservation?
     private var likelyToKeepUpObserver: NSKeyValueObservation?
@@ -178,9 +170,10 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
         let volumeBinding = WuiBinding<Float>(ffiVideoPlayer.volume!)
         let playbackRateBinding = WuiBinding<Float>(ffiVideoPlayer.playback_rate!)
         let preservePitchBinding = WuiBinding<Bool>(ffiVideoPlayer.preserve_pitch!)
+        let subtitleSelectionBinding = WuiBinding<Int32>(ffiVideoPlayer.subtitle_selection!)
         let aspectRatio = AVLayerVideoGravity.from(ffiVideoPlayer.aspect_ratio)
         let showControls = ffiVideoPlayer.show_controls
-        let onEvent = ffiVideoPlayer.on_event
+        let onEvent = ffiVideoPlayer.on_event!
 
         self.init(
             stretchAxis: stretchAxis,
@@ -195,9 +188,12 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
             volume: volumeBinding,
             playbackRate: playbackRateBinding,
             preservePitch: preservePitchBinding,
+            subtitleSelection: subtitleSelectionBinding,
+            playbackPolicy: ffiVideoPlayer.playback_policy,
             aspectRatio: aspectRatio,
             showControls: showControls,
-            onEvent: onEvent
+            onEvent: onEvent,
+            env: env
         )
     }
 
@@ -214,9 +210,12 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
         volume: WuiBinding<Float>,
         playbackRate: WuiBinding<Float>,
         preservePitch: WuiBinding<Bool>,
+        subtitleSelection: WuiBinding<Int32>,
+        playbackPolicy: CWaterUI.WuiPlaybackPolicy,
         aspectRatio: AVLayerVideoGravity,
         showControls: Bool,
-        onEvent: CWaterUI.WuiFn_WuiVideoEvent
+        onEvent: OpaquePointer,
+        env: WuiEnvironment
     ) {
         self.stretchAxis = stretchAxis
         self.sourceComputed = source
@@ -230,8 +229,11 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
         self.volumeBinding = volume
         self.playbackRateBinding = playbackRate
         self.preservePitchBinding = preservePitch
-        self.onEvent = onEvent
+        self.subtitleSelectionBinding = subtitleSelection
+        self.playbackPolicy = playbackPolicy
+        self.eventEmitter = WuiVideoEventEmitter(action: onEvent, env: env)
         self.player = AVPlayer()
+        applyVideoPlaybackPolicy(playbackPolicy, to: self.player)
         self.showControls = showControls
 
         super.init(frame: .zero)
@@ -415,42 +417,25 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
     }
 
     private func startWatchers() {
-        sourceWatcher = sourceComputed.watch { [weak self] source, _ in
-            self?.updateSource(source)
-            self?.mediaSessionBridge?.metadataDidChange()
-            self?.mediaSessionBridge?.playbackDidChange()
-        }
-
-        titleWatcher = titleComputed.watch { [weak self] _, _ in
-            self?.mediaSessionBridge?.metadataDidChange()
-        }
-        artistWatcher = artistComputed.watch { [weak self] _, _ in
-            self?.mediaSessionBridge?.metadataDidChange()
-        }
-        albumWatcher = albumComputed.watch { [weak self] _, _ in
-            self?.mediaSessionBridge?.metadataDidChange()
-        }
-        artworkURLWatcher = artworkURLComputed.watch { [weak self] _, _ in
-            self?.mediaSessionBridge?.metadataDidChange()
-        }
-        durationSecondsWatcher = durationSecondsComputed.watch { [weak self] _, _ in
-            self?.mediaSessionBridge?.metadataDidChange()
-        }
-        hasNextWatcher = hasNextBinding.watch { [weak self] _, _ in
-            self?.mediaSessionBridge?.playbackDidChange()
-        }
-        hasPreviousWatcher = hasPreviousBinding.watch { [weak self] _, _ in
-            self?.mediaSessionBridge?.playbackDidChange()
-        }
-        volumeWatcher = volumeBinding.watch { [weak self] volume, _ in
-            self?.updateVolume(volume)
-        }
-        playbackRateWatcher = playbackRateBinding.watch { [weak self] rate, _ in
-            self?.updatePlaybackRate(rate)
-        }
-        preservePitchWatcher = preservePitchBinding.watch { [weak self] preservePitch, _ in
-            self?.updatePreservePitch(preservePitch)
-        }
+        observers = WuiAVPlayerObservers(
+            source: sourceComputed, title: titleComputed, artist: artistComputed,
+            album: albumComputed, artworkURL: artworkURLComputed,
+            durationSeconds: durationSecondsComputed, hasNext: hasNextBinding,
+            hasPrevious: hasPreviousBinding, volume: volumeBinding,
+            playbackRate: playbackRateBinding, preservePitch: preservePitchBinding,
+            subtitleSelection: subtitleSelectionBinding,
+            sourceChanged: { [weak self] source in
+                self?.updateSource(source)
+                self?.mediaSessionBridge?.metadataDidChange()
+                self?.mediaSessionBridge?.playbackDidChange()
+            },
+            metadataChanged: { [weak self] in self?.mediaSessionBridge?.metadataDidChange() },
+            playbackChanged: { [weak self] in self?.mediaSessionBridge?.playbackDidChange() },
+            volumeChanged: { [weak self] in self?.updateVolume($0) },
+            playbackRateChanged: { [weak self] in self?.updatePlaybackRate($0) },
+            preservePitchChanged: { [weak self] in self?.updatePreservePitch($0) },
+            subtitleSelectionChanged: { [weak self] in self?.applySubtitleSelection($0) }
+        )
     }
 
     private func updateSource(_ source: WuiStr) {
@@ -478,6 +463,7 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
         playbackShouldStartWhenReady = true
 
         let playerItem = AVPlayerItem(url: url)
+        applyVideoPlaybackPolicy(playbackPolicy, to: playerItem)
         applyPitchAlgorithm(to: playerItem)
 
         statusObserver = playerItem.observe(\.status, options: [.new]) { [weak self] item, _ in
@@ -492,6 +478,7 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
                         errorMessage: errorMessage
                     )
                 case .readyToPlay:
+                    self.applySubtitleSelection(self.subtitleSelectionBinding.value)
                     self.emitEvent(eventType: CWaterUI.WuiVideoEventType_ReadyToPlay)
                     self.mediaSessionBridge?.metadataDidChange()
                     self.mediaSessionBridge?.playbackDidChange()
@@ -535,6 +522,16 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
     private func updateVolume(_ volume: Float) {
         requestedVolume = volume
         applyEffectiveVolume()
+    }
+
+    private func applySubtitleSelection(_ selection: Int32) {
+        guard let item = player.currentItem else { return }
+        Task { @MainActor [weak self, weak item] in
+            guard let self, let item, item == self.player.currentItem else { return }
+            if let error = await applyVideoSubtitleSelection(selection, to: item) {
+                self.emitEvent(eventType: CWaterUI.WuiVideoEventType_Error, errorMessage: error)
+            }
+        }
     }
 
     private func applyEffectiveVolume() {
@@ -597,15 +594,11 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
         droppedVideoFrames: UInt64 = 0,
         pictureInPictureActive: Bool = false
     ) {
-        let event = CWaterUI.WuiVideoEvent(
-            event_type: eventType,
-            error_message: WuiStr(string: errorMessage).intoInner(),
-            buffered_ms: bufferedMs,
-            av_drift_ms: avDriftMs,
-            dropped_video_frames: droppedVideoFrames,
-            picture_in_picture_active: pictureInPictureActive
+        eventEmitter.emit(
+            eventType, errorMessage: errorMessage, bufferedMs: bufferedMs,
+            avDriftMs: avDriftMs, droppedVideoFrames: droppedVideoFrames,
+            pictureInPictureActive: pictureInPictureActive
         )
-        onEvent.call(onEvent.data, event)
     }
 
     fileprivate func emitPictureInPictureChanged(_ active: Bool) {
@@ -623,17 +616,7 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
         MainActor.assumeIsolated {
             mediaSessionBridge = nil
             NotificationCenter.default.removeObserver(self)
-            sourceWatcher = nil
-            titleWatcher = nil
-            artistWatcher = nil
-            albumWatcher = nil
-            artworkURLWatcher = nil
-            durationSecondsWatcher = nil
-            hasNextWatcher = nil
-            hasPreviousWatcher = nil
-            volumeWatcher = nil
-            playbackRateWatcher = nil
-            preservePitchWatcher = nil
+            observers = nil
             statusObserver?.invalidate()
             bufferEmptyObserver?.invalidate()
             likelyToKeepUpObserver?.invalidate()
