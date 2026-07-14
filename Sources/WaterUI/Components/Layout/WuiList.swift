@@ -9,100 +9,100 @@
 import CWaterUI
 
 #if canImport(UIKit)
-import UIKit
+  import UIKit
 #elseif canImport(AppKit)
-import AppKit
+  import AppKit
 #endif
 
 private struct ResolvedListItem {
-    let view: WuiAnyView
-    let deletable: WuiComputed<Bool>?
+  let view: WuiAnyView
+  let deletable: WuiComputed<Bool>?
 }
 
 private struct ListSectionInfo {
-    let label: String?
-    let footer: String?
+  let label: String?
+  let footer: String?
 }
 
 @MainActor
 private func resolveListItem(
-    from contents: WuiAnyViews,
-    at index: Int,
-    env: WuiEnvironment
+  from contents: WuiAnyViews,
+  at index: Int,
+  env: WuiEnvironment
 ) -> ResolvedListItem {
-    guard let viewPtr = waterui_anyviews_get_view(contents.ptr, UInt(index)) else {
-        fatalError("List item view pointer is null at index \(index)")
-    }
+  guard let viewPtr = waterui_anyviews_get_view(contents.ptr, UInt(index)) else {
+    fatalError("List item view pointer is null at index \(index)")
+  }
 
-    let listItem = waterui_force_as_list_item(viewPtr)
-    guard let contentPtr = listItem.content else {
-        fatalError("List item content pointer is null at index \(index)")
-    }
-    // The FFI item carries section_label / section_footer by value. We don't
-    // need them here, but they own their byte buffers — wrap them so they
-    // get dropped when this scope exits instead of leaking.
-    _ = WuiStr(listItem.section_label)
-    _ = WuiStr(listItem.section_footer)
+  let listItem = waterui_force_as_list_item(viewPtr)
+  guard let contentPtr = listItem.content else {
+    fatalError("List item content pointer is null at index \(index)")
+  }
+  // The FFI item carries section_label / section_footer by value. We don't
+  // need them here, but they own their byte buffers — wrap them so they
+  // get dropped when this scope exits instead of leaking.
+  _ = WuiStr(listItem.section_label)
+  _ = WuiStr(listItem.section_footer)
 
-    return ResolvedListItem(
-        view: WuiAnyView(anyview: contentPtr, env: env),
-        deletable: listItem.deletable.map { WuiComputed<Bool>($0) }
-    )
+  return ResolvedListItem(
+    view: WuiAnyView(anyview: contentPtr, env: env),
+    deletable: listItem.deletable.map { WuiComputed<Bool>($0) }
+  )
 }
 
 @MainActor
 private func resolveListItemDeletable(
-    from contents: WuiAnyViews,
-    at index: Int,
-    defaultValue: Bool = true
+  from contents: WuiAnyViews,
+  at index: Int,
+  defaultValue: Bool = true
 ) -> Bool {
-    guard let viewPtr = waterui_anyviews_get_view(contents.ptr, UInt(index)) else {
-        fatalError("List item view pointer is null at index \(index)")
-    }
+  guard let viewPtr = waterui_anyviews_get_view(contents.ptr, UInt(index)) else {
+    fatalError("List item view pointer is null at index \(index)")
+  }
 
-    let listItem = waterui_force_as_list_item(viewPtr)
-    if let contentPtr = listItem.content {
-        waterui_drop_anyview(contentPtr)
-    }
-    _ = WuiStr(listItem.section_label)
-    _ = WuiStr(listItem.section_footer)
+  let listItem = waterui_force_as_list_item(viewPtr)
+  if let contentPtr = listItem.content {
+    waterui_drop_anyview(contentPtr)
+  }
+  _ = WuiStr(listItem.section_label)
+  _ = WuiStr(listItem.section_footer)
 
-    guard let deletablePtr = listItem.deletable else {
-        return defaultValue
-    }
+  guard let deletablePtr = listItem.deletable else {
+    return defaultValue
+  }
 
-    let deletable = WuiComputed<Bool>(deletablePtr)
-    return deletable.value
+  let deletable = WuiComputed<Bool>(deletablePtr)
+  return deletable.value
 }
 
 /// Reads only the semantic section info from a list item, dropping the
 /// content/deletable references that come back through the FFI struct.
 @MainActor
 private func peekListItemSection(
-    from contents: WuiAnyViews,
-    at index: Int
+  from contents: WuiAnyViews,
+  at index: Int
 ) -> ListSectionInfo? {
-    guard let viewPtr = waterui_anyviews_get_view(contents.ptr, UInt(index)) else {
-        return nil
-    }
-    let listItem = waterui_force_as_list_item(viewPtr)
-    if let contentPtr = listItem.content {
-        waterui_drop_anyview(contentPtr)
-    }
-    if let deletablePtr = listItem.deletable {
-        _ = WuiComputed<Bool>(deletablePtr)
-    }
+  guard let viewPtr = waterui_anyviews_get_view(contents.ptr, UInt(index)) else {
+    return nil
+  }
+  let listItem = waterui_force_as_list_item(viewPtr)
+  if let contentPtr = listItem.content {
+    waterui_drop_anyview(contentPtr)
+  }
+  if let deletablePtr = listItem.deletable {
+    _ = WuiComputed<Bool>(deletablePtr)
+  }
 
-    let labelStr = WuiStr(listItem.section_label).toString()
-    let footerStr = WuiStr(listItem.section_footer).toString()
+  let labelStr = WuiStr(listItem.section_label).toString()
+  let footerStr = WuiStr(listItem.section_footer).toString()
 
-    if labelStr.isEmpty && footerStr.isEmpty {
-        return nil
-    }
-    return ListSectionInfo(
-        label: labelStr.isEmpty ? nil : labelStr,
-        footer: footerStr.isEmpty ? nil : footerStr,
-    )
+  if labelStr.isEmpty && footerStr.isEmpty {
+    return nil
+  }
+  return ListSectionInfo(
+    label: labelStr.isEmpty ? nil : labelStr,
+    footer: footerStr.isEmpty ? nil : footerStr,
+  )
 }
 
 /// Computed grouping derived from the per-item section markers.
@@ -112,44 +112,44 @@ private func peekListItemSection(
 /// array that belong to this section, in their original order.
 @MainActor
 private struct ListSectionGroup {
-    let label: String?
-    let footer: String?
-    let itemIndices: [Int]
+  let label: String?
+  let footer: String?
+  let itemIndices: [Int]
 }
 
 @MainActor
 private func computeListSectionGroups(
-    contents: WuiAnyViews,
-    count: Int
+  contents: WuiAnyViews,
+  count: Int
 ) -> [ListSectionGroup] {
-    var groups: [ListSectionGroup] = []
-    var pendingLabel: String? = nil
-    var pendingFooter: String? = nil
-    var pendingIndices: [Int] = []
+  var groups: [ListSectionGroup] = []
+  var pendingLabel: String? = nil
+  var pendingFooter: String? = nil
+  var pendingIndices: [Int] = []
 
-    func flush() {
-        guard !pendingIndices.isEmpty else { return }
-        groups.append(
-            ListSectionGroup(
-                label: pendingLabel,
-                footer: pendingFooter,
-                itemIndices: pendingIndices
-            )
-        )
-    }
+  func flush() {
+    guard !pendingIndices.isEmpty else { return }
+    groups.append(
+      ListSectionGroup(
+        label: pendingLabel,
+        footer: pendingFooter,
+        itemIndices: pendingIndices
+      )
+    )
+  }
 
-    for i in 0..<count {
-        if let info = peekListItemSection(from: contents, at: i) {
-            flush()
-            pendingLabel = info.label
-            pendingFooter = info.footer
-            pendingIndices = [i]
-        } else {
-            pendingIndices.append(i)
-        }
+  for i in 0..<count {
+    if let info = peekListItemSection(from: contents, at: i) {
+      flush()
+      pendingLabel = info.label
+      pendingFooter = info.footer
+      pendingIndices = [i]
+    } else {
+      pendingIndices.append(i)
     }
-    flush()
-    return groups
+  }
+  flush()
+  return groups
 }
 
 /// Whether `groups` is exactly one plain (unlabeled, no-footer) section, i.e. the
@@ -157,9 +157,9 @@ private func computeListSectionGroups(
 /// safe to update with a row-level diff; any header/footer or cross-section move
 /// is reloaded instead.
 private func isSinglePlainSection(_ groups: [ListSectionGroup]) -> Bool {
-    guard groups.count == 1 else { return false }
-    let only = groups[0]
-    return only.label == nil && only.footer == nil
+  guard groups.count == 1 else { return false }
+  let only = groups[0]
+  return only.label == nil && only.footer == nil
 }
 
 /// Row-level diff between two id orderings for a single plain section. Returns the
@@ -169,27 +169,27 @@ private func isSinglePlainSection(_ groups: [ListSectionGroup]) -> Bool {
 /// Restricting to the no-reorder case keeps the batch update crash-safe (no move
 /// math) while still preserving every surviving row's view, animation, and a11y.
 private func singleSectionRowDiff(old: [Int32], new: [Int32])
-    -> (deletes: [Int], inserts: [Int])?
+  -> (deletes: [Int], inserts: [Int])?
 {
-    var oldIndex: [Int32: Int] = [:]
-    for (i, id) in old.enumerated() where oldIndex.updateValue(i, forKey: id) != nil {
-        return nil
-    }
-    var newSet = Set<Int32>()
-    for id in new where !newSet.insert(id).inserted {
-        return nil
-    }
-    let commonOld = old.filter { newSet.contains($0) }
-    let commonNew = new.filter { oldIndex[$0] != nil }
-    guard commonOld == commonNew else { return nil }
-    let deletes = old.enumerated().compactMap { newSet.contains($0.element) ? nil : $0.offset }
-    let inserts = new.enumerated().compactMap { oldIndex[$0.element] == nil ? $0.offset : nil }
-    return (deletes, inserts)
+  var oldIndex: [Int32: Int] = [:]
+  for (i, id) in old.enumerated() where oldIndex.updateValue(i, forKey: id) != nil {
+    return nil
+  }
+  var newSet = Set<Int32>()
+  for id in new where !newSet.insert(id).inserted {
+    return nil
+  }
+  let commonOld = old.filter { newSet.contains($0) }
+  let commonNew = new.filter { oldIndex[$0] != nil }
+  guard commonOld == commonNew else { return nil }
+  let deletes = old.enumerated().compactMap { newSet.contains($0.element) ? nil : $0.offset }
+  let inserts = new.enumerated().compactMap { oldIndex[$0.element] == nil ? $0.offset : nil }
+  return (deletes, inserts)
 }
 
 #if canImport(UIKit)
-@MainActor
-final class WuiList: UITableView, WuiComponent, UITableViewDataSource, UITableViewDelegate {
+  @MainActor
+  final class WuiList: UITableView, WuiComponent, UITableViewDataSource, UITableViewDelegate {
     static var rawId: CWaterUI.WuiTypeId { waterui_list_id() }
 
     private(set) var stretchAxis: WuiStretchAxis = .both
@@ -199,12 +199,11 @@ final class WuiList: UITableView, WuiComponent, UITableViewDataSource, UITableVi
     private var contentsWatcher: WatcherGuard?
     private var itemIds: [Int32] = []
     private var sectionGroups: [ListSectionGroup] = [
-        ListSectionGroup(label: nil, footer: nil, itemIndices: [])
+      ListSectionGroup(label: nil, footer: nil, itemIndices: [])
     ]
 
     // Edit mode state
-    private var editingComputed: WuiComputed<Bool>?
-    private var editingWatcher: WatcherGuard?
+    private var editingObservation: WuiComputedObservation<Bool>?
 
     // Callbacks
     private var onDeletePtr: OpaquePointer?
@@ -213,238 +212,246 @@ final class WuiList: UITableView, WuiComponent, UITableViewDataSource, UITableVi
     // MARK: - WuiComponent Init
 
     convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
-        let ffiList: CWaterUI.WuiList = waterui_force_as_list(anyview)
-        self.init(ffiList: ffiList, env: env)
+      let ffiList: CWaterUI.WuiList = waterui_force_as_list(anyview)
+      self.init(ffiList: ffiList, env: env)
     }
 
     // MARK: - Designated Init
 
     init(ffiList: CWaterUI.WuiList, env: WuiEnvironment) {
-        self.env = env
-        self.contents = WuiAnyViews(ffiList.contents)
-        self.onDeletePtr = ffiList.on_delete
-        self.onMovePtr = ffiList.on_move
-        super.init(frame: .zero, style: .insetGrouped)
+      self.env = env
+      self.contents = WuiAnyViews(ffiList.contents)
+      self.onDeletePtr = ffiList.on_delete
+      self.onMovePtr = ffiList.on_move
+      super.init(frame: .zero, style: .insetGrouped)
 
-        dataSource = self
-        delegate = self
+      dataSource = self
+      delegate = self
 
-        // Register a reusable cell class
-        register(WuiListCell.self, forCellReuseIdentifier: WuiListCell.reuseIdentifier)
+      // Register a reusable cell class
+      register(WuiListCell.self, forCellReuseIdentifier: WuiListCell.reuseIdentifier)
 
-        // Drive row heights through `heightForRowAt` against the measured
-        // content (Layout/SubView protocol) instead of relying on
-        // `automaticDimension`. The automatic path is unreliable in
-        // offscreen captures and also forces Auto Layout to chase its tail
-        // when the cell content reports its height through
-        // `intrinsicContentSize`. Estimated height is kept low so the table
-        // doesn't pre-allocate huge content rects before the real height
-        // arrives.
-        estimatedRowHeight = 44
+      // Drive row heights through `heightForRowAt` against the measured
+      // content (Layout/SubView protocol) instead of relying on
+      // `automaticDimension`. The automatic path is unreliable in
+      // offscreen captures and also forces Auto Layout to chase its tail
+      // when the cell content reports its height through
+      // `intrinsicContentSize`. Estimated height is kept low so the table
+      // doesn't pre-allocate huge content rects before the real height
+      // arrives.
+      estimatedRowHeight = 44
 
-        // Setup editing state if provided
-        if let editingPtr = ffiList.editing {
-            editingComputed = WuiComputed<Bool>(editingPtr)
-            editingWatcher = editingComputed?.watch { [weak self] newValue, metadata in
-                guard let self = self else { return }
-                let animated = metadata.animation != nil
-                self.setEditing(newValue, animated: animated)
-            }
-            // Apply initial editing state
-            if let isEditing = editingComputed?.value {
-                setEditing(isEditing, animated: false)
-            }
+      // Setup editing state if provided
+      if let editingPtr = ffiList.editing {
+        let observation = WuiComputedObservation(WuiComputed<Bool>(editingPtr)) {
+          [weak self] newValue, metadata in
+          guard let self = self else { return }
+          let animated = metadata.animation != nil
+          self.setEditing(newValue, animated: animated)
         }
+        editingObservation = observation
+        setEditing(observation.value, animated: false)
+      }
 
-        // Initial load + watch structural changes.
-        reloadFromRust(animated: false)
-        installContentsWatch()
+      // Initial load + watch structural changes.
+      installContentsWatch()
+      reloadFromRust(animated: false)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+      fatalError("init(coder:) has not been implemented")
     }
 
     @MainActor deinit {
-        // Drop action pointers if they exist
-        if let ptr = onDeletePtr {
-            waterui_drop_index_action(ptr)
-        }
-        if let ptr = onMovePtr {
-            waterui_drop_move_action(ptr)
-        }
+      // Drop action pointers if they exist
+      if let ptr = onDeletePtr {
+        waterui_drop_index_action(ptr)
+      }
+      if let ptr = onMovePtr {
+        waterui_drop_move_action(ptr)
+      }
     }
 
     // MARK: - Item Loading
 
     private func installContentsWatch() {
-        contentsWatcher = watchAnyViewsIds(contents) { [weak self] ids, metadata in
-            guard let self else { return }
-            self.applyRustUpdate(ids: ids, metadata: metadata)
-        }
+      contentsWatcher = watchAnyViewsIds(contents) { [weak self] ids, metadata in
+        guard let self else { return }
+        self.applyRustUpdate(ids: ids, metadata: metadata)
+      }
     }
 
     private func reloadFromRust(animated: Bool) {
-        updateFromRust(ids: contents.allIds(), animated: animated)
+      updateFromRust(ids: contents.allIds(), animated: animated)
     }
 
     private func applyRustUpdate(ids: [Int32], metadata: WuiWatcherMetadata) {
-        updateFromRust(ids: ids, animated: metadata.animation != nil)
+      updateFromRust(ids: ids, animated: metadata.animation != nil)
     }
 
     private func updateFromRust(ids: [Int32], animated: Bool) {
-        let oldIds = itemIds
-        let oldGroups = sectionGroups
-        var newGroups = computeListSectionGroups(contents: contents, count: ids.count)
-        if newGroups.isEmpty {
-            newGroups = [ListSectionGroup(label: nil, footer: nil, itemIndices: [])]
-        }
+      let oldIds = itemIds
+      let oldGroups = sectionGroups
+      var newGroups = computeListSectionGroups(contents: contents, count: ids.count)
+      if newGroups.isEmpty {
+        newGroups = [ListSectionGroup(label: nil, footer: nil, itemIndices: [])]
+      }
 
-        // Plain single-section membership changes diff at the row level so every
-        // surviving cell (and its in-flight animation / accessibility node) is
-        // preserved and the change animates. Sectioned layouts — where rows can
-        // move between sections without their id changing — and reorders fall
-        // back to a full reload.
-        if window != nil,
-            isSinglePlainSection(oldGroups),
-            isSinglePlainSection(newGroups),
-            let diff = singleSectionRowDiff(old: oldIds, new: ids)
-        {
-            itemIds = ids
-            sectionGroups = newGroups
-            let rowAnimation: UITableView.RowAnimation = animated ? .automatic : .none
-            performBatchUpdates {
-                if !diff.deletes.isEmpty {
-                    deleteRows(
-                        at: diff.deletes.map { IndexPath(row: $0, section: 0) },
-                        with: rowAnimation
-                    )
-                }
-                if !diff.inserts.isEmpty {
-                    insertRows(
-                        at: diff.inserts.map { IndexPath(row: $0, section: 0) },
-                        with: rowAnimation
-                    )
-                }
-            }
-            return
-        }
-
+      // Plain single-section membership changes diff at the row level so every
+      // surviving cell (and its in-flight animation / accessibility node) is
+      // preserved and the change animates. Sectioned layouts — where rows can
+      // move between sections without their id changing — and reorders fall
+      // back to a full reload.
+      if window != nil,
+        isSinglePlainSection(oldGroups),
+        isSinglePlainSection(newGroups),
+        let diff = singleSectionRowDiff(old: oldIds, new: ids)
+      {
         itemIds = ids
         sectionGroups = newGroups
-        reloadData()
+        let rowAnimation: UITableView.RowAnimation = animated ? .automatic : .none
+        performBatchUpdates {
+          if !diff.deletes.isEmpty {
+            deleteRows(
+              at: diff.deletes.map { IndexPath(row: $0, section: 0) },
+              with: rowAnimation
+            )
+          }
+          if !diff.inserts.isEmpty {
+            insertRows(
+              at: diff.inserts.map { IndexPath(row: $0, section: 0) },
+              with: rowAnimation
+            )
+          }
+        }
+        return
+      }
+
+      itemIds = ids
+      sectionGroups = newGroups
+      reloadData()
     }
 
     // Translates a `(section, row)` index path back to the position in the
     // flat `itemIds` array that the Rust side knows about.
     private func flatIndex(for indexPath: IndexPath) -> Int {
-        sectionGroups[indexPath.section].itemIndices[indexPath.row]
+      sectionGroups[indexPath.section].itemIndices[indexPath.row]
     }
 
     private func indexPath(forFlat flat: Int) -> IndexPath? {
-        for (sectionIdx, group) in sectionGroups.enumerated() {
-            if let row = group.itemIndices.firstIndex(of: flat) {
-                return IndexPath(row: row, section: sectionIdx)
-            }
+      for (sectionIdx, group) in sectionGroups.enumerated() {
+        if let row = group.itemIndices.firstIndex(of: flat) {
+          return IndexPath(row: row, section: sectionIdx)
         }
-        return nil
+      }
+      return nil
     }
 
     // MARK: - WuiComponent
 
     func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
-        let width = proposal.width.map { CGFloat($0) } ?? UIScreen.main.bounds.width
-        let height = proposal.height.map { CGFloat($0) } ?? UIScreen.main.bounds.height
-        return CGSize(width: width, height: height)
+      CGSize(
+        width: proposal.width.map(CGFloat.init) ?? contentSize.width,
+        height: proposal.height.map(CGFloat.init) ?? contentSize.height
+      )
     }
 
     override func layoutSubviews() {
-        super.layoutSubviews()
+      super.layoutSubviews()
     }
 
     // MARK: - UITableViewDataSource
 
     func numberOfSections(in tableView: UITableView) -> Int {
-        return sectionGroups.count
+      return sectionGroups.count
     }
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return sectionGroups[section].itemIndices.count
+      return sectionGroups[section].itemIndices.count
     }
 
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        return sectionGroups[section].label
+      return sectionGroups[section].label
     }
 
     func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
-        return sectionGroups[section].footer
+      return sectionGroups[section].footer
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let dequeuedCell = tableView.dequeueReusableCell(withIdentifier: WuiListCell.reuseIdentifier, for: indexPath)
-        guard let cell = dequeuedCell as? WuiListCell else {
-            fatalError("Expected WuiListCell for reuse identifier \(WuiListCell.reuseIdentifier)")
-        }
-        let flat = flatIndex(for: indexPath)
-        let item = resolveListItem(from: contents, at: flat, env: env)
-        let itemId = itemIds[flat]
-        cell.configure(with: item.view, deletable: item.deletable) { [weak self] metadata in
-            guard let self else { return }
-            guard let updatedFlat = self.itemIds.firstIndex(of: itemId),
-                  let updatedPath = self.indexPath(forFlat: updatedFlat) else { return }
-            self.reloadRows(
-                at: [updatedPath],
-                with: metadata.animation != nil ? .automatic : .none
-            )
-        }
-        return cell
+      let dequeuedCell = tableView.dequeueReusableCell(
+        withIdentifier: WuiListCell.reuseIdentifier, for: indexPath)
+      guard let cell = dequeuedCell as? WuiListCell else {
+        fatalError("Expected WuiListCell for reuse identifier \(WuiListCell.reuseIdentifier)")
+      }
+      let flat = flatIndex(for: indexPath)
+      let item = resolveListItem(from: contents, at: flat, env: env)
+      let itemId = itemIds[flat]
+      cell.configure(with: item.view, deletable: item.deletable) { [weak self] metadata in
+        guard let self else { return }
+        guard let updatedFlat = self.itemIds.firstIndex(of: itemId),
+          let updatedPath = self.indexPath(forFlat: updatedFlat)
+        else { return }
+        self.reloadRows(
+          at: [updatedPath],
+          with: metadata.animation != nil ? .automatic : .none
+        )
+      }
+      return cell
     }
 
     // MARK: - Editing Support
 
     func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
-        // Can edit if we have a delete callback and the item is deletable
-        guard onDeletePtr != nil else { return false }
-        return resolveListItemDeletable(from: contents, at: flatIndex(for: indexPath))
+      // Can edit if we have a delete callback and the item is deletable
+      guard onDeletePtr != nil else { return false }
+      return resolveListItemDeletable(from: contents, at: flatIndex(for: indexPath))
     }
 
-    func tableView(_ tableView: UITableView, commit editingStyle: UITableViewCell.EditingStyle, forRowAt indexPath: IndexPath) {
-        if editingStyle == .delete {
-            let flat = flatIndex(for: indexPath)
-            itemIds.remove(at: flat)
-            sectionGroups = computeListSectionGroups(contents: contents, count: itemIds.count)
-            tableView.reloadData()
-
-            if let deletePtr = onDeletePtr {
-                waterui_call_index_action(deletePtr, env.inner, UInt(flat))
-            }
-        }
-    }
-
-    func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
-        guard onDeletePtr != nil else { return nil }
+    func tableView(
+      _ tableView: UITableView, commit editingStyle: UITableViewCell.EditingStyle,
+      forRowAt indexPath: IndexPath
+    ) {
+      if editingStyle == .delete {
         let flat = flatIndex(for: indexPath)
-        guard resolveListItemDeletable(from: contents, at: flat) else { return nil }
+        itemIds.remove(at: flat)
+        sectionGroups = computeListSectionGroups(contents: contents, count: itemIds.count)
+        tableView.reloadData()
 
-        let deleteAction = UIContextualAction(style: .destructive, title: "Delete") { [weak self] _, _, completion in
-            guard let self = self else {
-                completion(false)
-                return
-            }
+        if let deletePtr = onDeletePtr {
+          waterui_call_index_action(deletePtr, env.inner, UInt(flat))
+        }
+      }
+    }
 
-            self.itemIds.remove(at: flat)
-            self.sectionGroups = computeListSectionGroups(contents: self.contents, count: self.itemIds.count)
-            self.reloadData()
+    func tableView(
+      _ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath
+    ) -> UISwipeActionsConfiguration? {
+      guard onDeletePtr != nil else { return nil }
+      let flat = flatIndex(for: indexPath)
+      guard resolveListItemDeletable(from: contents, at: flat) else { return nil }
 
-            if let deletePtr = self.onDeletePtr {
-                waterui_call_index_action(deletePtr, self.env.inner, UInt(flat))
-            }
-
-            completion(true)
+      let deleteAction = UIContextualAction(style: .destructive, title: "Delete") {
+        [weak self] _, _, completion in
+        guard let self = self else {
+          completion(false)
+          return
         }
 
-        return UISwipeActionsConfiguration(actions: [deleteAction])
+        self.itemIds.remove(at: flat)
+        self.sectionGroups = computeListSectionGroups(
+          contents: self.contents, count: self.itemIds.count)
+        self.reloadData()
+
+        if let deletePtr = self.onDeletePtr {
+          waterui_call_index_action(deletePtr, self.env.inner, UInt(flat))
+        }
+
+        completion(true)
+      }
+
+      return UISwipeActionsConfiguration(actions: [deleteAction])
     }
 
     // MARK: - Move/Reorder Support
@@ -456,156 +463,168 @@ final class WuiList: UITableView, WuiComponent, UITableViewDataSource, UITableVi
     // users can't drag rows into a state the framework cannot represent.
 
     func tableView(_ tableView: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool {
-        return onMovePtr != nil && sectionGroups.count == 1
+      return onMovePtr != nil && sectionGroups.count == 1
     }
 
-    func tableView(_ tableView: UITableView, moveRowAt sourceIndexPath: IndexPath, to destinationIndexPath: IndexPath) {
-        let from = flatIndex(for: sourceIndexPath)
-        let to = flatIndex(for: destinationIndexPath)
-        let id = itemIds.remove(at: from)
-        itemIds.insert(id, at: to)
-        sectionGroups = computeListSectionGroups(contents: contents, count: itemIds.count)
+    func tableView(
+      _ tableView: UITableView, moveRowAt sourceIndexPath: IndexPath,
+      to destinationIndexPath: IndexPath
+    ) {
+      let from = flatIndex(for: sourceIndexPath)
+      let to = flatIndex(for: destinationIndexPath)
+      let id = itemIds.remove(at: from)
+      itemIds.insert(id, at: to)
+      sectionGroups = computeListSectionGroups(contents: contents, count: itemIds.count)
 
-        if let movePtr = onMovePtr {
-            waterui_call_move_action(movePtr, env.inner, UInt(from), UInt(to))
-        }
+      if let movePtr = onMovePtr {
+        waterui_call_move_action(movePtr, env.inner, UInt(from), UInt(to))
+      }
     }
 
-    func tableView(_ tableView: UITableView, editingStyleForRowAt indexPath: IndexPath) -> UITableViewCell.EditingStyle {
-        // Show delete button in edit mode only if item is deletable
-        guard onDeletePtr != nil else { return .none }
-        return resolveListItemDeletable(from: contents, at: flatIndex(for: indexPath)) ? .delete : .none
+    func tableView(_ tableView: UITableView, editingStyleForRowAt indexPath: IndexPath)
+      -> UITableViewCell.EditingStyle
+    {
+      // Show delete button in edit mode only if item is deletable
+      guard onDeletePtr != nil else { return .none }
+      return resolveListItemDeletable(from: contents, at: flatIndex(for: indexPath))
+        ? .delete : .none
     }
 
     // MARK: - UITableViewDelegate
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        let flat = flatIndex(for: indexPath)
-        let item = resolveListItem(from: contents, at: flat, env: env)
-        let width = tableView.bounds.width
-        let proposal = WuiProposalSize(
-            width: width > 0 ? Float(width) : nil,
-            height: nil
-        )
-        let size = item.view.sizeThatFits(proposal)
-        // Apple's inset-grouped table style uses a 44pt minimum touch
-        // target — keep that floor when the measured content is shorter
-        // (single-line rows, dividers, etc).
-        return max(size.height, 44)
+      let flat = flatIndex(for: indexPath)
+      let item = resolveListItem(from: contents, at: flat, env: env)
+      let width = tableView.bounds.width
+      let proposal = WuiProposalSize(
+        width: width > 0 ? Float(width) : nil,
+        height: nil
+      )
+      let size = item.view.sizeThatFits(proposal)
+      // Apple's inset-grouped table style uses a 44pt minimum touch
+      // target — keep that floor when the measured content is shorter
+      // (single-line rows, dividers, etc).
+      return max(size.height, 44)
     }
-}
+  }
 
-// MARK: - WuiListCell
+  // MARK: - WuiListCell
 
-private final class WuiListCell: UITableViewCell {
+  private final class WuiListCell: UITableViewCell {
     static let reuseIdentifier = "WuiListCell"
 
     private var contentWuiView: WuiAnyView?
-    private var deletableWatcher: WatcherGuard?
+    private var deletableObservation: WuiComputedObservation<Bool>?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
-        selectionStyle = .none
-        backgroundColor = .clear
+      super.init(style: style, reuseIdentifier: reuseIdentifier)
+      selectionStyle = .none
+      backgroundColor = .clear
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+      fatalError("init(coder:) has not been implemented")
     }
 
     func configure(
-        with view: WuiAnyView,
-        deletable: WuiComputed<Bool>?,
-        onDeletableChange: @escaping (WuiWatcherMetadata) -> Void
+      with view: WuiAnyView,
+      deletable: WuiComputed<Bool>?,
+      onDeletableChange: @escaping (WuiWatcherMetadata) -> Void
     ) {
-        // Remove previous content
-        contentWuiView?.removeFromSuperview()
-        deletableWatcher = nil
+      // Remove previous content
+      contentWuiView?.removeFromSuperview()
+      deletableObservation = nil
 
-        // Add new content
-        contentWuiView = view
-        view.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(view)
+      // Add new content
+      contentWuiView = view
+      view.translatesAutoresizingMaskIntoConstraints = false
+      contentView.addSubview(view)
 
-        NSLayoutConstraint.activate([
-            view.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            view.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            view.topAnchor.constraint(equalTo: contentView.topAnchor),
-            view.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
-        ])
+      NSLayoutConstraint.activate([
+        view.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+        view.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+        view.topAnchor.constraint(equalTo: contentView.topAnchor),
+        view.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+      ])
 
-        deletableWatcher = deletable?.watch { _, metadata in
-            onDeletableChange(metadata)
+      deletableObservation = deletable.map { signal in
+        WuiComputedObservation(signal) { _, metadata in
+          onDeletableChange(metadata)
         }
+      }
     }
 
     override func prepareForReuse() {
-        super.prepareForReuse()
-        contentWuiView?.removeFromSuperview()
-        contentWuiView = nil
-        deletableWatcher = nil
+      super.prepareForReuse()
+      contentWuiView?.removeFromSuperview()
+      contentWuiView = nil
+      deletableObservation = nil
     }
-}
+  }
 #endif
 
 #if canImport(AppKit)
-private final class WuiListRowContainerView: NSView {
+  private final class WuiListRowContainerView: NSView {
     private var contentWuiView: WuiAnyView?
     private var deleteButton: NSButton?
-    private var deletableWatcher: WatcherGuard?
+    private var deletableObservation: WuiComputedObservation<Bool>?
 
     func configure(
-        with view: WuiAnyView,
-        itemId: Int32,
-        deletable: WuiComputed<Bool>?,
-        showsDeleteControl: Bool,
-        target: AnyObject?,
-        action: Selector?,
-        onDeletableChange: @escaping (WuiWatcherMetadata) -> Void
+      with view: WuiAnyView,
+      itemId: Int32,
+      deletable: WuiComputed<Bool>?,
+      showsDeleteControl: Bool,
+      target: AnyObject?,
+      action: Selector?,
+      onDeletableChange: @escaping (WuiWatcherMetadata) -> Void
     ) {
-        contentWuiView?.removeFromSuperview()
-        deleteButton?.removeFromSuperview()
-        deletableWatcher = nil
+      contentWuiView?.removeFromSuperview()
+      deleteButton?.removeFromSuperview()
+      deletableObservation = nil
 
-        contentWuiView = view
-        view.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(view)
-
-        if showsDeleteControl, deletable?.value ?? true {
-            let button = NSButton(title: "Delete", target: target, action: action)
-            button.bezelStyle = .inline
-            button.identifier = NSUserInterfaceItemIdentifier(String(itemId))
-            button.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(button)
-            deleteButton = button
-
-            NSLayoutConstraint.activate([
-                view.leadingAnchor.constraint(equalTo: leadingAnchor),
-                view.topAnchor.constraint(equalTo: topAnchor),
-                view.bottomAnchor.constraint(equalTo: bottomAnchor),
-
-                button.leadingAnchor.constraint(equalTo: view.trailingAnchor, constant: 8),
-                button.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-                button.centerYAnchor.constraint(equalTo: centerYAnchor)
-            ])
-        } else {
-            NSLayoutConstraint.activate([
-                view.leadingAnchor.constraint(equalTo: leadingAnchor),
-                view.trailingAnchor.constraint(equalTo: trailingAnchor),
-                view.topAnchor.constraint(equalTo: topAnchor),
-                view.bottomAnchor.constraint(equalTo: bottomAnchor)
-            ])
+      let observation = deletable.map { signal in
+        WuiComputedObservation(signal) { _, metadata in
+          onDeletableChange(metadata)
         }
+      }
+      deletableObservation = observation
 
-        deletableWatcher = deletable?.watch { _, metadata in
-            onDeletableChange(metadata)
-        }
+      contentWuiView = view
+      view.translatesAutoresizingMaskIntoConstraints = false
+      addSubview(view)
+
+      if showsDeleteControl, observation?.value ?? true {
+        let button = NSButton(title: "Delete", target: target, action: action)
+        button.bezelStyle = .inline
+        button.identifier = NSUserInterfaceItemIdentifier(String(itemId))
+        button.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(button)
+        deleteButton = button
+
+        NSLayoutConstraint.activate([
+          view.leadingAnchor.constraint(equalTo: leadingAnchor),
+          view.topAnchor.constraint(equalTo: topAnchor),
+          view.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+          button.leadingAnchor.constraint(equalTo: view.trailingAnchor, constant: 8),
+          button.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+          button.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+      } else {
+        NSLayoutConstraint.activate([
+          view.leadingAnchor.constraint(equalTo: leadingAnchor),
+          view.trailingAnchor.constraint(equalTo: trailingAnchor),
+          view.topAnchor.constraint(equalTo: topAnchor),
+          view.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+      }
+
     }
-}
+  }
 
-@MainActor
-final class WuiList: NSScrollView, WuiComponent, NSTableViewDataSource, NSTableViewDelegate {
+  @MainActor
+  final class WuiList: NSScrollView, WuiComponent, NSTableViewDataSource, NSTableViewDelegate {
     static var rawId: CWaterUI.WuiTypeId { waterui_list_id() }
 
     private(set) var stretchAxis: WuiStretchAxis = .both
@@ -623,8 +642,7 @@ final class WuiList: NSScrollView, WuiComponent, NSTableViewDataSource, NSTableV
     private var lastColumnWidth: CGFloat = 0
 
     // Edit mode state
-    private var editingComputed: WuiComputed<Bool>?
-    private var editingWatcher: WatcherGuard?
+    private var editingObservation: WuiComputedObservation<Bool>?
     private var isInEditMode: Bool = false
 
     // Callbacks
@@ -635,227 +653,225 @@ final class WuiList: NSScrollView, WuiComponent, NSTableViewDataSource, NSTableV
     private static let dragType = NSPasteboard.PasteboardType("dev.waterui.listitem")
 
     private enum TableLayoutEntry {
-        case header(label: String, sectionIndex: Int)
-        case row(itemIndex: Int)
-        case footer(label: String, sectionIndex: Int)
+      case header(label: String, sectionIndex: Int)
+      case row(itemIndex: Int)
+      case footer(label: String, sectionIndex: Int)
     }
 
     // MARK: - WuiComponent Init
 
     convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
-        let ffiList: CWaterUI.WuiList = waterui_force_as_list(anyview)
-        self.init(ffiList: ffiList, env: env)
+      let ffiList: CWaterUI.WuiList = waterui_force_as_list(anyview)
+      self.init(ffiList: ffiList, env: env)
     }
 
     // MARK: - Designated Init
 
     init(ffiList: CWaterUI.WuiList, env: WuiEnvironment) {
-        self.env = env
-        self.contents = WuiAnyViews(ffiList.contents)
-        self.onDeletePtr = ffiList.on_delete
-        self.onMovePtr = ffiList.on_move
-        self.tableView = NSTableView()
+      self.env = env
+      self.contents = WuiAnyViews(ffiList.contents)
+      self.onDeletePtr = ffiList.on_delete
+      self.onMovePtr = ffiList.on_move
+      self.tableView = NSTableView()
 
-        super.init(frame: .zero)
+      super.init(frame: .zero)
 
-        // Configure table view to look like SwiftUI List
-        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("content"))
-        column.width = 200
-        tableView.addTableColumn(column)
-        tableView.headerView = nil
-        tableView.dataSource = self
-        tableView.delegate = self
-        // Drive row heights through `heightOfRow` against the measured
-        // content (Layout/SubView protocol). `usesAutomaticRowHeights = true`
-        // is unreliable in offscreen captures because it tries to derive
-        // height from the row view's Auto Layout fitting size, which can
-        // pin to a single-line intrinsic when wrapped text hasn't been
-        // re-measured at the table width yet.
-        tableView.rowHeight = 44
-        tableView.style = .inset
-        tableView.backgroundColor = .clear
-        tableView.selectionHighlightStyle = .regular
+      // Configure table view to look like SwiftUI List
+      let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("content"))
+      column.width = 200
+      tableView.addTableColumn(column)
+      tableView.headerView = nil
+      tableView.dataSource = self
+      tableView.delegate = self
+      // Drive row heights through `heightOfRow` against the measured
+      // content (Layout/SubView protocol). `usesAutomaticRowHeights = true`
+      // is unreliable in offscreen captures because it tries to derive
+      // height from the row view's Auto Layout fitting size, which can
+      // pin to a single-line intrinsic when wrapped text hasn't been
+      // re-measured at the table width yet.
+      tableView.rowHeight = 44
+      tableView.style = .inset
+      tableView.backgroundColor = .clear
+      tableView.selectionHighlightStyle = .regular
 
-        // Enable drag-and-drop if move callback exists
-        if onMovePtr != nil {
-            tableView.registerForDraggedTypes([Self.dragType])
-            tableView.draggingDestinationFeedbackStyle = .gap
+      // Enable drag-and-drop if move callback exists
+      if onMovePtr != nil {
+        tableView.registerForDraggedTypes([Self.dragType])
+        tableView.draggingDestinationFeedbackStyle = .gap
+      }
+
+      // Configure scroll view
+      documentView = tableView
+      hasVerticalScroller = true
+      autohidesScrollers = true
+      drawsBackground = false
+
+      // Setup editing state if provided
+      if let editingPtr = ffiList.editing {
+        let observation = WuiComputedObservation(WuiComputed<Bool>(editingPtr)) {
+          [weak self] newValue, _ in
+          guard let self = self else { return }
+          self.isInEditMode = newValue
+          self.tableView.reloadData()
         }
+        editingObservation = observation
+        isInEditMode = observation.value
+      }
 
-        // Configure scroll view
-        documentView = tableView
-        hasVerticalScroller = true
-        autohidesScrollers = true
-        drawsBackground = false
-
-        // Setup editing state if provided
-        if let editingPtr = ffiList.editing {
-            editingComputed = WuiComputed<Bool>(editingPtr)
-            editingWatcher = editingComputed?.watch { [weak self] newValue, _ in
-                guard let self = self else { return }
-                self.isInEditMode = newValue
-                self.tableView.reloadData()
-            }
-            // Apply initial editing state
-            if let isEditing = editingComputed?.value {
-                isInEditMode = isEditing
-            }
-        }
-
-        // Initial load + watch structural changes.
-        reloadFromRust(animated: false)
-        installContentsWatch()
+      // Initial load + watch structural changes.
+      installContentsWatch()
+      reloadFromRust(animated: false)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+      fatalError("init(coder:) has not been implemented")
     }
 
     @MainActor deinit {
-        // Drop action pointers if they exist
-        if let ptr = onDeletePtr {
-            waterui_drop_index_action(ptr)
-        }
-        if let ptr = onMovePtr {
-            waterui_drop_move_action(ptr)
-        }
+      // Drop action pointers if they exist
+      if let ptr = onDeletePtr {
+        waterui_drop_index_action(ptr)
+      }
+      if let ptr = onMovePtr {
+        waterui_drop_move_action(ptr)
+      }
     }
 
     // MARK: - Item Loading
 
     private func installContentsWatch() {
-        contentsWatcher = watchAnyViewsIds(contents) { [weak self] ids, metadata in
-            guard let self else { return }
-            self.applyRustUpdate(ids: ids, metadata: metadata)
-        }
+      contentsWatcher = watchAnyViewsIds(contents) { [weak self] ids, metadata in
+        guard let self else { return }
+        self.applyRustUpdate(ids: ids, metadata: metadata)
+      }
     }
 
     private func applyRustUpdate(ids: [Int32], metadata: WuiWatcherMetadata) {
-        updateFromRust(ids: ids, animated: metadata.animation != nil)
+      updateFromRust(ids: ids, animated: metadata.animation != nil)
     }
 
     private func reloadFromRust(animated: Bool) {
-        updateFromRust(ids: contents.allIds(), animated: animated)
+      updateFromRust(ids: contents.allIds(), animated: animated)
     }
 
     private func updateFromRust(ids: [Int32], animated: Bool) {
-        let oldIds = itemIds
-        let oldGroups = sectionGroups
-        var newGroups = computeListSectionGroups(contents: contents, count: ids.count)
-        if newGroups.isEmpty {
-            newGroups = [ListSectionGroup(label: nil, footer: nil, itemIndices: [])]
-        }
+      let oldIds = itemIds
+      let oldGroups = sectionGroups
+      var newGroups = computeListSectionGroups(contents: contents, count: ids.count)
+      if newGroups.isEmpty {
+        newGroups = [ListSectionGroup(label: nil, footer: nil, itemIndices: [])]
+      }
 
-        // Plain single-section membership changes diff at the row level (flat row
-        // index == id position when there are no headers/footers) so surviving row
-        // views, their animations, and accessibility survive. Sectioned layouts
-        // and reorders fall back to a full reload.
-        if tableView.window != nil,
-            isSinglePlainSection(oldGroups),
-            isSinglePlainSection(newGroups),
-            let diff = singleSectionRowDiff(old: oldIds, new: ids)
-        {
-            itemIds = ids
-            sectionGroups = newGroups
-            flatLayout = Self.buildFlatLayout(from: sectionGroups)
-            let animation: NSTableView.AnimationOptions = animated ? .effectFade : []
-            tableView.beginUpdates()
-            if !diff.deletes.isEmpty {
-                tableView.removeRows(at: IndexSet(diff.deletes), withAnimation: animation)
-            }
-            if !diff.inserts.isEmpty {
-                tableView.insertRows(at: IndexSet(diff.inserts), withAnimation: animation)
-            }
-            tableView.endUpdates()
-            return
-        }
-
+      // Plain single-section membership changes diff at the row level (flat row
+      // index == id position when there are no headers/footers) so surviving row
+      // views, their animations, and accessibility survive. Sectioned layouts
+      // and reorders fall back to a full reload.
+      if tableView.window != nil,
+        isSinglePlainSection(oldGroups),
+        isSinglePlainSection(newGroups),
+        let diff = singleSectionRowDiff(old: oldIds, new: ids)
+      {
         itemIds = ids
         sectionGroups = newGroups
         flatLayout = Self.buildFlatLayout(from: sectionGroups)
-        tableView.reloadData()
+        let animation: NSTableView.AnimationOptions = animated ? .effectFade : []
+        tableView.beginUpdates()
+        if !diff.deletes.isEmpty {
+          tableView.removeRows(at: IndexSet(diff.deletes), withAnimation: animation)
+        }
+        if !diff.inserts.isEmpty {
+          tableView.insertRows(at: IndexSet(diff.inserts), withAnimation: animation)
+        }
+        tableView.endUpdates()
+        return
+      }
+
+      itemIds = ids
+      sectionGroups = newGroups
+      flatLayout = Self.buildFlatLayout(from: sectionGroups)
+      tableView.reloadData()
     }
 
     private static func buildFlatLayout(from groups: [ListSectionGroup]) -> [TableLayoutEntry] {
-        var layout: [TableLayoutEntry] = []
-        for (sectionIdx, group) in groups.enumerated() {
-            if let label = group.label {
-                layout.append(.header(label: label, sectionIndex: sectionIdx))
-            }
-            for itemIndex in group.itemIndices {
-                layout.append(.row(itemIndex: itemIndex))
-            }
-            if let footer = group.footer {
-                layout.append(.footer(label: footer, sectionIndex: sectionIdx))
-            }
+      var layout: [TableLayoutEntry] = []
+      for (sectionIdx, group) in groups.enumerated() {
+        if let label = group.label {
+          layout.append(.header(label: label, sectionIndex: sectionIdx))
         }
-        return layout
+        for itemIndex in group.itemIndices {
+          layout.append(.row(itemIndex: itemIndex))
+        }
+        if let footer = group.footer {
+          layout.append(.footer(label: footer, sectionIndex: sectionIdx))
+        }
+      }
+      return layout
     }
 
     private func itemIndex(forFlatRow flatRow: Int) -> Int? {
-        guard flatRow >= 0, flatRow < flatLayout.count else { return nil }
-        if case let .row(itemIndex) = flatLayout[flatRow] {
-            return itemIndex
-        }
-        return nil
+      guard flatRow >= 0, flatRow < flatLayout.count else { return nil }
+      if case .row(let itemIndex) = flatLayout[flatRow] {
+        return itemIndex
+      }
+      return nil
     }
 
     private func flatRow(forItemIndex itemIndex: Int) -> Int? {
-        for (flat, entry) in flatLayout.enumerated() {
-            if case let .row(idx) = entry, idx == itemIndex {
-                return flat
-            }
+      for (flat, entry) in flatLayout.enumerated() {
+        if case .row(let idx) = entry, idx == itemIndex {
+          return flat
         }
-        return nil
+      }
+      return nil
     }
 
     // MARK: - Delete Action
 
     private func deleteItem(at flatRow: Int) {
-        guard let itemIndex = itemIndex(forFlatRow: flatRow) else { return }
-        guard let deletePtr = onDeletePtr else { return }
-        guard resolveListItemDeletable(from: contents, at: itemIndex) else { return }
+      guard let itemIndex = itemIndex(forFlatRow: flatRow) else { return }
+      guard let deletePtr = onDeletePtr else { return }
+      guard resolveListItemDeletable(from: contents, at: itemIndex) else { return }
 
-        itemIds.remove(at: itemIndex)
-        sectionGroups = computeListSectionGroups(contents: contents, count: itemIds.count)
-        flatLayout = Self.buildFlatLayout(from: sectionGroups)
-        tableView.reloadData()
+      itemIds.remove(at: itemIndex)
+      sectionGroups = computeListSectionGroups(contents: contents, count: itemIds.count)
+      flatLayout = Self.buildFlatLayout(from: sectionGroups)
+      tableView.reloadData()
 
-        waterui_call_index_action(deletePtr, env.inner, UInt(itemIndex))
+      waterui_call_index_action(deletePtr, env.inner, UInt(itemIndex))
     }
 
     // MARK: - WuiComponent
 
     func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
-        let screen = NSScreen.main ?? NSScreen.screens.first
-        let screenSize = screen?.frame.size ?? CGSize(width: 800, height: 600)
-        let width = proposal.width.map { CGFloat($0) } ?? screenSize.width
-        let height = proposal.height.map { CGFloat($0) } ?? screenSize.height
-        return CGSize(width: width, height: height)
+      let intrinsicSize = tableView.fittingSize
+      return CGSize(
+        width: proposal.width.map(CGFloat.init) ?? intrinsicSize.width,
+        height: proposal.height.map(CGFloat.init) ?? intrinsicSize.height
+      )
     }
 
     override var isFlipped: Bool { true }
 
     override func layout() {
-        super.layout()
+      super.layout()
 
-        let width = contentView.bounds.width
-        guard width > 0, abs(width - lastColumnWidth) > 0.5 else { return }
-        lastColumnWidth = width
+      let width = contentView.bounds.width
+      guard width > 0, abs(width - lastColumnWidth) > 0.5 else { return }
+      lastColumnWidth = width
 
-        guard let column = tableView.tableColumns.first else {
-            fatalError("WuiList requires one NSTableColumn")
-        }
-        column.width = width
-        tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<flatLayout.count))
-        tableView.reloadData()
+      guard let column = tableView.tableColumns.first else {
+        fatalError("WuiList requires one NSTableColumn")
+      }
+      column.width = width
+      tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<flatLayout.count))
+      tableView.reloadData()
     }
 
     // MARK: - NSTableViewDataSource
 
     func numberOfRows(in tableView: NSTableView) -> Int {
-        return flatLayout.count
+      return flatLayout.count
     }
 
     // MARK: - Drag and Drop
@@ -864,149 +880,196 @@ final class WuiList: NSScrollView, WuiComponent, NSTableViewDataSource, NSTableV
     // A row dragged across a section boundary would have to acquire/lose its
     // section marker, which the current Rust API cannot express.
 
-    func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
-        guard onMovePtr != nil, sectionGroups.count <= 1 else { return nil }
-        guard case .row = flatLayout[row] else { return nil }
-        let item = NSPasteboardItem()
-        item.setString(String(row), forType: Self.dragType)
-        return item
+    func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (
+      any NSPasteboardWriting
+    )? {
+      guard onMovePtr != nil, sectionGroups.count <= 1 else { return nil }
+      guard case .row = flatLayout[row] else { return nil }
+      let item = NSPasteboardItem()
+      item.setString(String(row), forType: Self.dragType)
+      return item
     }
 
-    func tableView(_ tableView: NSTableView, validateDrop info: any NSDraggingInfo, proposedRow row: Int, proposedDropOperation dropOperation: NSTableView.DropOperation) -> NSDragOperation {
-        guard sectionGroups.count <= 1 else { return [] }
-        if dropOperation == .above {
-            return .move
-        }
-        return []
+    func tableView(
+      _ tableView: NSTableView, validateDrop info: any NSDraggingInfo, proposedRow row: Int,
+      proposedDropOperation dropOperation: NSTableView.DropOperation
+    ) -> NSDragOperation {
+      guard sectionGroups.count <= 1 else { return [] }
+      if dropOperation == .above {
+        return .move
+      }
+      return []
     }
 
-    func tableView(_ tableView: NSTableView, acceptDrop info: any NSDraggingInfo, row: Int, dropOperation: NSTableView.DropOperation) -> Bool {
-        guard sectionGroups.count <= 1 else { return false }
-        guard let items = info.draggingPasteboard.pasteboardItems,
-              let item = items.first,
-              let rowStr = item.string(forType: Self.dragType),
-              let sourceFlatRow = Int(rowStr),
-              let sourceItem = itemIndex(forFlatRow: sourceFlatRow) else {
-            return false
-        }
+    func tableView(
+      _ tableView: NSTableView, acceptDrop info: any NSDraggingInfo, row: Int,
+      dropOperation: NSTableView.DropOperation
+    ) -> Bool {
+      guard sectionGroups.count <= 1 else { return false }
+      guard let items = info.draggingPasteboard.pasteboardItems,
+        let item = items.first,
+        let rowStr = item.string(forType: Self.dragType),
+        let sourceFlatRow = Int(rowStr),
+        let sourceItem = itemIndex(forFlatRow: sourceFlatRow)
+      else {
+        return false
+      }
 
-        var destinationItem = row
-        if sourceFlatRow < destinationItem {
-            destinationItem -= 1
-        }
+      var destinationItem = row
+      if sourceFlatRow < destinationItem {
+        destinationItem -= 1
+      }
 
-        let movedId = itemIds.remove(at: sourceItem)
-        itemIds.insert(movedId, at: destinationItem)
-        sectionGroups = computeListSectionGroups(contents: contents, count: itemIds.count)
-        flatLayout = Self.buildFlatLayout(from: sectionGroups)
-        tableView.reloadData()
+      let movedId = itemIds.remove(at: sourceItem)
+      itemIds.insert(movedId, at: destinationItem)
+      sectionGroups = computeListSectionGroups(contents: contents, count: itemIds.count)
+      flatLayout = Self.buildFlatLayout(from: sectionGroups)
+      tableView.reloadData()
 
-        if let movePtr = onMovePtr {
-            waterui_call_move_action(movePtr, env.inner, UInt(sourceItem), UInt(destinationItem))
-        }
+      if let movePtr = onMovePtr {
+        waterui_call_move_action(movePtr, env.inner, UInt(sourceItem), UInt(destinationItem))
+      }
 
-        return true
+      return true
     }
 
     // MARK: - NSTableViewDelegate
 
-    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        guard row >= 0, row < flatLayout.count else { return nil }
-        switch flatLayout[row] {
-        case let .header(label, _):
-            return WuiListSectionHeaderView(text: label, kind: .header)
-        case let .footer(label, _):
-            return WuiListSectionHeaderView(text: label, kind: .footer)
-        case let .row(itemIndex):
-            let item = resolveListItem(from: contents, at: itemIndex, env: env)
-            let itemId = itemIds[itemIndex]
-            let containerView = WuiListRowContainerView()
-            containerView.translatesAutoresizingMaskIntoConstraints = true
-            containerView.configure(
-                with: item.view,
-                itemId: itemId,
-                deletable: item.deletable,
-                showsDeleteControl: isInEditMode && onDeletePtr != nil,
-                target: self,
-                action: #selector(deleteButtonClicked(_:))
-            ) { [weak self] _ in
-                guard let self else { return }
-                guard let reloadItemIndex = self.itemIds.firstIndex(of: itemId),
-                      let reloadFlat = self.flatRow(forItemIndex: reloadItemIndex) else { return }
-                self.tableView.reloadData(
-                    forRowIndexes: IndexSet(integer: reloadFlat),
-                    columnIndexes: IndexSet(integer: 0)
-                )
-            }
-            return containerView
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int)
+      -> NSView?
+    {
+      guard row >= 0, row < flatLayout.count else { return nil }
+      switch flatLayout[row] {
+      case .header(let label, _):
+        return WuiListSectionHeaderView(text: label, kind: .header, env: env)
+      case .footer(let label, _):
+        return WuiListSectionHeaderView(text: label, kind: .footer, env: env)
+      case .row(let itemIndex):
+        let item = resolveListItem(from: contents, at: itemIndex, env: env)
+        let itemId = itemIds[itemIndex]
+        let containerView = WuiListRowContainerView()
+        containerView.translatesAutoresizingMaskIntoConstraints = true
+        containerView.configure(
+          with: item.view,
+          itemId: itemId,
+          deletable: item.deletable,
+          showsDeleteControl: isInEditMode && onDeletePtr != nil,
+          target: self,
+          action: #selector(deleteButtonClicked(_:))
+        ) { [weak self] _ in
+          guard let self else { return }
+          guard let reloadItemIndex = self.itemIds.firstIndex(of: itemId),
+            let reloadFlat = self.flatRow(forItemIndex: reloadItemIndex)
+          else { return }
+          self.tableView.reloadData(
+            forRowIndexes: IndexSet(integer: reloadFlat),
+            columnIndexes: IndexSet(integer: 0)
+          )
         }
+        return containerView
+      }
     }
 
     @objc private func deleteButtonClicked(_ sender: NSButton) {
-        guard let raw = sender.identifier?.rawValue, let id = Int32(raw),
-              let itemIndex = itemIds.firstIndex(of: id),
-              let flat = flatRow(forItemIndex: itemIndex) else {
-            return
-        }
-        deleteItem(at: flat)
+      guard let raw = sender.identifier?.rawValue, let id = Int32(raw),
+        let itemIndex = itemIds.firstIndex(of: id),
+        let flat = flatRow(forItemIndex: itemIndex)
+      else {
+        return
+      }
+      deleteItem(at: flat)
     }
 
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
-        let rowView = NSTableRowView()
-        rowView.isEmphasized = true
-        return rowView
+      let rowView = NSTableRowView()
+      rowView.isEmphasized = true
+      return rowView
     }
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-        guard row >= 0, row < flatLayout.count else { return 44 }
-        switch flatLayout[row] {
-        case .header:
-            return 38
-        case .footer:
-            return 32
-        case let .row(itemIndex):
-            let item = resolveListItem(from: contents, at: itemIndex, env: env)
-            let size = item.view.sizeThatFits(WuiProposalSize(width: Float(tableView.bounds.width), height: nil))
-            return max(size.height, 44)
-        }
+      guard row >= 0, row < flatLayout.count else { return 44 }
+      switch flatLayout[row] {
+      case .header:
+        return 38
+      case .footer:
+        return 32
+      case .row(let itemIndex):
+        let item = resolveListItem(from: contents, at: itemIndex, env: env)
+        let size = item.view.sizeThatFits(
+          WuiProposalSize(width: Float(tableView.bounds.width), height: nil))
+        return max(size.height, 44)
+      }
     }
 
     func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
-        guard row >= 0, row < flatLayout.count else { return false }
-        switch flatLayout[row] {
-        case .header, .footer: return false
-        case .row: return true
-        }
+      guard row >= 0, row < flatLayout.count else { return false }
+      switch flatLayout[row] {
+      case .header, .footer: return false
+      case .row: return true
+      }
     }
-}
+  }
 
-/// Bold/secondary text view used as section header or footer in the macOS
-/// `NSTableView`-based list.
-@MainActor
-private final class WuiListSectionHeaderView: NSView {
+  /// Theme-aware section header or footer in the macOS `NSTableView`-based list.
+  @MainActor
+  private final class WuiListSectionHeaderView: NSView {
     enum Kind { case header, footer }
 
-    init(text: String, kind: Kind) {
-        super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = true
-        wantsLayer = true
+    private let label: NSTextField
+    private var foregroundObservation: WuiComputedObservation<WuiResolvedColor>?
+    private var fontObservation: WuiComputedObservation<WuiResolvedFontValue>?
 
-        let label = NSTextField(labelWithString: text.uppercased())
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
-        label.textColor = .secondaryLabelColor
-        addSubview(label)
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -16),
-            label.topAnchor.constraint(equalTo: topAnchor, constant: kind == .header ? 14 : 6),
-            label.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -6),
-        ])
+    init(text: String, kind: Kind, env: WuiEnvironment) {
+      self.label = NSTextField(labelWithString: text.uppercased())
+      super.init(frame: .zero)
+      translatesAutoresizingMaskIntoConstraints = true
+      wantsLayer = true
+
+      label.translatesAutoresizingMaskIntoConstraints = false
+      addSubview(label)
+      NSLayoutConstraint.activate([
+        label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+        label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -16),
+        label.topAnchor.constraint(equalTo: topAnchor, constant: kind == .header ? 14 : 6),
+        label.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -6),
+      ])
+
+      let foreground = WuiComputedObservation(
+        themeColor: WuiColorSlot_MutedForeground,
+        env: env
+      ) { [weak self] color, _ in
+        self?.applyForeground(color)
+      }
+      let fontSlot: WuiFontSlot
+      switch kind {
+      case .header:
+        fontSlot = WuiFontSlot_Caption
+      case .footer:
+        fontSlot = WuiFontSlot_Footnote
+      }
+      let font = WuiComputedObservation(themeFont: fontSlot, env: env) {
+        [weak self] font, _ in self?.applyFont(font)
+      }
+      foregroundObservation = foreground
+      fontObservation = font
+      applyForeground(foreground.value)
+      applyFont(font.value)
+    }
+
+    private func applyForeground(_ color: WuiResolvedColor) {
+      label.textColor = color.toNSColor()
+    }
+
+    private func applyFont(_ font: WuiResolvedFontValue) {
+      label.font = NSFont.systemFont(
+        ofSize: CGFloat(font.size),
+        weight: font.weight.toNSFontWeight()
+      )
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+      fatalError("init(coder:) has not been implemented")
     }
-}
+  }
 #endif

@@ -12,163 +12,164 @@
 // // - Priority: 0 (default)
 
 import CWaterUI
-import os.log
 
 #if canImport(UIKit)
-import UIKit
+  import UIKit
 #elseif canImport(AppKit)
-import AppKit
+  import AppKit
 #endif
-
-private let logger = Logger(subsystem: "dev.waterui", category: "layout")
 
 /// A native container that uses the Rust layout engine for child positioning.
 /// FixedContainer has a fixed array of children - no lazy loading support.
 @MainActor
 final class WuiFixedContainer: PlatformView, WuiComponent {
-    static var rawId: CWaterUI.WuiTypeId { waterui_fixed_container_id() }
+  static var rawId: CWaterUI.WuiTypeId { waterui_fixed_container_id() }
 
-    private(set) var stretchAxis: WuiStretchAxis
+  private(set) var stretchAxis: WuiStretchAxis
 
-    private var wuiLayout: WuiLayout
-    private var childViews: [WuiAnyView]
-    private var cachedSubViews: CachedSubViewArray?
-    private let bridge = NativeLayoutBridge()
+  private var wuiLayout: WuiLayout
+  private var childViews: [WuiAnyView]
+  private var cachedSubViews: CachedSubViewArray?
+  private let bridge = NativeLayoutBridge()
 
-    // MARK: - WuiComponent Init
+  // MARK: - WuiComponent Init
 
-    convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
-        let stretchAxis = WuiStretchAxis(waterui_view_stretch_axis(anyview))
-        let container: CWaterUI.WuiFixedContainer = waterui_force_as_fixed_container(anyview)
-        let layout = WuiLayout(inner: container.layout!)
-        let pointerArray = WuiArray<OpaquePointer>(container.contents)
-        let childViews = pointerArray.toArray().map {
-            WuiAnyView(anyview: $0, env: env)
-        }
-        self.init(stretchAxis: stretchAxis, layout: layout, children: childViews)
+  convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
+    let stretchAxis = WuiStretchAxis(waterui_view_stretch_axis(anyview))
+    let container: CWaterUI.WuiFixedContainer = waterui_force_as_fixed_container(anyview)
+    let layout = WuiLayout(inner: container.layout!)
+    let pointerArray = WuiArray<OpaquePointer>(container.contents)
+    let childViews = pointerArray.toArray().map {
+      WuiAnyView(anyview: $0, env: env)
     }
+    self.init(stretchAxis: stretchAxis, layout: layout, children: childViews)
+  }
 
-    // MARK: - Designated Init
+  // MARK: - Designated Init
 
-    init(stretchAxis: WuiStretchAxis, layout: WuiLayout, children: [WuiAnyView]) {
-        self.stretchAxis = stretchAxis
-        self.wuiLayout = layout
-        self.childViews = children
-        super.init(frame: .zero)
-        setChildren(children)
-    }
+  init(stretchAxis: WuiStretchAxis, layout: WuiLayout, children: [WuiAnyView]) {
+    self.stretchAxis = stretchAxis
+    self.wuiLayout = layout
+    self.childViews = children
+    super.init(frame: .zero)
+    wuiLayout.setOwner(self)
+    setChildren(children)
+  }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
+  @available(*, unavailable)
+  required init?(coder: NSCoder) {
+    fatalError("init(coder:) has not been implemented")
+  }
 
-    // MARK: - WuiComponent
+  // MARK: - WuiComponent
 
-    func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
-        measure(proposal).cgSize
-    }
+  func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
+    measure(proposal).cgSize
+  }
 
-    func measure(_ proposal: WuiProposalSize) -> WuiViewDimensions {
-        return bridge.containerMeasure(
-            layout: wuiLayout,
-            parentProposal: proposal,
-            children: subViewCache()
-        )
-    }
+  func measure(_ proposal: WuiProposalSize) -> WuiViewDimensions {
+    return bridge.containerMeasure(
+      layout: wuiLayout,
+      parentProposal: proposal,
+      children: subViewCache()
+    )
+  }
 
-    // MARK: - Layout
+  // MARK: - Layout
 
-    #if canImport(UIKit)
+  #if canImport(UIKit)
     override func layoutSubviews() {
-        super.layoutSubviews()
-        performLayout()
+      super.layoutSubviews()
+      performLayout()
     }
 
     override func sizeThatFits(_ size: CGSize) -> CGSize {
-        let proposal = WuiProposalSize(size: size)
-        return sizeThatFits(proposal)
+      let proposal = WuiProposalSize(size: size)
+      return sizeThatFits(proposal)
     }
 
     override var intrinsicContentSize: CGSize {
-        sizeThatFits(WuiProposalSize())
+      sizeThatFits(WuiProposalSize())
     }
-    #elseif canImport(AppKit)
+  #elseif canImport(AppKit)
     override func layout() {
-        super.layout()
-        performLayout()
+      super.layout()
+      performLayout()
     }
 
     override var fittingSize: NSSize {
-        sizeThatFits(WuiProposalSize())
+      sizeThatFits(WuiProposalSize())
     }
 
     override var intrinsicContentSize: NSSize {
-        sizeThatFits(WuiProposalSize())
+      sizeThatFits(WuiProposalSize())
     }
 
     override var isFlipped: Bool { true }
+  #endif
+
+  private func performLayout() {
+    guard !childViews.isEmpty else { return }
+
+    let rects = bridge.placements(
+      layout: wuiLayout,
+      bounds: bounds,
+      children: subViewCache()
+    )
+
+    precondition(
+      rects.count == childViews.count,
+      "WuiFixedContainer layout returned \(rects.count) placements for \(childViews.count) children"
+    )
+    for (index, pair) in zip(childViews, rects).enumerated() {
+      let (child, rect) = pair
+      var frame = rect
+      precondition(
+        frame.isValidForLayout,
+        "WuiFixedContainer received an invalid layout rect for child \(index): \(frame)"
+      )
+
+      #if canImport(AppKit)
+        // Convert to AppKit coordinate system if not flipped
+        if !isFlipped {
+          frame.origin.y = bounds.height - frame.origin.y - frame.height
+        }
+      #endif
+
+      child.frame = frame
+    }
+  }
+
+  // MARK: - Child Management
+
+  func setChildren(_ newChildren: [WuiAnyView]) {
+    for child in childViews {
+      child.removeFromSuperview()
+    }
+
+    childViews = newChildren
+    cachedSubViews = nil
+    for child in newChildren {
+      child.translatesAutoresizingMaskIntoConstraints = true
+      addSubview(child)
+    }
+
+    #if canImport(UIKit)
+      setNeedsLayout()
+    #elseif canImport(AppKit)
+      needsLayout = true
     #endif
+  }
 
-    private func performLayout() {
-        guard !childViews.isEmpty else { return }
-
-        let rects = bridge.placements(
-            layout: wuiLayout,
-            bounds: bounds,
-            children: subViewCache()
-        )
-
-        for (index, rect) in rects.enumerated() {
-            guard index < childViews.count else { break }
-            var frame = rect
-            guard frame.isValidForLayout else {
-                let frameDesc = frame.debugDescription
-                logger.warning("WuiFixedContainer received invalid rect for child \(index): \(frameDesc)")
-                continue
-            }
-
-            #if canImport(AppKit)
-            // Convert to AppKit coordinate system if not flipped
-            if !isFlipped {
-                frame.origin.y = bounds.height - frame.origin.y - frame.height
-            }
-            #endif
-
-            childViews[index].frame = frame
-        }
+  private func subViewCache() -> CachedSubViewArray {
+    if let cachedSubViews {
+      return cachedSubViews
     }
 
-    // MARK: - Child Management
-
-    func setChildren(_ newChildren: [WuiAnyView]) {
-        for child in childViews {
-            child.removeFromSuperview()
-        }
-
-        childViews = newChildren
-        cachedSubViews = nil
-        for child in newChildren {
-            child.translatesAutoresizingMaskIntoConstraints = true
-            addSubview(child)
-        }
-
-        #if canImport(UIKit)
-        setNeedsLayout()
-        #elseif canImport(AppKit)
-            needsLayout = true
-        #endif
+    let cache = bridge.createCachedSubViewArray(children: childViews) { child, childProposal in
+      child.measure(childProposal)
     }
-
-    private func subViewCache() -> CachedSubViewArray {
-        if let cachedSubViews {
-            return cachedSubViews
-        }
-
-        let cache = bridge.createCachedSubViewArray(children: childViews) { child, childProposal in
-            child.measure(childProposal)
-        }
-        cachedSubViews = cache
-        return cache
-    }
+    cachedSubViews = cache
+    return cache
+  }
 }

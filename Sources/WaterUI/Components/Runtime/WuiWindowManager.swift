@@ -12,393 +12,491 @@
 // - Material blur effects are handled via MaterialBackground metadata on content
 
 import CWaterUI
-import os.log
+import OSLog
 
 #if canImport(AppKit)
-import AppKit
-import QuartzCore
+  import AppKit
+  import QuartzCore
 #elseif canImport(UIKit)
-import UIKit
+  import UIKit
 #endif
-
-private let logger = Logger(subsystem: "dev.waterui", category: "WindowManager")
 
 // MARK: - Window Show Implementation
 
+private struct WuiWindowManagerInvocation: @unchecked Sendable {
+  let context: UnsafeMutableRawPointer?
+  let window: WuiWindow
+}
+
 /// C-compatible function pointer for showing windows.
 /// Called by Rust when a Window view is rendered.
-private let showWindowImpl: @convention(c) (WuiWindow) -> Void = { wuiWindow in
-    #if os(macOS)
-    // Capture the window data to safely pass across actor boundaries
-    nonisolated(unsafe) let capturedWindow = wuiWindow
-    // Defer window creation to the next run loop iteration to avoid reentrancy
-    // issues with the environment during the parent view's body() call
-    DispatchQueue.main.async {
-        MainActor.assumeIsolated {
-            WindowManagerImpl.shared.showWindow(capturedWindow)
-        }
+private let showWindowImpl: @convention(c) (UnsafeMutableRawPointer?, WuiWindow) -> Void = {
+  context, wuiWindow in
+  precondition(Thread.isMainThread, "WindowManager must be invoked on WaterUI's UI executor")
+  let invocation = WuiWindowManagerInvocation(context: context, window: wuiWindow)
+  MainActor.assumeIsolated {
+    guard let context = invocation.context else {
+      fatalError("WaterUI WindowManager received a null owner context")
     }
+    let services = Unmanaged<WuiNativeServices>.fromOpaque(context).takeUnretainedValue()
+    guard let env = services.environment else {
+      fatalError("WaterUI WindowManager outlived its application environment")
+    }
+    #if os(macOS)
+      // Preserve the owned descriptor until the parent body evaluation returns.
+      DispatchQueue.main.async {
+        services.windowManager.showWindow(invocation.window, env: env)
+      }
     #else
-    // iOS doesn't support creating new windows in the traditional sense
-    logger.warning("Multi-window not supported on iOS.")
+      fatalError("WaterUI multi-window is unsupported on iOS")
     #endif
+  }
 }
 
-/// Get the window title from a WuiWindow
-@MainActor
-private func getWindowTitle(_ titlePtr: OpaquePointer?) -> String {
-    guard let titlePtr else { return "Untitled" }
-    let ffiStr = waterui_read_computed_str(titlePtr)
-    return WuiStr(ffiStr).toString()
-}
+#if os(macOS)
+  @MainActor
+  private final class WindowResources {
+    var titleObservation: WuiComputedObservation<WuiStr>?
 
-private final class WindowResources {
-    var title: OpaquePointer?
-    var titleWatcher: WatcherGuard?
+    var frameBinding: WuiBinding<CWaterUI.WuiRect>?
+    var frameWatcher: WatcherGuard?
+    private var isApplyingFrame = false
 
-    var stateBinding: OpaquePointer?
+    var stateBinding: WuiBinding<CWaterUI.WuiWindowState>?
     var stateWatcher: WatcherGuard?
+    weak var window: NSWindow?
 
-    var minSize: OpaquePointer?
-    var minSizeWatcher: WatcherGuard?
+    var minSizeObservation: WuiComputedObservation<CWaterUI.WuiSize>?
 
-    var maxSize: OpaquePointer?
-    var maxSizeWatcher: WatcherGuard?
+    var maxSizeObservation: WuiComputedObservation<CWaterUI.WuiSize>?
+    var backgroundObservation: WuiComputedObservation<WuiResolvedColor>?
 
     func stopWatchers() {
-        titleWatcher = nil
-        stateWatcher = nil
-        minSizeWatcher = nil
-        maxSizeWatcher = nil
+      titleObservation = nil
+      frameWatcher = nil
+      stateWatcher = nil
+      minSizeObservation = nil
+      maxSizeObservation = nil
+      backgroundObservation = nil
     }
 
-    deinit {
-        stopWatchers()
-
-        if let stateBinding {
-            waterui_drop_binding_window_state(stateBinding)
-        }
-        if let title {
-            waterui_drop_computed_str(title)
-        }
-        if let minSize {
-            waterui_drop_computed_size(minSize)
-        }
-        if let maxSize {
-            waterui_drop_computed_size(maxSize)
-        }
+    @MainActor deinit {
+      stopWatchers()
     }
-}
+
+    var initialFrame: NSRect {
+      guard let frameBinding else {
+        fatalError("Window frame binding was not installed")
+      }
+      let frame = WuiRect(frameBinding.value).cgRect
+      precondition(frame.width > 0 && frame.height > 0, "Window frame must have non-zero size")
+      return frame
+    }
+
+    func startWatchingFrame(window: NSWindow) {
+      guard let frameBinding else {
+        fatalError("Window frame binding was not installed")
+      }
+      frameWatcher = frameBinding.watch { [weak self, weak window] rawFrame, metadata in
+        guard let self, let window else { return }
+        let frame = WuiRect(rawFrame).cgRect
+        precondition(frame.width > 0 && frame.height > 0, "Window frame must have non-zero size")
+        guard window.frame != frame else { return }
+        isApplyingFrame = true
+        window.setFrame(frame, display: true, animate: metadata.animation != nil)
+        isApplyingFrame = false
+      }
+
+      let frame = WuiRect(frameBinding.value).cgRect
+      precondition(frame.width > 0 && frame.height > 0, "Window frame must have non-zero size")
+      if window.frame != frame {
+        isApplyingFrame = true
+        window.setFrame(frame, display: true)
+        isApplyingFrame = false
+      }
+    }
+
+    func publishFrame(of window: NSWindow) {
+      guard !isApplyingFrame else { return }
+      guard let frameBinding else {
+        fatalError("Window frame binding was not installed")
+      }
+      guard WuiRect(frameBinding.value).cgRect != window.frame else { return }
+      frameBinding.set(WuiRect(window.frame).toCStruct())
+    }
+
+    func applyState(_ state: WuiWindowState) {
+      guard let window else {
+        fatalError("Window state binding outlived its NSWindow")
+      }
+      switch state {
+      case WuiWindowState_Normal:
+        if window.isMiniaturized {
+          window.deminiaturize(nil)
+        } else if window.styleMask.contains(.fullScreen) {
+          window.toggleFullScreen(nil)
+        }
+      case WuiWindowState_Closed:
+        window.close()
+      case WuiWindowState_Minimized:
+        if !window.isMiniaturized {
+          window.miniaturize(nil)
+        }
+      case WuiWindowState_Fullscreen:
+        if !window.styleMask.contains(.fullScreen) {
+          window.toggleFullScreen(nil)
+        }
+      default:
+        fatalError("Unsupported Window state: \(state.rawValue)")
+      }
+    }
+
+    func publishState(_ state: WuiWindowState) {
+      guard let stateBinding else {
+        fatalError("Window state binding was not installed")
+      }
+      guard stateBinding.value != state else { return }
+      stateBinding.set(state)
+    }
+  }
+#endif
 
 /// Installs the WindowManager into the environment.
 /// Call this during WaterUI initialization to enable multi-window functionality.
-public func installWindowManager(env: OpaquePointer?) {
-    waterui_env_install_window_manager(env, showWindowImpl)
+@MainActor
+func installWindowManager(env: OpaquePointer, services: WuiNativeServices) {
+  waterui_env_install_window_manager(
+    env,
+    retainWuiNativeServices(services),
+    showWindowImpl,
+    dropWuiNativeServices
+  )
 }
 
 // MARK: - macOS Window Manager Implementation
 
 #if os(macOS)
 
-/// Swift implementation of WindowManager for macOS
-@MainActor
-final class WindowManagerImpl {
-    static let shared = WindowManagerImpl()
-
+  /// Swift implementation of WindowManager for macOS
+  @MainActor
+  final class WindowManagerImpl {
     /// Track active windows to prevent deallocation
     private var activeWindows: [NSWindow] = []
 
-    private init() {}
+    init() {}
 
     /// Show a window using the WuiWindow configuration
-    func showWindow(_ wuiWindow: WuiWindow) {
-        logger.debug("showWindow called")
+    func showWindow(_ wuiWindow: WuiWindow, env: WuiEnvironment) {
+      Logger.waterui.debug("showWindow called")
 
-        guard let rawContent = wuiWindow.content else {
-            logger.error("Window content is nil, cannot show window")
-            return
+      guard let rawContent = wuiWindow.content else {
+        fatalError("Window content is null")
+      }
+      // Convert UnsafeMutablePointer to OpaquePointer via UnsafeMutableRawPointer
+      let contentPtr = OpaquePointer(UnsafeMutableRawPointer(rawContent))
+      Logger.waterui.debug("Content pointer: \(String(describing: contentPtr))")
+
+      Logger.waterui.debug("Environment: \(String(describing: env.inner))")
+
+      let resources = WindowResources()
+      guard let rawTitle = wuiWindow.title else {
+        fatalError("Window title signal is null")
+      }
+      let titleObservation = WuiComputedObservation(
+        WuiComputed<WuiStr>(OpaquePointer(UnsafeMutableRawPointer(rawTitle)))
+      ) { [weak resources] title, _ in
+        resources?.window?.title = title.toString()
+      }
+      resources.titleObservation = titleObservation
+
+      guard let frame = wuiWindow.frame else {
+        fatalError("Window frame binding is null")
+      }
+      resources.frameBinding = WuiBinding<CWaterUI.WuiRect>(
+        OpaquePointer(UnsafeMutableRawPointer(frame))
+      )
+
+      guard let state = wuiWindow.state else {
+        fatalError("Window state binding is null")
+      }
+      let stateBinding = WuiBinding<CWaterUI.WuiWindowState>(
+        OpaquePointer(UnsafeMutableRawPointer(state))
+      )
+      resources.stateBinding = stateBinding
+
+      Logger.waterui.debug("Creating window: \(titleObservation.value.toString())")
+
+      // Create window with appropriate style
+      var styleMask = windowStyleMask(from: wuiWindow.style)
+      if wuiWindow.resizable {
+        styleMask.insert(.resizable)
+      }
+      if !wuiWindow.closable {
+        styleMask.remove(.closable)
+      }
+      let frameRect = resources.initialFrame
+      let contentRect = NSWindow.contentRect(forFrameRect: frameRect, styleMask: styleMask)
+
+      let window = NSWindow(
+        contentRect: contentRect,
+        styleMask: styleMask,
+        backing: .buffered,
+        defer: false
+      )
+
+      window.isReleasedWhenClosed = false
+      resources.window = window
+      window.title = titleObservation.value.toString()
+
+      // Optional toolbar content rendered in the titlebar.
+      // This uses NSTitlebarAccessoryViewController so the toolbar automatically
+      // benefits from the system titlebar materials (macOS “liquid glass”).
+      if let rawToolbar = wuiWindow.toolbar {
+        let toolbarPtr = OpaquePointer(UnsafeMutableRawPointer(rawToolbar))
+        let toolbarView = WuiAnyView(anyview: toolbarPtr, env: env)
+
+        let accessory = NSTitlebarAccessoryViewController()
+        accessory.view = toolbarView
+        accessory.layoutAttribute = .top
+        window.addTitlebarAccessoryViewController(accessory)
+
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+
+        objc_setAssociatedObject(
+          window, "windowToolbarAccessory", accessory, .OBJC_ASSOCIATION_RETAIN)
+      }
+
+      let contentView = WuiAnyView(anyview: contentPtr, env: env)
+
+      // Create container and apply background
+      // Note: Material blur is now handled via MaterialBackground metadata on content,
+      // not as a window background style. Window only supports Opaque and Color.
+      let containerView = NSView(frame: NSRect(origin: .zero, size: contentRect.size))
+      containerView.wantsLayer = true
+
+      switch wuiWindow.background.tag {
+      case WuiWindowBackground_Color:
+        guard let colorPtr = wuiWindow.background.color.color else {
+          fatalError("Window color background has no Color handle")
         }
-        // Convert UnsafeMutablePointer to OpaquePointer via UnsafeMutableRawPointer
-        let contentPtr = OpaquePointer(UnsafeMutableRawPointer(rawContent))
-        logger.debug("Content pointer: \(String(describing: contentPtr))")
-
-        // Use the global environment for rendering window content
-        guard let globalEnv = globalEnvironment else {
-            logger.error("Global environment is nil, cannot show window")
-            return
+        let ownedColor = OpaquePointer(UnsafeMutableRawPointer(colorPtr))
+        let resolved = waterui_resolve_color(ownedColor, env.inner)
+        waterui_drop_color(ownedColor)
+        guard let resolved else {
+          fatalError("Window color background could not be resolved")
         }
-        logger.debug("Global environment: \(String(describing: globalEnv.inner))")
-
-        let resources = WindowResources()
-        resources.title = wuiWindow.title.map { OpaquePointer(UnsafeMutableRawPointer($0)) }
-        resources.stateBinding = wuiWindow.state.map { OpaquePointer(UnsafeMutableRawPointer($0)) }
-        resources.minSize = wuiWindow.min_size.map { OpaquePointer(UnsafeMutableRawPointer($0)) }
-        resources.maxSize = wuiWindow.max_size.map { OpaquePointer(UnsafeMutableRawPointer($0)) }
-
-        // Get window title
-        let title = getWindowTitle(resources.title)
-        logger.debug("Creating window: \(title)")
-
-        // Create window with appropriate style
-        let styleMask = windowStyleMask(from: wuiWindow.style)
-        let contentRect = NSRect(x: 100, y: 100, width: 800, height: 600)
-
-        let window = NSWindow(
-            contentRect: contentRect,
-            styleMask: styleMask,
-            backing: .buffered,
-            defer: false
+        resources.backgroundObservation = observeWindowBackground(
+          WuiComputed<WuiResolvedColor>(resolved),
+          window: window
         )
-
-        window.title = title
-        window.isReleasedWhenClosed = false
-
-        // Configure window properties
-        if wuiWindow.resizable {
-            window.styleMask.insert(.resizable)
+      case WuiWindowBackground_Opaque:
+        guard let background = waterui_theme_color(env.inner, WuiColorSlot_Background) else {
+          fatalError("Window background requires the theme Background color")
         }
-        if !wuiWindow.closable {
-            window.styleMask.remove(.closable)
-        }
-
-        // Optional toolbar content rendered in the titlebar.
-        // This uses NSTitlebarAccessoryViewController so the toolbar automatically
-        // benefits from the system titlebar materials (macOS “liquid glass”).
-        if let rawToolbar = wuiWindow.toolbar {
-            let toolbarPtr = OpaquePointer(UnsafeMutableRawPointer(rawToolbar))
-            let toolbarView = WuiAnyView(anyview: toolbarPtr, env: globalEnv)
-
-            let accessory = NSTitlebarAccessoryViewController()
-            accessory.view = toolbarView
-            accessory.layoutAttribute = .top
-            window.addTitlebarAccessoryViewController(accessory)
-
-            window.titleVisibility = .hidden
-            window.titlebarAppearsTransparent = true
-
-            objc_setAssociatedObject(window, "windowToolbarAccessory", accessory, .OBJC_ASSOCIATION_RETAIN)
-        }
-
-        // Create content view by rendering the WuiAnyView with the global environment
-        let contentView = WuiAnyView(anyview: contentPtr, env: globalEnv)
-
-        // Create container and apply background
-        // Note: Material blur is now handled via MaterialBackground metadata on content,
-        // not as a window background style. Window only supports Opaque and Color.
-        let containerView = NSView(frame: contentRect)
-        containerView.wantsLayer = true
-
-        switch wuiWindow.background.tag {
-        case WuiWindowBackground_Color:
-            if let colorPtr = wuiWindow.background.color.color {
-                // Native takes ownership of the color pointer passed in `WuiWindowBackground::Color`.
-                // Resolve it once for the NSWindow and then drop the pointer.
-                let env = globalEnv.inner
-                let ownedColor = OpaquePointer(UnsafeMutableRawPointer(colorPtr))
-                defer { waterui_drop_color(ownedColor) }
-
-                if let resolvedSignal = waterui_resolve_color(ownedColor, env) {
-                    let resolvedColor = waterui_read_computed_resolved_color(resolvedSignal)
-                    let nsColor = NSColor(
-                        red: CGFloat(resolvedColor.red),
-                        green: CGFloat(resolvedColor.green),
-                        blue: CGFloat(resolvedColor.blue),
-                        alpha: CGFloat(resolvedColor.opacity)
-                    )
-                    window.backgroundColor = nsColor
-                    window.isOpaque = resolvedColor.opacity >= 1.0
-                    window.hasShadow = true
-                    waterui_drop_computed_resolved_color(resolvedSignal)
-                }
-            }
-
-        default: // Opaque
-            window.backgroundColor = .windowBackgroundColor
-            window.isOpaque = true
-        }
-
-        // Add content on top of container
-        containerView.addSubview(contentView)
-        window.contentView = containerView
-
-        // Set up window delegate to track state changes and update binding on native close
-        let delegate = WindowDelegate(
-            resources: resources,
-            contentView: contentView,
-            onClose: { [weak self] closedWindow in
-                self?.removeWindow(closedWindow)
-            }
+        resources.backgroundObservation = observeWindowBackground(
+          WuiComputed<WuiResolvedColor>(background),
+          window: window
         )
-        window.delegate = delegate
+      default:
+        fatalError("Unsupported window background: \(wuiWindow.background.tag.rawValue)")
+      }
 
-        // Keep delegate alive
-        objc_setAssociatedObject(window, "windowDelegate", delegate, .OBJC_ASSOCIATION_RETAIN)
+      // Add content on top of container
+      containerView.addSubview(contentView)
+      window.contentView = containerView
 
-        // Watch the window's state binding for programmatic changes (close/minimize/fullscreen)
-        if let stateBindingPtr = resources.stateBinding {
-            resources.stateWatcher = watchWindowState(stateBindingPtr, window: window)
+      // Set up window delegate to track state changes and update binding on native close
+      let delegate = WindowDelegate(
+        resources: resources,
+        contentView: contentView,
+        onClose: { [weak self] closedWindow in
+          self?.removeWindow(closedWindow)
         }
+      )
+      window.delegate = delegate
 
-        // Watch title for live updates
-        if let titlePtr = resources.title {
-            let watcher = makeStrWatcher { [weak window] str, _ in
-                guard let window else { return }
-                window.title = str.toString()
-            }
-            if let guardPtr = waterui_watch_computed_str(titlePtr, watcher) {
-                resources.titleWatcher = WatcherGuard(guardPtr)
-            }
+      // Keep delegate alive
+      objc_setAssociatedObject(window, "windowDelegate", delegate, .OBJC_ASSOCIATION_RETAIN)
+
+      // Watch the window's state binding for programmatic changes (close/minimize/fullscreen)
+      resources.stateWatcher = stateBinding.watch { [weak resources] state, _ in
+        resources?.applyState(state)
+      }
+      resources.startWatchingFrame(window: window)
+
+      // Explicit Window::min_size: overrides the measured-content resize floor
+      // (without it, the content view keeps deriving contentMinSize from layout).
+      if let rawMinSize = wuiWindow.min_size {
+        let observation = WuiComputedObservation(
+          WuiComputed<CWaterUI.WuiSize>(
+            OpaquePointer(UnsafeMutableRawPointer(rawMinSize))
+          )
+        ) { [weak contentView] size, _ in
+          contentView?.explicitWindowMinSize = NSSize(
+            width: CGFloat(size.width), height: CGFloat(size.height))
         }
-
-        // Explicit Window::min_size: overrides the measured-content resize floor
-        // (without it, the content view keeps deriving contentMinSize from layout).
-        if let minPtr = resources.minSize {
-            let initial = waterui_read_computed_size(minPtr)
-            contentView.explicitWindowMinSize = NSSize(
-                width: CGFloat(initial.width), height: CGFloat(initial.height))
-            let watcher = makeSizeWatcher { [weak contentView] size, _ in
-                contentView?.explicitWindowMinSize = NSSize(
-                    width: CGFloat(size.width), height: CGFloat(size.height))
-            }
-            if let guardPtr = waterui_watch_computed_size(minPtr, watcher) {
-                resources.minSizeWatcher = WatcherGuard(guardPtr)
-            }
-        }
-
-        // Explicit Window::max_size: without one the window stays unconstrained.
-        if let maxPtr = resources.maxSize {
-            let initial = waterui_read_computed_size(maxPtr)
-            window.contentMaxSize = NSSize(
-                width: CGFloat(initial.width), height: CGFloat(initial.height))
-            let watcher = makeSizeWatcher { [weak window] size, _ in
-                window?.contentMaxSize = NSSize(
-                    width: CGFloat(size.width), height: CGFloat(size.height))
-            }
-            if let guardPtr = waterui_watch_computed_size(maxPtr, watcher) {
-                resources.maxSizeWatcher = WatcherGuard(guardPtr)
-            }
-        }
-
-        // Track the window
-        activeWindows.append(window)
-
-        // Ensure mouse move events are delivered for hover-driven interactions (e.g. GpuSurface pointer tracking)
-        window.acceptsMouseMovedEvents = true
-
-        // Layout the content with autoresizing (before waiting for ready)
-        contentView.frame = containerView.bounds
-        contentView.autoresizingMask = [.width, .height]
-        contentView.needsLayout = true
-        contentView.refreshWindowMinSize(force: true)
-
-        // IMPORTANT (GpuSurface first frame on macOS):
-        // CAMetalLayer-backed swapchains often can't produce a drawable until the window is
-        // actually on-screen. To keep native/GPU content appearing consistently, keep the window
-        // transparent while warm-up runs, then reveal once ready() completes.
-        window.center()
-        window.alphaValue = 0.0
-        window.makeKeyAndOrderFront(nil)
-
-        Task {
-            await contentView.ready()
-
-            await MainActor.run {
-                NSAnimationContext.runAnimationGroup { context in
-                    context.duration = 0.12
-                    context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                    window.animator().alphaValue = 1.0
-                }
-                logger.debug("Window '\(title)' shown successfully")
-            }
-        }
-    }
-
-    /// Watch the window state binding for programmatic close requests
-    private func watchWindowState(_ binding: OpaquePointer, window: NSWindow) -> WatcherGuard? {
-        // Create a watcher to monitor state changes
-        let windowRef = Unmanaged.passUnretained(window).toOpaque()
-
-        let watcher = waterui_new_watcher_window_state(
-            windowRef,
-            { data, state, _ in
-                guard let data = data else { return }
-                let window = Unmanaged<NSWindow>.fromOpaque(data).takeUnretainedValue()
-
-                if state == WuiWindowState_Closed {
-                    Task { @MainActor in
-                        window.close()
-                    }
-                } else if state == WuiWindowState_Minimized {
-                    Task { @MainActor in
-                        window.miniaturize(nil)
-                    }
-                } else if state == WuiWindowState_Fullscreen {
-                    Task { @MainActor in
-                        window.toggleFullScreen(nil)
-                    }
-                }
-            },
-            nil  // No drop needed - window lifecycle manages this
+        resources.minSizeObservation = observation
+        let size = observation.value
+        contentView.explicitWindowMinSize = NSSize(
+          width: CGFloat(size.width), height: CGFloat(size.height)
         )
+      }
 
-        if let watcher = watcher, let guard_ = waterui_watch_binding_window_state(binding, watcher) {
-            return WatcherGuard(guard_)
+      // Explicit Window::max_size: without one the window stays unconstrained.
+      if let rawMaxSize = wuiWindow.max_size {
+        let observation = WuiComputedObservation(
+          WuiComputed<CWaterUI.WuiSize>(
+            OpaquePointer(UnsafeMutableRawPointer(rawMaxSize))
+          )
+        ) { [weak window] size, _ in
+          window?.contentMaxSize = NSSize(
+            width: CGFloat(size.width), height: CGFloat(size.height))
         }
-        return nil
+        resources.maxSizeObservation = observation
+        let size = observation.value
+        window.contentMaxSize = NSSize(
+          width: CGFloat(size.width), height: CGFloat(size.height)
+        )
+      }
+
+      // Track the window
+      activeWindows.append(window)
+
+      // Ensure mouse move events are delivered for hover-driven interactions (e.g. GpuSurface pointer tracking)
+      window.acceptsMouseMovedEvents = true
+
+      // Layout the content with autoresizing (before waiting for ready)
+      contentView.frame = containerView.bounds
+      contentView.autoresizingMask = [.width, .height]
+      contentView.needsLayout = true
+      contentView.refreshWindowMinSize(force: true)
+
+      // IMPORTANT (GpuSurface first frame on macOS):
+      // CAMetalLayer-backed swapchains often can't produce a drawable until the window is
+      // actually on-screen. To keep native/GPU content appearing consistently, keep the window
+      // transparent while warm-up runs, then reveal once ready() completes.
+      window.alphaValue = 0.0
+      window.makeKeyAndOrderFront(nil)
+      resources.applyState(stateBinding.value)
+
+      Task { @MainActor in
+        await contentView.ready()
+
+        await NSAnimationContext.runAnimationGroup { context in
+          context.duration = 0.12
+          context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+          window.animator().alphaValue = 1.0
+        }
+        Logger.waterui.debug("Window '\(window.title)' shown successfully")
+      }
     }
 
     /// Remove a window from tracking
     private func removeWindow(_ window: NSWindow) {
-        activeWindows.removeAll { $0 === window }
+      activeWindows.removeAll { $0 === window }
     }
 
     /// Convert WuiWindowStyle to NSWindow.StyleMask
     private func windowStyleMask(from style: WuiWindowStyle) -> NSWindow.StyleMask {
-        switch style {
-        case WuiWindowStyle_Titled:
-            return [.titled, .closable, .miniaturizable]
-        case WuiWindowStyle_Borderless:
-            return [.borderless]
-        case WuiWindowStyle_FullSizeContentView:
-            return [.titled, .closable, .miniaturizable, .fullSizeContentView]
-        default:
-            return [.titled, .closable, .miniaturizable]
-        }
+      switch style {
+      case WuiWindowStyle_Titled:
+        return [.titled, .closable, .miniaturizable]
+      case WuiWindowStyle_Borderless:
+        return [.borderless]
+      case WuiWindowStyle_FullSizeContentView:
+        return [.titled, .closable, .miniaturizable, .fullSizeContentView]
+      default:
+        fatalError("Unsupported window style: \(style.rawValue)")
+      }
     }
-}
+  }
 
-/// Window delegate to track state changes and cleanup
-private class WindowDelegate: NSObject, NSWindowDelegate {
+  @MainActor
+  private func observeWindowBackground(
+    _ color: WuiComputed<WuiResolvedColor>,
+    window: NSWindow
+  ) -> WuiComputedObservation<WuiResolvedColor> {
+    let observation = WuiComputedObservation(color) { [weak window] color, _ in
+      guard let window else { return }
+      applyWindowBackground(color, to: window)
+    }
+    applyWindowBackground(observation.value, to: window)
+    return observation
+  }
+
+  @MainActor
+  private func applyWindowBackground(_ color: WuiResolvedColor, to window: NSWindow) {
+    window.backgroundColor = color.toNSColor()
+    window.isOpaque = color.opacity >= 1
+    window.hasShadow = true
+  }
+
+  /// Window delegate to track state changes and cleanup
+  @MainActor
+  private class WindowDelegate: NSObject, NSWindowDelegate {
     private var resources: WindowResources?
     let onClose: (NSWindow) -> Void
     /// Reference to the content view for dynamic min size updates
     weak var contentView: WuiAnyView?
 
-    init(resources: WindowResources, contentView: WuiAnyView?, onClose: @escaping (NSWindow) -> Void) {
-        self.resources = resources
-        self.contentView = contentView
-        self.onClose = onClose
-        super.init()
+    init(
+      resources: WindowResources, contentView: WuiAnyView?, onClose: @escaping (NSWindow) -> Void
+    ) {
+      self.resources = resources
+      self.contentView = contentView
+      self.onClose = onClose
+      super.init()
     }
 
     func windowWillClose(_ notification: Notification) {
-        guard let window = notification.object as? NSWindow else { return }
+      guard let window = notification.object as? NSWindow else {
+        fatalError("Window close notification has no NSWindow")
+      }
 
-        // Update the state binding to Closed so Rust knows the window was closed
-        if let binding = resources?.stateBinding {
-            waterui_set_binding_window_state(binding, WuiWindowState_Closed)
-        }
+      // Update the state binding to Closed so Rust knows the window was closed
+      resources?.publishState(WuiWindowState_Closed)
 
-        // Stop watchers first to avoid callbacks racing during teardown.
-        resources?.stopWatchers()
-        resources = nil
+      // Stop watchers first to avoid callbacks racing during teardown.
+      resources?.stopWatchers()
+      resources = nil
 
-        onClose(window)
+      onClose(window)
     }
 
     func windowDidEndLiveResize(_ notification: Notification) {
-        contentView?.refreshWindowMinSize(force: true)
+      contentView?.refreshWindowMinSize(force: true)
     }
-}
+
+    func windowDidMove(_ notification: Notification) {
+      guard let window = notification.object as? NSWindow else {
+        fatalError("Window move notification has no NSWindow")
+      }
+      resources?.publishFrame(of: window)
+    }
+
+    func windowDidResize(_ notification: Notification) {
+      guard let window = notification.object as? NSWindow else {
+        fatalError("Window resize notification has no NSWindow")
+      }
+      resources?.publishFrame(of: window)
+    }
+
+    func windowDidMiniaturize(_ notification: Notification) {
+      resources?.publishState(WuiWindowState_Minimized)
+    }
+
+    func windowDidDeminiaturize(_ notification: Notification) {
+      resources?.publishState(WuiWindowState_Normal)
+    }
+
+    func windowDidEnterFullScreen(_ notification: Notification) {
+      resources?.publishState(WuiWindowState_Fullscreen)
+    }
+
+    func windowDidExitFullScreen(_ notification: Notification) {
+      resources?.publishState(WuiWindowState_Normal)
+    }
+  }
 
 #endif

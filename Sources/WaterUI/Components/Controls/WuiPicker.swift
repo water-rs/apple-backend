@@ -1,360 +1,434 @@
-// WuiPicker.swift
-// Picker component - select from a list of options
-//
-// # Layout Behavior
-// Picker sizes itself to fit its content and never stretches to fill extra space.
-// In a stack, it takes only the space it needs.
-
 import CWaterUI
 
 #if canImport(UIKit)
-import UIKit
+  import UIKit
 #elseif canImport(AppKit)
-import AppKit
+  import AppKit
 #endif
 
-private struct PickerItemData {
-    let id: WuiId
-    let text: String
+private enum PickerStyle {
+  case automatic
+  case menu
+  case radio
+  case segmented
+
+  init(_ style: CWaterUI.WuiPickerStyle) {
+    switch style {
+    case WuiPickerStyle_Automatic:
+      self = .automatic
+    case WuiPickerStyle_Menu:
+      self = .menu
+    case WuiPickerStyle_Radio:
+      self = .radio
+    case WuiPickerStyle_Segmented:
+      self = .segmented
+    default:
+      fatalError("Unsupported picker style: \(style.rawValue)")
+    }
+  }
 }
 
-enum PickerStyle {
-    case automatic
-    case menu
-    case radio
+@MainActor
+private final class PickerItemNode {
+  let collectionId: Int32
+  let tag: WuiId
+  private let labelObservation: WuiComputedObservation<WuiStyledStr>
 
-    init(_ style: CWaterUI.WuiPickerStyle) {
-        switch style {
-        case WuiPickerStyle_Menu:
-            self = .menu
-        case WuiPickerStyle_Radio:
-            self = .radio
-        default:
-            self = .automatic
-        }
+  var text: String { labelObservation.value.toString() }
+
+  init(
+    collectionId: Int32,
+    consuming item: CWaterUI.WuiPickerItem,
+    onChange: @escaping (WuiWatcherMetadata) -> Void
+  ) {
+    precondition(item.tag.inner == collectionId, "Picker item collection id must equal its tag")
+    guard let label = item.label else {
+      fatalError("Picker item has no label signal")
     }
+    self.collectionId = collectionId
+    self.tag = item.tag
+    self.labelObservation = WuiComputedObservation(
+      WuiComputed<WuiStyledStr>(label),
+      onChange: { _, metadata in onChange(metadata) }
+    )
+  }
 }
 
 @MainActor
 final class WuiPicker: PlatformView, WuiComponent {
-    static var rawId: CWaterUI.WuiTypeId { waterui_picker_id() }
+  static var rawId: CWaterUI.WuiTypeId { waterui_picker_id() }
 
-    #if canImport(UIKit)
+  private let source: WuiAnyViews
+  private let collection = WuiStableSemanticCollection<Int32, PickerItemNode>()
+  private let style: PickerStyle
+  private let selectionBinding: WuiBinding<WuiId>
+  private var itemWatcher: WatcherGuard?
+  private var selectionWatcher: WatcherGuard?
+
+  #if canImport(UIKit)
     private let segmentedControl = UISegmentedControl()
     private let menuButton = UIButton(type: .system)
     private let radioStack = UIStackView()
-    #elseif canImport(AppKit)
+    private var radioButtons: [Int32: UIButton] = [:]
+  #elseif canImport(AppKit)
+    private let segmentedControl = NSSegmentedControl()
     private let popupButton = NSPopUpButton()
     private let radioStack = NSStackView()
-    #endif
+    private var popupItems: [Int32: NSMenuItem] = [:]
+    private var radioButtons: [Int32: NSButton] = [:]
+  #endif
 
-    private var items: [PickerItemData] = []
-    private let style: PickerStyle
-    private var selectionBinding: WuiBinding<WuiId>
-    private var itemsComputed: WuiComputed<CWaterUI.WuiArray_WuiPickerItem>
-    private var itemsWatcher: WatcherGuard?
-    private var selectionWatcher: WatcherGuard?
-    private var isSyncingFromBinding = false
+  private var items: [PickerItemNode] { collection.ordered }
 
-    convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
-        let ffiPicker: CWaterUI.WuiPicker = waterui_force_as_picker(anyview)
-        self.init(
-            items: WuiComputed<CWaterUI.WuiArray_WuiPickerItem>(ffiPicker.items!),
-            selection: WuiBinding<WuiId>(ffiPicker.selection!),
-            style: PickerStyle(ffiPicker.style)
-        )
+  convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
+    let picker = waterui_force_as_picker(anyview)
+    guard let items = picker.items else {
+      fatalError("WuiPicker.items is null")
     }
-
-    init(
-        items: WuiComputed<CWaterUI.WuiArray_WuiPickerItem>,
-        selection: WuiBinding<WuiId>,
-        style: PickerStyle
-    ) {
-        self.itemsComputed = items
-        self.selectionBinding = selection
-        self.style = style
-        super.init(frame: .zero)
-        configureSubviews()
-        updateItems(items.value)
-        startWatching()
+    guard let selection = picker.selection else {
+      fatalError("WuiPicker.selection is null")
     }
+    self.init(
+      items: items,
+      selection: WuiBinding<WuiId>(selection),
+      style: PickerStyle(picker.style)
+    )
+  }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+  private init(items: OpaquePointer, selection: WuiBinding<WuiId>, style: PickerStyle) {
+    self.source = WuiAnyViews(items)
+    self.selectionBinding = selection
+    self.style = style
+    super.init(frame: .zero)
+
+    configureSubviews()
+    itemWatcher = watchAnyViewsIds(source) { [weak self] ids, metadata in
+      guard let self else { return }
+      withPlatformAnimation(metadata) {
+        self.reconcile(ids: ids)
+      }
     }
-
-    func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
-        #if canImport(UIKit)
-        switch style {
-        case .automatic:
-            return segmentedControl.intrinsicContentSize
-        case .menu:
-            return menuButton.intrinsicContentSize
-        case .radio:
-            return radioStack.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
-        }
-        #elseif canImport(AppKit)
-        switch style {
-        case .automatic, .menu:
-            return popupButton.intrinsicContentSize
-        case .radio:
-            return radioStack.fittingSize
-        }
-        #endif
+    selectionWatcher = selectionBinding.watch { [weak self] _, metadata in
+      guard let self else { return }
+      withPlatformAnimation(metadata) {
+        self.syncSelection()
+      }
     }
+    reconcile(ids: source.allIds())
+  }
 
-    #if canImport(AppKit)
-    override var isFlipped: Bool { true }
-    #endif
+  @available(*, unavailable)
+  required init?(coder: NSCoder) {
+    fatalError("init(coder:) has not been implemented")
+  }
 
-    private func configureSubviews() {
-        #if canImport(UIKit)
-        segmentedControl.translatesAutoresizingMaskIntoConstraints = false
-        menuButton.translatesAutoresizingMaskIntoConstraints = false
-        radioStack.translatesAutoresizingMaskIntoConstraints = false
-        radioStack.axis = .vertical
-        radioStack.spacing = 8.0
-        menuButton.showsMenuAsPrimaryAction = true
-        segmentedControl.addTarget(self, action: #selector(segmentedChanged), for: .valueChanged)
-        addSubview(activeControl)
-        NSLayoutConstraint.activate(fillConstraints(for: activeControl))
-        #elseif canImport(AppKit)
-        popupButton.translatesAutoresizingMaskIntoConstraints = false
-        radioStack.translatesAutoresizingMaskIntoConstraints = false
-        radioStack.orientation = .vertical
-        radioStack.spacing = 8.0
-        popupButton.target = self
-        popupButton.action = #selector(popupChanged)
-        addSubview(activeControl)
-        NSLayoutConstraint.activate(fillConstraints(for: activeControl))
-        #endif
-    }
-
+  private func configureSubviews() {
     #if canImport(UIKit)
+      segmentedControl.addTarget(self, action: #selector(segmentedChanged), for: .valueChanged)
+      menuButton.configuration = .bordered()
+      menuButton.showsMenuAsPrimaryAction = true
+      radioStack.axis = .vertical
+      radioStack.spacing = 8
+    #elseif canImport(AppKit)
+      segmentedControl.target = self
+      segmentedControl.action = #selector(segmentedChanged)
+      popupButton.target = self
+      popupButton.action = #selector(popupChanged)
+      radioStack.orientation = .vertical
+      radioStack.spacing = 8
+    #endif
+
+    activeControl.translatesAutoresizingMaskIntoConstraints = false
+    addSubview(activeControl)
+    NSLayoutConstraint.activate([
+      activeControl.leadingAnchor.constraint(equalTo: leadingAnchor),
+      activeControl.trailingAnchor.constraint(equalTo: trailingAnchor),
+      activeControl.topAnchor.constraint(equalTo: topAnchor),
+      activeControl.bottomAnchor.constraint(equalTo: bottomAnchor),
+    ])
+  }
+
+  #if canImport(UIKit)
     private var activeControl: UIView {
-        switch style {
-        case .automatic:
-            segmentedControl
-        case .menu:
-            menuButton
-        case .radio:
-            radioStack
-        }
+      switch style {
+      case .automatic, .menu:
+        menuButton
+      case .radio:
+        radioStack
+      case .segmented:
+        segmentedControl
+      }
     }
-
-    private func fillConstraints(for view: UIView) -> [NSLayoutConstraint] {
-        [
-            view.leadingAnchor.constraint(equalTo: leadingAnchor),
-            view.trailingAnchor.constraint(equalTo: trailingAnchor),
-            view.topAnchor.constraint(equalTo: topAnchor),
-            view.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ]
-    }
-    #elseif canImport(AppKit)
+  #elseif canImport(AppKit)
     private var activeControl: NSView {
-        switch style {
-        case .automatic, .menu:
-            popupButton
-        case .radio:
-            radioStack
-        }
+      switch style {
+      case .automatic, .menu:
+        popupButton
+      case .radio:
+        radioStack
+      case .segmented:
+        segmentedControl
+      }
     }
+  #endif
 
-    private func fillConstraints(for view: NSView) -> [NSLayoutConstraint] {
-        [
-            view.leadingAnchor.constraint(equalTo: leadingAnchor),
-            view.trailingAnchor.constraint(equalTo: trailingAnchor),
-            view.topAnchor.constraint(equalTo: topAnchor),
-            view.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ]
-    }
-    #endif
-
-    private func updateItems(_ array: CWaterUI.WuiArray_WuiPickerItem) {
-        let slice = array.vtable.slice(array.data)
-        guard let head = slice.head else {
-            items = []
-            rebuildPicker()
-            return
+  private func reconcile(ids: [Int32]) {
+    collection.reconcile(ids: ids) { [source] index, id in
+      let item = waterui_force_as_picker_item(source.takeRawView(at: index))
+      return PickerItemNode(collectionId: id, consuming: item) { [weak self] metadata in
+        guard let self else { return }
+        withPlatformAnimation(metadata) {
+          self.updateLabels()
         }
-
-        var newItems: [PickerItemData] = []
-        for i in 0 ..< slice.len {
-            let item = head.advanced(by: Int(i)).pointee
-            newItems.append(PickerItemData(id: item.tag, text: extractText(from: item.content)))
-        }
-
-        items = newItems
-        rebuildPicker()
-        syncSelectionFromBinding()
+      }
     }
+    updateNativeItems()
+  }
 
-    private func extractText(from text: CWaterUI.WuiText) -> String {
-        let styledStr = WuiStyledStr(waterui_read_computed_styled_str(text.content))
-        return styledStr.toString()
-    }
-
-    private func rebuildPicker() {
-        #if canImport(UIKit)
-        switch style {
-        case .automatic:
-            segmentedControl.removeAllSegments()
-            for (index, item) in items.enumerated() {
-                segmentedControl.insertSegment(withTitle: item.text, at: index, animated: false)
-            }
-        case .menu:
-            rebuildMenuButton()
-        case .radio:
-            rebuildRadioButtons()
-        }
-        #elseif canImport(AppKit)
-        switch style {
-        case .automatic, .menu:
-            popupButton.removeAllItems()
-            items.forEach { popupButton.addItem(withTitle: $0.text) }
-        case .radio:
-            rebuildRadioButtons()
-        }
-        #endif
-    }
-
+  private func updateNativeItems() {
     #if canImport(UIKit)
-    private func rebuildMenuButton() {
-        let currentId = selectionBinding.value
-        let selectedTitle = items.first(where: { $0.id == currentId })?.text ?? "Select"
-        menuButton.setTitle(selectedTitle, for: .normal)
-        let actions = items.map { item in
-            UIAction(
-                title: item.text,
-                state: item.id == currentId ? .on : .off
-            ) { [weak self] _ in
-                self?.selectionBinding.set(item.id)
-            }
-        }
-        menuButton.menu = UIMenu(title: "", children: actions)
-    }
-
-    private func rebuildRadioButtons() {
-        radioStack.arrangedSubviews.forEach {
-            radioStack.removeArrangedSubview($0)
-            $0.removeFromSuperview()
-        }
+      switch style {
+      case .automatic, .menu:
+        break
+      case .segmented:
+        segmentedControl.removeAllSegments()
         for (index, item) in items.enumerated() {
-            let button = UIButton(type: .system)
-            button.tag = index
-            button.contentHorizontalAlignment = .left
-            button.addTarget(self, action: #selector(radioTapped(_:)), for: .touchUpInside)
-            radioStack.addArrangedSubview(button)
+          segmentedControl.insertSegment(withTitle: item.text, at: index, animated: false)
         }
-        syncRadioButtons()
-    }
-
-    private func syncRadioButtons() {
-        let currentId = selectionBinding.value
-        for (index, subview) in radioStack.arrangedSubviews.enumerated() {
-            guard let button = subview as? UIButton, index < items.count else { continue }
-            let item = items[index]
-            let imageName = item.id == currentId ? "circle.inset.filled" : "circle"
-            button.setImage(UIImage(systemName: imageName), for: .normal)
-            button.setTitle("  \(item.text)", for: .normal)
-        }
-    }
+      case .radio:
+        reconcileUIKitRadioButtons()
+      }
     #elseif canImport(AppKit)
-    private func rebuildRadioButtons() {
-        radioStack.arrangedSubviews.forEach {
-            radioStack.removeArrangedSubview($0)
-            $0.removeFromSuperview()
-        }
+      switch style {
+      case .automatic, .menu:
+        reconcileAppKitPopupItems()
+      case .segmented:
+        segmentedControl.segmentCount = items.count
         for (index, item) in items.enumerated() {
-            let button = NSButton(radioButtonWithTitle: item.text, target: self, action: #selector(radioTapped(_:)))
-            button.tag = index
-            radioStack.addArrangedSubview(button)
+          segmentedControl.setLabel(item.text, forSegment: index)
         }
-        syncRadioButtons()
-    }
-
-    private func syncRadioButtons() {
-        let currentId = selectionBinding.value
-        for (index, subview) in radioStack.arrangedSubviews.enumerated() {
-            guard let button = subview as? NSButton, index < items.count else { continue }
-            button.state = items[index].id == currentId ? .on : .off
-        }
-    }
+      case .radio:
+        reconcileAppKitRadioButtons()
+      }
     #endif
+    syncSelection()
+    invalidateIntrinsicContentSize()
+    invalidateCapturedRendering()
+  }
 
-    private func syncSelectionFromBinding() {
-        isSyncingFromBinding = true
-        let currentId = selectionBinding.value
-        if let index = items.firstIndex(where: { $0.id == currentId }) {
-            #if canImport(UIKit)
-            switch style {
-            case .automatic:
-                segmentedControl.selectedSegmentIndex = index
-            case .menu:
-                rebuildMenuButton()
-            case .radio:
-                syncRadioButtons()
-            }
-            #elseif canImport(AppKit)
-            switch style {
-            case .automatic, .menu:
-                popupButton.selectItem(at: index)
-            case .radio:
-                syncRadioButtons()
-            }
-            #endif
+  private func updateLabels() {
+    #if canImport(UIKit)
+      switch style {
+      case .automatic, .menu:
+        rebuildUIKitMenu()
+      case .segmented:
+        for (index, item) in items.enumerated() {
+          segmentedControl.setTitle(item.text, forSegmentAt: index)
         }
-        isSyncingFromBinding = false
+      case .radio:
+        break
+      }
+    #elseif canImport(AppKit)
+      switch style {
+      case .automatic, .menu:
+        for item in items {
+          popupItems[item.collectionId]!.title = item.text
+        }
+      case .segmented:
+        for (index, item) in items.enumerated() {
+          segmentedControl.setLabel(item.text, forSegment: index)
+        }
+      case .radio:
+        for item in items {
+          radioButtons[item.collectionId]!.title = item.text
+        }
+      }
+    #endif
+    syncSelection()
+    invalidateIntrinsicContentSize()
+    invalidateCapturedRendering()
+  }
+
+  #if canImport(UIKit)
+    private func rebuildUIKitMenu() {
+      let selected = selectionBinding.value
+      menuButton.setTitle(items.first { $0.tag == selected }?.text, for: .normal)
+      menuButton.menu = UIMenu(
+        title: "",
+        children: items.map { item in
+          UIAction(title: item.text, state: item.tag == selected ? .on : .off) {
+            [weak self, item] _ in
+            self?.selectionBinding.set(item.tag)
+          }
+        }
+      )
     }
 
-    private func startWatching() {
-        itemsWatcher = itemsComputed.watch { [weak self] value, metadata in
-            guard let self else { return }
-            withPlatformAnimation(metadata) {
-                self.updateItems(value)
-            }
-        }
-
-        selectionWatcher = selectionBinding.watch { [weak self] _, metadata in
-            guard let self, !isSyncingFromBinding else { return }
-            withPlatformAnimation(metadata) {
-                self.syncSelectionFromBinding()
-            }
-        }
+    private func reconcileUIKitRadioButtons() {
+      let activeIds = Set(items.map(\.collectionId))
+      let removed = radioButtons.filter { !activeIds.contains($0.key) }
+      for (_, button) in removed {
+        radioStack.removeArrangedSubview(button)
+        button.removeFromSuperview()
+      }
+      radioButtons = radioButtons.filter { activeIds.contains($0.key) }
+      for button in radioStack.arrangedSubviews {
+        radioStack.removeArrangedSubview(button)
+      }
+      for (index, item) in items.enumerated() {
+        let button =
+          radioButtons[item.collectionId]
+          ?? {
+            let button = UIButton(type: .system)
+            var configuration = UIButton.Configuration.plain()
+            configuration.imagePadding = 8
+            button.configuration = configuration
+            button.contentHorizontalAlignment = .leading
+            button.addTarget(self, action: #selector(radioTapped(_:)), for: .touchUpInside)
+            radioButtons[item.collectionId] = button
+            return button
+          }()
+        button.tag = index
+        radioStack.addArrangedSubview(button)
+      }
     }
+  #elseif canImport(AppKit)
+    private func reconcileAppKitPopupItems() {
+      let activeIds = Set(items.map(\.collectionId))
+      popupItems = popupItems.filter { activeIds.contains($0.key) }
+      let menu = NSMenu()
+      for item in items {
+        let nativeItem =
+          popupItems[item.collectionId]
+          ?? {
+            let nativeItem = NSMenuItem()
+            popupItems[item.collectionId] = nativeItem
+            return nativeItem
+          }()
+        nativeItem.title = item.text
+        menu.addItem(nativeItem)
+      }
+      popupButton.menu = menu
+    }
+
+    private func reconcileAppKitRadioButtons() {
+      let activeIds = Set(items.map(\.collectionId))
+      let removed = radioButtons.filter { !activeIds.contains($0.key) }
+      for (_, button) in removed {
+        radioStack.removeArrangedSubview(button)
+        button.removeFromSuperview()
+      }
+      radioButtons = radioButtons.filter { activeIds.contains($0.key) }
+      for button in radioStack.arrangedSubviews {
+        radioStack.removeArrangedSubview(button)
+      }
+      for (index, item) in items.enumerated() {
+        let button =
+          radioButtons[item.collectionId]
+          ?? {
+            let button = NSButton(
+              radioButtonWithTitle: "", target: self, action: #selector(radioTapped(_:)))
+            radioButtons[item.collectionId] = button
+            return button
+          }()
+        button.tag = index
+        button.title = item.text
+        radioStack.addArrangedSubview(button)
+      }
+    }
+  #endif
+
+  private func syncSelection() {
+    let selected = selectionBinding.value
+    let selectedIndex = items.firstIndex { $0.tag == selected }
 
     #if canImport(UIKit)
+      switch style {
+      case .automatic, .menu:
+        rebuildUIKitMenu()
+      case .segmented:
+        segmentedControl.selectedSegmentIndex = selectedIndex ?? UISegmentedControl.noSegment
+      case .radio:
+        for (index, item) in items.enumerated() {
+          let button = radioButtons[item.collectionId]!
+          let imageName = item.tag == selected ? "circle.inset.filled" : "circle"
+          button.configuration?.image = UIImage(systemName: imageName)
+          button.configuration?.title = item.text
+          button.tag = index
+        }
+      }
+    #elseif canImport(AppKit)
+      switch style {
+      case .automatic, .menu:
+        if let selectedIndex {
+          popupButton.selectItem(at: selectedIndex)
+        } else {
+          popupButton.select(nil)
+        }
+      case .segmented:
+        segmentedControl.selectedSegment = selectedIndex ?? -1
+      case .radio:
+        for item in items {
+          radioButtons[item.collectionId]!.state = item.tag == selected ? .on : .off
+        }
+      }
+    #endif
+    invalidateCapturedRendering()
+  }
+
+  func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
+    #if canImport(UIKit)
+      switch style {
+      case .automatic, .menu:
+        menuButton.intrinsicContentSize
+      case .segmented:
+        segmentedControl.intrinsicContentSize
+      case .radio:
+        radioStack.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+      }
+    #elseif canImport(AppKit)
+      switch style {
+      case .automatic, .menu:
+        popupButton.intrinsicContentSize
+      case .segmented:
+        segmentedControl.intrinsicContentSize
+      case .radio:
+        radioStack.fittingSize
+      }
+    #endif
+  }
+
+  #if canImport(AppKit)
+    override var isFlipped: Bool { true }
+  #endif
+
+  #if canImport(UIKit)
     @objc private func segmentedChanged() {
-        guard !isSyncingFromBinding else { return }
-        let selectedIndex = segmentedControl.selectedSegmentIndex
-        guard selectedIndex >= 0 && selectedIndex < items.count else { return }
-        let selectedId = items[selectedIndex].id
-        guard selectedId != selectionBinding.value else { return }
-        selectionBinding.set(selectedId)
+      let index = segmentedControl.selectedSegmentIndex
+      precondition(items.indices.contains(index), "Picker emitted an invalid segment index")
+      selectionBinding.set(items[index].tag)
     }
 
     @objc private func radioTapped(_ sender: UIButton) {
-        guard !isSyncingFromBinding, sender.tag >= 0, sender.tag < items.count else { return }
-        let selectedId = items[sender.tag].id
-        guard selectedId != selectionBinding.value else { return }
-        selectionBinding.set(selectedId)
+      precondition(items.indices.contains(sender.tag), "Picker emitted an invalid radio index")
+      selectionBinding.set(items[sender.tag].tag)
     }
-    #elseif canImport(AppKit)
+  #elseif canImport(AppKit)
+    @objc private func segmentedChanged() {
+      let index = segmentedControl.selectedSegment
+      precondition(items.indices.contains(index), "Picker emitted an invalid segment index")
+      selectionBinding.set(items[index].tag)
+    }
+
     @objc private func popupChanged() {
-        guard !isSyncingFromBinding else { return }
-        let selectedIndex = popupButton.indexOfSelectedItem
-        guard selectedIndex >= 0 && selectedIndex < items.count else { return }
-        let selectedId = items[selectedIndex].id
-        guard selectedId != selectionBinding.value else { return }
-        selectionBinding.set(selectedId)
+      let index = popupButton.indexOfSelectedItem
+      precondition(items.indices.contains(index), "Picker emitted an invalid popup index")
+      selectionBinding.set(items[index].tag)
     }
 
     @objc private func radioTapped(_ sender: NSButton) {
-        guard !isSyncingFromBinding, sender.tag >= 0, sender.tag < items.count else { return }
-        let selectedId = items[sender.tag].id
-        guard selectedId != selectionBinding.value else { return }
-        selectionBinding.set(selectedId)
+      precondition(items.indices.contains(sender.tag), "Picker emitted an invalid radio index")
+      selectionBinding.set(items[sender.tag].tag)
     }
-    #endif
+  #endif
 }

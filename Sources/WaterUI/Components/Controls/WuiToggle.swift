@@ -1,312 +1,302 @@
-// WuiToggle.swift
-// Toggle/Switch component - merged UIKit and AppKit implementation
-//
-// # Layout Behavior
-// Toggle expands horizontally when it has a label (stretchAxis from Rust).
-// Horizontal layout: [label] --- flexible space --- [switch]
-// Label on left, switch on right, space distributed between.
-
 import CWaterUI
 
 #if canImport(UIKit)
-import UIKit
+  import UIKit
 #elseif canImport(AppKit)
-import AppKit
+  import AppKit
 #endif
 
-/// Toggle style determines the visual representation
-enum ToggleStyle {
-    case automatic
-    case switchStyle
-    case checkbox
+@MainActor
+private protocol WuiNativeToggleControl {
+  var view: PlatformView { get }
 
-    init(from ffiStyle: WuiToggleStyle) {
-        switch ffiStyle {
-        case WuiToggleStyle_Automatic: self = .automatic
-        case WuiToggleStyle_Switch: self = .switchStyle
-        case WuiToggleStyle_Checkbox: self = .checkbox
-        default: self = .automatic
-        }
-    }
+  func installAction(target: AnyObject, action: Selector)
+  func setOn(_ isOn: Bool, metadata: WuiWatcherMetadata?)
+  func valueAfterUserInteraction() -> Bool
+  func setEnabled(_ enabled: Bool)
 }
+
+#if canImport(UIKit)
+  @MainActor
+  private final class WuiNativeSwitchControl: WuiNativeToggleControl {
+    let control = UISwitch()
+
+    var view: PlatformView { control }
+
+    init(isOn: Bool) {
+      control.isOn = isOn
+    }
+
+    func installAction(target: AnyObject, action: Selector) {
+      control.addTarget(target, action: action, for: .valueChanged)
+    }
+
+    func setOn(_ isOn: Bool, metadata: WuiWatcherMetadata?) {
+      guard control.isOn != isOn else { return }
+      guard let metadata else {
+        control.isOn = isOn
+        return
+      }
+      control.setOn(
+        isOn,
+        animated: shouldAnimate(parseAnimation(metadata.getAnimation()))
+      )
+    }
+
+    func valueAfterUserInteraction() -> Bool {
+      control.isOn
+    }
+
+    func setEnabled(_ enabled: Bool) {
+      control.isEnabled = enabled
+    }
+  }
+
+  @MainActor
+  private final class WuiNativeCheckboxControl: WuiNativeToggleControl {
+    let control: UIButton
+
+    var view: PlatformView { control }
+
+    init(isOn: Bool) {
+      guard
+        let uncheckedImage = UIImage(systemName: "square"),
+        let checkedImage = UIImage(systemName: "checkmark.square.fill")
+      else {
+        fatalError("WaterUI checkbox requires the system square symbols")
+      }
+      let control = UIButton(type: .system)
+      control.setPreferredSymbolConfiguration(
+        UIImage.SymbolConfiguration(textStyle: .body),
+        forImageIn: .normal
+      )
+      control.setImage(uncheckedImage, for: .normal)
+      control.setImage(checkedImage, for: .selected)
+      control.isSelected = isOn
+      control.changesSelectionAsPrimaryAction = true
+      control.adjustsImageSizeForAccessibilityContentSizeCategory = true
+      self.control = control
+    }
+
+    func installAction(target: AnyObject, action: Selector) {
+      control.addTarget(target, action: action, for: .primaryActionTriggered)
+    }
+
+    func setOn(_ isOn: Bool, metadata: WuiWatcherMetadata?) {
+      guard control.isSelected != isOn else { return }
+      if let metadata {
+        withCrossDissolveAnimation(control, metadata) {
+          self.control.isSelected = isOn
+        }
+      } else {
+        control.isSelected = isOn
+      }
+    }
+
+    func valueAfterUserInteraction() -> Bool {
+      control.isSelected
+    }
+
+    func setEnabled(_ enabled: Bool) {
+      control.isEnabled = enabled
+    }
+  }
+#elseif canImport(AppKit)
+  @MainActor
+  private final class WuiNativeSwitchControl: WuiNativeToggleControl {
+    let control = NSSwitch()
+
+    var view: PlatformView { control }
+
+    init(isOn: Bool) {
+      control.state = isOn ? .on : .off
+    }
+
+    func installAction(target: AnyObject, action: Selector) {
+      control.target = target
+      control.action = action
+    }
+
+    func setOn(_ isOn: Bool, metadata: WuiWatcherMetadata?) {
+      let state: NSControl.StateValue = isOn ? .on : .off
+      guard control.state != state else { return }
+      if let metadata {
+        withPlatformAnimation(metadata) {
+          self.control.state = state
+        }
+      } else {
+        control.state = state
+      }
+    }
+
+    func valueAfterUserInteraction() -> Bool {
+      control.state == .on
+    }
+
+    func setEnabled(_ enabled: Bool) {
+      control.isEnabled = enabled
+    }
+  }
+
+  @MainActor
+  private final class WuiNativeCheckboxControl: WuiNativeToggleControl {
+    let control: NSButton
+
+    var view: PlatformView { control }
+
+    init(isOn: Bool) {
+      let control = NSButton(checkboxWithTitle: "", target: nil, action: nil)
+      control.state = isOn ? .on : .off
+      self.control = control
+    }
+
+    func installAction(target: AnyObject, action: Selector) {
+      control.target = target
+      control.action = action
+    }
+
+    func setOn(_ isOn: Bool, metadata: WuiWatcherMetadata?) {
+      let state: NSControl.StateValue = isOn ? .on : .off
+      guard control.state != state else { return }
+      if let metadata {
+        withPlatformAnimation(metadata) {
+          self.control.state = state
+        }
+      } else {
+        control.state = state
+      }
+    }
+
+    func valueAfterUserInteraction() -> Bool {
+      control.state == .on
+    }
+
+    func setEnabled(_ enabled: Bool) {
+      control.isEnabled = enabled
+    }
+  }
+#endif
 
 @MainActor
 final class WuiToggle: PlatformView, WuiComponent {
-    static var rawId: CWaterUI.WuiTypeId { waterui_toggle_id() }
+  static var rawId: CWaterUI.WuiTypeId { waterui_toggle_id() }
 
-    // Shared fields
-    private var toggleControl: PlatformView!
-    private var bindingWatcher: WatcherGuard?
-    private var binding: WuiBinding<Bool>
-    private var labelView: WuiAnyView
-    private let style: ToggleStyle
-    private let disabled: WuiComputed<Bool>?
-    private var disabledWatcher: WatcherGuard?
+  private let toggleControl: any WuiNativeToggleControl
+  private let binding: WuiBinding<Bool>
+  private let labelView: WuiAnyView
+  private let disabled: WuiComputed<Bool>?
+  private var bindingWatcher: WatcherGuard?
+  private var disabledWatcher: WatcherGuard?
+  private var accessibility: WuiControlAccessibility?
+  private let horizontalSpacing: CGFloat = 8
 
-    // Layout constants
-    private let horizontalSpacing: CGFloat = 8.0
+  convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
+    let ffiToggle = waterui_force_as_toggle(anyview)
+    self.init(
+      label: WuiAnyView(anyview: ffiToggle.label.view, env: env),
+      binding: WuiBinding(ffiToggle.toggle),
+      style: ffiToggle.style,
+      disabled: ffiToggle.disabled.map(WuiComputed<Bool>.init),
+      semanticLabel: ffiToggle.label
+    )
+  }
 
-    // MARK: - WuiComponent Init
+  init(
+    label: WuiAnyView,
+    binding: WuiBinding<Bool>,
+    style: WuiToggleStyle,
+    disabled: WuiComputed<Bool>?,
+    semanticLabel: CWaterUI.WuiLabel
+  ) {
+    self.toggleControl = Self.makeToggleControl(style: style, isOn: binding.value)
+    self.binding = binding
+    self.labelView = label
+    self.disabled = disabled
 
-    convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
-        let ffiToggle: CWaterUI.WuiToggle = waterui_force_as_toggle(anyview)
-        let labelView = WuiAnyView(anyview: ffiToggle.label.view, env: env)
-        let binding: WuiBinding<Bool> = WuiBinding(ffiToggle.toggle)
-        let style = ToggleStyle(from: ffiToggle.style)
-        let disabled = ffiToggle.disabled.map { WuiComputed<Bool>($0) }
-        self.init(label: labelView, binding: binding, style: style, disabled: disabled)
+    super.init(frame: .zero)
+
+    configureSubviews()
+    toggleControl.installAction(target: self, action: #selector(valueChanged))
+    startWatchingBinding()
+    startWatchingDisabled()
+    accessibility = WuiControlAccessibility(
+      consuming: semanticLabel,
+      target: toggleControl.view,
+      visualLabel: label
+    )
+  }
+
+  @available(*, unavailable)
+  required init?(coder: NSCoder) {
+    fatalError("init(coder:) has not been implemented")
+  }
+
+  private static func makeToggleControl(
+    style: WuiToggleStyle,
+    isOn: Bool
+  ) -> any WuiNativeToggleControl {
+    switch style {
+    case WuiToggleStyle_Automatic, WuiToggleStyle_Switch:
+      return WuiNativeSwitchControl(isOn: isOn)
+    case WuiToggleStyle_Checkbox:
+      return WuiNativeCheckboxControl(isOn: isOn)
+    default:
+      fatalError("Unsupported WaterUI toggle style: \(style.rawValue)")
     }
+  }
 
-    // MARK: - Designated Init
-
-    init(
-        label: WuiAnyView,
-        binding: WuiBinding<Bool>,
-        style: ToggleStyle = .automatic,
-        disabled: WuiComputed<Bool>? = nil
-    ) {
-        self.binding = binding
-        self.labelView = label
-        self.style = style
-        self.disabled = disabled
-        // Initialize with a default frame to prevent constraint conflicts.
-        // WuiToggle sets .required compression resistance on its label, which conflicts
-        // with a .zero frame (autoresizing mask forces width=0).
-        // The actual frame will be set by the layout system (WuiFixedContainer) later.
-        super.init(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
-        createToggleControl()
-        configureSubviews()
-        setupAction()
-        updateLabel(label, force: true)
-        updateBinding(binding, force: true)
-        startWatchingDisabled()
+  func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
+    let labelSize = labelView.sizeThatFits(WuiProposalSize())
+    let controlSize = toggleControl.view.intrinsicContentSize
+    let hasLabel = labelSize.width > 0 && labelSize.height > 0
+    let intrinsicWidth = controlSize.width + (hasLabel ? horizontalSpacing + labelSize.width : 0)
+    let width: CGFloat
+    if hasLabel, let proposedWidth = proposal.width {
+      width = max(CGFloat(proposedWidth), intrinsicWidth)
+    } else {
+      width = intrinsicWidth
     }
+    return CGSize(width: width, height: max(controlSize.height, labelSize.height))
+  }
 
-    // MARK: - Toggle Control Creation
+  private func configureSubviews() {
+    let controlView = toggleControl.view
+    labelView.translatesAutoresizingMaskIntoConstraints = false
+    controlView.translatesAutoresizingMaskIntoConstraints = false
+    addSubview(labelView)
+    addSubview(controlView)
 
-    private func createToggleControl() {
-        switch style {
-        case .automatic, .switchStyle:
-            toggleControl = PlatformSwitch()
-        case .checkbox:
-            toggleControl = createCheckbox()
-        }
+    labelView.setContentCompressionResistancePriority(.required, for: .horizontal)
+    labelView.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+
+    NSLayoutConstraint.activate([
+      labelView.leadingAnchor.constraint(equalTo: leadingAnchor),
+      labelView.centerYAnchor.constraint(equalTo: centerYAnchor),
+      controlView.trailingAnchor.constraint(equalTo: trailingAnchor),
+      controlView.centerYAnchor.constraint(equalTo: centerYAnchor),
+      labelView.trailingAnchor.constraint(
+        lessThanOrEqualTo: controlView.leadingAnchor,
+        constant: -horizontalSpacing
+      ),
+    ])
+  }
+
+  private func startWatchingBinding() {
+    bindingWatcher = binding.watch { [weak self] isOn, metadata in
+      self?.toggleControl.setOn(isOn, metadata: metadata)
     }
+    toggleControl.setOn(binding.value, metadata: nil)
+  }
 
-    #if canImport(UIKit)
-    private func createCheckbox() -> UIButton {
-        let button = UIButton(type: .system)
-        button.setPreferredSymbolConfiguration(
-            UIImage.SymbolConfiguration(pointSize: 22, weight: .regular),
-            forImageIn: .normal
-        )
-        updateCheckboxImage(button, isChecked: binding.value)
-        return button
+  private func startWatchingDisabled() {
+    guard let disabled else { return }
+    disabledWatcher = disabled.watch { [weak self] isDisabled, _ in
+      self?.toggleControl.setEnabled(!isDisabled)
     }
+    toggleControl.setEnabled(!disabled.value)
+  }
 
-    private func updateCheckboxImage(_ button: UIButton, isChecked: Bool) {
-        let imageName = isChecked ? "checkmark.square.fill" : "square"
-        button.setImage(UIImage(systemName: imageName), for: .normal)
-    }
-    #elseif canImport(AppKit)
-    private func createCheckbox() -> NSButton {
-        return NSButton(checkboxWithTitle: "", target: nil, action: nil)
-    }
-    #endif
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    // MARK: - WuiComponent
-
-    func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
-        let labelSize = labelView.sizeThatFits(WuiProposalSize())
-        let toggleSize = toggleControl.intrinsicContentSize
-        let hasLabel = labelSize.width > 0 && labelSize.height > 0
-
-        var minWidth: CGFloat = toggleSize.width
-        var maxHeight: CGFloat = toggleSize.height
-
-        if hasLabel {
-            minWidth += horizontalSpacing + labelSize.width
-            maxHeight = max(maxHeight, labelSize.height)
-        }
-
-        let finalWidth: CGFloat
-        if hasLabel, let proposedWidth = proposal.width {
-            finalWidth = max(CGFloat(proposedWidth), minWidth)
-        } else {
-            finalWidth = minWidth
-        }
-
-        return CGSize(width: finalWidth, height: maxHeight)
-    }
-
-    // MARK: - Layout
-
-    #if canImport(AppKit)
-    override var isFlipped: Bool { true }
-    #endif
-
-    // MARK: - Configuration
-
-    private func configureSubviews() {
-        labelView.translatesAutoresizingMaskIntoConstraints = false
-        toggleControl.translatesAutoresizingMaskIntoConstraints = false
-
-        addSubview(labelView)
-        addSubview(toggleControl)
-
-        labelView.setContentCompressionResistancePriority(.required, for: .horizontal)
-        labelView.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-
-        NSLayoutConstraint.activate([
-            labelView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            labelView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            toggleControl.trailingAnchor.constraint(equalTo: trailingAnchor),
-            toggleControl.centerYAnchor.constraint(equalTo: centerYAnchor),
-            labelView.trailingAnchor.constraint(lessThanOrEqualTo: toggleControl.leadingAnchor, constant: -horizontalSpacing),
-        ])
-    }
-
-    private func syncToggleState() {
-        let value = binding.value
-        switch style {
-        case .automatic, .switchStyle:
-            #if canImport(UIKit)
-            (toggleControl as? UISwitch)?.isOn = value
-            #elseif canImport(AppKit)
-            (toggleControl as? NSSwitch)?.state = value ? .on : .off
-            #endif
-        case .checkbox:
-            #if canImport(UIKit)
-            if let button = toggleControl as? UIButton {
-                updateCheckboxImage(button, isChecked: value)
-            }
-            #elseif canImport(AppKit)
-            (toggleControl as? NSButton)?.state = value ? .on : .off
-            #endif
-        }
-    }
-
-    private func setupAction() {
-        switch style {
-        case .automatic, .switchStyle:
-            #if canImport(UIKit)
-            (toggleControl as? UISwitch)?.addTarget(self, action: #selector(valueChanged), for: .valueChanged)
-            #elseif canImport(AppKit)
-            if let toggle = toggleControl as? NSSwitch {
-                toggle.target = self
-                toggle.action = #selector(valueChanged)
-            }
-            #endif
-        case .checkbox:
-            #if canImport(UIKit)
-            (toggleControl as? UIButton)?.addTarget(self, action: #selector(checkboxTapped), for: .touchUpInside)
-            #elseif canImport(AppKit)
-            if let button = toggleControl as? NSButton {
-                button.target = self
-                button.action = #selector(valueChanged)
-            }
-            #endif
-        }
-    }
-
-    private func startWatchingDisabled() {
-        guard let disabled else { return }
-        applyDisabled(disabled.value)
-        disabledWatcher = disabled.watch { [weak self] isDisabled, _ in
-            self?.applyDisabled(isDisabled)
-        }
-    }
-
-    private func applyDisabled(_ isDisabled: Bool) {
-        #if canImport(UIKit)
-        (toggleControl as? UIControl)?.isEnabled = !isDisabled
-        #elseif canImport(AppKit)
-        (toggleControl as? NSControl)?.isEnabled = !isDisabled
-        #endif
-    }
-
-    private func startWatchingBinding() {
-        bindingWatcher = binding.watch { [weak self] newValue, metadata in
-            guard let self else { return }
-            switch style {
-            case .automatic, .switchStyle:
-                #if canImport(UIKit)
-                guard let toggle = toggleControl as? UISwitch else { return }
-                if toggle.isOn == newValue { return }
-                let animation = parseAnimation(metadata.getAnimation())
-                toggle.setOn(newValue, animated: shouldAnimate(animation))
-                #elseif canImport(AppKit)
-                guard let toggle = toggleControl as? NSSwitch else { return }
-                let newState: NSControl.StateValue = newValue ? .on : .off
-                if toggle.state == newState { return }
-                withPlatformAnimation(metadata) { toggle.state = newState }
-                #endif
-            case .checkbox:
-                #if canImport(UIKit)
-                guard let button = toggleControl as? UIButton else { return }
-                withPlatformAnimation(metadata) { self.updateCheckboxImage(button, isChecked: newValue) }
-                #elseif canImport(AppKit)
-                guard let button = toggleControl as? NSButton else { return }
-                let newState: NSControl.StateValue = newValue ? .on : .off
-                if button.state == newState { return }
-                withPlatformAnimation(metadata) { button.state = newState }
-                #endif
-            }
-        }
-    }
-
-    @objc private func valueChanged() {
-        switch style {
-        case .automatic, .switchStyle:
-            #if canImport(UIKit)
-            binding.value = (toggleControl as? UISwitch)?.isOn ?? false
-            #elseif canImport(AppKit)
-            binding.value = (toggleControl as? NSSwitch)?.state == .on
-            #endif
-        case .checkbox:
-            #if canImport(AppKit)
-            binding.value = (toggleControl as? NSButton)?.state == .on
-            #endif
-        }
-    }
-
-    #if canImport(UIKit)
-    @objc private func checkboxTapped() {
-        let newValue = !binding.value
-        binding.value = newValue
-        if let button = toggleControl as? UIButton {
-            updateCheckboxImage(button, isChecked: newValue)
-        }
-    }
-    #endif
-
-    // MARK: - Update Methods
-
-    func updateLabel(_ label: WuiAnyView, force: Bool = false) {
-        guard force || label !== labelView else { return }
-        labelView.removeFromSuperview()
-        labelView = label
-        labelView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(labelView)
-        labelView.setContentCompressionResistancePriority(.required, for: .horizontal)
-        labelView.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-        NSLayoutConstraint.activate([
-            labelView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            labelView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            labelView.trailingAnchor.constraint(lessThanOrEqualTo: toggleControl.leadingAnchor, constant: -horizontalSpacing),
-        ])
-    }
-
-    func updateBinding(_ newBinding: WuiBinding<Bool>, force: Bool = false) {
-        guard force || newBinding !== binding else { return }
-        bindingWatcher = nil
-        binding = newBinding
-        syncToggleState()
-        startWatchingBinding()
-    }
+  @objc private func valueChanged() {
+    binding.value = toggleControl.valueAfterUserInteraction()
+  }
 }

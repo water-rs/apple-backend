@@ -13,94 +13,98 @@
 import CWaterUI
 
 #if canImport(UIKit)
-import UIKit
+  import UIKit
 #elseif canImport(AppKit)
-import AppKit
+  import AppKit
 #endif
 
 @MainActor
 final class WuiDynamic: PlatformView, WuiComponent {
-    static var rawId: CWaterUI.WuiTypeId { waterui_dynamic_id() }
+  static var rawId: CWaterUI.WuiTypeId { waterui_dynamic_id() }
 
-    private var dynamicPtr: OpaquePointer
-    private var env: WuiEnvironment
-    private var currentChild: WuiAnyView?
+  private var dynamicPtr: OpaquePointer
+  private var env: WuiEnvironment
+  private var currentChild: WuiAnyView?
 
-    // MARK: - WuiComponent Init
+  // MARK: - WuiComponent Init
 
-    convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
-        let dynamicPtr = waterui_force_as_dynamic(anyview)!
-        self.init(dynamic: dynamicPtr, env: env)
+  convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
+    let dynamicPtr = waterui_force_as_dynamic(anyview)!
+    self.init(dynamic: dynamicPtr, env: env)
+  }
+
+  // MARK: - Designated Init
+
+  init(dynamic: OpaquePointer, env: WuiEnvironment) {
+    self.dynamicPtr = dynamic
+    self.env = env
+    super.init(frame: .zero)
+    setupWatcher()
+  }
+
+  @available(*, unavailable)
+  required init?(coder: NSCoder) {
+    fatalError("init(coder:) has not been implemented")
+  }
+
+  // MARK: - WuiComponent
+
+  var stretchAxis: WuiStretchAxis {
+    currentChild?.stretchAxis ?? .none
+  }
+
+  func layoutPriority() -> Int32 {
+    currentChild?.layoutPriority() ?? 0
+  }
+
+  func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
+    currentChild?.sizeThatFits(proposal) ?? .zero
+  }
+
+  // MARK: - Watcher Setup
+
+  private func setupWatcher() {
+    let watcher = makeAnyViewWatcher(env: env) { [weak self] anyView in
+      self?.updateChild(with: anyView)
     }
+    waterui_dynamic_connect(dynamicPtr, watcher)
+  }
 
-    // MARK: - Designated Init
+  private func updateChild(with anyView: WuiAnyView) {
+    currentChild?.removeFromSuperview()
 
-    init(dynamic: OpaquePointer, env: WuiEnvironment) {
-        self.dynamicPtr = dynamic
-        self.env = env
-        super.init(frame: .zero)
-        setupWatcher()
-    }
+    anyView.translatesAutoresizingMaskIntoConstraints = true
+    addSubview(anyView)
+    currentChild = anyView
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
+    // Invalidate layout up the entire view hierarchy
+    invalidateLayoutHierarchy()
 
-    // MARK: - WuiComponent
-
-    var stretchAxis: WuiStretchAxis {
-        currentChild?.stretchAxis ?? .none
-    }
-
-    func layoutPriority() -> Int32 {
-        currentChild?.layoutPriority() ?? 0
-    }
-
-    func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
-        currentChild?.sizeThatFits(proposal) ?? .zero
-    }
-
-    // MARK: - Watcher Setup
-
-    private func setupWatcher() {
-        let watcher = makeAnyViewWatcher(env: env) { [weak self] anyView in
-            self?.updateChild(with: anyView)
-        }
-        waterui_dynamic_connect(dynamicPtr, watcher)
-    }
-
-    private func updateChild(with anyView: WuiAnyView) {
-        currentChild?.removeFromSuperview()
-
-        anyView.translatesAutoresizingMaskIntoConstraints = true
-        addSubview(anyView)
-        currentChild = anyView
-
-        // Invalidate layout up the entire view hierarchy
-        invalidateLayoutHierarchy()
-
-        // Force synchronous layout pass to ensure content updates immediately
-        #if canImport(UIKit)
-        layoutIfNeeded()
-        #elseif canImport(AppKit)
-        layoutSubtreeIfNeeded()
-        #endif
-    }
-
+    // Force synchronous layout pass to ensure content updates immediately
     #if canImport(UIKit)
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        currentChild?.frame = bounds
-    }
+      layoutIfNeeded()
     #elseif canImport(AppKit)
-    override func layout() {
-        super.layout()
-        currentChild?.frame = bounds
-    }
+      layoutSubtreeIfNeeded()
     #endif
+  }
 
-    #if canImport(AppKit)
+  #if canImport(UIKit)
+    override func layoutSubviews() {
+      super.layoutSubviews()
+      currentChild?.frame = bounds
+    }
+  #elseif canImport(AppKit)
+    override func layout() {
+      super.layout()
+      currentChild?.frame = bounds
+    }
+  #endif
+
+  #if canImport(AppKit)
     override var isFlipped: Bool { true }
-    #endif
+  #endif
+
+  @MainActor deinit {
+    waterui_drop_dynamic(dynamicPtr)
+  }
 }

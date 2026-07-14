@@ -6,10 +6,42 @@ import OSLog
 import QuartzCore
 
 #if canImport(UIKit)
-import UIKit
+  import UIKit
 #elseif canImport(AppKit)
-import AppKit
+  import AppKit
 #endif
+
+#if canImport(UIKit)
+  private typealias WuiCaptureDisplay = UIWindowScene
+#elseif canImport(AppKit)
+  private typealias WuiCaptureDisplay = NSScreen
+#endif
+
+@MainActor
+private func requireCaptureDisplay() -> WuiCaptureDisplay {
+  #if canImport(UIKit)
+    for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
+      if scene.windows.contains(where: { $0.isKeyWindow }) {
+        return scene
+      }
+    }
+    fatalError("ViewRenderer requires a foreground UIWindowScene with a key window")
+  #elseif canImport(AppKit)
+    guard let screen = NSScreen.main else {
+      fatalError("ViewRenderer requires an attached macOS display")
+    }
+    return screen
+  #endif
+}
+
+@MainActor
+private func captureScale(for display: WuiCaptureDisplay) -> CGFloat {
+  #if canImport(UIKit)
+    display.screen.scale
+  #elseif canImport(AppKit)
+    display.backingScaleFactor
+  #endif
+}
 
 // MARK: - View Renderer Installation
 
@@ -17,232 +49,298 @@ import AppKit
 ///
 /// This allows the preview system to capture views as RGBA pixels.
 @MainActor
-public func installViewRenderer(env: OpaquePointer?) {
-    waterui_env_install_view_renderer(env, renderViewImpl)
+func installViewRenderer(env: OpaquePointer, services: WuiNativeServices) {
+  waterui_env_install_view_renderer(
+    env,
+    retainWuiNativeServices(services),
+    renderViewImpl,
+    dropWuiNativeServices
+  )
 }
 
 /// Native implementation of ViewRenderFn.
 ///
 /// Called by Rust to render a view to RGBA pixels.
-/// Called synchronously from the main thread (via spawn_local in Rust).
-private let renderViewImpl: ViewRenderFn = { viewPtr, size, callback in
-    // Convert from CWaterUI.WuiSize to WaterUI.WuiSize
-    let swiftSize = WuiSize(width: size.width, height: size.height)
-    // Mark pointers as unsafe for crossing actor boundary
-    nonisolated(unsafe) let unsafeViewPtr = viewPtr
-    nonisolated(unsafe) let unsafeCallback = callback
-    // Call synchronously - we're already on the main thread from spawn_local
-    // Use assumeIsolated since we know we're on main thread but compiler can't verify
-    MainActor.assumeIsolated {
-        renderViewToRGBA(viewPtr: unsafeViewPtr, size: swiftSize, callback: unsafeCallback)
+/// Rust keeps the callback alive until this asynchronous render completes.
+private final class WuiViewRenderRequest: @unchecked Sendable {
+  let viewPtr: UnsafeMutableRawPointer?
+  let size: WuiSize
+  let callback: ViewRenderCallback
+  let env: WuiEnvironment
+
+  init(
+    viewPtr: UnsafeMutableRawPointer?,
+    size: WuiSize,
+    callback: ViewRenderCallback,
+    env: WuiEnvironment
+  ) {
+    self.viewPtr = viewPtr
+    self.size = size
+    self.callback = callback
+    self.env = env
+  }
+}
+
+private struct WuiViewRenderInvocation: @unchecked Sendable {
+  let context: UnsafeMutableRawPointer?
+  let viewPtr: UnsafeMutableRawPointer?
+  let size: CWaterUI.WuiSize
+  let callback: ViewRenderCallback
+}
+
+private let renderViewImpl: ViewRenderFn = { context, viewPtr, size, callback in
+  precondition(Thread.isMainThread, "ViewRenderer must be invoked on WaterUI's UI executor")
+  let invocation = WuiViewRenderInvocation(
+    context: context,
+    viewPtr: viewPtr,
+    size: size,
+    callback: callback
+  )
+  MainActor.assumeIsolated {
+    guard let context = invocation.context else {
+      fatalError("ViewRenderer received a null owner context")
     }
+    let services = Unmanaged<WuiNativeServices>.fromOpaque(context).takeUnretainedValue()
+    guard let env = services.environment else {
+      fatalError("ViewRenderer outlived its application environment")
+    }
+    let request = WuiViewRenderRequest(
+      viewPtr: invocation.viewPtr,
+      size: WuiSize(width: invocation.size.width, height: invocation.size.height),
+      callback: invocation.callback,
+      env: env
+    )
+    Task { @MainActor in
+      await renderViewToRGBA(
+        viewPtr: request.viewPtr,
+        size: request.size,
+        callback: request.callback,
+        env: request.env
+      )
+    }
+  }
 }
 
 /// Renders a view to RGBA pixels and calls the callback.
-/// Called from DispatchQueue.main.async, so we're on the main thread.
+/// Runs on the main actor because native view creation and layout are UI operations.
 @preconcurrency @MainActor
 private func renderViewToRGBA(
-    viewPtr: UnsafeMutableRawPointer?,
-    size: WuiSize,
-    callback: ViewRenderCallback
-) {
-    Logger.waterui.info("ViewRenderer: starting render, size=\(size.width)x\(size.height)")
+  viewPtr: UnsafeMutableRawPointer?,
+  size: WuiSize,
+  callback: ViewRenderCallback,
+  env: WuiEnvironment
+) async {
+  Logger.waterui.info("ViewRenderer: starting render, size=\(size.width)x\(size.height)")
 
-    guard let viewPtr = viewPtr else {
-        Logger.waterui.error("ViewRenderer: nil view pointer")
-        // Call with empty data to signal error
-        callback.call?(callback.data, nil, 0, 0, 0)
-        return
+  guard let complete = callback.call else {
+    fatalError("ViewRenderer received a callback without a completion function")
+  }
+
+  guard let viewPtr else {
+    fatalError("ViewRenderer received a null view pointer")
+  }
+
+  // Cast the pointer to AnyView opaque pointer
+  let anyviewPtr = OpaquePointer(viewPtr)
+
+  // Create the native view from the AnyView
+  let view = WuiAnyView(anyview: anyviewPtr, env: env)
+
+  Logger.waterui.info("ViewRenderer: WuiAnyView created, subviews=\(view.subviews.count)")
+
+  let display = requireCaptureDisplay()
+  let scale = captureScale(for: display)
+
+  // Proposed size (max bounds for layout)
+  let proposedSize = CGSize(width: CGFloat(size.width), height: CGFloat(size.height))
+
+  guard let backgroundSignal = waterui_theme_color(env.inner, WuiColorSlot_Background) else {
+    fatalError("ViewRenderer requires the theme Background color")
+  }
+  let background = WuiComputed<WuiResolvedColor>(backgroundSignal).value
+
+  // Render the view to RGBA, getting actual content size
+  let (rgbaData, actualWidth, actualHeight) = await captureViewToRGBA(
+    view: view,
+    proposedSize: proposedSize,
+    display: display,
+    scale: scale,
+    background: background
+  )
+  rgbaData.withUnsafeBytes { buffer in
+    guard let ptr = buffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+      fatalError("ViewRenderer produced an empty pixel buffer for a non-empty image")
     }
-
-    guard let env = globalEnvironment else {
-        Logger.waterui.error("ViewRenderer: no global environment")
-        callback.call?(callback.data, nil, 0, 0, 0)
-        return
-    }
-
-    Logger.waterui.info("ViewRenderer: globalEnvironment found, creating view")
-
-    // Cast the pointer to AnyView opaque pointer
-    let anyviewPtr = OpaquePointer(viewPtr)
-
-    // Create the native view from the AnyView
-    let view = WuiAnyView(anyview: anyviewPtr, env: env)
-
-    Logger.waterui.info("ViewRenderer: WuiAnyView created, subviews=\(view.subviews.count)")
-
-    // Get screen scale
-    #if canImport(UIKit)
-    let scale = UIScreen.main.scale
-    #elseif canImport(AppKit)
-    let scale = NSScreen.main?.backingScaleFactor ?? 2.0
-    #endif
-
-    // Proposed size (max bounds for layout)
-    let proposedSize = CGSize(width: CGFloat(size.width), height: CGFloat(size.height))
-
-    // Render the view to RGBA, getting actual content size
-    if let (rgbaData, actualWidth, actualHeight) = captureViewToRGBA(view: view, proposedSize: proposedSize, scale: scale) {
-        rgbaData.withUnsafeBytes { buffer in
-            guard let ptr = buffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
-                callback.call?(callback.data, nil, 0, 0, 0)
-                return
-            }
-            callback.call?(
-                callback.data,
-                ptr,
-                UInt(buffer.count),
-                UInt32(actualWidth),
-                UInt32(actualHeight)
-            )
-        }
-    } else {
-        Logger.waterui.error("ViewRenderer: failed to capture view")
-        callback.call?(callback.data, nil, 0, 0, 0)
-    }
-}
-
-#if canImport(AppKit)
-/// Bridge the synchronous preview capture path onto the real first-paint readiness flow.
-@preconcurrency @MainActor
-private func waitForPreviewFirstPaintReady(_ view: WuiAnyView) {
-    view.readySynchronously()
+    complete(
+      callback.data,
+      ptr,
+      UInt(buffer.count),
+      UInt32(actualWidth),
+      UInt32(actualHeight)
+    )
+  }
 }
 
 @preconcurrency @MainActor
 private func withPreviewGpuSurfaceCaptureMode<T>(
-    in view: NSView,
-    _ body: () -> T
-) -> T {
-    let surfaces = collectPreviewGpuSurfaces(in: view)
-    for surface in surfaces {
-        surface.beginExternalRendering()
-        surface.beginCaptureSuppression()
+  in view: PlatformView,
+  _ body: () async -> T
+) async -> T {
+  let surfaces = collectPreviewGpuSurfaces(in: view)
+  for surface in surfaces {
+    surface.beginExternalRendering()
+    surface.beginCaptureSuppression()
+  }
+  defer {
+    for surface in surfaces.reversed() {
+      surface.endCaptureSuppression()
+      surface.endExternalRendering()
     }
-    defer {
-        for surface in surfaces.reversed() {
-            surface.endCaptureSuppression()
-            surface.endExternalRendering()
-        }
-    }
-    return body()
+  }
+  return await body()
 }
 
 @preconcurrency @MainActor
-private func collectPreviewGpuSurfaces(in view: NSView) -> [WuiGpuSurface] {
-    var surfaces: [WuiGpuSurface] = []
-    collectPreviewGpuSurfaces(in: view, into: &surfaces)
-    return surfaces
+private func collectPreviewGpuSurfaces(in view: PlatformView) -> [WuiGpuSurface] {
+  var surfaces: [WuiGpuSurface] = []
+  collectPreviewGpuSurfaces(in: view, into: &surfaces)
+  return surfaces
 }
 
 @preconcurrency @MainActor
-private func collectPreviewGpuSurfaces(in view: NSView, into surfaces: inout [WuiGpuSurface]) {
-    if let surface = view as? WuiGpuSurface {
-        surfaces.append(surface)
-    }
-    for subview in view.subviews {
-        collectPreviewGpuSurfaces(in: subview, into: &surfaces)
-    }
+private func collectPreviewGpuSurfaces(
+  in view: PlatformView,
+  into surfaces: inout [WuiGpuSurface]
+) {
+  if let surface = view as? WuiGpuSurface {
+    surfaces.append(surface)
+  }
+  for subview in view.subviews {
+    collectPreviewGpuSurfaces(in: subview, into: &surfaces)
+  }
 }
-#endif
 
 /// Captures a view to RGBA pixel data.
 /// Returns the data along with actual pixel dimensions (width, height).
 @preconcurrency @MainActor
 private func captureViewToRGBA(
-    view: WuiAnyView,
-    proposedSize: CGSize,
-    scale: CGFloat
-) -> (Data, Int, Int)? {
-    // Measure with the proposed size so stretchable views render correctly.
-    #if canImport(UIKit)
+  view: WuiAnyView,
+  proposedSize: CGSize,
+  display: WuiCaptureDisplay,
+  scale: CGFloat,
+  background: WuiResolvedColor
+) async -> (Data, Int, Int) {
+  precondition(
+    proposedSize.width.isFinite && proposedSize.width > 0
+      && proposedSize.height.isFinite && proposedSize.height > 0,
+    "ViewRenderer requires a finite, non-zero proposed size"
+  )
+  precondition(scale.isFinite && scale > 0, "ViewRenderer requires a positive display scale")
+
+  // Measure with the proposed size so stretchable views render correctly.
+  #if canImport(UIKit)
     let measuredSize = view.sizeThatFits(proposedSize)
-    #elseif canImport(AppKit)
+  #elseif canImport(AppKit)
     view.frame = CGRect(origin: .zero, size: proposedSize)
     view.layoutSubtreeIfNeeded()
     let measuredSize = view.fittingSize
-    #endif
+  #endif
 
-    func resolveDimension(_ measured: CGFloat, fallback: CGFloat) -> CGFloat {
-        if measured.isFinite, measured > 0, measured != PlatformView.noIntrinsicMetric {
-            return measured
-        }
-        let safeFallback = (fallback.isFinite && fallback > 0) ? fallback : 1
-        return safeFallback
+  func resolvedDimension(_ measured: CGFloat, proposed: CGFloat) -> CGFloat {
+    if measured.isFinite, measured > 0, measured != PlatformView.noIntrinsicMetric {
+      return measured
     }
+    return proposed
+  }
 
-    let actualSize = CGSize(
-        width: resolveDimension(measuredSize.width, fallback: proposedSize.width),
-        height: resolveDimension(measuredSize.height, fallback: proposedSize.height)
-    )
+  let actualSize = CGSize(
+    width: resolvedDimension(measuredSize.width, proposed: proposedSize.width),
+    height: resolvedDimension(measuredSize.height, proposed: proposedSize.height)
+  )
 
-    // Layout the view at actual content size
-    view.frame = CGRect(origin: .zero, size: actualSize)
+  // Layout the view at actual content size
+  view.frame = CGRect(origin: .zero, size: actualSize)
 
-    #if canImport(UIKit)
+  #if canImport(UIKit)
     view.setNeedsLayout()
     view.layoutIfNeeded()
-    #elseif canImport(AppKit)
+  #elseif canImport(AppKit)
     view.needsLayout = true
     view.layoutSubtreeIfNeeded()
-    #endif
+  #endif
 
-    Logger.waterui.info("ViewRenderer: proposedSize=\(proposedSize.width)x\(proposedSize.height), measuredSize=\(measuredSize.width)x\(measuredSize.height), actualSize=\(actualSize.width)x\(actualSize.height)")
+  Logger.waterui.info(
+    "ViewRenderer: proposedSize=\(proposedSize.width)x\(proposedSize.height), measuredSize=\(measuredSize.width)x\(measuredSize.height), actualSize=\(actualSize.width)x\(actualSize.height)"
+  )
 
-    // Calculate pixel dimensions
-    let width = Int(actualSize.width * scale)
-    let height = Int(actualSize.height * scale)
+  // Calculate pixel dimensions
+  let width = Int(ceil(actualSize.width * scale))
+  let height = Int(ceil(actualSize.height * scale))
 
-    // Create RGBA bitmap context at actual content size
-    let bytesPerPixel = 4
-    let bytesPerRow = width * bytesPerPixel
-    var pixelData = Data(count: width * height * bytesPerPixel)
+  // Create RGBA bitmap context at actual content size
+  let bytesPerPixel = 4
+  let bytesPerRow = width * bytesPerPixel
+  var pixelData = Data(count: width * height * bytesPerPixel)
 
-    let colorSpace = CGColorSpaceCreateDeviceRGB()
-    let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+  let colorSpace = CGColorSpaceCreateDeviceRGB()
+  let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
 
-    guard let context = pixelData.withUnsafeMutableBytes({ buffer -> CGContext? in
-        CGContext(
-            data: buffer.baseAddress,
-            width: width,
-            height: height,
-            bitsPerComponent: 8,
-            bytesPerRow: bytesPerRow,
-            space: colorSpace,
-            bitmapInfo: bitmapInfo.rawValue
-        )
-    }) else {
-        Logger.waterui.error("ViewRenderer: failed to create CGContext")
-        return nil
+  guard
+    let context = pixelData.withUnsafeMutableBytes({ buffer -> CGContext? in
+      CGContext(
+        data: buffer.baseAddress,
+        width: width,
+        height: height,
+        bitsPerComponent: 8,
+        bytesPerRow: bytesPerRow,
+        space: colorSpace,
+        bitmapInfo: bitmapInfo.rawValue
+      )
+    })
+  else {
+    fatalError("ViewRenderer failed to create its RGBA bitmap context")
+  }
+
+  // Scale context for retina
+  context.scaleBy(x: scale, y: scale)
+  #if canImport(UIKit)
+    context.setFillColor(background.toUIColor().cgColor)
+  #elseif canImport(AppKit)
+    context.setFillColor(background.toNSColor().cgColor)
+  #endif
+  context.fill(CGRect(origin: .zero, size: actualSize))
+
+  #if canImport(UIKit)
+    let tempWindow = UIWindow(windowScene: display)
+    tempWindow.frame = CGRect(origin: CGPoint(x: -10_000, y: -10_000), size: actualSize)
+    let viewController = UIViewController()
+    viewController.view.frame = tempWindow.bounds
+    viewController.view.addSubview(view)
+    tempWindow.rootViewController = viewController
+    tempWindow.isHidden = false
+    tempWindow.layoutIfNeeded()
+    view.layoutIfNeeded()
+
+    await view.ready()
+
+    await withPreviewGpuSurfaceCaptureMode(in: view) {
+      context.saveGState()
+      context.translateBy(x: 0, y: actualSize.height)
+      context.scaleBy(x: 1, y: -1)
+
+      UIGraphicsPushContext(context)
+      view.layer.render(in: context)
+      UIGraphicsPopContext()
+      context.restoreGState()
+
+      context.saveGState()
+      context.setBlendMode(.destinationOver)
+      await captureGpuSurfaces(in: view, rootView: view, to: context, scale: scale)
+      context.restoreGState()
     }
+    tempWindow.isHidden = true
 
-    // Scale context for retina
-    context.scaleBy(x: scale, y: scale)
-
-    #if canImport(UIKit)
-    // UIKit rendering
-    context.saveGState()
-    defer { context.restoreGState() }
-    context.translateBy(x: 0, y: actualSize.height)
-    context.scaleBy(x: 1, y: -1)
-
-    UIGraphicsPushContext(context)
-    defer { UIGraphicsPopContext() }
-
-    // Fill with white background first
-    context.setFillColor(UIColor.white.cgColor)
-    context.fill(CGRect(origin: .zero, size: actualSize))
-
-    // Render the view hierarchy
-    view.layer.render(in: context)
-
-    // Draw GPU surfaces behind UIKit-rendered content (Metal layers are not captured by render(in:))
-    context.saveGState()
-    context.setBlendMode(.destinationOver)
-    captureGpuSurfaces(in: view, rootView: view, to: context, scale: scale)
-    context.restoreGState()
-
-    #elseif canImport(AppKit)
+  #elseif canImport(AppKit)
     // AppKit rendering - headless capture using cacheDisplay
 
     // Resize view to actual content size
@@ -251,12 +349,12 @@ private func captureViewToRGBA(
 
     // Create an offscreen window (positioned far offscreen for headless rendering)
     let tempWindow = NSWindow(
-        contentRect: NSRect(origin: NSPoint(x: -10000, y: -10000), size: actualSize),
-        styleMask: .borderless,
-        backing: .buffered,
-        defer: false
+      contentRect: NSRect(origin: NSPoint(x: -10000, y: -10000), size: actualSize),
+      styleMask: .borderless,
+      backing: .buffered,
+      defer: false
     )
-    tempWindow.backgroundColor = NSColor.white
+    tempWindow.backgroundColor = background.toNSColor()
     tempWindow.contentView = view
     tempWindow.isReleasedWhenClosed = false
 
@@ -266,251 +364,249 @@ private func captureViewToRGBA(
     // Force layout
     view.layoutSubtreeIfNeeded()
 
-    withPreviewGpuSurfaceCaptureMode(in: view) {
-        // Display window (offscreen) to trigger rendering pipeline
-        tempWindow.orderFrontRegardless()
-        tempWindow.display()  // Force full display, not just if needed
+    // Display window (offscreen) to trigger rendering and attach GPU surfaces.
+    tempWindow.orderFrontRegardless()
+    tempWindow.display()
+    forceTextFieldsToDisplay(in: view)
+    await view.ready()
 
-        // Force text fields to draw their content
-        forceTextFieldsToDisplay(in: view)
+    await withPreviewGpuSurfaceCaptureMode(in: view) {
 
-        // Drive the real first-paint readiness flow instead of sleeping blindly.
-        waitForPreviewFirstPaintReady(view)
-
-        // Capture using cacheDisplay for text rendering
-        if let bitmapRep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
-            view.cacheDisplay(in: view.bounds, to: bitmapRep)
-            if let textImage = bitmapRep.cgImage {
-                context.draw(textImage, in: CGRect(origin: .zero, size: actualSize))
-            }
+      // Capture using cacheDisplay for text rendering
+      if let bitmapRep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+        view.cacheDisplay(in: view.bounds, to: bitmapRep)
+        if let textImage = bitmapRep.cgImage {
+          context.draw(textImage, in: CGRect(origin: .zero, size: actualSize))
         }
+      }
 
-        // Draw GPU surfaces behind AppKit-rendered content
-        context.saveGState()
-        context.setBlendMode(.destinationOver)
-        captureGpuSurfaces(in: view, to: context, rootBounds: view.bounds, scale: scale)
-        context.restoreGState()
-
-        tempWindow.orderOut(nil as Any?)
+      // Draw GPU surfaces behind AppKit-rendered content
+      context.saveGState()
+      context.setBlendMode(.destinationOver)
+      await captureGpuSurfaces(in: view, to: context, rootBounds: view.bounds, scale: scale)
+      context.restoreGState()
     }
-    #endif
+    tempWindow.orderOut(nil)
+  #endif
 
-    return (pixelData, width, height)
+  return (pixelData, width, height)
 }
 
 #if canImport(UIKit)
-/// Recursively finds and captures all GPU surfaces in the view hierarchy.
-@preconcurrency @MainActor
-private func captureGpuSurfaces(
+  /// Recursively finds and captures all GPU surfaces in the view hierarchy.
+  @preconcurrency @MainActor
+  private func captureGpuSurfaces(
     in view: UIView,
     rootView: UIView,
     to context: CGContext,
     scale: CGFloat
-) {
+  ) async {
     if let gpuSurface = view as? WuiGpuSurface {
-        let frameInRoot = view.convert(view.bounds, to: rootView)
+      let frameInRoot = view.convert(view.bounds, to: rootView)
 
-        let pixelWidth = UInt32(frameInRoot.width * scale)
-        let pixelHeight = UInt32(frameInRoot.height * scale)
+      let pixelWidth = UInt32(frameInRoot.width * scale)
+      let pixelHeight = UInt32(frameInRoot.height * scale)
 
-        if pixelWidth > 0 && pixelHeight > 0 {
-            let drawRect = CGRect(
-                x: frameInRoot.origin.x,
-                y: frameInRoot.origin.y,
-                width: frameInRoot.width,
-                height: frameInRoot.height
-            )
+      if pixelWidth > 0 && pixelHeight > 0 {
+        let drawRect = CGRect(
+          x: frameInRoot.origin.x,
+          y: frameInRoot.origin.y,
+          width: frameInRoot.width,
+          height: frameInRoot.height
+        )
 
-            drawGpuSurface(
-                gpuSurface: gpuSurface,
-                pixelWidth: pixelWidth,
-                pixelHeight: pixelHeight,
-                drawRect: drawRect,
-                context: context
-            )
-        } else {
-            Logger.waterui.info("ViewRenderer: GPU surface has zero size, skipping")
-        }
+        await drawGpuSurface(
+          gpuSurface: gpuSurface,
+          pixelWidth: pixelWidth,
+          pixelHeight: pixelHeight,
+          drawRect: drawRect,
+          context: context
+        )
+      } else {
+        Logger.waterui.info("ViewRenderer: GPU surface has zero size, skipping")
+      }
     }
 
     for subview in view.subviews {
-        captureGpuSurfaces(in: subview, rootView: rootView, to: context, scale: scale)
+      await captureGpuSurfaces(in: subview, rootView: rootView, to: context, scale: scale)
     }
-}
+  }
 #endif
 
 #if canImport(AppKit)
-/// Recursively finds and captures all GPU surfaces in the view hierarchy.
-@preconcurrency @MainActor
-private func captureGpuSurfaces(
+  /// Recursively finds and captures all GPU surfaces in the view hierarchy.
+  @preconcurrency @MainActor
+  private func captureGpuSurfaces(
     in view: NSView,
     to context: CGContext,
     rootBounds: NSRect,
     scale: CGFloat
-) {
+  ) async {
     // Check if this view is a WuiGpuSurface
     if let gpuSurface = view as? WuiGpuSurface {
-        // Get the frame in root view coordinates
-        let frameInRoot = view.convert(view.bounds, to: view.window?.contentView)
+      // Get the frame in root view coordinates
+      let frameInRoot = view.convert(view.bounds, to: view.window?.contentView)
 
-        // Get pixel dimensions
-        let pixelWidth = UInt32(frameInRoot.width * scale)
-        let pixelHeight = UInt32(frameInRoot.height * scale)
+      // Get pixel dimensions
+      let pixelWidth = UInt32(frameInRoot.width * scale)
+      let pixelHeight = UInt32(frameInRoot.height * scale)
 
-        if pixelWidth > 0 && pixelHeight > 0 {
-            let drawRect = CGRect(
-                x: frameInRoot.origin.x,
-                y: rootBounds.height - frameInRoot.origin.y - frameInRoot.height,
-                width: frameInRoot.width,
-                height: frameInRoot.height
-            )
+      if pixelWidth > 0 && pixelHeight > 0 {
+        let drawRect = CGRect(
+          x: frameInRoot.origin.x,
+          y: rootBounds.height - frameInRoot.origin.y - frameInRoot.height,
+          width: frameInRoot.width,
+          height: frameInRoot.height
+        )
 
-            drawGpuSurface(
-                gpuSurface: gpuSurface,
-                pixelWidth: pixelWidth,
-                pixelHeight: pixelHeight,
-                drawRect: drawRect,
-                context: context
-            )
+        await drawGpuSurface(
+          gpuSurface: gpuSurface,
+          pixelWidth: pixelWidth,
+          pixelHeight: pixelHeight,
+          drawRect: drawRect,
+          context: context
+        )
 
-            Logger.waterui.info("ViewRenderer: captured GPU surface \(pixelWidth)x\(pixelHeight) at \(NSStringFromRect(frameInRoot))")
-        } else {
-            Logger.waterui.info("ViewRenderer: GPU surface has zero size, skipping")
-        }
+        Logger.waterui.info(
+          "ViewRenderer: captured GPU surface \(pixelWidth)x\(pixelHeight) at \(NSStringFromRect(frameInRoot))"
+        )
+      } else {
+        Logger.waterui.info("ViewRenderer: GPU surface has zero size, skipping")
+      }
     }
 
     // Recursively process subviews
     for subview in view.subviews {
-        captureGpuSurfaces(in: subview, to: context, rootBounds: rootBounds, scale: scale)
+      await captureGpuSurfaces(
+        in: subview,
+        to: context,
+        rootBounds: rootBounds,
+        scale: scale
+      )
     }
-}
+  }
 
 #endif
 
 /// Draw a GPU surface into the given context.
+@MainActor
 private func drawGpuSurface(
-    gpuSurface: WuiGpuSurface,
-    pixelWidth: UInt32,
-    pixelHeight: UInt32,
-    drawRect: CGRect,
-    context: CGContext
-) {
-    guard let device = MTLCreateSystemDefaultDevice() else {
-        Logger.waterui.error("ViewRenderer: Failed to create Metal device for GPU capture")
-        return
-    }
+  gpuSurface: WuiGpuSurface,
+  pixelWidth: UInt32,
+  pixelHeight: UInt32,
+  drawRect: CGRect,
+  context: CGContext
+) async {
+  let device = gpuSurface.captureDevice
+  let pixelFormat = gpuSurface.capturePixelFormat
 
-    let textureDescriptor = MTLTextureDescriptor.texture2DDescriptor(
-        pixelFormat: .rgba16Float,  // Match GPU surface HDR format
-        width: Int(pixelWidth),
-        height: Int(pixelHeight),
-        mipmapped: false
+  let textureDescriptor = MTLTextureDescriptor.texture2DDescriptor(
+    pixelFormat: pixelFormat,
+    width: Int(pixelWidth),
+    height: Int(pixelHeight),
+    mipmapped: false
+  )
+  textureDescriptor.usage = [.renderTarget, .shaderRead]
+  textureDescriptor.storageMode = .shared
+
+  guard let captureTexture = device.makeTexture(descriptor: textureDescriptor) else {
+    fatalError("ViewRenderer failed to create the GPU capture texture")
+  }
+
+  precondition(
+    gpuSurface.prepareExternalRender(texture: captureTexture),
+    "ViewRenderer attempted external capture before GPU setup completed"
+  )
+  await withCheckedContinuation { continuation in
+    gpuSurface.renderPreparedExternalTexture(
+      texture: captureTexture,
+      width: pixelWidth,
+      height: pixelHeight
+    ) {
+      continuation.resume()
+    }
+  }
+
+  var pixelBytes = [UInt8](repeating: 0, count: Int(pixelWidth) * Int(pixelHeight) * 4)
+  switch pixelFormat {
+  case .rgba16Float:
+    let bytesPerRow = Int(pixelWidth) * MemoryLayout<UInt16>.stride * 4
+    var floatPixels = [UInt16](
+      repeating: 0,
+      count: Int(pixelWidth) * Int(pixelHeight) * 4
     )
-    textureDescriptor.usage = [.renderTarget, .shaderRead]
-    textureDescriptor.storageMode = .shared
-
-    guard let captureTexture = device.makeTexture(descriptor: textureDescriptor) else {
-        Logger.waterui.error("ViewRenderer: Failed to create capture texture")
-        return
-    }
-
-    let rendered = gpuSurface.renderToMetalTexture(
-        texture: captureTexture,
-        width: pixelWidth,
-        height: pixelHeight
-    )
-
-    guard rendered else {
-        Logger.waterui.info("ViewRenderer: GPU surface render returned false")
-        return
-    }
-
-    let bytesPerRowFloat = Int(pixelWidth) * 8
-    var floatPixels = [UInt16](repeating: 0, count: Int(pixelWidth) * Int(pixelHeight) * 4)
-
     captureTexture.getBytes(
-        &floatPixels,
-        bytesPerRow: bytesPerRowFloat,
-        from: MTLRegionMake2D(0, 0, Int(pixelWidth), Int(pixelHeight)),
-        mipmapLevel: 0
+      &floatPixels,
+      bytesPerRow: bytesPerRow,
+      from: MTLRegionMake2D(0, 0, Int(pixelWidth), Int(pixelHeight)),
+      mipmapLevel: 0
     )
-
-    var pixelBytes = [UInt8](repeating: 0, count: Int(pixelWidth) * Int(pixelHeight) * 4)
-    for i in 0 ..< (Int(pixelWidth) * Int(pixelHeight)) {
-        let r = float16ToFloat32(floatPixels[i * 4])
-        let g = float16ToFloat32(floatPixels[i * 4 + 1])
-        let b = float16ToFloat32(floatPixels[i * 4 + 2])
-        let a = float16ToFloat32(floatPixels[i * 4 + 3])
-
-        pixelBytes[i * 4] = UInt8(clamping: Int(r * 255))
-        pixelBytes[i * 4 + 1] = UInt8(clamping: Int(g * 255))
-        pixelBytes[i * 4 + 2] = UInt8(clamping: Int(b * 255))
-        pixelBytes[i * 4 + 3] = UInt8(clamping: Int(a * 255))
+    for index in 0..<(Int(pixelWidth) * Int(pixelHeight)) {
+      for channel in 0..<4 {
+        let value = Float(Float16(bitPattern: floatPixels[index * 4 + channel]))
+        pixelBytes[index * 4 + channel] = UInt8(clamping: Int(value * 255))
+      }
     }
-
+  case .bgra8Unorm, .bgra8Unorm_srgb:
     let bytesPerRow = Int(pixelWidth) * 4
-    let colorSpace = CGColorSpaceCreateDeviceRGB()
-    if let dataProvider = CGDataProvider(data: Data(pixelBytes) as CFData),
-       let cgImage = CGImage(
-           width: Int(pixelWidth),
-           height: Int(pixelHeight),
-           bitsPerComponent: 8,
-           bitsPerPixel: 32,
-           bytesPerRow: bytesPerRow,
-           space: colorSpace,
-           bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
-           provider: dataProvider,
-           decode: nil,
-           shouldInterpolate: true,
-           intent: .defaultIntent
-       ) {
-        context.saveGState()
-        context.draw(cgImage, in: drawRect)
-        context.restoreGState()
+    var bgraPixels = [UInt8](
+      repeating: 0,
+      count: Int(pixelWidth) * Int(pixelHeight) * 4
+    )
+    captureTexture.getBytes(
+      &bgraPixels,
+      bytesPerRow: bytesPerRow,
+      from: MTLRegionMake2D(0, 0, Int(pixelWidth), Int(pixelHeight)),
+      mipmapLevel: 0
+    )
+    for index in 0..<(Int(pixelWidth) * Int(pixelHeight)) {
+      pixelBytes[index * 4] = bgraPixels[index * 4 + 2]
+      pixelBytes[index * 4 + 1] = bgraPixels[index * 4 + 1]
+      pixelBytes[index * 4 + 2] = bgraPixels[index * 4]
+      pixelBytes[index * 4 + 3] = bgraPixels[index * 4 + 3]
     }
-}
+  default:
+    fatalError("ViewRenderer cannot read Metal pixel format \(pixelFormat.rawValue)")
+  }
 
-/// Convert a half-precision float (UInt16) to single-precision float.
-private func float16ToFloat32(_ half: UInt16) -> Float {
-    let sign = (half >> 15) & 0x1
-    let exponent = (half >> 10) & 0x1F
-    let mantissa = half & 0x3FF
-
-    if exponent == 0 {
-        if mantissa == 0 {
-            // Zero
-            return sign == 0 ? 0.0 : -0.0
-        } else {
-            // Denormalized number
-            let f = Float(mantissa) / Float(1 << 10) * pow(2.0, -14.0)
-            return sign == 0 ? f : -f
-        }
-    } else if exponent == 31 {
-        if mantissa == 0 {
-            // Infinity
-            return sign == 0 ? Float.infinity : -Float.infinity
-        } else {
-            // NaN
-            return Float.nan
-        }
-    } else {
-        // Normalized number
-        let f = (1.0 + Float(mantissa) / Float(1 << 10)) * pow(2.0, Float(Int(exponent) - 15))
-        return sign == 0 ? f : -f
-    }
+  let bytesPerRow = Int(pixelWidth) * 4
+  let colorSpace = CGColorSpaceCreateDeviceRGB()
+  guard let dataProvider = CGDataProvider(data: Data(pixelBytes) as CFData) else {
+    fatalError("ViewRenderer failed to create the GPU capture data provider")
+  }
+  guard
+    let cgImage = CGImage(
+      width: Int(pixelWidth),
+      height: Int(pixelHeight),
+      bitsPerComponent: 8,
+      bitsPerPixel: 32,
+      bytesPerRow: bytesPerRow,
+      space: colorSpace,
+      bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+      provider: dataProvider,
+      decode: nil,
+      shouldInterpolate: true,
+      intent: .defaultIntent
+    )
+  else {
+    fatalError("ViewRenderer failed to create the GPU capture image")
+  }
+  context.saveGState()
+  context.draw(cgImage, in: drawRect)
+  context.restoreGState()
 }
 
 #if canImport(AppKit)
-/// Ensure text fields render their content before capturing.
-@preconcurrency @MainActor
-private func forceTextFieldsToDisplay(in view: NSView) {
+  /// Ensure text fields render their content before capturing.
+  @preconcurrency @MainActor
+  private func forceTextFieldsToDisplay(in view: NSView) {
     if let textField = view as? NSTextField {
-        textField.needsDisplay = true
-        textField.displayIfNeeded()
+      textField.needsDisplay = true
+      textField.displayIfNeeded()
     }
 
     for subview in view.subviews {
-        forceTextFieldsToDisplay(in: subview)
+      forceTextFieldsToDisplay(in: subview)
     }
-}
+  }
 #endif

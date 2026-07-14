@@ -4,18 +4,21 @@
 import PackageDescription
 
 let package = Package(
-    name: "waterui-swift",
-    platforms: [
-        .iOS(.v26),
-        .macOS(.v26),
-        .watchOS(.v26),
-    ],
-    products: [
-        .library(name: "WaterUI", targets: ["WaterUI"])
-    ],
-    targets: [
-        .target(name: "CWaterUI"),
-        .target(name: "WaterUI", dependencies: ["CWaterUI"]),
-        .testTarget(name: "WaterUITests", dependencies: ["CWaterUI"]),
-    ]
+  name: "waterui-swift",
+  platforms: [
+    .iOS(.v26),
+    .macOS(.v26),
+    .watchOS(.v26),
+  ],
+  products: [
+    .library(name: "WaterUI", targets: ["WaterUI"])
+  ],
+  targets: [
+    .target(name: "CWaterUI"),
+    .target(
+      name: "WaterUI",
+      dependencies: ["CWaterUI"],
+      resources: [.process("Resources")]
+    ),
+  ]
 )

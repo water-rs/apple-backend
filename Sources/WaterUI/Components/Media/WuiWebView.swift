@@ -7,846 +7,830 @@
 import CWaterUI
 import Security
 import WebKit
-import os
 
 #if canImport(UIKit)
-    import UIKit
+  import UIKit
 #elseif canImport(AppKit)
-    import AppKit
+  import AppKit
 #endif
-
-private let logger = Logger(subsystem: "dev.waterui", category: "WuiWebView")
 
 // MARK: - WebView Wrapper
 
 /// Wraps a WKWebView and implements FFI function pointers for Rust integration.
 @MainActor
 final class WebViewWrapper: NSObject, WKScriptMessageHandler {
-    let webView: WKWebView
-    private var eventCallback: CWaterUI.WuiFn_WuiWebViewEvent?
-    private var userScripts: [(String, CWaterUI.WuiScriptInjectionTime)] = []
-    private var redirectsEnabled = true
-    private var lastNavigationUrl: String?
-    private var progressObservation: NSKeyValueObservation?
-    private var messageHandlers: [String: CWaterUI.WuiFn_WuiWebViewMessage] = [:]
-    private var installedBridge = false
-    private var cachedCookies: String = ""
+  let webView: WKWebView
+  private var eventCallback: CWaterUI.WuiFn_WuiWebViewEvent?
+  private var redirectsEnabled = true
+  private var redirectsObservation: WuiComputedObservation<Bool>?
+  private var lastNavigationUrl: String?
+  private var progressObservation: NSKeyValueObservation?
+  private var messageHandlers: [String: CWaterUI.WuiFn_WuiWebViewMessage] = [:]
+  private var installedBridge = false
+  private var installedHandlerScripts: Set<String> = []
+  private let jsBridge = JsBridge()
 
-    override init() {
-        let config = WKWebViewConfiguration()
-        #if canImport(UIKit)
-            config.allowsInlineMediaPlayback = true
-            config.mediaTypesRequiringUserActionForPlayback = []
-        #endif
+  override init() {
+    let config = WKWebViewConfiguration()
+    #if canImport(UIKit)
+      config.allowsInlineMediaPlayback = true
+      config.mediaTypesRequiringUserActionForPlayback = []
+    #endif
 
-        webView = WKWebView(frame: .zero, configuration: config)
-        super.init()
+    webView = WKWebView(frame: .zero, configuration: config)
+    super.init()
 
-        webView.navigationDelegate = self
-        webView.uiDelegate = self
+    webView.navigationDelegate = self
+    webView.uiDelegate = self
 
-        progressObservation = webView.observe(\.estimatedProgress, options: [.new]) {
-            [weak self] _, change in
-            guard let self else { return }
-            let progress = Float(change.newValue ?? 0.0)
-            Task { @MainActor in
-                self.emitLoading(progress)
-            }
-        }
+    progressObservation = webView.observe(\.estimatedProgress, options: [.new]) {
+      [weak self] _, change in
+      guard let self else { return }
+      let progress = Float(change.newValue ?? 0.0)
+      Task { @MainActor in
+        self.emitLoading(progress)
+      }
+    }
+  }
+
+  nonisolated private static func withHandle<Result: Sendable>(
+    _ rawPtr: UnsafeRawPointer?,
+    operation: StaticString,
+    _ body: @MainActor (WebViewWrapper) -> Result
+  ) -> Result {
+    precondition(Thread.isMainThread, "WebView \(operation) must run on its owning UI thread")
+    guard let rawPtr else {
+      fatalError("WebView \(operation) received a null handle")
+    }
+    let address = UInt(bitPattern: rawPtr)
+    return MainActor.assumeIsolated {
+      let rawPtr = UnsafeRawPointer(bitPattern: address)!
+      return body(Unmanaged<WebViewWrapper>.fromOpaque(rawPtr).takeUnretainedValue())
+    }
+  }
+
+  @MainActor
+  private struct JsBridge {
+    let baseScript: String
+    private let handlerTemplate: String
+
+    init() {
+      baseScript = Self.loadScript(named: "Bridge")
+      handlerTemplate = Self.loadScript(named: "Handler")
     }
 
-    private static func dropWuiStr(_ s: CWaterUI.WuiStr) {
-        s._0.vtable.drop(s._0.data)
+    func handlerScript(name: String) -> String {
+      handlerTemplate.replacingOccurrences(
+        of: "__WATERUI_HANDLER_NAME__",
+        with: WebViewWrapper.jsonQuoted(name)
+      )
     }
 
-    private struct JsBridge {
-        static func baseScript() -> String {
-            // Provides a global request/response registry and base64 helpers.
-            // Handlers installed later can depend on `window.__wateruiResolve`.
-            """
-            (function(){
-              if (window.__waterui) { return; }
-              function toBase64Utf8(s){ return btoa(unescape(encodeURIComponent(s))); }
-              function fromBase64Utf8(b64){ return decodeURIComponent(escape(atob(b64))); }
-              window.__waterui = { pending: Object.create(null), toBase64Utf8: toBase64Utf8, fromBase64Utf8: fromBase64Utf8 };
-              window.__wateruiResolve = function(id, ok, payload){
-                var p = window.__waterui.pending[id];
-                if (!p) { return; }
-                delete window.__waterui.pending[id];
-                if (ok) { p.resolve(payload); } else { p.reject(payload); }
-              };
-            })();
-            """
-        }
-
-        static func handlerScript(name: String) -> String {
-            let escaped = name.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "'", with: "\\'")
-            return """
-            (function(){
-              var name = '\(escaped)';
-              if (!window.__waterui || !window.__wateruiResolve) { return; }
-              if (window[name] && window[name].__wateruiWrapped) { return; }
-              function send(data){
-                var id = String(Date.now()) + '_' + String(Math.random()).slice(2);
-                var text = (typeof data === 'string') ? data : JSON.stringify(data);
-                var b64 = window.__waterui.toBase64Utf8(text);
-                return new Promise(function(resolve, reject){
-                  window.__waterui.pending[id] = { resolve: resolve, reject: reject };
-                  window.webkit.messageHandlers[name].postMessage({ id: id, payload: b64 });
-                });
-              }
-              window[name] = {
-                __wateruiWrapped: true,
-                postMessageRaw: function(data){
-                  return send(data);
-                },
-                postMessage: function(data){
-                  return send(data).then(function(replyB64){
-                    return window.__waterui.fromBase64Utf8(replyB64);
-                  });
-                }
-              };
-            })();
-            """
-        }
+    private static func loadScript(named name: String) -> String {
+      guard
+        let url = Bundle.module.url(
+          forResource: name,
+          withExtension: "js",
+          subdirectory: "JavaScript"
+        )
+      else {
+        fatalError("WaterUI is missing the bundled JavaScript/\(name).js resource")
+      }
+      do {
+        return try String(contentsOf: url, encoding: .utf8)
+      } catch {
+        fatalError("WaterUI could not load JavaScript/\(name).js: \(error)")
+      }
     }
+  }
 
-    private func ensureBridgeInstalled() {
-        guard !installedBridge else { return }
-        installedBridge = true
-        injectScript(JsBridge.baseScript(), time: WuiScriptInjectionTime_DocumentStart)
+  private func ensureBridgeInstalled() {
+    guard !installedBridge else { return }
+    installedBridge = true
+    injectScript(jsBridge.baseScript, time: WuiScriptInjectionTime_DocumentStart)
+  }
+
+  private func ensureHandlerScriptInstalled(name: String) {
+    guard installedHandlerScripts.insert(name).inserted else { return }
+    ensureBridgeInstalled()
+    injectScript(jsBridge.handlerScript(name: name), time: WuiScriptInjectionTime_DocumentStart)
+  }
+
+  private final class MessageReplyContext {
+    weak var wrapper: WebViewWrapper?
+    let requestId: String
+
+    init(wrapper: WebViewWrapper, requestId: String) {
+      self.wrapper = wrapper
+      self.requestId = requestId
     }
+  }
 
-    private func ensureHandlerScriptInstalled(name: String) {
-        ensureBridgeInstalled()
-        injectScript(JsBridge.handlerScript(name: name), time: WuiScriptInjectionTime_DocumentStart)
+  private static func jsonQuoted(_ s: String) -> String {
+    do {
+      let data = try JSONSerialization.data(withJSONObject: [s])
+      guard let text = String(data: data, encoding: .utf8) else {
+        fatalError("JSONSerialization returned non-UTF-8 data for a Swift String")
+      }
+      return String(text.dropFirst().dropLast())
+    } catch {
+      fatalError("Failed to JSON-quote a WebView bridge string: \(error)")
     }
+  }
 
-    private final class MessageReplyContext {
-        weak var wrapper: WebViewWrapper?
-        let requestId: String
-
-        init(wrapper: WebViewWrapper, requestId: String) {
-            self.wrapper = wrapper
-            self.requestId = requestId
-        }
-    }
-
-    private static func jsonQuoted(_ s: String) -> String {
-        let data = try? JSONSerialization.data(withJSONObject: [s])
-        let text = data.flatMap { String(data: $0, encoding: .utf8) } ?? "[\"\"]"
-        // Strip [ and ] to get the single JSON string token.
-        return String(text.dropFirst().dropLast())
-    }
-
-    private static let messageReplyCallback: @convention(c) (
-        UnsafeMutableRawPointer?,
-        Bool,
-        CWaterUI.WuiStr
+  private static let messageReplyCallback:
+    @convention(c) (
+      UnsafeMutableRawPointer?,
+      Bool,
+      CWaterUI.WuiStr
     ) -> Void = { data, success, result in
-        guard let data else {
-            WebViewWrapper.dropWuiStr(result)
-            return
-        }
-        let ctx = Unmanaged<MessageReplyContext>.fromOpaque(data).takeRetainedValue()
-        guard let wrapper = ctx.wrapper else {
-            WebViewWrapper.dropWuiStr(result)
-            return
-        }
+      guard let data else {
+        fatalError("WebView message reply received null callback data")
+      }
+      let ctx = Unmanaged<MessageReplyContext>.fromOpaque(data).takeRetainedValue()
+      guard let wrapper = ctx.wrapper else {
+        fatalError("WebView message reply outlived its WebView")
+      }
 
-        let payload = WuiStr(result).toString()
-        let id = WebViewWrapper.jsonQuoted(ctx.requestId)
-        let ok = success ? "true" : "false"
-        let body = WebViewWrapper.jsonQuoted(payload)
-        let js = "window.__wateruiResolve(\(id), \(ok), \(body));"
-        Task { @MainActor in
-            _ = try? await wrapper.webView.evaluateJavaScript(js)
+      let payload = WuiStr(result).toString()
+      let id = WebViewWrapper.jsonQuoted(ctx.requestId)
+      let ok = success ? "true" : "false"
+      let body = WebViewWrapper.jsonQuoted(payload)
+      let js = "window.__wateruiResolve(\(id), \(ok), \(body));"
+      precondition(Thread.isMainThread, "WebView message replies must run on the UI thread")
+      MainActor.assumeIsolated {
+        wrapper.webView.evaluateJavaScript(js) { _, error in
+          if let error {
+            fatalError("WebView failed to deliver a JavaScript bridge reply: \(error)")
+          }
         }
+      }
     }
 
-    func addHandler(_ name: String, callback: CWaterUI.WuiFn_WuiWebViewMessage) {
-        // Replace existing handler if present.
-        if let existing = messageHandlers[name] {
-            existing.drop?(existing.data)
-            webView.configuration.userContentController.removeScriptMessageHandler(forName: name)
-        }
-        messageHandlers[name] = callback
-        webView.configuration.userContentController.add(self, name: name)
-        ensureHandlerScriptInstalled(name: name)
+  func addHandler(_ name: String, callback: CWaterUI.WuiFn_WuiWebViewMessage) {
+    // Replace existing handler if present.
+    if let existing = messageHandlers[name] {
+      guard let drop = existing.drop else {
+        fatalError("WebView message handler has no drop function")
+      }
+      drop(existing.data)
+      webView.configuration.userContentController.removeScriptMessageHandler(forName: name)
+    }
+    messageHandlers[name] = callback
+    webView.configuration.userContentController.add(self, name: name)
+    ensureHandlerScriptInstalled(name: name)
+  }
+
+  func removeHandler(_ name: String) {
+    if let existing = messageHandlers.removeValue(forKey: name) {
+      guard let drop = existing.drop else {
+        fatalError("WebView message handler has no drop function")
+      }
+      drop(existing.data)
+    }
+    webView.configuration.userContentController.removeScriptMessageHandler(forName: name)
+  }
+
+  nonisolated func userContentController(
+    _ userContentController: WKUserContentController, didReceive message: WKScriptMessage
+  ) {
+    Task { @MainActor [weak self] in
+      self?.handleScriptMessage(name: message.name, body: message.body)
+    }
+  }
+
+  @MainActor
+  private func handleScriptMessage(name: String, body: Any) {
+    guard let callback = messageHandlers[name] else { return }
+
+    // Expected payload: { id: string, payload: base64(string) }.
+    let dict = body as? [String: Any]
+    let requestId = dict?["id"] as? String
+    let payloadB64 = dict?["payload"] as? String
+
+    guard let requestId, let payloadB64 else {
+      fatalError("WebView bridge handler '\(name)' received a malformed request")
     }
 
-    func removeHandler(_ name: String) {
-        if let existing = messageHandlers.removeValue(forKey: name) {
-            existing.drop?(existing.data)
-        }
-        webView.configuration.userContentController.removeScriptMessageHandler(forName: name)
+    let replyCtx = Unmanaged.passRetained(MessageReplyContext(wrapper: self, requestId: requestId))
+      .toOpaque()
+    let reply = CWaterUI.WuiJsCallback(data: replyCtx, call: Self.messageReplyCallback)
+    let msg = CWaterUI.WuiWebViewMessage(
+      payload_base64: WuiStr(string: payloadB64).intoInner(),
+      reply: reply
+    )
+    guard let call = callback.call else {
+      fatalError("WebView bridge handler '\(name)' has no callback function")
+    }
+    call(callback.data, msg)
+  }
+
+  @MainActor
+  private func cleanupForDrop() {
+    // Break retain cycles: WKUserContentController strongly retains its message handlers.
+    let controller = webView.configuration.userContentController
+    for name in messageHandlers.keys {
+      controller.removeScriptMessageHandler(forName: name)
+    }
+    for (_, cb) in messageHandlers {
+      guard let drop = cb.drop else {
+        fatalError("WebView message handler has no drop function")
+      }
+      drop(cb.data)
+    }
+    messageHandlers.removeAll()
+
+    if let cb = eventCallback {
+      guard let drop = cb.drop else {
+        fatalError("WebView event callback has no drop function")
+      }
+      drop(cb.data)
+      eventCallback = nil
     }
 
-    nonisolated func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        Task { @MainActor [weak self] in
-            self?.handleScriptMessage(name: message.name, body: message.body)
-        }
+    progressObservation?.invalidate()
+    progressObservation = nil
+    redirectsObservation = nil
+
+    webView.stopLoading()
+    webView.navigationDelegate = nil
+    webView.uiDelegate = nil
+
+    controller.removeAllUserScripts()
+    installedBridge = false
+    installedHandlerScripts.removeAll()
+  }
+
+  func setCookie(_ setCookieHeaderValue: String) {
+    let trimmed = setCookieHeaderValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    precondition(!trimmed.isEmpty, "WebView cannot set an empty cookie")
+
+    let url = webView.url ?? Self.cookieOrigin(from: trimmed)
+    let cookies = HTTPCookie.cookies(withResponseHeaderFields: ["Set-Cookie": trimmed], for: url)
+    guard !cookies.isEmpty else {
+      fatalError("WebView received an invalid Set-Cookie value: \(trimmed)")
     }
 
-    @MainActor
-    private func handleScriptMessage(name: String, body: Any) {
-        guard let callback = messageHandlers[name] else { return }
-
-        // Expected payload: { id: string, payload: base64(string) }.
-        let dict = body as? [String: Any]
-        let requestId = dict?["id"] as? String
-        let payloadB64 = dict?["payload"] as? String
-
-        guard let requestId, let payloadB64 else { return }
-
-        let replyCtx = Unmanaged.passRetained(MessageReplyContext(wrapper: self, requestId: requestId)).toOpaque()
-        let reply = CWaterUI.WuiJsCallback(data: replyCtx, call: Self.messageReplyCallback)
-        let msg = CWaterUI.WuiWebViewMessage(
-            payload_base64: WuiStr(string: payloadB64).intoInner(),
-            reply: reply
-        )
-        callback.call?(callback.data, msg)
+    let store = webView.configuration.websiteDataStore.httpCookieStore
+    for cookie in cookies {
+      store.setCookie(cookie, completionHandler: nil)
     }
+  }
 
-    @MainActor
-    private func cleanupForDrop() {
-        // Break retain cycles: WKUserContentController strongly retains its message handlers.
-        let controller = webView.configuration.userContentController
-        for name in messageHandlers.keys {
-            controller.removeScriptMessageHandler(forName: name)
-        }
-        for (_, cb) in messageHandlers {
-            cb.drop?(cb.data)
-        }
-        messageHandlers.removeAll()
-
-        if let cb = eventCallback {
-            cb.drop?(cb.data)
-            eventCallback = nil
-        }
-
-        progressObservation?.invalidate()
-        progressObservation = nil
-
-        webView.stopLoading()
-        webView.navigationDelegate = nil
-        webView.uiDelegate = nil
-
-        controller.removeAllUserScripts()
-        userScripts.removeAll()
-        installedBridge = false
+  private static func cookieOrigin(from setCookieValue: String) -> URL {
+    let attributes = setCookieValue.split(separator: ";").dropFirst()
+    let domain = attributes.lazy.compactMap { attribute -> String? in
+      let parts = attribute.split(separator: "=", maxSplits: 1)
+      guard parts.count == 2 else { return nil }
+      let name = parts[0].trimmingCharacters(in: .whitespaces)
+      guard name.caseInsensitiveCompare("Domain") == .orderedSame else { return nil }
+      return parts[1].trimmingCharacters(in: .whitespaces)
+    }.first
+    guard let domain, !domain.isEmpty else {
+      fatalError("A cookie set before navigation requires a Domain attribute")
     }
-
-    func setCookie(_ setCookieHeaderValue: String) {
-        let trimmed = setCookieHeaderValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-
-        let url = webView.url ?? URL(string: "https://localhost/")!
-        let cookies = HTTPCookie.cookies(withResponseHeaderFields: ["Set-Cookie": trimmed], for: url)
-        guard !cookies.isEmpty else { return }
-
-        let store = webView.configuration.websiteDataStore.httpCookieStore
-        for cookie in cookies {
-            store.setCookie(cookie, completionHandler: nil)
-        }
-        refreshCookieCache()
+    var components = URLComponents()
+    components.scheme =
+      attributes.contains(where: {
+        $0.trimmingCharacters(in: .whitespaces).caseInsensitiveCompare("Secure") == .orderedSame
+      }) ? "https" : "http"
+    components.host = String(domain.drop(while: { $0 == "." }))
+    components.path = "/"
+    guard let url = components.url else {
+      fatalError("WebView cookie has an invalid Domain attribute: \(domain)")
     }
+    return url
+  }
 
-    private static func serializeCookies(_ cookies: [HTTPCookie]) -> String {
-        let lines = cookies.map { cookie in
-            var parts: [String] = ["\(cookie.name)=\(cookie.value)"]
-            if let domain = cookie.domain as String? { parts.append("Domain=\(domain)") }
-            if let path = cookie.path as String? { parts.append("Path=\(path)") }
-            if let expires = cookie.expiresDate {
-                let formatter = DateFormatter()
-                formatter.locale = Locale(identifier: "en_US_POSIX")
-                formatter.timeZone = TimeZone(secondsFromGMT: 0)
-                formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss 'GMT'"
-                parts.append("Expires=\(formatter.string(from: expires))")
+  private static func serializeCookies(_ cookies: [HTTPCookie]) -> String {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone(secondsFromGMT: 0)
+    formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss 'GMT'"
+    let lines = cookies.map { cookie in
+      var parts: [String] = ["\(cookie.name)=\(cookie.value)"]
+      parts.append("Domain=\(cookie.domain)")
+      parts.append("Path=\(cookie.path)")
+      if let expires = cookie.expiresDate {
+        parts.append("Expires=\(formatter.string(from: expires))")
+      }
+      if cookie.isSecure { parts.append("Secure") }
+      if cookie.isHTTPOnly { parts.append("HttpOnly") }
+      return parts.joined(separator: "; ")
+    }
+    return lines.joined(separator: "\n")
+  }
+
+  // MARK: - Navigation
+
+  func goBack() {
+    webView.goBack()
+  }
+
+  func goForward() {
+    webView.goForward()
+  }
+
+  func goTo(_ urlString: String) {
+    guard let url = URL(string: urlString) else {
+      fatalError("WebView received an invalid URL: \(urlString)")
+    }
+    webView.load(URLRequest(url: url))
+  }
+
+  func stop() {
+    webView.stopLoading()
+  }
+
+  func refresh() {
+    webView.reload()
+  }
+
+  // MARK: - State
+
+  // MARK: - Configuration
+
+  func setUserAgent(_ userAgent: String) {
+    let trimmed = userAgent.trimmingCharacters(in: .whitespacesAndNewlines)
+    webView.customUserAgent = trimmed.isEmpty ? nil : trimmed
+  }
+
+  func setRedirectsEnabled(_ enabled: WuiComputed<Bool>) {
+    let observation = WuiComputedObservation(enabled) { [weak self] enabled, _ in
+      self?.redirectsEnabled = enabled
+    }
+    redirectsEnabled = observation.value
+    redirectsObservation = observation
+  }
+
+  func injectScript(_ script: String, time: CWaterUI.WuiScriptInjectionTime) {
+    let injectionTime: WKUserScriptInjectionTime =
+      time == WuiScriptInjectionTime_DocumentStart
+      ? .atDocumentStart
+      : .atDocumentEnd
+
+    let userScript = WKUserScript(
+      source: script,
+      injectionTime: injectionTime,
+      forMainFrameOnly: true
+    )
+    webView.configuration.userContentController.addUserScript(userScript)
+  }
+
+  // MARK: - Event Watching
+
+  func setEventCallback(_ callback: CWaterUI.WuiFn_WuiWebViewEvent) {
+    if let old = eventCallback {
+      guard let drop = old.drop else {
+        fatalError("WebView event callback has no drop function")
+      }
+      drop(old.data)
+    }
+    self.eventCallback = callback
+  }
+
+  private func emitEvent(_ makeEvent: () -> CWaterUI.WuiWebViewEvent) {
+    guard let callback = eventCallback else { return }
+    guard let call = callback.call else {
+      fatalError("WebView event callback has no call function")
+    }
+    call(callback.data, makeEvent())
+  }
+
+  private func emitLoading(_ progress: Float) {
+    emitEvent {
+      CWaterUI.WuiWebViewEvent(
+        event_type: WuiWebViewEventType_Loading,
+        url: nil,
+        url2: nil,
+        message: nil,
+        progress: progress,
+        can_go_back: false,
+        can_go_forward: false
+      )
+    }
+  }
+
+  private func emitStateChanged() {
+    emitEvent {
+      CWaterUI.WuiWebViewEvent(
+        event_type: WuiWebViewEventType_StateChanged,
+        url: nil,
+        url2: nil,
+        message: nil,
+        progress: 0,
+        can_go_back: webView.canGoBack,
+        can_go_forward: webView.canGoForward
+      )
+    }
+  }
+
+  private func emitSslError(_ urlString: String, message: String) {
+    emitEvent {
+      CWaterUI.WuiWebViewEvent(
+        event_type: WuiWebViewEventType_SslError,
+        url: WuiStr(string: urlString).intoRustOwnedPointer(),
+        url2: nil,
+        message: WuiStr(string: message).intoRustOwnedPointer(),
+        progress: 0,
+        can_go_back: false,
+        can_go_forward: false
+      )
+    }
+  }
+
+  private func emitWillNavigate(_ urlString: String, allowRepeat: Bool) {
+    guard !urlString.isEmpty else { return }
+    if !allowRepeat, lastNavigationUrl == urlString {
+      return
+    }
+    lastNavigationUrl = urlString
+    emitEvent {
+      CWaterUI.WuiWebViewEvent(
+        event_type: WuiWebViewEventType_WillNavigate,
+        url: WuiStr(string: urlString).intoRustOwnedPointer(),
+        url2: nil,
+        message: nil,
+        progress: 0,
+        can_go_back: false,
+        can_go_forward: false
+      )
+    }
+  }
+
+  // MARK: - JavaScript
+
+  func runJavaScript(_ script: String, callback: CWaterUI.WuiJsCallback) {
+    guard let callbackFn = callback.call else {
+      fatalError("WebView JavaScript execution requires a completion callback")
+    }
+    webView.evaluateJavaScript(script) { result, error in
+      let callbackData = callback.data
+
+      if let error = error {
+        let errorMsg = error.localizedDescription
+        let errorStr = WuiStr(string: errorMsg).intoInner()
+        callbackFn(callbackData, false, errorStr)
+      } else {
+        let resultStr: String
+        if let result = result {
+          // JSONSerialization raises NSException on invalid objects, so validate first.
+          if JSONSerialization.isValidJSONObject(result) {
+            do {
+              let jsonData = try JSONSerialization.data(withJSONObject: result)
+              guard let json = String(data: jsonData, encoding: .utf8) else {
+                fatalError("WebView JavaScript result serialization produced non-UTF-8 data")
+              }
+              resultStr = json
+            } catch {
+              fatalError("WebView failed to serialize a valid JavaScript result: \(error)")
             }
-            if cookie.isSecure { parts.append("Secure") }
-            if cookie.isHTTPOnly { parts.append("HttpOnly") }
-            return parts.joined(separator: "; ")
+          } else {
+            resultStr = String(describing: result)
+          }
+        } else {
+          resultStr = "null"
         }
-        return lines.joined(separator: "\n")
+        let wuiStr = WuiStr(string: resultStr).intoInner()
+        callbackFn(callbackData, true, wuiStr)
+      }
     }
+  }
 
-    func refreshCookieCache() {
-        let store = webView.configuration.websiteDataStore.httpCookieStore
-        store.getAllCookies { [weak self] cookies in
-            guard let self else { return }
-            self.cachedCookies = Self.serializeCookies(cookies)
+  // MARK: - FFI Handle Creation
+
+  func toFFIHandle() -> CWaterUI.WuiWebViewHandle {
+    let ptr = Unmanaged.passRetained(self).toOpaque()
+
+    return CWaterUI.WuiWebViewHandle(
+      data: ptr,
+      go_back: { rawPtr in
+        WebViewWrapper.withHandle(rawPtr, operation: "go_back") { $0.goBack() }
+      },
+      go_forward: { rawPtr in
+        WebViewWrapper.withHandle(rawPtr, operation: "go_forward") { $0.goForward() }
+      },
+      go_to: { rawPtr, url in
+        WebViewWrapper.withHandle(rawPtr, operation: "go_to") { wrapper in
+          wrapper.goTo(WuiStr(url).toString())
         }
-    }
-
-    // MARK: - Navigation
-
-    func goBack() {
-        webView.goBack()
-    }
-
-    func goForward() {
-        webView.goForward()
-    }
-
-    func goTo(_ urlString: String) {
-        guard let url = URL(string: urlString) else {
-            return
+      },
+      stop: { rawPtr in
+        WebViewWrapper.withHandle(rawPtr, operation: "stop") { $0.stop() }
+      },
+      refresh: { rawPtr in
+        WebViewWrapper.withHandle(rawPtr, operation: "refresh") { $0.refresh() }
+      },
+      can_go_back: { rawPtr in
+        WebViewWrapper.withHandle(rawPtr, operation: "can_go_back") {
+          $0.webView.canGoBack
         }
-        webView.load(URLRequest(url: url))
-    }
-
-    func stop() {
-        webView.stopLoading()
-    }
-
-    func refresh() {
-        webView.reload()
-    }
-
-    // MARK: - State
-
-    // MARK: - Configuration
-
-    func setUserAgent(_ userAgent: String) {
-        let trimmed = userAgent.trimmingCharacters(in: .whitespacesAndNewlines)
-        webView.customUserAgent = trimmed.isEmpty ? nil : trimmed
-    }
-
-    func setRedirectsEnabled(_ enabled: Bool) {
-        redirectsEnabled = enabled
-    }
-
-    func injectScript(_ script: String, time: CWaterUI.WuiScriptInjectionTime) {
-        let injectionTime: WKUserScriptInjectionTime =
-            time == WuiScriptInjectionTime_DocumentStart
-            ? .atDocumentStart
-            : .atDocumentEnd
-
-        let userScript = WKUserScript(
-            source: script,
-            injectionTime: injectionTime,
-            forMainFrameOnly: true
-        )
-        webView.configuration.userContentController.addUserScript(userScript)
-        userScripts.append((script, time))
-    }
-
-    // MARK: - Event Watching
-
-    func setEventCallback(_ callback: CWaterUI.WuiFn_WuiWebViewEvent) {
-        if let old = eventCallback {
-            old.drop?(old.data)
+      },
+      can_go_forward: { rawPtr in
+        WebViewWrapper.withHandle(rawPtr, operation: "can_go_forward") {
+          $0.webView.canGoForward
         }
-        self.eventCallback = callback
-    }
-
-    private func emitEvent(_ event: CWaterUI.WuiWebViewEvent) {
-        guard let callback = eventCallback else { return }
-        callback.call?(callback.data, event)
-    }
-
-    private func emitLoading(_ progress: Float) {
-        let event = CWaterUI.WuiWebViewEvent(
-            event_type: WuiWebViewEventType_Loading,
-            url: WuiStr(string: "").intoInner(),
-            url2: WuiStr(string: "").intoInner(),
-            message: WuiStr(string: "").intoInner(),
-            progress: progress,
-            can_go_back: false,
-            can_go_forward: false
-        )
-        emitEvent(event)
-    }
-
-    private func emitStateChanged() {
-        let event = CWaterUI.WuiWebViewEvent(
-            event_type: WuiWebViewEventType_StateChanged,
-            url: WuiStr(string: "").intoInner(),
-            url2: WuiStr(string: "").intoInner(),
-            message: WuiStr(string: "").intoInner(),
-            progress: 0,
-            can_go_back: webView.canGoBack,
-            can_go_forward: webView.canGoForward
-        )
-        emitEvent(event)
-    }
-
-    private func emitSslError(_ urlString: String, message: String) {
-        let event = CWaterUI.WuiWebViewEvent(
-            event_type: WuiWebViewEventType_SslError,
-            url: WuiStr(string: urlString).intoInner(),
-            url2: WuiStr(string: "").intoInner(),
-            message: WuiStr(string: message).intoInner(),
-            progress: 0,
-            can_go_back: false,
-            can_go_forward: false
-        )
-        emitEvent(event)
-    }
-
-    private func emitWillNavigate(_ urlString: String, allowRepeat: Bool) {
-        guard !urlString.isEmpty else { return }
-        if !allowRepeat, lastNavigationUrl == urlString {
-            return
+      },
+      set_user_agent: { rawPtr, userAgent in
+        WebViewWrapper.withHandle(rawPtr, operation: "set_user_agent") { wrapper in
+          wrapper.setUserAgent(WuiStr(userAgent).toString())
         }
-        lastNavigationUrl = urlString
-        let event = CWaterUI.WuiWebViewEvent(
-            event_type: WuiWebViewEventType_WillNavigate,
-            url: WuiStr(string: urlString).intoInner(),
-            url2: WuiStr(string: "").intoInner(),
-            message: WuiStr(string: "").intoInner(),
-            progress: 0,
-            can_go_back: false,
-            can_go_forward: false
-        )
-        emitEvent(event)
-    }
-
-    // MARK: - JavaScript
-
-    func runJavaScript(_ script: String, callback: CWaterUI.WuiJsCallback) {
-        webView.evaluateJavaScript(script) { result, error in
-            let callbackData = callback.data
-            let callbackFn = callback.call
-
-            if let error = error {
-                let errorMsg = error.localizedDescription
-                let errorStr = WuiStr(string: errorMsg).intoInner()
-                callbackFn?(callbackData, false, errorStr)
-            } else {
-                let resultStr: String
-                if let result = result {
-                    // JSONSerialization raises NSException on invalid objects, so validate first.
-                    if JSONSerialization.isValidJSONObject(result),
-                        let jsonData = try? JSONSerialization.data(withJSONObject: result),
-                        let jsonStr = String(data: jsonData, encoding: .utf8)
-                    {
-                        resultStr = jsonStr
-                    } else {
-                        resultStr = String(describing: result)
-                    }
-                } else {
-                    resultStr = "null"
-                }
-                let wuiStr = WuiStr(string: resultStr).intoInner()
-                callbackFn?(callbackData, true, wuiStr)
-            }
+      },
+      set_redirects_enabled: { rawPtr, enabledPtr in
+        guard let enabledPtr else {
+          fatalError("WebView set_redirects_enabled received a null signal")
         }
-    }
-
-    // MARK: - FFI Handle Creation
-
-    func toFFIHandle() -> CWaterUI.WuiWebViewHandle {
-        let ptr = Unmanaged.passRetained(self).toOpaque()
-
-        return CWaterUI.WuiWebViewHandle(
-            data: ptr,
-            go_back: { rawPtr in
-                guard let rawPtr = rawPtr else { return }
-                let wrapper = Unmanaged<WebViewWrapper>.fromOpaque(rawPtr).takeUnretainedValue()
-                Task { @MainActor in wrapper.goBack() }
-            },
-            go_forward: { rawPtr in
-                guard let rawPtr = rawPtr else { return }
-                let wrapper = Unmanaged<WebViewWrapper>.fromOpaque(rawPtr).takeUnretainedValue()
-                Task { @MainActor in wrapper.goForward() }
-            },
-            go_to: { rawPtr, url in
-                guard let rawPtr = rawPtr else {
-                    WebViewWrapper.dropWuiStr(url)
-                    return
-                }
-                let wrapper = Unmanaged<WebViewWrapper>.fromOpaque(rawPtr).takeUnretainedValue()
-                Task { @MainActor in
-                    let urlString = WuiStr(url).toString()
-                    wrapper.goTo(urlString)
-                }
-            },
-            stop: { rawPtr in
-                guard let rawPtr = rawPtr else { return }
-                let wrapper = Unmanaged<WebViewWrapper>.fromOpaque(rawPtr).takeUnretainedValue()
-                Task { @MainActor in wrapper.stop() }
-            },
-            refresh: { rawPtr in
-                guard let rawPtr = rawPtr else { return }
-                let wrapper = Unmanaged<WebViewWrapper>.fromOpaque(rawPtr).takeUnretainedValue()
-                Task { @MainActor in wrapper.refresh() }
-            },
-            can_go_back: { rawPtr in
-                guard let rawPtr = rawPtr else { return false }
-                let wrapper = Unmanaged<WebViewWrapper>.fromOpaque(rawPtr).takeUnretainedValue()
-                if Thread.isMainThread {
-                    return wrapper.webView.canGoBack
-                }
-                return DispatchQueue.main.sync {
-                    wrapper.webView.canGoBack
-                }
-            },
-            can_go_forward: { rawPtr in
-                guard let rawPtr = rawPtr else { return false }
-                let wrapper = Unmanaged<WebViewWrapper>.fromOpaque(rawPtr).takeUnretainedValue()
-                if Thread.isMainThread {
-                    return wrapper.webView.canGoForward
-                }
-                return DispatchQueue.main.sync {
-                    wrapper.webView.canGoForward
-                }
-            },
-            set_user_agent: { rawPtr, userAgent in
-                guard let rawPtr = rawPtr else {
-                    WebViewWrapper.dropWuiStr(userAgent)
-                    return
-                }
-                let wrapper = Unmanaged<WebViewWrapper>.fromOpaque(rawPtr).takeUnretainedValue()
-                Task { @MainActor in
-                    let uaString = WuiStr(userAgent).toString()
-                    wrapper.setUserAgent(uaString)
-                }
-            },
-            set_redirects_enabled: { rawPtr, enabled in
-                guard let rawPtr = rawPtr else { return }
-                let wrapper = Unmanaged<WebViewWrapper>.fromOpaque(rawPtr).takeUnretainedValue()
-                if Thread.isMainThread {
-                    MainActor.assumeIsolated { wrapper.setRedirectsEnabled(enabled) }
-                } else {
-                    DispatchQueue.main.sync { wrapper.setRedirectsEnabled(enabled) }
-                }
-            },
-            inject_script: { rawPtr, script, time in
-                guard let rawPtr = rawPtr else {
-                    WebViewWrapper.dropWuiStr(script)
-                    return
-                }
-                let wrapper = Unmanaged<WebViewWrapper>.fromOpaque(rawPtr).takeUnretainedValue()
-                Task { @MainActor in
-                    let scriptString = WuiStr(script).toString()
-                    wrapper.injectScript(scriptString, time: time)
-                }
-            },
-            watch: { rawPtr, callback in
-                guard let rawPtr = rawPtr else {
-                    callback.drop?(callback.data)
-                    return
-                }
-                let wrapper = Unmanaged<WebViewWrapper>.fromOpaque(rawPtr).takeUnretainedValue()
-                Task { @MainActor in wrapper.setEventCallback(callback) }
-            },
-            add_handler: { rawPtr, name, callback in
-                guard let rawPtr = rawPtr else {
-                    WebViewWrapper.dropWuiStr(name)
-                    callback.drop?(callback.data)
-                    return
-                }
-                let wrapper = Unmanaged<WebViewWrapper>.fromOpaque(rawPtr).takeUnretainedValue()
-                Task { @MainActor in
-                    let nameString = WuiStr(name).toString()
-                    wrapper.addHandler(nameString, callback: callback)
-                }
-            },
-            remove_handler: { rawPtr, name in
-                guard let rawPtr = rawPtr else {
-                    WebViewWrapper.dropWuiStr(name)
-                    return
-                }
-                let wrapper = Unmanaged<WebViewWrapper>.fromOpaque(rawPtr).takeUnretainedValue()
-                Task { @MainActor in
-                    let nameString = WuiStr(name).toString()
-                    wrapper.removeHandler(nameString)
-                }
-            },
-            set_cookie: { rawPtr, cookie in
-                guard let rawPtr = rawPtr else {
-                    WebViewWrapper.dropWuiStr(cookie)
-                    return
-                }
-                let wrapper = Unmanaged<WebViewWrapper>.fromOpaque(rawPtr).takeUnretainedValue()
-                Task { @MainActor in
-                    let cookieString = WuiStr(cookie).toString()
-                    wrapper.setCookie(cookieString)
-                }
-            },
-            get_cookies: { rawPtr in
-                guard let rawPtr = rawPtr else {
-                    return WuiStr(string: "").intoInner()
-                }
-                precondition(
-                    !Thread.isMainThread,
-                    "waterui_webview.get_cookies cannot synchronously fetch fresh cookies on the main thread"
-                )
-
-                let group = DispatchGroup()
-                var latest = ""
-                DispatchQueue.main.sync {
-                    let wrapper = Unmanaged<WebViewWrapper>.fromOpaque(rawPtr).takeUnretainedValue()
-                    let store = wrapper.webView.configuration.websiteDataStore.httpCookieStore
-                    group.enter()
-                    store.getAllCookies { cookies in
-                        let serialized = WebViewWrapper.serializeCookies(cookies)
-                        wrapper.cachedCookies = serialized
-                        latest = serialized
-                        group.leave()
-                    }
-                }
-                precondition(
-                    group.wait(timeout: .now() + .seconds(5)) == .success,
-                    "waterui_webview.get_cookies timed out waiting for WKHTTPCookieStore"
-                )
-                return WuiStr(string: latest).intoInner()
-            },
-            run_javascript: { rawPtr, script, callback in
-                guard let rawPtr = rawPtr else {
-                    WebViewWrapper.dropWuiStr(script)
-                    let msg = WuiStr(string: "WebView not available").intoInner()
-                    callback.call?(callback.data, false, msg)
-                    return
-                }
-                let wrapper = Unmanaged<WebViewWrapper>.fromOpaque(rawPtr).takeUnretainedValue()
-                Task { @MainActor in
-                    let scriptString = WuiStr(script).toString()
-                    wrapper.runJavaScript(scriptString, callback: callback)
-                }
-            },
-            drop: { rawPtr in
-                guard let rawPtr = rawPtr else { return }
-                Task { @MainActor in
-                    let wrapper = Unmanaged<WebViewWrapper>.fromOpaque(rawPtr).takeUnretainedValue()
-                    wrapper.cleanupForDrop()
-                    Unmanaged<WebViewWrapper>.fromOpaque(rawPtr).release()
-                }
-            }
-        )
-    }
-
-    deinit {
+        WebViewWrapper.withHandle(rawPtr, operation: "set_redirects_enabled") { wrapper in
+          wrapper.setRedirectsEnabled(WuiComputed<Bool>(enabledPtr))
+        }
+      },
+      inject_script: { rawPtr, script, time in
+        WebViewWrapper.withHandle(rawPtr, operation: "inject_script") { wrapper in
+          wrapper.injectScript(WuiStr(script).toString(), time: time)
+        }
+      },
+      watch: { rawPtr, callback in
+        WebViewWrapper.withHandle(rawPtr, operation: "watch") { wrapper in
+          wrapper.setEventCallback(callback)
+        }
+      },
+      add_handler: { rawPtr, name, callback in
+        WebViewWrapper.withHandle(rawPtr, operation: "add_handler") { wrapper in
+          wrapper.addHandler(WuiStr(name).toString(), callback: callback)
+        }
+      },
+      remove_handler: { rawPtr, name in
+        WebViewWrapper.withHandle(rawPtr, operation: "remove_handler") { wrapper in
+          wrapper.removeHandler(WuiStr(name).toString())
+        }
+      },
+      set_cookie: { rawPtr, cookie in
+        WebViewWrapper.withHandle(rawPtr, operation: "set_cookie") { wrapper in
+          wrapper.setCookie(WuiStr(cookie).toString())
+        }
+      },
+      get_cookies: { rawPtr, callback in
+        guard let call = callback.call else {
+          fatalError("waterui_webview.get_cookies received a null completion callback")
+        }
+        WebViewWrapper.withHandle(rawPtr, operation: "get_cookies") { wrapper in
+          let store = wrapper.webView.configuration.websiteDataStore.httpCookieStore
+          store.getAllCookies { cookies in
+            let result = WuiStr(
+              string: WebViewWrapper.serializeCookies(cookies)
+            ).intoInner()
+            call(callback.data, result)
+          }
+        }
+      },
+      run_javascript: { rawPtr, script, callback in
+        WebViewWrapper.withHandle(rawPtr, operation: "run_javascript") { wrapper in
+          wrapper.runJavaScript(WuiStr(script).toString(), callback: callback)
+        }
+      },
+      drop: { rawPtr in
+        precondition(Thread.isMainThread, "WebView drop must run on its owning UI thread")
+        guard let rawPtr else {
+          fatalError("WebView drop received a null handle")
+        }
         MainActor.assumeIsolated {
-            for (_, cb) in messageHandlers {
-                cb.drop?(cb.data)
-            }
-            messageHandlers.removeAll()
-            if let cb = eventCallback {
-                cb.drop?(cb.data)
-            }
+          let wrapper = Unmanaged<WebViewWrapper>.fromOpaque(rawPtr).takeRetainedValue()
+          wrapper.cleanupForDrop()
         }
-    }
+      }
+    )
+  }
+
+  @MainActor deinit {
+    precondition(
+      messageHandlers.isEmpty && eventCallback == nil,
+      "WebView was deinitialized before its FFI handle was dropped"
+    )
+  }
 }
 
 // MARK: - WKNavigationDelegate
 
 extension WebViewWrapper: WKNavigationDelegate {
-    nonisolated func webView(
-        _ webView: WKWebView,
-        decidePolicyFor navigationAction: WKNavigationAction,
-        decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
-    ) {
-        Task { @MainActor in
-            let requestUrl = navigationAction.request.url?.absoluteString ?? ""
-            let allowRepeat =
-                navigationAction.navigationType == .reload
-                || navigationAction.navigationType == .backForward
-                || navigationAction.navigationType == .formSubmitted
-                || navigationAction.navigationType == .formResubmitted
+  nonisolated func webView(
+    _ webView: WKWebView,
+    decidePolicyFor navigationAction: WKNavigationAction,
+    decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
+  ) {
+    Task { @MainActor in
+      let requestUrl = navigationAction.request.url?.absoluteString ?? ""
+      let allowRepeat =
+        navigationAction.navigationType == .reload
+        || navigationAction.navigationType == .backForward
+        || navigationAction.navigationType == .formSubmitted
+        || navigationAction.navigationType == .formResubmitted
 
-            if navigationAction.targetFrame == nil {
-                emitWillNavigate(requestUrl, allowRepeat: allowRepeat)
-                webView.load(navigationAction.request)
-                decisionHandler(.cancel)
-                return
-            }
+      if navigationAction.targetFrame == nil {
+        emitWillNavigate(requestUrl, allowRepeat: allowRepeat)
+        webView.load(navigationAction.request)
+        decisionHandler(.cancel)
+        return
+      }
 
-            if navigationAction.targetFrame?.isMainFrame ?? true {
-                emitWillNavigate(requestUrl, allowRepeat: allowRepeat)
-            }
-            decisionHandler(.allow)
+      if navigationAction.targetFrame?.isMainFrame ?? true {
+        emitWillNavigate(requestUrl, allowRepeat: allowRepeat)
+      }
+      decisionHandler(.allow)
+    }
+  }
+
+  nonisolated func webView(
+    _ webView: WKWebView,
+    decidePolicyFor navigationResponse: WKNavigationResponse,
+    decisionHandler: @escaping @MainActor @Sendable (WKNavigationResponsePolicy) -> Void
+  ) {
+    Task { @MainActor in
+      guard navigationResponse.isForMainFrame else {
+        decisionHandler(.allow)
+        return
+      }
+      guard let response = navigationResponse.response as? HTTPURLResponse else {
+        decisionHandler(.allow)
+        return
+      }
+
+      let statusCode = response.statusCode
+      guard (300..<400).contains(statusCode) else {
+        decisionHandler(.allow)
+        return
+      }
+
+      if !redirectsEnabled {
+        let fromUrl = response.url?.absoluteString ?? ""
+        let location =
+          response.allHeaderFields.first { key, _ in
+            (key as? String)?.caseInsensitiveCompare("location") == .orderedSame
+          }?.value as? String ?? ""
+        let toUrl =
+          URL(string: location, relativeTo: response.url)?.absoluteString
+          ?? location
+
+        emitEvent {
+          CWaterUI.WuiWebViewEvent(
+            event_type: WuiWebViewEventType_Redirect,
+            url: WuiStr(string: fromUrl).intoRustOwnedPointer(),
+            url2: WuiStr(string: toUrl).intoRustOwnedPointer(),
+            message: nil,
+            progress: 0,
+            can_go_back: false,
+            can_go_forward: false
+          )
         }
+        webView.stopLoading()
+        decisionHandler(.cancel)
+        return
+      }
+
+      decisionHandler(.allow)
+    }
+  }
+
+  nonisolated func webView(
+    _ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!
+  ) {
+    Task { @MainActor in
+      let urlStr = webView.url?.absoluteString ?? ""
+      emitWillNavigate(urlStr, allowRepeat: false)
+      emitLoading(0)
+      emitStateChanged()
+    }
+  }
+
+  nonisolated func webView(
+    _ webView: WKWebView,
+    didReceiveServerRedirectForProvisionalNavigation navigation: WKNavigation!
+  ) {
+    Task { @MainActor in
+      let toUrl = webView.url?.absoluteString ?? ""
+      let fromUrl = lastNavigationUrl ?? ""
+
+      if !redirectsEnabled {
+        emitEvent {
+          CWaterUI.WuiWebViewEvent(
+            event_type: WuiWebViewEventType_Redirect,
+            url: WuiStr(string: fromUrl).intoRustOwnedPointer(),
+            url2: WuiStr(string: toUrl).intoRustOwnedPointer(),
+            message: nil,
+            progress: 0,
+            can_go_back: false,
+            can_go_forward: false
+          )
+        }
+        webView.stopLoading()
+        return
+      }
+
+      // Update navigation URL to the redirected destination
+      lastNavigationUrl = toUrl
+      emitWillNavigate(toUrl, allowRepeat: true)
+    }
+  }
+
+  nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    Task { @MainActor in
+      emitEvent {
+        CWaterUI.WuiWebViewEvent(
+          event_type: WuiWebViewEventType_Loaded,
+          url: nil,
+          url2: nil,
+          message: nil,
+          progress: 1.0,
+          can_go_back: false,
+          can_go_forward: false
+        )
+      }
+      emitStateChanged()
+    }
+  }
+
+  nonisolated func webView(
+    _ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error
+  ) {
+    Task { @MainActor in
+      emitEvent {
+        CWaterUI.WuiWebViewEvent(
+          event_type: WuiWebViewEventType_Error,
+          url: nil,
+          url2: nil,
+          message: WuiStr(string: error.localizedDescription).intoRustOwnedPointer(),
+          progress: 0,
+          can_go_back: false,
+          can_go_forward: false
+        )
+      }
+    }
+  }
+
+  nonisolated func webView(
+    _ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
+    withError error: Error
+  ) {
+    Task { @MainActor in
+      emitEvent {
+        CWaterUI.WuiWebViewEvent(
+          event_type: WuiWebViewEventType_Error,
+          url: nil,
+          url2: nil,
+          message: WuiStr(string: error.localizedDescription).intoRustOwnedPointer(),
+          progress: 0,
+          can_go_back: false,
+          can_go_forward: false
+        )
+      }
+    }
+  }
+
+  nonisolated func webView(
+    _ webView: WKWebView, didReceive challenge: URLAuthenticationChallenge,
+    completionHandler:
+      @escaping @MainActor @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) ->
+      Void
+  ) {
+    if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+      let serverTrust = challenge.protectionSpace.serverTrust
+    {
+      var trustError: CFError?
+      let ok = SecTrustEvaluateWithError(serverTrust, &trustError)
+      if ok {
+        let credential = URLCredential(trust: serverTrust)
+        Task { @MainActor in completionHandler(.useCredential, credential) }
+        return
+      }
+
+      let message = (trustError as Error?)?.localizedDescription ?? "SSL certificate error"
+      Task { @MainActor in
+        let urlStr = webView.url?.absoluteString ?? ""
+        emitSslError(urlStr, message: message)
+        completionHandler(.cancelAuthenticationChallenge, nil)
+      }
+      return
     }
 
-    nonisolated func webView(
-        _ webView: WKWebView,
-        decidePolicyFor navigationResponse: WKNavigationResponse,
-        decisionHandler: @escaping @MainActor @Sendable (WKNavigationResponsePolicy) -> Void
-    ) {
-        Task { @MainActor in
-            guard navigationResponse.isForMainFrame else {
-                decisionHandler(.allow)
-                return
-            }
-            guard let response = navigationResponse.response as? HTTPURLResponse else {
-                decisionHandler(.allow)
-                return
-            }
-
-            let statusCode = response.statusCode
-            guard (300 ..< 400).contains(statusCode) else {
-                decisionHandler(.allow)
-                return
-            }
-
-            if !redirectsEnabled {
-                let fromUrl = response.url?.absoluteString ?? ""
-                let location = response.allHeaderFields.first { key, _ in
-                    (key as? String)?.caseInsensitiveCompare("location") == .orderedSame
-                }?.value as? String ?? ""
-                let toUrl = URL(string: location, relativeTo: response.url)?.absoluteString
-                    ?? location
-
-                let event = CWaterUI.WuiWebViewEvent(
-                    event_type: WuiWebViewEventType_Redirect,
-                    url: WuiStr(string: fromUrl).intoInner(),
-                    url2: WuiStr(string: toUrl).intoInner(),
-                    message: WuiStr(string: "").intoInner(),
-                    progress: 0,
-                    can_go_back: false,
-                    can_go_forward: false
-                )
-                emitEvent(event)
-                webView.stopLoading()
-                decisionHandler(.cancel)
-                return
-            }
-
-            decisionHandler(.allow)
-        }
-    }
-
-    nonisolated func webView(
-        _ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!
-    ) {
-        Task { @MainActor in
-            let urlStr = webView.url?.absoluteString ?? ""
-            emitWillNavigate(urlStr, allowRepeat: false)
-            emitLoading(0)
-            emitStateChanged()
-        }
-    }
-
-    nonisolated func webView(
-        _ webView: WKWebView,
-        didReceiveServerRedirectForProvisionalNavigation navigation: WKNavigation!
-    ) {
-        Task { @MainActor in
-            let toUrl = webView.url?.absoluteString ?? ""
-            let fromUrl = lastNavigationUrl ?? ""
-
-            if !redirectsEnabled {
-                let event = CWaterUI.WuiWebViewEvent(
-                    event_type: WuiWebViewEventType_Redirect,
-                    url: WuiStr(string: fromUrl).intoInner(),
-                    url2: WuiStr(string: toUrl).intoInner(),
-                    message: WuiStr(string: "").intoInner(),
-                    progress: 0,
-                    can_go_back: false,
-                    can_go_forward: false
-                )
-                emitEvent(event)
-                webView.stopLoading()
-                return
-            }
-
-            // Update navigation URL to the redirected destination
-            lastNavigationUrl = toUrl
-            emitWillNavigate(toUrl, allowRepeat: true)
-        }
-    }
-
-    nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        Task { @MainActor in
-            let event = CWaterUI.WuiWebViewEvent(
-                event_type: WuiWebViewEventType_Loaded,
-                url: WuiStr(string: "").intoInner(),
-                url2: WuiStr(string: "").intoInner(),
-                message: WuiStr(string: "").intoInner(),
-                progress: 1.0,
-                can_go_back: false,
-                can_go_forward: false
-            )
-            emitEvent(event)
-            emitStateChanged()
-            refreshCookieCache()
-        }
-    }
-
-    nonisolated func webView(
-        _ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error
-    ) {
-        Task { @MainActor in
-            let event = CWaterUI.WuiWebViewEvent(
-                event_type: WuiWebViewEventType_Error,
-                url: WuiStr(string: "").intoInner(),
-                url2: WuiStr(string: "").intoInner(),
-                message: WuiStr(string: error.localizedDescription).intoInner(),
-                progress: 0,
-                can_go_back: false,
-                can_go_forward: false
-            )
-            emitEvent(event)
-        }
-    }
-
-    nonisolated func webView(
-        _ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
-        withError error: Error
-    ) {
-        Task { @MainActor in
-            let event = CWaterUI.WuiWebViewEvent(
-                event_type: WuiWebViewEventType_Error,
-                url: WuiStr(string: "").intoInner(),
-                url2: WuiStr(string: "").intoInner(),
-                message: WuiStr(string: error.localizedDescription).intoInner(),
-                progress: 0,
-                can_go_back: false,
-                can_go_forward: false
-            )
-            emitEvent(event)
-        }
-    }
-
-    nonisolated func webView(
-        _ webView: WKWebView, didReceive challenge: URLAuthenticationChallenge,
-        completionHandler:
-            @escaping @MainActor @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) ->
-            Void
-    ) {
-        if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
-            let serverTrust = challenge.protectionSpace.serverTrust
-        {
-            var trustError: CFError?
-            let ok = SecTrustEvaluateWithError(serverTrust, &trustError)
-            if ok {
-                let credential = URLCredential(trust: serverTrust)
-                Task { @MainActor in completionHandler(.useCredential, credential) }
-                return
-            }
-
-            let message = (trustError as Error?)?.localizedDescription ?? "SSL certificate error"
-            Task { @MainActor in
-                let urlStr = webView.url?.absoluteString ?? ""
-                emitSslError(urlStr, message: message)
-                completionHandler(.cancelAuthenticationChallenge, nil)
-            }
-            return
-        }
-
-        Task { @MainActor in completionHandler(.performDefaultHandling, nil) }
-    }
+    Task { @MainActor in completionHandler(.performDefaultHandling, nil) }
+  }
 }
 
 // MARK: - WKUIDelegate
 
 extension WebViewWrapper: WKUIDelegate {
-    nonisolated func webView(
-        _ webView: WKWebView,
-        createWebViewWith configuration: WKWebViewConfiguration,
-        for navigationAction: WKNavigationAction,
-        windowFeatures: WKWindowFeatures
-    ) -> WKWebView? {
-        Task { @MainActor in
-            if navigationAction.targetFrame == nil {
-                webView.load(navigationAction.request)
-            }
-        }
-        return nil
+  nonisolated func webView(
+    _ webView: WKWebView,
+    createWebViewWith configuration: WKWebViewConfiguration,
+    for navigationAction: WKNavigationAction,
+    windowFeatures: WKWindowFeatures
+  ) -> WKWebView? {
+    Task { @MainActor in
+      if navigationAction.targetFrame == nil {
+        webView.load(navigationAction.request)
+      }
     }
+    return nil
+  }
 }
 
 // MARK: - Controller Installation
@@ -855,17 +839,19 @@ extension WebViewWrapper: WKUIDelegate {
 /// Call this during app initialization before waterui_app().
 @MainActor
 public func installWebViewController(env: OpaquePointer?) {
-    let createFn: @convention(c) () -> CWaterUI.WuiWebViewHandle = {
-        // This runs on whatever thread Rust calls it from.
-        // Ensure WebView creation happens on the main thread without blocking it.
-        if Thread.isMainThread {
-            return WebViewWrapper().toFFIHandle()
-        }
-        return DispatchQueue.main.sync {
-            WebViewWrapper().toFFIHandle()
-        }
-    }
-    waterui_env_install_webview_controller(env, createFn)
+  guard let env else {
+    fatalError("WebView controller installation requires a WaterUI environment")
+  }
+  struct HandleTransfer: @unchecked Sendable {
+    let value: CWaterUI.WuiWebViewHandle
+  }
+  let createFn: @convention(c) () -> CWaterUI.WuiWebViewHandle = {
+    precondition(Thread.isMainThread, "WebView controller must be created on the UI thread")
+    return MainActor.assumeIsolated {
+      HandleTransfer(value: WebViewWrapper().toFFIHandle())
+    }.value
+  }
+  waterui_env_install_webview_controller(env, createFn)
 }
 
 // MARK: - WebView Component for Rendering
@@ -873,69 +859,50 @@ public func installWebViewController(env: OpaquePointer?) {
 /// Native component that renders a WebView in the view hierarchy.
 @MainActor
 final class WuiWebViewComponent: PlatformView, WuiComponent {
-    static var rawId: CWaterUI.WuiTypeId { waterui_webview_id() }
+  static var rawId: CWaterUI.WuiTypeId { waterui_webview_id() }
 
-    private(set) var stretchAxis: WuiStretchAxis = .both
-    private var webViewWrapper: WebViewWrapper?
-    private var webViewPtr: OpaquePointer?
+  private(set) var stretchAxis: WuiStretchAxis = .both
+  private let webViewWrapper: WebViewWrapper
+  private let webViewPtr: OpaquePointer
 
-    required init(anyview: OpaquePointer, env: WuiEnvironment) {
-        super.init(frame: .zero)
-
-        logger.warning("WuiWebViewComponent init started")
-
-        // Get the WuiWebView opaque pointer
-        let wuiWebView = waterui_force_as_webview(anyview)
-        self.webViewPtr = wuiWebView
-        logger.warning("Got WuiWebView pointer: \(String(describing: wuiWebView))")
-
-        // Get the native handle pointer (points to WebViewWrapper)
-        let handlePtr = waterui_webview_native_handle(wuiWebView)
-        logger.warning("Got native handle pointer: \(String(describing: handlePtr))")
-
-        guard let handlePtr = handlePtr else {
-            logger.error("ERROR: WebView native handle is null - downcast failed!")
-            // Clean up the WuiWebView
-            waterui_drop_web_view(wuiWebView)
-            self.webViewPtr = nil
-            return
-        }
-
-        // Get the WebViewWrapper from the raw pointer
-        let wrapper = Unmanaged<WebViewWrapper>.fromOpaque(handlePtr).takeUnretainedValue()
-        self.webViewWrapper = wrapper
-        logger.warning(
-            "Got WebViewWrapper, webView URL: \(String(describing: wrapper.webView.url))")
-
-        // Add the WKWebView as a subview
-        let webView = wrapper.webView
-        webView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(webView)
-
-        NSLayoutConstraint.activate([
-            webView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            webView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            webView.topAnchor.constraint(equalTo: topAnchor),
-            webView.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
-        logger.warning("WuiWebViewComponent setup complete - added WKWebView as subview")
+  required init(anyview: OpaquePointer, env: WuiEnvironment) {
+    guard let webViewPtr = waterui_force_as_webview(anyview) else {
+      fatalError("WuiWebViewComponent received an invalid WebView")
     }
-
-    @MainActor deinit {
-        if let webViewPtr {
-            waterui_drop_web_view(webViewPtr)
-        }
+    guard let handlePtr = waterui_webview_native_handle(webViewPtr) else {
+      fatalError("WuiWebViewComponent received a WebView without a native handle")
     }
+    let wrapper = Unmanaged<WebViewWrapper>.fromOpaque(handlePtr).takeUnretainedValue()
+    self.webViewPtr = webViewPtr
+    self.webViewWrapper = wrapper
+    super.init(frame: .zero)
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
+    // Add the WKWebView as a subview
+    let webView = wrapper.webView
+    webView.translatesAutoresizingMaskIntoConstraints = false
+    addSubview(webView)
 
-    func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
-        // WebView is greedy - it takes all available space
-        let width = proposal.width.map { CGFloat($0) } ?? 320
-        let height = proposal.height.map { CGFloat($0) } ?? 480
-        return CGSize(width: width, height: height)
-    }
+    NSLayoutConstraint.activate([
+      webView.leadingAnchor.constraint(equalTo: leadingAnchor),
+      webView.trailingAnchor.constraint(equalTo: trailingAnchor),
+      webView.topAnchor.constraint(equalTo: topAnchor),
+      webView.bottomAnchor.constraint(equalTo: bottomAnchor),
+    ])
+  }
+
+  @MainActor deinit {
+    waterui_drop_web_view(webViewPtr)
+  }
+
+  @available(*, unavailable)
+  required init?(coder: NSCoder) {
+    fatalError("init(coder:) has not been implemented")
+  }
+
+  func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
+    // WebView is greedy - it takes all available space
+    let width = proposal.width.map { CGFloat($0) } ?? 320
+    let height = proposal.height.map { CGFloat($0) } ?? 480
+    return CGSize(width: width, height: height)
+  }
 }

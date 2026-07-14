@@ -1,230 +1,256 @@
-// WuiStepper.swift
-// Stepper component - merged UIKit and AppKit implementation
-//
-// # Layout Behavior
-// Stepper expands horizontally to fill available space (stretchAxis from Rust).
-// Horizontal layout: [label] --- flexible space --- [+/- buttons]
-// Label on left, buttons on right, space distributed between.
-//
-// // INTERNAL: Layout Contract for Backend Implementers
-// // - stretchAxis: Determined by Rust side (Horizontal for stepper with label)
-// // - sizeThatFits: Returns proposed width (or minimum), intrinsic height
-// // - Priority: 0 (default)
-
 import CWaterUI
 
 #if canImport(UIKit)
-import UIKit
+  import UIKit
 #elseif canImport(AppKit)
-import AppKit
+  import AppKit
 #endif
 
 @MainActor
 final class WuiStepper: PlatformView, WuiComponent {
-    static var rawId: CWaterUI.WuiTypeId { waterui_stepper_id() }
+  static var rawId: CWaterUI.WuiTypeId { waterui_stepper_id() }
 
-    #if canImport(UIKit)
+  #if canImport(UIKit)
     private let stepper = UIStepper()
-    #elseif canImport(AppKit)
+  #elseif canImport(AppKit)
     private let stepper = NSStepper()
+  #endif
+
+  private let labelView: WuiAnyView
+  private let formattedValueLabel: PlatformLabel?
+  private let binding: WuiBinding<Int32>
+  private let range: CWaterUI.WuiRange_i32
+  private let env: WuiEnvironment
+  private var bindingWatcher: WatcherGuard?
+  private var stepObservation: WuiComputedObservation<Int32>?
+  private var valueFormatterObservation: WuiComputedObservation<WuiStyledStr>?
+  private var valueRenderer: WuiStyledStrRenderer?
+  private var accessibility: WuiControlAccessibility?
+  private var isSyncingFromBinding = false
+  private let spacing: CGFloat = 8
+
+  convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
+    let stepper = waterui_force_as_stepper(anyview)
+    let valueFormatter = stepper.value_formatter.map {
+      WuiComputed<WuiStyledStr>($0)
+    }
+    self.init(
+      label: WuiAnyView(anyview: stepper.label.view, env: env),
+      binding: WuiBinding<Int32>(stepper.value),
+      step: WuiComputed<Int32>(stepper.step),
+      valueFormatter: valueFormatter,
+      range: stepper.range,
+      semanticLabel: stepper.label,
+      env: env
+    )
+  }
+
+  private init(
+    label: WuiAnyView,
+    binding: WuiBinding<Int32>,
+    step: WuiComputed<Int32>,
+    valueFormatter: WuiComputed<WuiStyledStr>?,
+    range: CWaterUI.WuiRange_i32,
+    semanticLabel: CWaterUI.WuiLabel,
+    env: WuiEnvironment
+  ) {
+    precondition(range.start <= range.end, "WaterUI Stepper range must not be empty")
+    self.labelView = label
+    self.binding = binding
+    self.range = range
+    self.env = env
+    #if canImport(UIKit)
+      self.formattedValueLabel = valueFormatter.map { _ in UILabel() }
+    #elseif canImport(AppKit)
+      self.formattedValueLabel = valueFormatter.map { _ in NSTextField(labelWithString: "") }
     #endif
-    private var bindingWatcher: WatcherGuard?
-    private var isSyncingFromBinding = false
+    super.init(frame: .zero)
 
-    private var labelView: WuiAnyView
-    private var binding: WuiBinding<Int32>
-    private var step: WuiComputed<Int32>
+    configureSubviews()
+    startBindingWatcher()
+    configureStepper()
+    installStepObservation(step)
+    installValueFormatterObservation(valueFormatter)
+    accessibility = WuiControlAccessibility(
+      consuming: semanticLabel,
+      target: stepper,
+      visualLabel: label
+    )
+    applyAccessibilityValue(binding.value)
+  }
 
-    // Layout constants
-    private let spacing: CGFloat = 8.0
+  @available(*, unavailable)
+  required init?(coder: NSCoder) {
+    fatalError("init(coder:) has not been implemented")
+  }
 
-    // MARK: - WuiComponent Init
+  func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
+    let labelSize = labelView.sizeThatFits(WuiProposalSize())
+    let stepperSize = stepper.intrinsicContentSize
+    let formattedValueSize = formattedValueLabel?.intrinsicContentSize ?? .zero
+    let hasLabel = labelSize.width > 0 && labelSize.height > 0
 
-    convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
-        let ffiStepper: CWaterUI.WuiStepper = waterui_force_as_stepper(anyview)
-        let labelView = WuiAnyView(anyview: ffiStepper.label.view, env: env)
-        let binding = WuiBinding<Int32>(ffiStepper.value)
-        let step = WuiComputed<Int32>(ffiStepper.step)
-        self.init(label: labelView, binding: binding, step: step)
+    var minimumWidth = stepperSize.width
+    if formattedValueLabel != nil {
+      minimumWidth += spacing + formattedValueSize.width
+    }
+    if hasLabel {
+      minimumWidth += spacing + labelSize.width
     }
 
-    // MARK: - Designated Init
+    let intrinsicHeight = max(stepperSize.height, max(labelSize.height, formattedValueSize.height))
+    let width =
+      hasLabel
+      ? proposal.width.map { max(CGFloat($0), minimumWidth) } ?? minimumWidth
+      : minimumWidth
+    return CGSize(width: width, height: intrinsicHeight)
+  }
 
-    init(label: WuiAnyView, binding: WuiBinding<Int32>, step: WuiComputed<Int32>) {
-        self.labelView = label
-        self.binding = binding
-        self.step = step
-        // Initialize with a default frame to prevent constraint conflicts.
-        // WuiStepper sets .required compression resistance on its label, which conflicts
-        // with a .zero frame (autoresizing mask forces width=0).
-        // The actual frame will be set by the layout system (WuiFixedContainer) later.
-        super.init(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
-        configureSubviews()
-        configureStepper()
-        updateLabel(label, force: true)
-        updateStep(step, force: true)
-        updateBinding(binding, force: true)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    // MARK: - WuiComponent
-
-    func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
-        let labelSize = labelView.sizeThatFits(WuiProposalSize())
-        let stepperSize = stepper.intrinsicContentSize
-        let hasLabel = labelSize.width > 0 && labelSize.height > 0
-
-        // Calculate minimum width needed
-        var minWidth: CGFloat = stepperSize.width
-        var maxHeight: CGFloat = stepperSize.height
-
-        if hasLabel {
-            minWidth += spacing + labelSize.width
-            maxHeight = max(maxHeight, labelSize.height)
-        }
-
-        // With label: expand horizontally to fill proposed width
-        // Without label: content-sized (just buttons)
-        let finalWidth: CGFloat
-        if hasLabel, let proposedWidth = proposal.width {
-            finalWidth = max(CGFloat(proposedWidth), minWidth)
-        } else {
-            finalWidth = minWidth
-        }
-
-        return CGSize(width: finalWidth, height: maxHeight)
-    }
-
-    // MARK: - Layout
-
-    #if canImport(AppKit)
+  #if canImport(AppKit)
     override var isFlipped: Bool { true }
+  #endif
+
+  private func configureSubviews() {
+    labelView.translatesAutoresizingMaskIntoConstraints = false
+    stepper.translatesAutoresizingMaskIntoConstraints = false
+    addSubview(labelView)
+    addSubview(stepper)
+
+    labelView.setContentCompressionResistancePriority(.required, for: .horizontal)
+    labelView.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+
+    var constraints = [
+      labelView.leadingAnchor.constraint(equalTo: leadingAnchor),
+      labelView.centerYAnchor.constraint(equalTo: centerYAnchor),
+      stepper.trailingAnchor.constraint(equalTo: trailingAnchor),
+      stepper.centerYAnchor.constraint(equalTo: centerYAnchor),
+    ]
+
+    if let formattedValueLabel {
+      formattedValueLabel.translatesAutoresizingMaskIntoConstraints = false
+      addSubview(formattedValueLabel)
+      formattedValueLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+      formattedValueLabel.setContentHuggingPriority(.required, for: .horizontal)
+      #if canImport(UIKit)
+        formattedValueLabel.accessibilityElementsHidden = true
+      #elseif canImport(AppKit)
+        formattedValueLabel.setAccessibilityElement(false)
+      #endif
+      constraints += [
+        labelView.trailingAnchor.constraint(
+          lessThanOrEqualTo: formattedValueLabel.leadingAnchor,
+          constant: -spacing
+        ),
+        formattedValueLabel.trailingAnchor.constraint(
+          equalTo: stepper.leadingAnchor,
+          constant: -spacing
+        ),
+        formattedValueLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+      ]
+    } else {
+      constraints.append(
+        labelView.trailingAnchor.constraint(
+          lessThanOrEqualTo: stepper.leadingAnchor,
+          constant: -spacing
+        )
+      )
+    }
+
+    NSLayoutConstraint.activate(constraints)
+  }
+
+  private func configureStepper() {
+    #if canImport(UIKit)
+      stepper.minimumValue = Double(range.start)
+      stepper.maximumValue = Double(range.end)
+      stepper.value = Double(binding.value)
+      stepper.addTarget(self, action: #selector(valueChanged), for: .valueChanged)
+    #elseif canImport(AppKit)
+      stepper.minValue = Double(range.start)
+      stepper.maxValue = Double(range.end)
+      stepper.integerValue = Int(binding.value)
+      stepper.target = self
+      stepper.action = #selector(valueChanged)
     #endif
+  }
 
-    // MARK: - Update Methods
-
-    func updateLabel(_ newLabel: WuiAnyView, force: Bool = false) {
-        guard force || newLabel !== labelView else { return }
-        labelView.removeFromSuperview()
-
-        labelView = newLabel
-        labelView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(labelView)
-
-        // Set content priorities
-        #if canImport(UIKit)
-        labelView.setContentCompressionResistancePriority(.required, for: .horizontal)
-        labelView.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-        #elseif canImport(AppKit)
-        labelView.setContentCompressionResistancePriority(.required, for: .horizontal)
-        labelView.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-        #endif
-
-        // Re-establish constraints for new label
-        NSLayoutConstraint.activate([
-            labelView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            labelView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            labelView.trailingAnchor.constraint(lessThanOrEqualTo: stepper.leadingAnchor, constant: -spacing),
-        ])
+  private func installStepObservation(_ step: WuiComputed<Int32>) {
+    let observation = WuiComputedObservation(step) { [weak self] value, _ in
+      self?.applyStep(value)
     }
+    stepObservation = observation
+    applyStep(observation.value)
+  }
 
-    func updateBinding(_ newBinding: WuiBinding<Int32>, force: Bool = false) {
-        guard force || newBinding !== binding else { return }
-        bindingWatcher = nil
-        binding = newBinding
-        #if canImport(UIKit)
-        stepper.value = Double(newBinding.value)
-        #elseif canImport(AppKit)
-        stepper.integerValue = Int(newBinding.value)
-        #endif
-        startBindingWatcher()
+  private func applyStep(_ value: Int32) {
+    #if canImport(UIKit)
+      stepper.stepValue = Double(value)
+    #elseif canImport(AppKit)
+      stepper.increment = Double(value)
+    #endif
+  }
+
+  private func installValueFormatterObservation(
+    _ formatter: WuiComputed<WuiStyledStr>?
+  ) {
+    guard let formatter else { return }
+    let observation = WuiComputedObservation(formatter) { [weak self] value, metadata in
+      guard let self, let formattedValueLabel else { return }
+      withCrossDissolveAnimation(formattedValueLabel, metadata) {
+        self.applyFormattedValue(value)
+      }
     }
+    valueFormatterObservation = observation
+    applyFormattedValue(observation.value)
+  }
 
-    func updateStep(_ newStep: WuiComputed<Int32>, force: Bool = false) {
-        guard force || newStep !== step else { return }
-        step = newStep
-        #if canImport(UIKit)
-        stepper.stepValue = Double(newStep.value)
-        #elseif canImport(AppKit)
-        stepper.increment = Double(newStep.value)
-        #endif
+  private func applyFormattedValue(_ value: WuiStyledStr) {
+    valueRenderer = WuiStyledStrRenderer(styled: value, env: env) { [weak self] in
+      self?.applyResolvedFormattedValue()
     }
+    applyResolvedFormattedValue()
+    applyAccessibilityValue(binding.value)
+  }
 
-    // MARK: - Configuration
+  private func applyResolvedFormattedValue() {
+    guard let formattedValueLabel, let valueRenderer else { return }
+    #if canImport(UIKit)
+      formattedValueLabel.attributedText = valueRenderer.attributedString()
+    #elseif canImport(AppKit)
+      formattedValueLabel.attributedStringValue = valueRenderer.attributedString()
+    #endif
+    invalidateLayoutHierarchy()
+  }
 
-    private func configureSubviews() {
-        // Use AutoLayout for internal component layout
-        labelView.translatesAutoresizingMaskIntoConstraints = false
-        stepper.translatesAutoresizingMaskIntoConstraints = false
-
-        addSubview(labelView)
-        addSubview(stepper)
-
-        // Ensure label doesn't get compressed - it should show its full content
-        #if canImport(UIKit)
-        labelView.setContentCompressionResistancePriority(.required, for: .horizontal)
-        labelView.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-        #elseif canImport(AppKit)
-        labelView.setContentCompressionResistancePriority(.required, for: .horizontal)
-        labelView.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-        #endif
-
-        // Layout: [label] --- flexible space --- [stepper]
-        // Label on leading, stepper on trailing, both vertically centered
-        NSLayoutConstraint.activate([
-            // Label: leading, vertically centered
-            labelView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            labelView.centerYAnchor.constraint(equalTo: centerYAnchor),
-
-            // Stepper: trailing, vertically centered
-            stepper.trailingAnchor.constraint(equalTo: trailingAnchor),
-            stepper.centerYAnchor.constraint(equalTo: centerYAnchor),
-
-            // Prevent overlap
-            labelView.trailingAnchor.constraint(lessThanOrEqualTo: stepper.leadingAnchor, constant: -spacing),
-        ])
+  private func startBindingWatcher() {
+    bindingWatcher = binding.watch { [weak self] value, _ in
+      guard let self, !isSyncingFromBinding else { return }
+      isSyncingFromBinding = true
+      #if canImport(UIKit)
+        stepper.value = Double(value)
+      #elseif canImport(AppKit)
+        stepper.integerValue = Int(value)
+      #endif
+      applyAccessibilityValue(value)
+      isSyncingFromBinding = false
     }
+  }
 
-    private func configureStepper() {
-        #if canImport(UIKit)
-        stepper.minimumValue = -1000000
-        stepper.maximumValue = 1000000
-        stepper.stepValue = Double(step.value)
-        stepper.value = Double(binding.value)
-        stepper.addTarget(self, action: #selector(valueChanged), for: .valueChanged)
-        #elseif canImport(AppKit)
-        stepper.minValue = -1000000
-        stepper.maxValue = 1000000
-        stepper.increment = Double(step.value)
-        stepper.integerValue = Int(binding.value)
-        stepper.target = self
-        stepper.action = #selector(valueChanged)
-        #endif
-    }
+  private func applyAccessibilityValue(_ value: Int32) {
+    let text = valueFormatterObservation?.value.toString() ?? String(value)
+    #if canImport(UIKit)
+      stepper.accessibilityValue = text
+    #elseif canImport(AppKit)
+      stepper.setAccessibilityValue(text)
+    #endif
+  }
 
-    private func startBindingWatcher() {
-        bindingWatcher = binding.watch { [weak self] newValue, _ in
-            guard let self, !isSyncingFromBinding else { return }
-            isSyncingFromBinding = true
-            #if canImport(UIKit)
-            stepper.value = Double(newValue)
-            #elseif canImport(AppKit)
-            stepper.integerValue = Int(newValue)
-            #endif
-            isSyncingFromBinding = false
-        }
-    }
-
-    @objc private func valueChanged() {
-        guard !isSyncingFromBinding else { return }
-        #if canImport(UIKit)
-        binding.value = Int32(stepper.value)
-        #elseif canImport(AppKit)
-        binding.value = Int32(stepper.integerValue)
-        #endif
-    }
+  @objc private func valueChanged() {
+    guard !isSyncingFromBinding else { return }
+    #if canImport(UIKit)
+      binding.value = Int32(stepper.value)
+    #elseif canImport(AppKit)
+      binding.value = Int32(stepper.integerValue)
+    #endif
+  }
 }

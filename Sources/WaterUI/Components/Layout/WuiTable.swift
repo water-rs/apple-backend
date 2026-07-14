@@ -1,518 +1,383 @@
-// WuiTable.swift
-// Table component - displays data in a grid with column headers
-//
-// # Layout Behavior
-// Table sizes to fit its content - headers and rows.
-
 import CWaterUI
 
 #if canImport(UIKit)
-import UIKit
+  import UIKit
 #elseif canImport(AppKit)
-import AppKit
+  import AppKit
 #endif
 
-// MARK: - Column Data
-
-/// Represents a table column with a header label and rows of content
-#if canImport(UIKit)
-private struct TableColumnData {
-    let label: PlatformView
-    let rows: [WuiAnyView]
-}
-#endif
-
-// MARK: - UIKit Implementation
-
-#if canImport(UIKit)
 @MainActor
-final class WuiTable: PlatformView, WuiComponent {
-    static var rawId: CWaterUI.WuiTypeId { waterui_table_id() }
+private final class WuiTableColumnNode {
+  let id: Int32
+  let label: WuiText
+  let rows: WuiStableViewCollection
 
-    private let env: WuiEnvironment
-    private var columnsPtr: OpaquePointer?
-    private var columns: [TableColumnData] = []
-    private var watcher: WatcherGuard?
-
-    // Grid layout - use collection of row stacks for simple grid
-    private var allViews: [PlatformView] = []
-
-    // MARK: - WuiComponent Init
-
-    convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
-        let ffiTable: CWaterUI.WuiTable = waterui_force_as_table(anyview)
-        self.init(ffiTable: ffiTable, env: env)
+  init(
+    id: Int32,
+    consuming column: CWaterUI.WuiTableColumn,
+    env: WuiEnvironment,
+    onRowsChange: @escaping (WuiWatcherMetadata) -> Void,
+    onContentChange: @escaping () -> Void
+  ) {
+    guard let rows = column.rows else {
+      fatalError("Table column has no rows collection")
     }
-
-    // MARK: - Designated Init
-
-    init(ffiTable: CWaterUI.WuiTable, env: WuiEnvironment) {
-        self.env = env
-        self.columnsPtr = ffiTable.columns
-        super.init(frame: .zero)
-
-        loadColumns()
-        startWatching()
+    guard let labelContent = column.label.content else {
+      fatalError("Table column label has no content signal")
     }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+    guard let labelAlignment = column.label.paragraph_alignment else {
+      fatalError("Table column label has no paragraph-alignment signal")
     }
-
-    // MARK: - Column Loading
-
-    private func loadColumns() {
-        guard let ptr = columnsPtr else { return }
-
-        let array = waterui_read_computed_table_cols(ptr)
-        let slice = array.vtable.slice(array.data)
-        guard let head = slice.head else { return }
-
-        columns.removeAll()
-
-        for i in 0 ..< Int(slice.len) {
-            let col = head.advanced(by: i).pointee
-            let column = parseColumn(col)
-            columns.append(column)
-        }
-
-        rebuildTable()
-    }
-
-    private func parseColumn(_ ffiCol: CWaterUI.WuiTableColumn) -> TableColumnData {
-        // Parse label (WuiText)
-        let labelView = WuiText(
-            content: WuiComputed<WuiStyledStr>(ffiCol.label.content),
-            paragraphAlignment: WuiComputed<WuiHorizontalAlignment>(ffiCol.label.paragraph_alignment),
-            env: env
-        )
-
-        // Parse rows (WuiAnyViews containing Text views)
-        var rows: [WuiAnyView] = []
-        if let rowsPtr = ffiCol.rows {
-            let count = waterui_anyviews_len(rowsPtr)
-            for i in 0 ..< count {
-                if let viewPtr = waterui_anyviews_get_view(rowsPtr, i) {
-                    let rowView = WuiAnyView(anyview: viewPtr, env: env)
-                    rows.append(rowView)
-                }
-            }
-        }
-
-        return TableColumnData(label: labelView, rows: rows)
-    }
-
-    private func rebuildTable() {
-        // Clear existing content
-        allViews.forEach { $0.removeFromSuperview() }
-        allViews.removeAll()
-
-        guard !columns.isEmpty else { return }
-
-        let numCols = columns.count
-        let numRows = columns.map { $0.rows.count }.max() ?? 0
-
-        // Calculate column widths based on content
-        var columnWidths: [CGFloat] = Array(repeating: 80, count: numCols)
-
-        // Measure headers
-        for (colIdx, column) in columns.enumerated() {
-            let size = column.label.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: 30))
-            columnWidths[colIdx] = max(columnWidths[colIdx], size.width + 16)
-        }
-
-        // Measure data cells
-        for (colIdx, column) in columns.enumerated() {
-            for row in column.rows {
-                let size = row.sizeThatFits(WuiProposalSize(width: nil, height: 30))
-                columnWidths[colIdx] = max(columnWidths[colIdx], size.width + 16)
-            }
-        }
-
-        var yOffset: CGFloat = 0
-        let rowHeight: CGFloat = 28
-        let rowSpacing: CGFloat = 4
-
-        // Build header row
-        var xOffset: CGFloat = 0
-        for (colIdx, column) in columns.enumerated() {
-            let cellWidth = columnWidths[colIdx]
-            column.label.frame = CGRect(x: xOffset, y: yOffset, width: cellWidth, height: rowHeight)
-            addSubview(column.label)
-            allViews.append(column.label)
-            xOffset += cellWidth
-        }
-        yOffset += rowHeight + rowSpacing
-
-        // Build data rows
-        for rowIdx in 0 ..< numRows {
-            xOffset = 0
-            for (colIdx, column) in columns.enumerated() {
-                let cellWidth = columnWidths[colIdx]
-                if rowIdx < column.rows.count {
-                    let cell = column.rows[rowIdx]
-                    cell.frame = CGRect(x: xOffset, y: yOffset, width: cellWidth, height: rowHeight)
-                    addSubview(cell)
-                    allViews.append(cell)
-                }
-                xOffset += cellWidth
-            }
-            yOffset += rowHeight + rowSpacing
-        }
-
-        setNeedsLayout()
-        layoutIfNeeded()
-    }
-
-    // MARK: - Reactive Updates
-
-    private func startWatching() {
-        guard let ptr = columnsPtr else { return }
-
-        let watcherPtr = waterui_new_watcher_table_cols(
-            Unmanaged.passUnretained(self).toOpaque(),
-            { data, array, metadata in
-                guard let data = data else { return }
-                let table = Unmanaged<WuiTable>.fromOpaque(data).takeUnretainedValue()
-                MainActor.assumeIsolated {
-                    let watcherMetadata = WuiWatcherMetadata(metadata)
-                    withPlatformAnimation(watcherMetadata) {
-                        table.loadColumns()
-                    }
-                }
-            },
-            nil
-        )
-
-        if let watcherPtr = watcherPtr {
-            let guardPtr = waterui_watch_computed_table_cols(ptr, watcherPtr)
-            if let guardPtr = guardPtr {
-                watcher = WatcherGuard(guardPtr)
-            }
-        }
-    }
-
-    // MARK: - WuiComponent
-
-    func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
-        guard !columns.isEmpty else { return .zero }
-
-        let numRows = columns.map { $0.rows.count }.max() ?? 0
-        let rowHeight: CGFloat = 28
-        let rowSpacing: CGFloat = 4
-
-        // Calculate total width
-        var totalWidth: CGFloat = 0
-        for column in columns {
-            var colWidth: CGFloat = 80
-            let headerSize = column.label.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: 30))
-            colWidth = max(colWidth, headerSize.width + 16)
-            for row in column.rows {
-                let size = row.sizeThatFits(WuiProposalSize(width: nil, height: 30))
-                colWidth = max(colWidth, size.width + 16)
-            }
-            totalWidth += colWidth
-        }
-
-        // Total height = header + data rows
-        let totalHeight = (rowHeight + rowSpacing) * CGFloat(numRows + 1)
-
-        return CGSize(width: totalWidth, height: totalHeight)
-    }
-}
-#endif
-
-// MARK: - AppKit Implementation
-
-#if canImport(AppKit)
-
-/// Stores parsed column data for NSTableView - headers as strings, rows as WuiAnyViews
-private struct NativeTableColumnData {
-    let identifier: NSUserInterfaceItemIdentifier
-    let headerTitle: String
-    let rows: [WuiAnyView]
+    self.id = id
+    self.label = WuiText(
+      content: WuiComputed<WuiStyledStr>(labelContent),
+      paragraphAlignment: WuiComputed<WuiHorizontalAlignment>(labelAlignment),
+      env: env
+    )
+    self.rows = WuiStableViewCollection(
+      consuming: rows,
+      env: env,
+      onChange: onRowsChange
+    )
+    self.label.onIntrinsicContentChange = onContentChange
+  }
 }
 
 @MainActor
 final class WuiTable: PlatformView, WuiComponent {
-    static var rawId: CWaterUI.WuiTypeId { waterui_table_id() }
+  static var rawId: CWaterUI.WuiTypeId { waterui_table_id() }
 
-    private let env: WuiEnvironment
-    private var columnsPtr: OpaquePointer?
-    private var nativeColumns: [NativeTableColumnData] = []
-    private var watcher: WatcherGuard?
+  private let env: WuiEnvironment
+  private let source: WuiAnyViews
+  private let collection = WuiStableSemanticCollection<Int32, WuiTableColumnNode>()
+  private var columnsWatcher: WatcherGuard?
+  private var surfaceObservation: WuiComputedObservation<WuiResolvedColor>?
+  private var borderObservation: WuiComputedObservation<WuiResolvedColor>?
 
-    // Native table view
-    private let tableView: NSTableView
+  private let horizontalPadding: CGFloat = 12
+  private let verticalPadding: CGFloat = 6
+  private let minimumColumnWidth: CGFloat = 80
 
-    // Custom header row (to avoid NSTableHeaderView's trailing divider)
-    private var headerLabels: [NSTextField] = []
+  #if canImport(UIKit)
+    private var attachedViews: [PlatformView] = []
+  #elseif canImport(AppKit)
+    private let tableView = NSTableView()
+    private var nativeColumns: [Int32: NSTableColumn] = [:]
+    private var appKitRowHeights: [CGFloat] = []
+  #endif
 
-    // Keep strong references to cell views
-    private var cellViews: [[WuiAnyView]] = []
+  private var columns: [WuiTableColumnNode] { collection.ordered }
 
-    // MARK: - WuiComponent Init
-
-    convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
-        let ffiTable: CWaterUI.WuiTable = waterui_force_as_table(anyview)
-        self.init(ffiTable: ffiTable, env: env)
+  convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
+    let table = waterui_force_as_table(anyview)
+    guard let columns = table.columns else {
+      fatalError("WuiTable.columns is null")
     }
+    self.init(columns: columns, env: env)
+  }
 
-    // MARK: - Designated Init
+  private init(columns: OpaquePointer, env: WuiEnvironment) {
+    self.env = env
+    self.source = WuiAnyViews(columns)
+    super.init(frame: .zero)
 
-    init(ffiTable: CWaterUI.WuiTable, env: WuiEnvironment) {
-        self.env = env
-        self.columnsPtr = ffiTable.columns
+    #if canImport(UIKit)
+      clipsToBounds = true
+    #elseif canImport(AppKit)
+      wantsLayer = true
+      tableView.style = .inset
+      tableView.usesAlternatingRowBackgroundColors = false
+      tableView.gridStyleMask = []
+      tableView.intercellSpacing = NSSize(width: 0, height: 0)
+      tableView.columnAutoresizingStyle = .noColumnAutoresizing
+      tableView.backgroundColor = .clear
+      tableView.allowsColumnReordering = false
+      tableView.allowsColumnResizing = false
+      tableView.allowsColumnSelection = false
+      tableView.headerView = nil
+      tableView.dataSource = self
+      tableView.delegate = self
+      addSubview(tableView)
+    #endif
 
-        // Create table view without scroll wrapper and without header
-        self.tableView = NSTableView()
-        tableView.style = .inset
-        tableView.usesAlternatingRowBackgroundColors = true
-        tableView.gridStyleMask = []
-        tableView.rowHeight = 28
-        tableView.intercellSpacing = NSSize(width: 12, height: 6)
-        tableView.columnAutoresizingStyle = .noColumnAutoresizing
-        tableView.backgroundColor = NSColor.controlBackgroundColor
-        tableView.allowsColumnReordering = false
-        tableView.allowsColumnResizing = false
-        tableView.allowsColumnSelection = false
-        tableView.headerView = nil  // No native header - we'll draw our own
-
-        super.init(frame: .zero)
-
-        addSubview(tableView)
-
-        // Set data source and delegate
-        tableView.dataSource = self
-        tableView.delegate = self
-
-        loadColumns()
-        startWatching()
+    columnsWatcher = watchAnyViewsIds(source) { [weak self] ids, metadata in
+      guard let self else { return }
+      withPlatformAnimation(metadata) {
+        self.reconcileColumns(ids: ids)
+      }
     }
+    reconcileColumns(ids: source.allIds())
+    installTheme()
+  }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+  @available(*, unavailable)
+  required init?(coder: NSCoder) {
+    fatalError("init(coder:) has not been implemented")
+  }
+
+  private func reconcileColumns(ids: [Int32]) {
+    collection.reconcile(ids: ids) { [source, env] index, id in
+      let column = waterui_force_as_table_column(source.takeRawView(at: index))
+      return WuiTableColumnNode(
+        id: id,
+        consuming: column,
+        env: env,
+        onRowsChange: { [weak self] metadata in
+          guard let self else { return }
+          withPlatformAnimation(metadata) {
+            self.reloadContent()
+          }
+        },
+        onContentChange: { [weak self] in
+          self?.reloadContent()
+        }
+      )
     }
+    updateColumns()
+  }
 
-    // MARK: - Column Loading
-
-    private func loadColumns() {
-        guard let ptr = columnsPtr else { return }
-
-        let array = waterui_read_computed_table_cols(ptr)
-        let slice = array.vtable.slice(array.data)
-        guard let head = slice.head else { return }
-
-        nativeColumns.removeAll()
-        cellViews.removeAll()
-
-        for i in 0 ..< Int(slice.len) {
-            let col = head.advanced(by: i).pointee
-            let column = parseColumn(col, index: i)
-            nativeColumns.append(column)
-        }
-
-        rebuildTable()
+  private func installTheme() {
+    let surface = WuiComputedObservation(
+      themeColor: WuiColorSlot_Surface,
+      env: env
+    ) { [weak self] color, _ in
+      self?.applySurface(color)
     }
-
-    private func parseColumn(_ ffiCol: CWaterUI.WuiTableColumn, index: Int) -> NativeTableColumnData {
-        // Extract header text from WuiText
-        let headerText = extractTextFromLabel(ffiCol.label)
-
-        // Parse rows (WuiAnyViews containing Text views)
-        var rows: [WuiAnyView] = []
-        if let rowsPtr = ffiCol.rows {
-            let count = waterui_anyviews_len(rowsPtr)
-            for i in 0 ..< count {
-                if let viewPtr = waterui_anyviews_get_view(rowsPtr, i) {
-                    let rowView = WuiAnyView(anyview: viewPtr, env: env)
-                    rows.append(rowView)
-                }
-            }
-        }
-
-        let identifier = NSUserInterfaceItemIdentifier("col_\(index)")
-        return NativeTableColumnData(identifier: identifier, headerTitle: headerText, rows: rows)
+    let border = WuiComputedObservation(
+      themeColor: WuiColorSlot_Border,
+      env: env
+    ) { [weak self] color, _ in
+      self?.applyBorder(color)
     }
+    surfaceObservation = surface
+    borderObservation = border
+    applySurface(surface.value)
+    applyBorder(border.value)
+  }
 
-    private func extractTextFromLabel(_ label: CWaterUI.WuiText) -> String {
-        // Read styled string from computed pointer
-        let computed = WuiComputed<WuiStyledStr>(label.content)
-        return computed.value.toString()
+  private func applySurface(_ color: WuiResolvedColor) {
+    #if canImport(UIKit)
+      backgroundColor = color.toUIColor()
+    #elseif canImport(AppKit)
+      layer?.backgroundColor = color.toNSColor().cgColor
+    #endif
+    invalidateCapturedRendering()
+  }
+
+  private func applyBorder(_ color: WuiResolvedColor) {
+    #if canImport(UIKit)
+      layer.borderColor = color.toUIColor().cgColor
+      layer.borderWidth = 1 / traitCollection.displayScale
+    #elseif canImport(AppKit)
+      layer?.borderColor = color.toNSColor().cgColor
+      layer?.borderWidth = 1 / (window?.backingScaleFactor ?? 1)
+    #endif
+    invalidateCapturedRendering()
+  }
+
+  private func updateColumns() {
+    #if canImport(UIKit)
+      updateAttachedViews()
+    #elseif canImport(AppKit)
+      let activeIds = Set(columns.map(\.id))
+      nativeColumns = nativeColumns.filter { activeIds.contains($0.key) }
+      for column in tableView.tableColumns {
+        tableView.removeTableColumn(column)
+      }
+      for column in columns {
+        let native =
+          nativeColumns[column.id]
+          ?? {
+            let native = NSTableColumn(
+              identifier: NSUserInterfaceItemIdentifier("waterui.table.\(column.id)")
+            )
+            native.minWidth = minimumColumnWidth
+            nativeColumns[column.id] = native
+            return native
+          }()
+        tableView.addTableColumn(native)
+        if column.label.superview !== self {
+          addSubview(column.label)
+        }
+      }
+      for subview in subviews
+      where subview is WuiText && !columns.contains(where: { $0.label === subview }) {
+        subview.removeFromSuperview()
+      }
+    #endif
+    reloadContent()
+  }
+
+  private func reloadContent() {
+    #if canImport(UIKit)
+      updateAttachedViews()
+      setNeedsLayout()
+    #elseif canImport(AppKit)
+      appKitRowHeights = rowHeights()
+      updateNativeColumnWidths(columnWidths())
+      tableView.reloadData()
+      needsLayout = true
+    #endif
+    invalidateIntrinsicContentSize()
+    invalidateCapturedRendering()
+  }
+
+  #if canImport(UIKit)
+    private func updateAttachedViews() {
+      var desired: [PlatformView] = columns.map(\.label)
+      for column in columns {
+        desired.append(contentsOf: column.rows.ordered)
+      }
+      let desiredIds = Set(desired.map(ObjectIdentifier.init))
+      for view in attachedViews where !desiredIds.contains(ObjectIdentifier(view)) {
+        view.removeFromSuperview()
+      }
+      for view in desired where view.superview !== self {
+        addSubview(view)
+      }
+      attachedViews = desired
     }
-
-    private func rebuildTable() {
-        // Remove existing columns and header labels
-        for column in tableView.tableColumns {
-            tableView.removeTableColumn(column)
-        }
-        for label in headerLabels {
-            label.removeFromSuperview()
-        }
-        headerLabels.removeAll()
-
-        guard !nativeColumns.isEmpty else { return }
-
-        // Calculate column widths with generous padding
-        var columnWidths: [CGFloat] = []
-        for colData in nativeColumns {
-            var maxWidth: CGFloat = 100
-
-            // Measure header
-            let headerSize = (colData.headerTitle as NSString).size(withAttributes: [
-                .font: NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
-            ])
-            maxWidth = max(maxWidth, headerSize.width + 48)
-
-            // Measure cell content
-            for row in colData.rows {
-                let size = row.sizeThatFits(WuiProposalSize(width: nil, height: 28))
-                maxWidth = max(maxWidth, size.width + 48)
-            }
-
-            columnWidths.append(maxWidth)
-        }
-
-        // Add columns to table view (without titles - we use custom headers)
-        for (index, colData) in nativeColumns.enumerated() {
-            let column = NSTableColumn(identifier: colData.identifier)
-            column.title = ""  // Empty - we draw custom header
-            column.width = columnWidths[index]
-            column.minWidth = 50
-            column.maxWidth = 500
-            tableView.addTableColumn(column)
-        }
-
-        // Create custom header labels centered in columns
-        var xOffset: CGFloat = 0
-        for (index, colData) in nativeColumns.enumerated() {
-            let label = NSTextField(labelWithString: colData.headerTitle)
-            label.font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
-            label.textColor = NSColor.secondaryLabelColor
-            label.alignment = .center
-            label.frame = NSRect(x: xOffset, y: 0, width: columnWidths[index], height: 24)
-            addSubview(label)
-            headerLabels.append(label)
-            xOffset += columnWidths[index]
-        }
-
-        // Store cell views for reuse
-        cellViews = nativeColumns.map { $0.rows }
-
-        tableView.reloadData()
-        needsLayout = true
+  #elseif canImport(AppKit)
+    private func updateNativeColumnWidths(_ widths: [CGFloat]) {
+      for (column, width) in zip(columns, widths) {
+        nativeColumns[column.id]!.width = width
+      }
     }
+  #endif
 
-    // MARK: - Layout
+  private func columnWidths() -> [CGFloat] {
+    columns.map { column in
+      var width = max(
+        minimumColumnWidth,
+        column.label.sizeThatFits(WuiProposalSize()).width + horizontalPadding * 2
+      )
+      for row in column.rows.ordered {
+        width = max(
+          width,
+          row.sizeThatFits(WuiProposalSize()).width + horizontalPadding * 2
+        )
+      }
+      return width
+    }
+  }
+
+  private func headerHeight() -> CGFloat {
+    guard !columns.isEmpty else { return 0 }
+    return max(
+      28,
+      (columns.map { $0.label.sizeThatFits(WuiProposalSize()).height }.max() ?? 0)
+        + verticalPadding * 2
+    )
+  }
+
+  private func rowHeights() -> [CGFloat] {
+    let count = columns.map { $0.rows.ordered.count }.max() ?? 0
+    return (0..<count).map { rowIndex in
+      max(
+        28,
+        (columns.compactMap { column in
+          column.rows.ordered.indices.contains(rowIndex)
+            ? column.rows.ordered[rowIndex].sizeThatFits(WuiProposalSize()).height
+            : nil
+        }.max() ?? 0) + verticalPadding * 2
+      )
+    }
+  }
+
+  func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
+    CGSize(
+      width: columnWidths().reduce(0, +),
+      height: headerHeight() + rowHeights().reduce(0, +)
+    )
+  }
+
+  #if canImport(UIKit)
+    override func layoutSubviews() {
+      super.layoutSubviews()
+      let widths = columnWidths()
+      let headerHeight = headerHeight()
+      let rowHeights = rowHeights()
+      var x: CGFloat = 0
+      for (index, column) in columns.enumerated() {
+        column.label.frame = CGRect(x: x, y: 0, width: widths[index], height: headerHeight)
+        x += widths[index]
+      }
+
+      var y = headerHeight
+      for (rowIndex, rowHeight) in rowHeights.enumerated() {
+        x = 0
+        for (columnIndex, column) in columns.enumerated() {
+          if column.rows.ordered.indices.contains(rowIndex) {
+            column.rows.ordered[rowIndex].frame = CGRect(
+              x: x + horizontalPadding,
+              y: y + verticalPadding,
+              width: widths[columnIndex] - horizontalPadding * 2,
+              height: rowHeight - verticalPadding * 2
+            )
+          }
+          x += widths[columnIndex]
+        }
+        y += rowHeight
+      }
+    }
+  #elseif canImport(AppKit)
+    override var isFlipped: Bool { true }
 
     override func layout() {
-        super.layout()
-
-        let headerHeight: CGFloat = 28
-
-        // Position table below custom header labels
-        tableView.frame = NSRect(x: 0, y: headerHeight, width: bounds.width, height: bounds.height - headerHeight)
-
-        // Update header label positions based on actual column widths
-        var xOffset: CGFloat = 0
-        for (index, label) in headerLabels.enumerated() {
-            let colWidth = index < tableView.tableColumns.count ? tableView.tableColumns[index].width : 100
-            label.frame = NSRect(x: xOffset, y: 4, width: colWidth, height: headerHeight - 8)
-            xOffset += colWidth
-        }
+      super.layout()
+      let widths = columnWidths()
+      updateNativeColumnWidths(widths)
+      let headerHeight = headerHeight()
+      tableView.frame = NSRect(
+        x: 0,
+        y: headerHeight,
+        width: bounds.width,
+        height: max(0, bounds.height - headerHeight)
+      )
+      var x: CGFloat = 0
+      for (column, width) in zip(columns, widths) {
+        column.label.frame = NSRect(x: x, y: 0, width: width, height: headerHeight)
+        x += width
+      }
     }
 
-    // MARK: - Reactive Updates
-
-    private func startWatching() {
-        guard let ptr = columnsPtr else { return }
-
-        let watcherPtr = waterui_new_watcher_table_cols(
-            Unmanaged.passUnretained(self).toOpaque(),
-            { data, array, metadata in
-                guard let data = data else { return }
-                let table = Unmanaged<WuiTable>.fromOpaque(data).takeUnretainedValue()
-                MainActor.assumeIsolated {
-                    let watcherMetadata = WuiWatcherMetadata(metadata)
-                    withPlatformAnimation(watcherMetadata) {
-                        table.loadColumns()
-                    }
-                }
-            },
-            nil
-        )
-
-        if let watcherPtr = watcherPtr {
-            let guardPtr = waterui_watch_computed_table_cols(ptr, watcherPtr)
-            if let guardPtr = guardPtr {
-                watcher = WatcherGuard(guardPtr)
-            }
-        }
+    override func viewDidMoveToWindow() {
+      super.viewDidMoveToWindow()
+      if let border = borderObservation?.value {
+        applyBorder(border)
+      }
     }
 
-    // MARK: - WuiComponent
-
-    func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
-        guard !nativeColumns.isEmpty else { return .zero }
-
-        let numRows = nativeColumns.map { $0.rows.count }.max() ?? 0
-        let headerHeight: CGFloat = 28
-        let rowHeight: CGFloat = tableView.rowHeight + tableView.intercellSpacing.height
-
-        // Calculate total width with generous padding
-        var totalWidth: CGFloat = 0
-        for colData in nativeColumns {
-            var colWidth: CGFloat = 100
-
-            let headerSize = (colData.headerTitle as NSString).size(withAttributes: [
-                .font: NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
-            ])
-            colWidth = max(colWidth, headerSize.width + 48)
-
-            for row in colData.rows {
-                let size = row.sizeThatFits(WuiProposalSize(width: nil, height: 28))
-                colWidth = max(colWidth, size.width + 48)
-            }
-            totalWidth += colWidth
-        }
-
-        // Total height = header + data rows
-        let totalHeight = headerHeight + rowHeight * CGFloat(numRows) + 8
-
-        return CGSize(width: totalWidth, height: totalHeight)
+    override func viewDidChangeBackingProperties() {
+      super.viewDidChangeBackingProperties()
+      if let border = borderObservation?.value {
+        applyBorder(border)
+      }
     }
-
-    override var isFlipped: Bool { true }
+  #endif
 }
 
-// MARK: - NSTableViewDataSource
-
-extension WuiTable: NSTableViewDataSource {
+#if canImport(AppKit)
+  extension WuiTable: NSTableViewDataSource {
     func numberOfRows(in tableView: NSTableView) -> Int {
-        nativeColumns.map { $0.rows.count }.max() ?? 0
+      columns.map { $0.rows.ordered.count }.max() ?? 0
     }
-}
+  }
 
-// MARK: - NSTableViewDelegate
-
-extension WuiTable: NSTableViewDelegate {
-    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        guard let tableColumn = tableColumn else { return nil }
-
-        // Find column index
-        guard let colIndex = nativeColumns.firstIndex(where: { $0.identifier == tableColumn.identifier }) else {
-            return nil
-        }
-
-        let colData = nativeColumns[colIndex]
-        guard row < colData.rows.count else { return nil }
-
-        // Return cell view directly - column width includes padding
-        let cellView = colData.rows[row]
-        cellView.frame = NSRect(x: 0, y: 0, width: tableColumn.width, height: tableView.rowHeight)
-        return cellView
+  extension WuiTable: NSTableViewDelegate {
+    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+      appKitRowHeights[row]
     }
-}
+
+    func tableView(
+      _ tableView: NSTableView,
+      viewFor tableColumn: NSTableColumn?,
+      row: Int
+    ) -> NSView? {
+      let tableColumn = tableColumn!
+      let column = columns.first { nativeColumns[$0.id] === tableColumn }!
+      guard column.rows.ordered.indices.contains(row) else { return nil }
+      return column.rows.ordered[row]
+    }
+  }
 #endif
