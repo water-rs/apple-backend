@@ -51,15 +51,10 @@ private enum WuiNativeSubtitleSelection: Equatable {
 struct WuiNativePlaybackPolicy {
   let realtime: Bool
   let preferredForwardBufferSeconds: TimeInterval
-  let liveTargetOffset: CMTime
 
   init(_ policy: CWaterUI.WuiVideoPlaybackPolicy) {
     realtime = policy.realtime
-    preferredForwardBufferSeconds = TimeInterval(policy.preferred_forward_buffer_ms) / 1_000
-    liveTargetOffset = CMTime(
-      value: CMTimeValue(policy.live_target_offset_ms),
-      timescale: 1_000
-    )
+    preferredForwardBufferSeconds = TimeInterval(policy.vod_start_buffer_ms) / 1_000
   }
 }
 
@@ -161,6 +156,7 @@ final class WuiVideoPlaybackCoordinator: WuiMediaSessionHost {
   private let playbackPolicy: WuiNativePlaybackPolicy
   private var watchers: [WatcherGuard] = []
   private var itemObservers: [NSKeyValueObservation] = []
+  private var playbackStateObserver: NSKeyValueObservation?
   private var endObserver: NSObjectProtocol?
   private var subtitleSelectionTask: Task<Void, Never>?
   private var currentURL: URL?
@@ -171,6 +167,7 @@ final class WuiVideoPlaybackCoordinator: WuiMediaSessionHost {
   private var preservePitch = true
   private var isDucked = false
   private var playbackShouldStartWhenReady = false
+  private var reportedPlaying: Bool?
   private var title = ""
   private var artist = ""
   private var album = ""
@@ -187,6 +184,7 @@ final class WuiVideoPlaybackCoordinator: WuiMediaSessionHost {
 
   func activate() {
     startWatchers()
+    startPlaybackStateObservation()
     updatePreservePitch(signals.preservePitch.value)
     updatePlaybackRate(signals.playbackRate.value)
     updateSubtitleSelection(signals.subtitleSelection.value)
@@ -213,7 +211,8 @@ final class WuiVideoPlaybackCoordinator: WuiMediaSessionHost {
 
   func emitEvent(
     _ eventType: CWaterUI.WuiVideoEventType,
-    pictureInPictureActive: Bool = false
+    pictureInPictureActive: Bool = false,
+    playbackActive: Bool = false
   ) {
     guard let onEvent else { return }
     let event = CWaterUI.WuiVideoEvent(
@@ -222,7 +221,8 @@ final class WuiVideoPlaybackCoordinator: WuiMediaSessionHost {
       buffered_ms: 0,
       av_drift_ms: 0,
       dropped_video_frames: 0,
-      picture_in_picture_active: pictureInPictureActive
+      picture_in_picture_active: pictureInPictureActive,
+      playback_active: playbackActive
     )
     waterui_video_event_handler_call(onEvent, event)
   }
@@ -235,7 +235,8 @@ final class WuiVideoPlaybackCoordinator: WuiMediaSessionHost {
       buffered_ms: 0,
       av_drift_ms: 0,
       dropped_video_frames: 0,
-      picture_in_picture_active: false
+      picture_in_picture_active: false,
+      playback_active: false
     )
     waterui_video_event_handler_call(onEvent, event)
   }
@@ -282,6 +283,25 @@ final class WuiVideoPlaybackCoordinator: WuiMediaSessionHost {
         self?.updatePreservePitch(preservePitch)
       },
     ]
+  }
+
+  private func startPlaybackStateObservation() {
+    playbackStateObserver = player.observe(\.timeControlStatus, options: [.initial, .new]) {
+      [weak self] _, _ in
+      DispatchQueue.main.async {
+        MainActor.assumeIsolated {
+          self?.playbackStateDidChange()
+        }
+      }
+    }
+  }
+
+  private func playbackStateDidChange() {
+    let playing = player.timeControlStatus == .playing
+    guard reportedPlaying != playing else { return }
+    reportedPlaying = playing
+    emitEvent(CWaterUI.WuiVideoEventType_PlaybackStateChanged, playbackActive: playing)
+    mediaSessionBridge?.playbackDidChange()
   }
 
   private func observePlayback<T>(_ signal: WuiBinding<T>) -> WatcherGuard {
@@ -441,8 +461,6 @@ final class WuiVideoPlaybackCoordinator: WuiMediaSessionHost {
       player.automaticallyWaitsToMinimizeStalling = false
       item.canUseNetworkResourcesForLiveStreamingWhilePaused = true
       item.preferredForwardBufferDuration = 0
-      item.automaticallyPreservesTimeOffsetFromLive = false
-      item.configuredTimeOffsetFromLive = playbackPolicy.liveTargetOffset
     } else {
       player.automaticallyWaitsToMinimizeStalling = true
       item.canUseNetworkResourcesForLiveStreamingWhilePaused = false
@@ -599,6 +617,7 @@ final class WuiVideoPlaybackCoordinator: WuiMediaSessionHost {
       NotificationCenter.default.removeObserver(endObserver)
     }
     watchers.removeAll()
+    playbackStateObserver = nil
     itemObservers.removeAll()
     subtitleSelectionTask?.cancel()
     player.pause()
