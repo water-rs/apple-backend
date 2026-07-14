@@ -145,6 +145,7 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
     private var statusObserver: NSKeyValueObservation?
     private var bufferEmptyObserver: NSKeyValueObservation?
     private var likelyToKeepUpObserver: NSKeyValueObservation?
+    private var playbackStateObserver: WuiAVPlayerPlaybackStateObserver?
     private var currentURL: URL?
     private var isBuffering = false
     private var reportedPictureInPictureActive: Bool?
@@ -246,6 +247,10 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
         #endif
 
         configurePlayerView(aspectRatio: aspectRatio)
+        playbackStateObserver = WuiAVPlayerPlaybackStateObserver(
+            player: player,
+            eventEmitter: eventEmitter
+        )
         updatePreservePitch(preservePitchBinding.value)
         updatePlaybackRate(playbackRateBinding.value)
         updateSource(sourceComputed.value)

@@ -48,6 +48,7 @@ final class WuiVideo: PlatformView, WuiComponent {
     private var statusObserver: NSKeyValueObservation?
     private var bufferEmptyObserver: NSKeyValueObservation?
     private var likelyToKeepUpObserver: NSKeyValueObservation?
+    private var playbackStateObserver: WuiAVPlayerPlaybackStateObserver?
     private var currentURL: URL?
     private var isBuffering = false
     private var requestedVolume: Float = 0.5
@@ -162,6 +163,10 @@ final class WuiVideo: PlatformView, WuiComponent {
         updatePlaybackRate(playbackRateBinding.value)
         updateSource(sourceComputed.value)
         updateVolume(volumeBinding.value)
+        playbackStateObserver = WuiAVPlayerPlaybackStateObserver(
+            player: player,
+            eventEmitter: eventEmitter
+        )
         startWatchers()
         mediaSessionBridge = WuiWaterKitMediaSessionBridge(host: self)
     }

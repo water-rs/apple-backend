@@ -17,7 +17,8 @@ final class WuiVideoEventEmitter {
         bufferedMs: UInt32 = 0,
         avDriftMs: Float = 0,
         droppedVideoFrames: UInt64 = 0,
-        pictureInPictureActive: Bool = false
+        pictureInPictureActive: Bool = false,
+        playbackActive: Bool = false
     ) {
         let event = CWaterUI.WuiVideoEvent(
             event_type: eventType,
@@ -25,13 +26,36 @@ final class WuiVideoEventEmitter {
             buffered_ms: bufferedMs,
             av_drift_ms: avDriftMs,
             dropped_video_frames: droppedVideoFrames,
-            picture_in_picture_active: pictureInPictureActive
+            picture_in_picture_active: pictureInPictureActive,
+            playback_active: playbackActive
         )
         waterui_call_video_event_action(action, event, env.inner)
     }
 
     @MainActor deinit {
         waterui_drop_video_event_action(action)
+    }
+}
+
+@MainActor
+final class WuiAVPlayerPlaybackStateObserver {
+    private var observation: NSKeyValueObservation?
+    private var reportedPlaying: Bool?
+
+    init(player: AVPlayer, eventEmitter: WuiVideoEventEmitter) {
+        observation = player.observe(\.timeControlStatus, options: [.initial, .new]) {
+            [weak self, weak eventEmitter] player, _ in
+            DispatchQueue.main.async {
+                guard let self, let eventEmitter else { return }
+                let playing = player.timeControlStatus == .playing
+                guard self.reportedPlaying != playing else { return }
+                self.reportedPlaying = playing
+                eventEmitter.emit(
+                    CWaterUI.WuiVideoEventType_PlaybackStateChanged,
+                    playbackActive: playing
+                )
+            }
+        }
     }
 }
 
