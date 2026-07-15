@@ -14,69 +14,115 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
 
   private let sidebarView: WuiAnyView
   private let placeholderView: WuiAnyView
-  private let selectionBinding: WuiBinding<Int32>
+  private let primarySelection: WuiBinding<Int32>
+  private let contentHandle: UnsafeMutablePointer<CWaterUI.WuiNavigationSplitDetail>?
+  private let secondarySelection: WuiBinding<Int32>?
   private let detailHandle: UnsafeMutablePointer<CWaterUI.WuiNavigationSplitDetail>
+  private let columnVisibility: WuiComputed<Int32>
   private let env: WuiEnvironment
-  private let sidebarWidth: CGFloat
-  private var detailView: WuiNavigationView?
-  private var selectionWatcher: WatcherGuard?
+  private let widths: CWaterUI.WuiNavigationColumnWidth
+  private let style: WuiNavigationSplitStyle
+  private var contentViews: [Int32: WuiNavigationView] = [:]
+  private var detailViews: [Int32: WuiNavigationView] = [:]
+  private var primarySelectionWatcher: WatcherGuard?
+  private var secondarySelectionWatcher: WatcherGuard?
+  private var visibilityWatcher: WatcherGuard?
+
+  #if canImport(UIKit)
+    private let splitController: UISplitViewController
+    private let primaryController = UIViewController()
+    private let supplementaryController = UIViewController()
+    private let secondaryController = UIViewController()
+    private let placeholderController = UIViewController()
+    private var contentControllers: [Int32: UIViewController] = [:]
+    private var detailControllers: [Int32: UIViewController] = [:]
+  #elseif canImport(AppKit)
+    private let splitController = NSSplitViewController()
+    private let primaryController = NSViewController()
+    private let supplementaryController = NSViewController()
+    private let secondaryController = NSViewController()
+  #endif
 
   convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
-    let ffiSplit = waterui_force_as_split_navigation_container(anyview)
-    guard
-      let sidebar = ffiSplit.sidebar,
-      let placeholder = ffiSplit.placeholder,
-      let selection = ffiSplit.selection,
-      let detail = ffiSplit.detail
-    else {
-      fatalError("NavigationSplitLayout requires sidebar, placeholder, selection, and detail")
+    let split = waterui_force_as_split_navigation_container(anyview)
+    guard let sidebar = split.sidebar else {
+      fatalError("NavigationSplitView sidebar is null")
     }
-
+    guard let placeholder = split.placeholder else {
+      fatalError("NavigationSplitView placeholder is null")
+    }
+    guard let primarySelection = split.primary_selection else {
+      fatalError("NavigationSplitView primary selection binding is null")
+    }
+    guard let detail = split.detail else {
+      fatalError("NavigationSplitView detail resolver is null")
+    }
+    guard let visibility = split.column_visibility else {
+      fatalError("NavigationSplitView column visibility signal is null")
+    }
     self.init(
       sidebarView: WuiAnyView(anyview: sidebar, env: env),
       placeholderView: WuiAnyView(anyview: placeholder, env: env),
-      selectionBinding: WuiBinding<Int32>(selection),
+      primarySelection: WuiBinding<Int32>(primarySelection),
+      contentHandle: split.content,
+      secondarySelection: split.secondary_selection.map(WuiBinding<Int32>.init),
       detailHandle: detail,
-      env: env,
-      sidebarWidth: CGFloat(ffiSplit.sidebar_width),
+      columnVisibility: WuiComputed<Int32>(visibility),
+      widths: split.sidebar_width,
+      style: split.style,
+      env: env
     )
   }
 
   init(
     sidebarView: WuiAnyView,
     placeholderView: WuiAnyView,
-    selectionBinding: WuiBinding<Int32>,
+    primarySelection: WuiBinding<Int32>,
+    contentHandle: UnsafeMutablePointer<CWaterUI.WuiNavigationSplitDetail>?,
+    secondarySelection: WuiBinding<Int32>?,
     detailHandle: UnsafeMutablePointer<CWaterUI.WuiNavigationSplitDetail>,
-    env: WuiEnvironment,
-    sidebarWidth: CGFloat,
+    columnVisibility: WuiComputed<Int32>,
+    widths: CWaterUI.WuiNavigationColumnWidth,
+    style: WuiNavigationSplitStyle,
+    env: WuiEnvironment
   ) {
-    guard sidebarWidth.isFinite, sidebarWidth > 0 else {
-      fatalError("NavigationSplitLayout sidebar width must be finite and positive")
+    guard (contentHandle == nil) == (secondarySelection == nil) else {
+      fatalError("Three-column split content and secondary selection must both be present")
     }
-
+    guard widths.min > 0, widths.min <= widths.ideal, widths.ideal <= widths.max else {
+      fatalError("NavigationSplitView sidebar widths must satisfy 0 < min <= ideal <= max")
+    }
     self.sidebarView = sidebarView
     self.placeholderView = placeholderView
-    self.selectionBinding = selectionBinding
+    self.primarySelection = primarySelection
+    self.contentHandle = contentHandle
+    self.secondarySelection = secondarySelection
     self.detailHandle = detailHandle
+    self.columnVisibility = columnVisibility
+    self.widths = widths
+    self.style = style
     self.env = env
-    self.sidebarWidth = sidebarWidth
+    #if canImport(UIKit)
+      self.splitController = UISplitViewController(
+        style: contentHandle == nil ? .doubleColumn : .tripleColumn)
+    #endif
     super.init(frame: .zero)
 
-    sidebarView.translatesAutoresizingMaskIntoConstraints = true
-    addSubview(sidebarView)
-
-    placeholderView.translatesAutoresizingMaskIntoConstraints = true
-    addSubview(placeholderView)
-
-    selectionWatcher = selectionBinding.watch { [weak self] _, _ in
-      self?.syncDetailView()
-      #if canImport(UIKit)
-        self?.setNeedsLayout()
-      #elseif canImport(AppKit)
-        self?.needsLayout = true
-      #endif
+    configureNativeSplit()
+    primarySelectionWatcher = primarySelection.watch { [weak self] selected, _ in
+      self?.showPrimarySelection(selected)
     }
-    syncDetailView()
+    secondarySelectionWatcher = secondarySelection?.watch { [weak self] selected, _ in
+      self?.showSecondarySelection(selected)
+    }
+    visibilityWatcher = columnVisibility.watch { [weak self] visibility, _ in
+      self?.applyColumnVisibility(visibility)
+    }
+    showPrimarySelection(primarySelection.value)
+    if let secondarySelection {
+      showSecondarySelection(secondarySelection.value)
+    }
+    applyColumnVisibility(columnVisibility.value)
   }
 
   @available(*, unavailable)
@@ -85,96 +131,255 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
   }
 
   @MainActor deinit {
+    if let contentHandle {
+      waterui_drop_split_navigation_detail(contentHandle)
+    }
     waterui_drop_split_navigation_detail(detailHandle)
   }
 
   func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
-    let width = proposal.width.map(CGFloat.init) ?? 320
-    let height = proposal.height.map(CGFloat.init) ?? 480
-    return CGSize(width: width, height: height)
+    CGSize(
+      width: proposal.width.map(CGFloat.init) ?? 320,
+      height: proposal.height.map(CGFloat.init) ?? 480
+    )
+  }
+
+  private func configureNativeSplit() {
+    #if canImport(UIKit)
+      primaryController.view = sidebarView
+      placeholderController.view = placeholderView
+      supplementaryController.view = placeholderView
+      secondaryController.view = placeholderView
+      splitController.delegate = self
+      switch style {
+      case WuiNavigationSplitStyle_Automatic:
+        splitController.preferredSplitBehavior = .automatic
+      case WuiNavigationSplitStyle_Balanced:
+        splitController.preferredSplitBehavior = .tile
+      case WuiNavigationSplitStyle_ProminentDetail:
+        splitController.preferredSplitBehavior = .overlay
+      default:
+        fatalError("Unsupported navigation split style: \(style.rawValue)")
+      }
+      splitController.preferredPrimaryColumnWidth = CGFloat(widths.ideal)
+      splitController.minimumPrimaryColumnWidth = CGFloat(widths.min)
+      splitController.maximumPrimaryColumnWidth = CGFloat(widths.max)
+      splitController.setViewController(primaryController, for: .primary)
+      if contentHandle != nil {
+        splitController.setViewController(supplementaryController, for: .supplementary)
+      }
+      splitController.setViewController(secondaryController, for: .secondary)
+      splitController.view.translatesAutoresizingMaskIntoConstraints = true
+      addSubview(splitController.view)
+    #elseif canImport(AppKit)
+      primaryController.view = sidebarView
+      supplementaryController.view = placeholderView
+      secondaryController.view = placeholderView
+      let sidebarItem = NSSplitViewItem(sidebarWithViewController: primaryController)
+      sidebarItem.minimumThickness = CGFloat(widths.min)
+      sidebarItem.maximumThickness = CGFloat(widths.max)
+      splitController.addSplitViewItem(sidebarItem)
+      if contentHandle != nil {
+        splitController.addSplitViewItem(
+          NSSplitViewItem(viewController: supplementaryController)
+        )
+      }
+      let detailItem = NSSplitViewItem(viewController: secondaryController)
+      if style == WuiNavigationSplitStyle_ProminentDetail {
+        detailItem.holdingPriority = .defaultHigh
+      }
+      splitController.addSplitViewItem(detailItem)
+      splitController.view.translatesAutoresizingMaskIntoConstraints = true
+      addSubview(splitController.view)
+    #endif
+  }
+
+  private func showPrimarySelection(_ selected: Int32) {
+    guard let contentHandle else {
+      showDetailSelection(selected, binding: primarySelection)
+      return
+    }
+    if selected == 0 {
+      #if canImport(UIKit)
+        supplementaryController.view = placeholderView
+        if splitController.isCollapsed { splitController.show(.primary) }
+      #elseif canImport(AppKit)
+        supplementaryController.view = placeholderView
+      #endif
+      return
+    }
+
+    let content = destinationView(for: selected, handle: contentHandle, cache: &contentViews)
+    #if canImport(UIKit)
+      let controller =
+        contentControllers[selected]
+        ?? {
+          let controller = UIViewController()
+          controller.view = content
+          contentControllers[selected] = controller
+          return controller
+        }()
+      content.setBackAction(
+        splitController.isCollapsed
+          ? Action(callback: { [weak self] in self?.primarySelection.set(0) })
+          : nil
+      )
+      splitController.setViewController(controller, for: .supplementary)
+      splitController.show(.supplementary)
+    #elseif canImport(AppKit)
+      content.setBackAction(nil)
+      supplementaryController.view = content
+    #endif
+  }
+
+  private func showSecondarySelection(_ selected: Int32) {
+    guard let secondarySelection else { return }
+    showDetailSelection(selected, binding: secondarySelection)
+  }
+
+  private func showDetailSelection(_ selected: Int32, binding: WuiBinding<Int32>) {
+    if selected == 0 {
+      #if canImport(UIKit)
+        secondaryController.view = placeholderView
+        if splitController.isCollapsed {
+          splitController.show(contentHandle == nil ? .primary : .supplementary)
+        }
+      #elseif canImport(AppKit)
+        secondaryController.view = placeholderView
+      #endif
+      return
+    }
+
+    let detail = destinationView(for: selected, handle: detailHandle, cache: &detailViews)
+    #if canImport(UIKit)
+      let controller =
+        detailControllers[selected]
+        ?? {
+          let controller = UIViewController()
+          controller.view = detail
+          detailControllers[selected] = controller
+          return controller
+        }()
+      detail.setBackAction(
+        splitController.isCollapsed
+          ? Action(callback: { binding.set(0) })
+          : nil
+      )
+      splitController.setViewController(controller, for: .secondary)
+      splitController.show(.secondary)
+    #elseif canImport(AppKit)
+      detail.setBackAction(nil)
+      secondaryController.view = detail
+    #endif
+  }
+
+  private func destinationView(
+    for selected: Int32,
+    handle: UnsafeMutablePointer<CWaterUI.WuiNavigationSplitDetail>,
+    cache: inout [Int32: WuiNavigationView]
+  ) -> WuiNavigationView {
+    if let cached = cache[selected] { return cached }
+    let navigationView = waterui_split_navigation_detail_content(
+      handle,
+      CWaterUI.WuiId(inner: selected),
+      env.inner
+    )
+    let destination = WuiNavigationView(ffiNav: navigationView, env: env)
+    cache[selected] = destination
+    return destination
+  }
+
+  private func applyColumnVisibility(_ visibility: Int32) {
+    #if canImport(UIKit)
+      switch visibility {
+      case 0:
+        splitController.preferredDisplayMode = .automatic
+      case 1:
+        splitController.preferredDisplayMode =
+          contentHandle == nil ? .oneBesideSecondary : .twoBesideSecondary
+      case 2:
+        splitController.preferredDisplayMode =
+          contentHandle == nil ? .oneBesideSecondary : .twoDisplaceSecondary
+      case 3:
+        splitController.preferredDisplayMode = .secondaryOnly
+      default:
+        fatalError("Unsupported navigation split column visibility: \(visibility)")
+      }
+    #elseif canImport(AppKit)
+      guard visibility >= 0, visibility <= 3 else {
+        fatalError("Unsupported navigation split column visibility: \(visibility)")
+      }
+      let items = splitController.splitViewItems
+      switch visibility {
+      case 0, 1:
+        for item in items {
+          item.animator().isCollapsed = false
+        }
+      case 2:
+        items.first?.animator().isCollapsed = true
+        for item in items.dropFirst() {
+          item.animator().isCollapsed = false
+        }
+      case 3:
+        for item in items.dropLast() {
+          item.animator().isCollapsed = true
+        }
+        items.last?.animator().isCollapsed = false
+      default:
+        fatalError("Unsupported navigation split column visibility: \(visibility)")
+      }
+    #endif
   }
 
   #if canImport(UIKit)
     override func layoutSubviews() {
       super.layoutSubviews()
-      performLayout()
+      splitController.view.frame = bounds
     }
   #elseif canImport(AppKit)
     override var isFlipped: Bool { true }
 
     override func layout() {
       super.layout()
-      performLayout()
+      splitController.view.frame = bounds
     }
   #endif
-
-  private func performLayout() {
-    let compact = bounds.width < compactThreshold()
-
-    if compact {
-      let showsDetail = detailView != nil
-      sidebarView.isHidden = showsDetail
-      sidebarView.frame = bounds
-
-      placeholderView.isHidden = true
-      placeholderView.frame = .zero
-
-      if let detailView {
-        detailView.setBackAction(
-          Action(callback: { [weak self] in
-            self?.selectionBinding.set(0)
-          }))
-        detailView.isHidden = false
-        detailView.frame = bounds
-      }
-      return
-    }
-
-    let actualSidebarWidth = min(sidebarWidth, bounds.width * 0.5)
-    let sidebarFrame = CGRect(x: 0, y: 0, width: actualSidebarWidth, height: bounds.height)
-    let detailFrame = CGRect(
-      x: actualSidebarWidth,
-      y: 0,
-      width: bounds.width - actualSidebarWidth,
-      height: bounds.height
-    )
-
-    sidebarView.isHidden = false
-    sidebarView.frame = sidebarFrame
-
-    if let detailView {
-      detailView.setBackAction(nil)
-      detailView.isHidden = false
-      detailView.frame = detailFrame
-      placeholderView.isHidden = true
-      placeholderView.frame = .zero
-    } else {
-      placeholderView.isHidden = false
-      placeholderView.frame = detailFrame
-    }
-  }
-
-  private func compactThreshold() -> CGFloat {
-    sidebarWidth + 360
-  }
-
-  private func syncDetailView() {
-    detailView?.removeFromSuperview()
-    detailView = nil
-
-    let selected = selectionBinding.value
-    if selected == 0 {
-      return
-    }
-
-    let nav = waterui_split_navigation_detail_content(
-      detailHandle,
-      CWaterUI.WuiId(inner: selected),
-      env.inner
-    )
-    let view = WuiNavigationView(ffiNav: nav, env: env)
-    view.translatesAutoresizingMaskIntoConstraints = true
-    addSubview(view)
-    detailView = view
-  }
 }
+
+#if canImport(UIKit)
+  extension WuiNavigationSplitView: UISplitViewControllerDelegate {
+    func splitViewController(
+      _ splitViewController: UISplitViewController,
+      topColumnForCollapsingToProposedTopColumn proposedTopColumn: UISplitViewController.Column
+    ) -> UISplitViewController.Column {
+      if let secondarySelection, secondarySelection.value != 0 { return .secondary }
+      if contentHandle != nil, primarySelection.value != 0 { return .supplementary }
+      return primarySelection.value == 0 ? .primary : .secondary
+    }
+
+    func splitViewControllerDidCollapse(_ splitViewController: UISplitViewController) {
+      showPrimarySelection(primarySelection.value)
+      if let secondarySelection { showSecondarySelection(secondarySelection.value) }
+    }
+
+    func splitViewControllerDidExpand(_ splitViewController: UISplitViewController) {
+      showPrimarySelection(primarySelection.value)
+      if let secondarySelection { showSecondarySelection(secondarySelection.value) }
+    }
+
+    func splitViewController(
+      _ splitViewController: UISplitViewController,
+      willShow column: UISplitViewController.Column
+    ) {
+      guard splitViewController.isCollapsed else { return }
+      if column == .primary, primarySelection.value != 0 {
+        primarySelection.set(0)
+      } else if column == .supplementary,
+        let secondarySelection,
+        secondarySelection.value != 0
+      {
+        secondarySelection.set(0)
+      }
+    }
+  }
+#endif

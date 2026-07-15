@@ -216,6 +216,27 @@ extension WuiArray<CWaterUI.WuiStyledChunk> {
   }
 }
 
+extension WuiArray<CWaterUI.WuiNavigationView> {
+  init(_ inner: CWaterUI.WuiArray_WuiNavigationView) {
+    let raw = unsafeBitCast(inner, to: CWaterUI.WuiArray.self)
+    self.init(c: raw)
+  }
+}
+
+extension WuiArray<CWaterUI.WuiNavigationToolbarItem> {
+  init(_ inner: CWaterUI.WuiArray_WuiNavigationToolbarItem) {
+    let raw = unsafeBitCast(inner, to: CWaterUI.WuiArray.self)
+    self.init(c: raw)
+  }
+}
+
+extension WuiArray<CWaterUI.WuiTab> {
+  init(_ inner: CWaterUI.WuiArray_WuiTab) {
+    let raw = unsafeBitCast(inner, to: CWaterUI.WuiArray.self)
+    self.init(c: raw)
+  }
+}
+
 struct WuiStr {
   var inner: WuiArray<UInt8>
 

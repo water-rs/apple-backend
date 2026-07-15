@@ -182,11 +182,33 @@ func makeInlineNavigationSearchView(
 @MainActor
 struct WuiNavigationBarState {
   let title: WuiNavigationTitle
-  let leading: WuiAnyView?
-  let trailing: WuiAnyView?
+  let subtitle: WuiNavigationTitle
+  let toolbar: [WuiNavigationToolbarItem]
   let search: WuiNavigationSearch?
   let color: WuiComputed<WuiResolvedColor>?
   let hidden: WuiComputed<Bool>?
+
+  var leading: WuiAnyView? {
+    toolbar.first {
+      $0.placement == WuiNavigationToolbarPlacement_Cancellation
+        || $0.placement == WuiNavigationToolbarPlacement_TopBarLeading
+    }?.view
+  }
+
+  var trailing: WuiAnyView? {
+    toolbar.first {
+      $0.placement == WuiNavigationToolbarPlacement_PrimaryAction
+        || $0.placement == WuiNavigationToolbarPlacement_SecondaryAction
+        || $0.placement == WuiNavigationToolbarPlacement_Confirmation
+        || $0.placement == WuiNavigationToolbarPlacement_TopBarTrailing
+    }?.view
+  }
+}
+
+@MainActor
+struct WuiNavigationToolbarItem {
+  let placement: WuiNavigationToolbarPlacement
+  let view: WuiAnyView
 }
 
 @MainActor
@@ -197,8 +219,19 @@ func makeNavigationBarState(from bar: CWaterUI.WuiBar, env: WuiEnvironment) -> W
   }
 
   let title = makeNavigationTitle(from: titlePtr, env: env)
-  let leading = bar.leading.map { WuiAnyView(anyview: $0, env: env) }
-  let trailing = bar.trailing.map { WuiAnyView(anyview: $0, env: env) }
+  guard let subtitlePtr = bar.subtitle else {
+    fatalError("Navigation bar subtitle pointer is null")
+  }
+  let subtitle = makeNavigationTitle(from: subtitlePtr, env: env)
+  let toolbar = WuiArray<CWaterUI.WuiNavigationToolbarItem>(bar.toolbar).toArray().map { item in
+    guard let content = item.content else {
+      fatalError("Navigation toolbar item content pointer is null")
+    }
+    return WuiNavigationToolbarItem(
+      placement: item.placement,
+      view: WuiAnyView(anyview: content, env: env)
+    )
+  }
 
   let color = bar.color.map(WuiComputed<WuiResolvedColor>.init)
 
@@ -228,8 +261,8 @@ func makeNavigationBarState(from bar: CWaterUI.WuiBar, env: WuiEnvironment) -> W
 
   return WuiNavigationBarState(
     title: title,
-    leading: leading,
-    trailing: trailing,
+    subtitle: subtitle,
+    toolbar: toolbar,
     search: search,
     color: color,
     hidden: hidden
@@ -246,7 +279,7 @@ private func makeNavigationTitle(from titlePtr: OpaquePointer, env: WuiEnvironme
 }
 
 @MainActor
-private func extractNavigationTitleText(from titleView: PlatformView) -> (String?, Bool) {
+func extractNavigationTitleText(from titleView: PlatformView) -> (String?, Bool) {
   #if canImport(UIKit)
     func findText(in view: UIView) -> String? {
       if let label = view as? UILabel {

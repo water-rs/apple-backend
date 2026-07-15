@@ -1,11 +1,3 @@
-// WuiTabs.swift
-// Tab container component with customizable position
-//
-// # Layout Behavior
-// Tabs stretches to fill available space (greedy).
-// Contains a tab bar and content area.
-// Tab bar can be positioned at top or bottom.
-
 import CWaterUI
 
 #if canImport(UIKit)
@@ -15,62 +7,129 @@ import CWaterUI
 #endif
 
 @MainActor
+private final class WuiNativeTab {
+  let id: Int32
+  let title: String
+  let contentHandle: OpaquePointer
+  let content: WuiNavigationView
+  let enabled: WuiComputed<Bool>
+  let badge: WuiComputed<Int32>?
+  var enabledWatcher: WatcherGuard?
+  var badgeWatcher: WatcherGuard?
+
+  init(
+    id: Int32,
+    title: String,
+    contentHandle: OpaquePointer,
+    content: WuiNavigationView,
+    enabled: WuiComputed<Bool>,
+    badge: WuiComputed<Int32>?
+  ) {
+    self.id = id
+    self.title = title
+    self.contentHandle = contentHandle
+    self.content = content
+    self.enabled = enabled
+    self.badge = badge
+  }
+
+  func displayTitle(badge count: Int32) -> String {
+    count > 0 ? "\(title) (\(count))" : title
+  }
+
+  @MainActor deinit {
+    waterui_drop_tab_content(contentHandle)
+  }
+}
+
+#if canImport(AppKit)
+  @MainActor
+  private final class WuiNativeTabViewController: NSTabViewController {
+    var shouldSelectIndex: ((Int) -> Bool)?
+    var didSelectIndex: ((Int) -> Void)?
+
+    override func tabView(
+      _ tabView: NSTabView,
+      shouldSelect tabViewItem: NSTabViewItem?
+    ) -> Bool {
+      guard super.tabView(tabView, shouldSelect: tabViewItem) else { return false }
+      guard let tabViewItem else { return true }
+      return shouldSelectIndex?(tabView.indexOfTabViewItem(tabViewItem)) ?? true
+    }
+
+    override func tabView(
+      _ tabView: NSTabView,
+      didSelect tabViewItem: NSTabViewItem?
+    ) {
+      super.tabView(tabView, didSelect: tabViewItem)
+      guard let tabViewItem else { return }
+      didSelectIndex?(tabView.indexOfTabViewItem(tabViewItem))
+    }
+  }
+#endif
+
+@MainActor
 final class WuiTabs: PlatformView, WuiComponent {
   static var rawId: CWaterUI.WuiTypeId { waterui_tabs_id() }
 
   private(set) var stretchAxis: WuiStretchAxis = .both
 
-  private let env: WuiEnvironment
-  private let position: WuiTabPosition
-
-  // Tab data
-  private var tabs: [(id: UInt64, label: WuiAnyView, contentPtr: OpaquePointer?)] = []
-  private var currentTabIndex: Int = 0
-  private var currentContentView: PlatformView?
-
-  // Selection binding
-  private var selectionBinding: WuiBinding<WuiId>?
+  private let style: WuiTabStyle
+  private let tabs: [WuiNativeTab]
+  private let selection: WuiBinding<WuiId>
   private var selectionWatcher: WatcherGuard?
+  private var synchronizingSelection = false
 
   #if canImport(UIKit)
-    private let tabBarContainer: UIView = UIView()
-    private let contentContainer: UIView = UIView()
-    private var tabButtons: [WuiTabButton] = []
+    private let tabController = UITabBarController()
   #elseif canImport(AppKit)
-    private let tabBarContainer: NSView = NSView()
-    private let contentContainer: NSView = NSView()
-    private var tabButtons: [WuiTabButton] = []
+    private let tabController = WuiNativeTabViewController()
   #endif
 
-  // MARK: - WuiComponent Init
-
   convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
-    let ffiTabs: CWaterUI.WuiTabs = waterui_force_as_tabs(anyview)
-    self.init(ffiTabs: ffiTabs, env: env)
+    self.init(ffiTabs: waterui_force_as_tabs(anyview), env: env)
   }
 
-  // MARK: - Designated Init
-
   init(ffiTabs: CWaterUI.WuiTabs, env: WuiEnvironment) {
-    self.env = env
-    self.position = ffiTabs.position
+    guard let selectionPointer = ffiTabs.selection else {
+      fatalError("Tabs selection binding is null")
+    }
+    let rawTabs = WuiArray<CWaterUI.WuiTab>(ffiTabs.tabs).toArray()
+    guard !rawTabs.isEmpty else {
+      fatalError("Tabs requires at least one tab")
+    }
+
+    self.style = ffiTabs.style
+    self.selection = WuiBinding<WuiId>(selectionPointer)
+    self.tabs = rawTabs.map { tab in
+      guard let labelPointer = tab.label else {
+        fatalError("Tab label is null")
+      }
+      guard let contentHandle = tab.content else {
+        fatalError("Tab content handle is null")
+      }
+      guard let enabledPointer = tab.enabled else {
+        fatalError("Tab enabled signal is null")
+      }
+      let label = WuiAnyView(anyview: labelPointer, env: env)
+      guard let title = extractNavigationTitleText(from: label).0, !title.isEmpty else {
+        fatalError("Native Apple tabs require a semantic text label")
+      }
+      let navigationView = waterui_tab_content(contentHandle, env.inner)
+      return WuiNativeTab(
+        id: Int32(bitPattern: UInt32(truncatingIfNeeded: tab.id)),
+        title: title,
+        contentHandle: contentHandle,
+        content: WuiNavigationView(ffiNav: navigationView, env: env),
+        enabled: WuiComputed<Bool>(enabledPointer),
+        badge: tab.badge.map(WuiComputed<Int32>.init)
+      )
+    }
 
     super.init(frame: .zero)
-
-    // Extract tabs from FFI array
-    extractTabs(from: ffiTabs.tabs)
-
-    // Setup selection binding
-    setupSelectionBinding(ffiTabs.selection)
-
-    // Configure views
-    configureTabBar()
-    configureContentContainer()
-
-    // Show initial tab (use binding if provided)
-    if !tabs.isEmpty {
-      showTab(at: currentTabIndex)
-    }
+    configureNativeController()
+    installReactiveState()
+    select(id: selection.value.inner, initiatedByUser: false)
   }
 
   @available(*, unavailable)
@@ -78,203 +137,159 @@ final class WuiTabs: PlatformView, WuiComponent {
     fatalError("init(coder:) has not been implemented")
   }
 
-  // MARK: - Tab Extraction
-
-  private func extractTabs(from array: WuiArray_WuiTab) {
-    let slice = array.vtable.slice(array.data)
-    guard let head = slice.head else { return }
-
-    for i in 0..<slice.len {
-      let tab = head.advanced(by: Int(i)).pointee
-      let labelView = WuiAnyView(anyview: tab.label, env: env)
-      // tab.content is already an OpaquePointer (WuiTabContent*)
-      tabs.append((id: tab.id, label: labelView, contentPtr: tab.content))
-    }
-  }
-
-  // MARK: - Selection Binding
-
-  private func setupSelectionBinding(_ bindingPtr: OpaquePointer?) {
-    guard let bindingPtr = bindingPtr else { return }
-
-    let binding = WuiBinding<WuiId>(bindingPtr)
-    self.selectionBinding = binding
-
-    selectionWatcher = binding.watch { [weak self] newId, _ in
-      guard let self = self else { return }
-      if let index = self.tabs.firstIndex(where: { tabIdToInner($0.id) == newId.inner }) {
-        self.showTab(at: index)
-      }
-    }
-
-    // WuiTab.id is u64, encoded from i32 via `as u64` (may sign-extend in Rust).
-    // Compare using the low 32 bits to preserve the original i32 bit pattern.
-    let selectedInner = binding.value.inner
-    if let index = tabs.firstIndex(where: { tabIdToInner($0.id) == selectedInner }) {
-      currentTabIndex = index
-    }
-  }
-
-  // MARK: - Configuration
-
-  private func configureTabBar() {
-    #if canImport(UIKit)
-      tabBarContainer.translatesAutoresizingMaskIntoConstraints = true
-      addSubview(tabBarContainer)
-
-      tabButtons = tabs.enumerated().map { index, tab in
-        let button = WuiTabButton(labelView: tab.label, env: env)
-        button.onTap = { [weak self] in
-          self?.showTab(at: index)
-        }
-        tabBarContainer.addSubview(button)
-        return button
-      }
-    #elseif canImport(AppKit)
-      tabBarContainer.translatesAutoresizingMaskIntoConstraints = true
-      addSubview(tabBarContainer)
-
-      tabButtons = tabs.enumerated().map { index, tab in
-        let button = WuiTabButton(labelView: tab.label, env: env)
-        button.onClick = { [weak self] in
-          self?.showTab(at: index)
-        }
-        tabBarContainer.addSubview(button)
-        return button
-      }
-    #endif
-  }
-
-  private func configureContentContainer() {
-    contentContainer.translatesAutoresizingMaskIntoConstraints = true
-    addSubview(contentContainer)
-  }
-
-  // MARK: - Tab Switching
-
-  private func showTab(at index: Int) {
-    guard index >= 0 && index < tabs.count else { return }
-
-    currentTabIndex = index
-
-    // Remove old content
-    currentContentView?.removeFromSuperview()
-
-    // Get or create content view
-    let tab = tabs[index]
-    if let contentPtr = tab.contentPtr {
-      // Call waterui_tab_content to build the NavigationView
-      let navView = waterui_tab_content(contentPtr, env.inner)
-      let contentView = WuiNavigationView(ffiNav: navView, env: env)
-      currentContentView = contentView
-      contentView.translatesAutoresizingMaskIntoConstraints = true
-      contentContainer.addSubview(contentView)
-    }
-
-    // Update selection binding (avoid infinite loop)
-    let inner = tabIdToInner(tab.id)
-    if selectionBinding?.value.inner != inner {
-      selectionBinding?.set(WuiId(inner: inner))
-    }
-
-    updateSelectionUI()
-
-    #if canImport(UIKit)
-      setNeedsLayout()
-      layoutIfNeeded()
-    #elseif canImport(AppKit)
-      needsLayout = true
-    #endif
-  }
-
-  private func updateSelectionUI() {
-    for (idx, button) in tabButtons.enumerated() {
-      button.isSelected = idx == currentTabIndex
-    }
-  }
-
-  // MARK: - WuiComponent
-
   func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
-    let width = proposal.width.map { CGFloat($0) } ?? 320
-    let height = proposal.height.map { CGFloat($0) } ?? 480
-    return CGSize(width: width, height: height)
+    CGSize(
+      width: proposal.width.map(CGFloat.init) ?? 320,
+      height: proposal.height.map(CGFloat.init) ?? 480
+    )
+  }
+
+  private func configureNativeController() {
+    #if canImport(UIKit)
+      tabController.delegate = self
+      switch style {
+      case WuiTabStyle_Automatic:
+        tabController.mode = .automatic
+      case WuiTabStyle_TabBar:
+        tabController.mode = .tabBar
+      case WuiTabStyle_Sidebar:
+        tabController.mode = .tabSidebar
+      default:
+        fatalError("Unsupported Apple tab style: \(style.rawValue)")
+      }
+      tabController.viewControllers = tabs.map { tab in
+        let controller = UIViewController()
+        controller.view = tab.content
+        controller.tabBarItem = UITabBarItem(title: tab.title, image: nil, selectedImage: nil)
+        return controller
+      }
+      tabController.view.translatesAutoresizingMaskIntoConstraints = true
+      addSubview(tabController.view)
+
+    #elseif canImport(AppKit)
+      switch style {
+      case WuiTabStyle_Automatic:
+        tabController.tabStyle = .unspecified
+      case WuiTabStyle_TabBar:
+        tabController.tabStyle = .segmentedControlOnTop
+      case WuiTabStyle_Sidebar:
+        tabController.tabStyle = .toolbar
+      default:
+        fatalError("Unsupported Apple tab style: \(style.rawValue)")
+      }
+      tabController.shouldSelectIndex = { [weak self] index in
+        self?.tabs[index].enabled.value ?? false
+      }
+      tabController.didSelectIndex = { [weak self] index in
+        self?.selectedNativeIndex(index)
+      }
+      for tab in tabs {
+        let controller = NSViewController()
+        controller.view = tab.content
+        controller.title = tab.title
+        let item = NSTabViewItem(viewController: controller)
+        item.label = tab.title
+        tabController.addTabViewItem(item)
+      }
+      tabController.view.translatesAutoresizingMaskIntoConstraints = true
+      addSubview(tabController.view)
+    #endif
+  }
+
+  private func installReactiveState() {
+    selectionWatcher = selection.watch { [weak self] selected, _ in
+      self?.select(id: selected.inner, initiatedByUser: false)
+    }
+    for (index, tab) in tabs.enumerated() {
+      tab.enabledWatcher = tab.enabled.watch { [weak self] enabled, _ in
+        self?.applyEnabled(enabled, at: index)
+      }
+      applyEnabled(tab.enabled.value, at: index)
+      if let badge = tab.badge {
+        tab.badgeWatcher = badge.watch { [weak self] count, _ in
+          self?.applyBadge(count, at: index)
+        }
+        applyBadge(badge.value, at: index)
+      }
+    }
+  }
+
+  private func applyEnabled(_ enabled: Bool, at index: Int) {
+    #if canImport(UIKit)
+      tabController.viewControllers?[index].tabBarItem.isEnabled = enabled
+    #elseif canImport(AppKit)
+      _ = enabled
+      _ = index
+    #endif
+  }
+
+  private func applyBadge(_ count: Int32, at index: Int) {
+    precondition(count >= 0, "Tab badge count cannot be negative")
+    #if canImport(UIKit)
+      tabController.viewControllers?[index].tabBarItem.badgeValue = count > 0 ? String(count) : nil
+    #elseif canImport(AppKit)
+      tabController.tabViewItems[index].label = tabs[index].displayTitle(badge: count)
+    #endif
+  }
+
+  private func select(id: Int32, initiatedByUser: Bool) {
+    guard let index = tabs.firstIndex(where: { $0.id == id }) else {
+      fatalError("Selected tab id \(id) is not present")
+    }
+    if initiatedByUser && !tabs[index].enabled.value {
+      return
+    }
+
+    synchronizingSelection = true
+    #if canImport(UIKit)
+      tabController.selectedIndex = index
+    #elseif canImport(AppKit)
+      tabController.selectedTabViewItemIndex = index
+    #endif
+    synchronizingSelection = false
+
+    if initiatedByUser && selection.value.inner != id {
+      selection.set(WuiId(inner: id))
+    }
+  }
+
+  private func selectedNativeIndex(_ index: Int) {
+    guard !synchronizingSelection else { return }
+    select(id: tabs[index].id, initiatedByUser: true)
   }
 
   #if canImport(UIKit)
     override func layoutSubviews() {
       super.layoutSubviews()
-      performLayout()
+      tabController.view.frame = bounds
     }
   #elseif canImport(AppKit)
     override var isFlipped: Bool { true }
 
     override func layout() {
       super.layout()
-      performLayout()
+      tabController.view.frame = bounds
     }
   #endif
-
-  private func performLayout() {
-    let isTop = position == WuiTabPosition_Top
-    let barHeight = measuredTabBarHeight()
-
-    if isTop {
-      // Tab bar at top
-      tabBarContainer.frame = CGRect(x: 0, y: 0, width: bounds.width, height: barHeight)
-      contentContainer.frame = CGRect(
-        x: 0,
-        y: barHeight,
-        width: bounds.width,
-        height: bounds.height - barHeight
-      )
-    } else {
-      // Tab bar at bottom
-      let tabBarY = bounds.height - barHeight
-      tabBarContainer.frame = CGRect(x: 0, y: tabBarY, width: bounds.width, height: barHeight)
-      contentContainer.frame = CGRect(
-        x: 0,
-        y: 0,
-        width: bounds.width,
-        height: bounds.height - barHeight
-      )
-    }
-
-    layoutTabButtons(in: tabBarContainer.bounds)
-
-    // Layout content view
-    currentContentView?.frame = contentContainer.bounds
-  }
-
-  private func layoutTabButtons(in bounds: CGRect) {
-    guard !tabButtons.isEmpty else { return }
-    let count = CGFloat(tabButtons.count)
-    let buttonWidth = bounds.width / max(count, 1)
-    for (index, button) in tabButtons.enumerated() {
-      let x = CGFloat(index) * buttonWidth
-      button.frame = CGRect(x: x, y: 0, width: buttonWidth, height: bounds.height)
-    }
-  }
-
-  private func measuredTabBarHeight() -> CGFloat {
-    guard !tabButtons.isEmpty else { return 0 }
-    let availableWidth = bounds.width / CGFloat(tabButtons.count)
-    var maxHeight: CGFloat = 0
-    for button in tabButtons {
-      let size = button.sizeThatFits(CGSize(width: availableWidth, height: bounds.height))
-      maxHeight = max(maxHeight, size.height)
-    }
-
-    #if canImport(UIKit)
-      let baseline = UITabBar().sizeThatFits(bounds.size).height
-      return max(maxHeight, baseline)
-    #elseif canImport(AppKit)
-      let baseline = NSSegmentedControl().fittingSize.height
-      return max(maxHeight, baseline)
-    #endif
-  }
-
-  private func tabIdToInner(_ id: UInt64) -> Int32 {
-    Int32(bitPattern: UInt32(truncatingIfNeeded: id))
-  }
 }
+
+#if canImport(UIKit)
+  extension WuiTabs: UITabBarControllerDelegate {
+    func tabBarController(
+      _ tabBarController: UITabBarController,
+      shouldSelect viewController: UIViewController
+    ) -> Bool {
+      guard let index = tabBarController.viewControllers?.firstIndex(of: viewController) else {
+        fatalError("UITabBarController selected an unknown child controller")
+      }
+      return tabs[index].enabled.value
+    }
+
+    func tabBarController(
+      _ tabBarController: UITabBarController,
+      didSelect viewController: UIViewController
+    ) {
+      selectedNativeIndex(tabBarController.selectedIndex)
+    }
+  }
+#endif

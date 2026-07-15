@@ -23,6 +23,8 @@ final class WuiNavigationView: PlatformView, WuiComponent {
   private let env: WuiEnvironment
   private let contentView: WuiAnyView
   private let hasNavigationController: Bool
+  private let destinationState: WuiNavigationDestinationState
+  private var destinationIsActive = false
 
   private var titleView: WuiAnyView
   private var colorWatcher: WatcherGuard?
@@ -56,9 +58,11 @@ final class WuiNavigationView: PlatformView, WuiComponent {
   convenience init(ffiNav: CWaterUI.WuiNavigationView, env: WuiEnvironment) {
     let contentView = WuiAnyView(anyview: ffiNav.content, env: env)
     let barState = makeNavigationBarState(from: ffiNav.bar, env: env)
+    let destinationState = WuiNavigationDestinationState(ffiNav.state, env: env)
     self.init(
       content: contentView,
       barState: barState,
+      destinationState: destinationState,
       env: env,
       hasNavigationController: waterui_env_has_navigation_controller(env.inner),
       backAction: nil
@@ -68,6 +72,7 @@ final class WuiNavigationView: PlatformView, WuiComponent {
   init(
     content: WuiAnyView,
     barState: WuiNavigationBarState,
+    destinationState: WuiNavigationDestinationState,
     env: WuiEnvironment,
     hasNavigationController: Bool,
     backAction: Action?
@@ -76,6 +81,7 @@ final class WuiNavigationView: PlatformView, WuiComponent {
     self.env = env
     self.contentView = content
     self.hasNavigationController = hasNavigationController
+    self.destinationState = destinationState
     self.titleView = barState.title.view
     self.backAction = backAction
     self.usesThemeBarColor = barState.color == nil
@@ -104,6 +110,21 @@ final class WuiNavigationView: PlatformView, WuiComponent {
     #endif
   }
 
+  func setDestinationActive(_ active: Bool) {
+    guard active != destinationIsActive else { return }
+    destinationIsActive = active
+    if active {
+      destinationState.appeared()
+    } else {
+      destinationState.disappeared()
+    }
+  }
+
+  func notifyDestinationPopped() {
+    setDestinationActive(false)
+    destinationState.popped()
+  }
+
   private func configureNavBar() {
     if hasNavigationController {
       navBarView.isHidden = true
@@ -119,7 +140,7 @@ final class WuiNavigationView: PlatformView, WuiComponent {
     #endif
 
     barBackgroundObservation = WuiComputedObservation(
-      themeColor: WuiColorSlot_Background,
+      themeColor: WuiColorSlot_Surface,
       env: env
     ) { [weak self] color, _ in
       guard let self, self.usesThemeBarColor else { return }
@@ -306,12 +327,22 @@ final class WuiNavigationView: PlatformView, WuiComponent {
   }
 
   #if canImport(UIKit)
+    override func didMoveToWindow() {
+      super.didMoveToWindow()
+      setDestinationActive(window != nil)
+    }
+
     override func layoutSubviews() {
       super.layoutSubviews()
       performLayout()
     }
   #elseif canImport(AppKit)
     override var isFlipped: Bool { true }
+
+    override func viewDidMoveToWindow() {
+      super.viewDidMoveToWindow()
+      setDestinationActive(window != nil)
+    }
 
     override func layout() {
       super.layout()

@@ -200,6 +200,8 @@ private func registerBuiltinComponentsIfNeeded() {
   registerMetadataComponent(WuiRetain.self)
   registerMetadataComponent(WuiContextMenu.self)
   registerMetadataComponent(WuiHittable.self)
+  registerMetadataComponent(WuiNavigationTransitionSourceView.self)
+  registerMetadataComponent(WuiNavigationTransitionDestinationView.self)
 
   // Material background (blur effect)
   registerMetadataComponent(WuiMaterialBackground.self)
