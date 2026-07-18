@@ -32,10 +32,13 @@ private enum WaterKitAppleMediaCommandKind: Int32 {
 }
 
 @_silgen_name("waterkit_audio_apple_media_session_init")
-private func waterkitAudioAppleMediaSessionInit() -> Int32
+private func waterkitAudioAppleMediaSessionInit(
+  _: UnsafeMutablePointer<Int32>
+) -> UnsafeMutableRawPointer?
 
 @_silgen_name("waterkit_audio_apple_media_session_set_metadata")
 private func waterkitAudioAppleMediaSessionSetMetadata(
+  _: UnsafeMutableRawPointer,
   _: UnsafePointer<CChar>?,
   _: UnsafePointer<CChar>?,
   _: UnsafePointer<CChar>?,
@@ -45,6 +48,7 @@ private func waterkitAudioAppleMediaSessionSetMetadata(
 
 @_silgen_name("waterkit_audio_apple_media_session_set_playback_state")
 private func waterkitAudioAppleMediaSessionSetPlaybackState(
+  _: UnsafeMutableRawPointer,
   _: UInt8,
   _: Double,
   _: Double,
@@ -53,16 +57,21 @@ private func waterkitAudioAppleMediaSessionSetPlaybackState(
 ) -> Int32
 
 @_silgen_name("waterkit_audio_apple_media_session_request_audio_focus")
-private func waterkitAudioAppleMediaSessionRequestAudioFocus() -> Int32
+private func waterkitAudioAppleMediaSessionRequestAudioFocus(_: UnsafeMutableRawPointer) -> Int32
 
 @_silgen_name("waterkit_audio_apple_media_session_abandon_audio_focus")
-private func waterkitAudioAppleMediaSessionAbandonAudioFocus() -> Int32
+private func waterkitAudioAppleMediaSessionAbandonAudioFocus(_: UnsafeMutableRawPointer) -> Int32
 
 @_silgen_name("waterkit_audio_apple_media_session_clear")
-private func waterkitAudioAppleMediaSessionClear() -> Int32
+private func waterkitAudioAppleMediaSessionClear(_: UnsafeMutableRawPointer) -> Int32
 
-@_silgen_name("waterkit_audio_apple_media_session_poll_command")
-private func waterkitAudioAppleMediaSessionPollCommand() -> WaterKitAppleMediaCommandFFI
+@_silgen_name("waterkit_audio_apple_media_session_wait_command")
+private func waterkitAudioAppleMediaSessionWaitCommand(
+  _: UnsafeMutableRawPointer
+) -> WaterKitAppleMediaCommandFFI
+
+@_silgen_name("waterkit_audio_apple_media_session_destroy")
+private func waterkitAudioAppleMediaSessionDestroy(_: UnsafeMutableRawPointer)
 
 struct WuiMediaMetadataSnapshot: Equatable {
   var title: String
@@ -132,7 +141,8 @@ private func mediaSessionAssertSuccess(_ rawValue: Int32, context: String) {
 @MainActor
 final class WuiWaterKitMediaSessionBridge {
   private weak var host: (any WuiMediaSessionHost)?
-  private var timer: Timer?
+  private let sessionHandle: UnsafeMutableRawPointer
+  private let commandQueue = DispatchQueue(label: "dev.waterui.media-session.commands")
   private var lastMetadata: WuiMediaMetadataSnapshot?
   private var lastPlayback: WuiMediaPlaybackSnapshot?
   private var audioSessionActive = false
@@ -140,13 +150,19 @@ final class WuiWaterKitMediaSessionBridge {
 
   init(host: any WuiMediaSessionHost) {
     self.host = host
+    var initializationResult = WaterKitAppleMediaResult.unknown.rawValue
+    guard let sessionHandle = waterkitAudioAppleMediaSessionInit(&initializationResult) else {
+      mediaSessionAssertSuccess(initializationResult, context: "media session initialization")
+      fatalError("waterkit-audio returned no Apple media session after successful initialization")
+    }
+    self.sessionHandle = sessionHandle
     mediaSessionAssertSuccess(
-      waterkitAudioAppleMediaSessionInit(),
+      initializationResult,
       context: "media session initialization"
     )
     syncMetadataIfNeeded(force: true)
     syncPlaybackStateIfNeeded(force: true)
-    startPolling()
+    startCommandPump()
   }
 
   func metadataDidChange() {
@@ -157,23 +173,23 @@ final class WuiWaterKitMediaSessionBridge {
     syncPlaybackStateIfNeeded(force: false)
   }
 
-  private func startPolling() {
-    let timer = Timer(
-      timeInterval: 0.25,
-      repeats: true
-    ) { [weak self] _ in
-      Task { @MainActor [weak self] in
-        self?.tick()
+  private func startCommandPump() {
+    let handleAddress = UInt(bitPattern: sessionHandle)
+    commandQueue.async { [weak self] in
+      let handle = UnsafeMutableRawPointer(bitPattern: handleAddress)!
+      while true {
+        let command = waterkitAudioAppleMediaSessionWaitCommand(handle)
+        guard let kind = WaterKitAppleMediaCommandKind(rawValue: command.kind) else {
+          fatalError("waterkit-audio returned unsupported Apple media command \(command.kind)")
+        }
+        if kind == .none {
+          return
+        }
+        Task { @MainActor [weak self] in
+          self?.handleCommand(kind, valueSeconds: command.valueSeconds)
+        }
       }
     }
-    RunLoop.main.add(timer, forMode: .common)
-    self.timer = timer
-  }
-
-  private func tick() {
-    pollCommands()
-    syncMetadataIfNeeded(force: false)
-    syncPlaybackStateIfNeeded(force: false)
   }
 
   private func syncMetadataIfNeeded(force: Bool) {
@@ -190,6 +206,7 @@ final class WuiWaterKitMediaSessionBridge {
           withOptionalCString(metadata.artworkURL) { artworkURL in
             mediaSessionAssertSuccess(
               waterkitAudioAppleMediaSessionSetMetadata(
+                sessionHandle,
                 title,
                 artist,
                 album,
@@ -214,13 +231,13 @@ final class WuiWaterKitMediaSessionBridge {
 
     if shouldHoldAudioSession && !audioSessionActive {
       mediaSessionAssertSuccess(
-        waterkitAudioAppleMediaSessionRequestAudioFocus(),
+        waterkitAudioAppleMediaSessionRequestAudioFocus(sessionHandle),
         context: "audio session activation"
       )
       audioSessionActive = true
     } else if !shouldHoldAudioSession && audioSessionActive {
       mediaSessionAssertSuccess(
-        waterkitAudioAppleMediaSessionAbandonAudioFocus(),
+        waterkitAudioAppleMediaSessionAbandonAudioFocus(sessionHandle),
         context: "audio session deactivation"
       )
       audioSessionActive = false
@@ -232,6 +249,7 @@ final class WuiWaterKitMediaSessionBridge {
 
     mediaSessionAssertSuccess(
       waterkitAudioAppleMediaSessionSetPlaybackState(
+        sessionHandle,
         snapshot.status.rawValue,
         snapshot.positionSeconds,
         snapshot.rate,
@@ -241,19 +259,6 @@ final class WuiWaterKitMediaSessionBridge {
       context: "playback state sync"
     )
     lastPlayback = snapshot
-  }
-
-  private func pollCommands() {
-    while true {
-      let command = waterkitAudioAppleMediaSessionPollCommand()
-      guard let kind = WaterKitAppleMediaCommandKind(rawValue: command.kind) else {
-        fatalError("waterkit-audio returned unsupported Apple media command \(command.kind)")
-      }
-      if kind == .none {
-        return
-      }
-      handleCommand(kind, valueSeconds: command.valueSeconds)
-    }
   }
 
   private func handleCommand(
@@ -321,16 +326,20 @@ final class WuiWaterKitMediaSessionBridge {
   }
 
   @MainActor deinit {
-    timer?.invalidate()
     if audioSessionActive {
       mediaSessionAssertSuccess(
-        waterkitAudioAppleMediaSessionAbandonAudioFocus(),
+        waterkitAudioAppleMediaSessionAbandonAudioFocus(sessionHandle),
         context: "audio session deactivation"
       )
     }
     mediaSessionAssertSuccess(
-      waterkitAudioAppleMediaSessionClear(),
+      waterkitAudioAppleMediaSessionClear(sessionHandle),
       context: "media session teardown"
     )
+    let handleAddress = UInt(bitPattern: sessionHandle)
+    commandQueue.async {
+      let handle = UnsafeMutableRawPointer(bitPattern: handleAddress)!
+      waterkitAudioAppleMediaSessionDestroy(handle)
+    }
   }
 }

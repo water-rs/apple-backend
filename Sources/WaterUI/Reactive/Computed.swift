@@ -114,6 +114,26 @@ extension WuiComputed where T == Int32 {
   }
 }
 
+extension WuiComputed where T == CWaterUI.WuiVideoDelivery {
+  convenience init(_ inner: OpaquePointer) {
+    self.init(
+      inner: inner,
+      read: waterui_read_computed_video_delivery,
+      watch: { inner, f in
+        let guardPointer = waterui_watch_computed_video_delivery(
+          inner,
+          makeVideoDeliveryWatcher(f)
+        )
+        guard let guardPointer else {
+          fatalError("Failed to watch video delivery")
+        }
+        return WatcherGuard(guardPointer)
+      },
+      drop: waterui_drop_computed_video_delivery
+    )
+  }
+}
+
 extension WuiComputed where T == Bool {
   convenience init(_ inner: OpaquePointer) {
     self.init(

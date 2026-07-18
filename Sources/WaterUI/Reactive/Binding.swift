@@ -272,6 +272,50 @@ extension WuiBinding where T == CWaterUI.WuiSubtitleSelection {
   }
 }
 
+extension WuiBinding where T == CWaterUI.WuiAudioTrackSelection {
+  convenience init(_ inner: OpaquePointer) {
+    self.init(
+      inner: inner,
+      read: waterui_read_binding_audio_track_selection,
+      watch: { inner, f in
+        guard
+          let watcher = waterui_watch_binding_audio_track_selection(
+            inner,
+            makeAudioTrackSelectionWatcher(f)
+          )
+        else {
+          fatalError("Failed to watch audio-track-selection binding")
+        }
+        return WatcherGuard(watcher)
+      },
+      set: waterui_set_binding_audio_track_selection,
+      drop: waterui_drop_binding_audio_track_selection
+    )
+  }
+}
+
+extension WuiBinding where T == CWaterUI.WuiVideoTrackSelection {
+  convenience init(_ inner: OpaquePointer) {
+    self.init(
+      inner: inner,
+      read: waterui_read_binding_video_track_selection,
+      watch: { inner, f in
+        guard
+          let watcher = waterui_watch_binding_video_track_selection(
+            inner,
+            makeVideoTrackSelectionWatcher(f)
+          )
+        else {
+          fatalError("Failed to watch video-track-selection binding")
+        }
+        return WatcherGuard(watcher)
+      },
+      set: waterui_set_binding_video_track_selection,
+      drop: waterui_drop_binding_video_track_selection
+    )
+  }
+}
+
 extension WuiBinding where T == CWaterUI.WuiWindowState {
   convenience init(_ inner: OpaquePointer) {
     self.init(

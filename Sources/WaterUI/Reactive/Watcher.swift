@@ -280,6 +280,84 @@ func makeSubtitleSelectionWatcher(
 }
 
 @MainActor
+func makeAudioTrackSelectionWatcher(
+  _ f: @escaping (CWaterUI.WuiAudioTrackSelection, WuiWatcherMetadata) -> Void
+) -> OpaquePointer {
+  let data = wrap(f)
+  let call:
+    @convention(c) (
+      UnsafeMutableRawPointer?,
+      CWaterUI.WuiAudioTrackSelection,
+      OpaquePointer?
+    ) -> Void = { data, value, metadata in
+      callWrapper(data, value, metadata)
+    }
+  let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
+    dropWrapper($0, CWaterUI.WuiAudioTrackSelection.self)
+  }
+  guard
+    let watcher = waterui_new_watcher_audio_track_selection(
+      data,
+      call,
+      drop
+    )
+  else {
+    fatalError("Failed to create audio-track-selection watcher")
+  }
+  return watcher
+}
+
+@MainActor
+func makeVideoTrackSelectionWatcher(
+  _ f: @escaping (CWaterUI.WuiVideoTrackSelection, WuiWatcherMetadata) -> Void
+) -> OpaquePointer {
+  let data = wrap(f)
+  let call:
+    @convention(c) (
+      UnsafeMutableRawPointer?,
+      CWaterUI.WuiVideoTrackSelection,
+      OpaquePointer?
+    ) -> Void = { data, value, metadata in
+      callWrapper(data, value, metadata)
+    }
+  let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
+    dropWrapper($0, CWaterUI.WuiVideoTrackSelection.self)
+  }
+  guard
+    let watcher = waterui_new_watcher_video_track_selection(
+      data,
+      call,
+      drop
+    )
+  else {
+    fatalError("Failed to create video-track-selection watcher")
+  }
+  return watcher
+}
+
+@MainActor
+func makeVideoDeliveryWatcher(
+  _ f: @escaping (CWaterUI.WuiVideoDelivery, WuiWatcherMetadata) -> Void
+) -> OpaquePointer {
+  let data = wrap(f)
+  let call:
+    @convention(c) (
+      UnsafeMutableRawPointer?,
+      CWaterUI.WuiVideoDelivery,
+      OpaquePointer?
+    ) -> Void = { data, value, metadata in
+      callWrapper(data, value, metadata)
+    }
+  let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
+    dropWrapper($0, CWaterUI.WuiVideoDelivery.self)
+  }
+  guard let watcher = waterui_new_watcher_video_delivery(data, call, drop) else {
+    fatalError("Failed to create video-delivery watcher")
+  }
+  return watcher
+}
+
+@MainActor
 func makeSecureWatcher(_ f: @escaping (WuiStr, WuiWatcherMetadata) -> Void) -> OpaquePointer {
   let data = wrap(f)
   let call: @convention(c) (UnsafeMutableRawPointer?, CWaterUI.WuiStr, OpaquePointer?) -> Void = {

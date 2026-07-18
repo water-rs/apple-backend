@@ -216,6 +216,30 @@ extension WuiArray<CWaterUI.WuiStyledChunk> {
   }
 }
 
+extension WuiArray<CWaterUI.WuiStr> {
+  func intoWuiStrArray() -> CWaterUI.WuiArray_WuiStr {
+    unsafeBitCast(inner.intoInner(), to: CWaterUI.WuiArray_WuiStr.self)
+  }
+}
+
+extension WuiArray<CWaterUI.WuiVideoAudioTrackInfo> {
+  func intoVideoAudioTrackInfoArray() -> CWaterUI.WuiArray_WuiVideoAudioTrackInfo {
+    unsafeBitCast(inner.intoInner(), to: CWaterUI.WuiArray_WuiVideoAudioTrackInfo.self)
+  }
+}
+
+extension WuiArray<CWaterUI.WuiVideoTrackInfo> {
+  func intoVideoTrackInfoArray() -> CWaterUI.WuiArray_WuiVideoTrackInfo {
+    unsafeBitCast(inner.intoInner(), to: CWaterUI.WuiArray_WuiVideoTrackInfo.self)
+  }
+}
+
+extension WuiArray<CWaterUI.WuiVideoSubtitleTrackInfo> {
+  func intoVideoSubtitleTrackInfoArray() -> CWaterUI.WuiArray_WuiVideoSubtitleTrackInfo {
+    unsafeBitCast(inner.intoInner(), to: CWaterUI.WuiArray_WuiVideoSubtitleTrackInfo.self)
+  }
+}
+
 extension WuiArray<CWaterUI.WuiNavigationView> {
   init(_ inner: CWaterUI.WuiArray_WuiNavigationView) {
     let raw = unsafeBitCast(inner, to: CWaterUI.WuiArray.self)
