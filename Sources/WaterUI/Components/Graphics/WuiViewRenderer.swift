@@ -367,7 +367,9 @@ private func captureViewToRGBA(
 
     let captureRoot = NSView(frame: NSRect(origin: .zero, size: actualSize))
     applyDynamicRange(dynamicRange, to: captureRoot)
-    captureRoot.addSubview(view)
+    let captureContent = NSView(frame: captureRoot.bounds)
+    captureRoot.addSubview(captureContent)
+    captureContent.addSubview(view)
     tempWindow.contentView = captureRoot
 
     // Force layer-backing for proper rendering
