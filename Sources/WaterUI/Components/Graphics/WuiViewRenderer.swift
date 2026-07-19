@@ -150,6 +150,11 @@ private func renderViewToRGBA(
 
   let display = requireCaptureDisplay()
   let scale = captureScale(for: display)
+  #if canImport(UIKit)
+    let dynamicRange = resolveDynamicRange(for: display.screen)
+  #elseif canImport(AppKit)
+    let dynamicRange = resolveDynamicRange(for: display)
+  #endif
 
   // Proposed size (max bounds for layout)
   let proposedSize = CGSize(width: CGFloat(size.width), height: CGFloat(size.height))
@@ -165,6 +170,7 @@ private func renderViewToRGBA(
     proposedSize: proposedSize,
     display: display,
     scale: scale,
+    dynamicRange: dynamicRange,
     background: background
   )
   rgbaData.withUnsafeBytes { buffer in
@@ -228,6 +234,7 @@ private func captureViewToRGBA(
   proposedSize: CGSize,
   display: WuiCaptureDisplay,
   scale: CGFloat,
+  dynamicRange: WuiDynamicRangeMode,
   background: WuiResolvedColor
 ) async -> (Data, Int, Int) {
   precondition(
@@ -315,6 +322,7 @@ private func captureViewToRGBA(
     tempWindow.frame = CGRect(origin: CGPoint(x: -10_000, y: -10_000), size: actualSize)
     let viewController = UIViewController()
     viewController.view.frame = tempWindow.bounds
+    applyDynamicRange(dynamicRange, to: viewController.view)
     viewController.view.addSubview(view)
     tempWindow.rootViewController = viewController
     tempWindow.isHidden = false
@@ -355,8 +363,12 @@ private func captureViewToRGBA(
       defer: false
     )
     tempWindow.backgroundColor = background.toNSColor()
-    tempWindow.contentView = view
     tempWindow.isReleasedWhenClosed = false
+
+    let captureRoot = NSView(frame: NSRect(origin: .zero, size: actualSize))
+    applyDynamicRange(dynamicRange, to: captureRoot)
+    captureRoot.addSubview(view)
+    tempWindow.contentView = captureRoot
 
     // Force layer-backing for proper rendering
     view.wantsLayer = true

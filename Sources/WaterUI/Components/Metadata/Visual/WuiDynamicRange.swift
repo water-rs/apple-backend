@@ -81,12 +81,24 @@ private func resolveDynamicRangeOverride(startingAt view: PlatformView?) -> WuiD
 private func resolveDisplayDynamicRange(for view: PlatformView) -> WuiDynamicRangeMode? {
   #if canImport(UIKit)
     guard let screen = view.window?.windowScene?.screen else { return nil }
-    return screen.potentialEDRHeadroom > 1 ? .high : .standard
+    return resolveDynamicRange(for: screen)
   #elseif canImport(AppKit)
     guard let screen = view.window?.screen else { return nil }
-    return screen.maximumPotentialExtendedDynamicRangeColorComponentValue > 1 ? .high : .standard
+    return resolveDynamicRange(for: screen)
   #endif
 }
+
+#if canImport(UIKit)
+  @MainActor
+  func resolveDynamicRange(for screen: UIScreen) -> WuiDynamicRangeMode {
+    screen.potentialEDRHeadroom > 1 ? .high : .standard
+  }
+#elseif canImport(AppKit)
+  @MainActor
+  func resolveDynamicRange(for screen: NSScreen) -> WuiDynamicRangeMode {
+    screen.maximumPotentialExtendedDynamicRangeColorComponentValue > 1 ? .high : .standard
+  }
+#endif
 
 @MainActor
 private func resolveDynamicRange(
