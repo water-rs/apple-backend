@@ -33,6 +33,7 @@ private let wuiGpuRuntimeCreateContextDrop: @convention(c) (UnsafeMutableRawPoin
   Unmanaged<WuiGpuRuntimeCreateRequest>.fromOpaque(context).release()
 }
 
+@MainActor
 func createWuiGpuRuntime() async -> OpaquePointer {
   let runtime: WuiOwnedGpuRuntime = await withCheckedContinuation { continuation in
     let request = WuiGpuRuntimeCreateRequest(continuation: continuation)
