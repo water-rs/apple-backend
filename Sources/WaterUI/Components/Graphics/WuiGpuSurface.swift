@@ -24,6 +24,7 @@ import QuartzCore
 #endif
 
 private typealias WuiGpuSurfaceReadyCompletion = @MainActor @Sendable (Bool) -> Void
+private typealias WuiGpuSurfaceSetupCompletion = @MainActor @Sendable () -> Void
 
 @MainActor
 final class WuiExternalRenderingScopes {
@@ -363,6 +364,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
   private var keepRedrawing = false
   private var redrawWakeScheduled = false
   private var readyCompletions: [WuiGpuSurfaceReadyCompletion] = []
+  private var setupCompletions: [WuiGpuSurfaceSetupCompletion] = []
 
   /// Content scale factor for high-DPI displays
   private var currentScaleFactor: CGFloat = 1.0
@@ -954,6 +956,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
   }
 
   private func handleRedrawRequest() {
+    completeSetupIfReady()
     if renderState.isSetupReady && renderState.takeMeasurementInvalidation() {
       invalidateIntrinsicContentSize()
       #if canImport(UIKit)
@@ -968,6 +971,24 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
       externalRenderingScopes.notifyRedraw()
     } else {
       scheduleOnDemandRender()
+    }
+  }
+
+  private func waitForSetup() async {
+    if renderState.isSetupReady { return }
+    await withCheckedContinuation { continuation in
+      setupCompletions.append {
+        continuation.resume()
+      }
+    }
+  }
+
+  private func completeSetupIfReady() {
+    guard renderState.isSetupReady else { return }
+    let completions = setupCompletions
+    setupCompletions.removeAll()
+    for completion in completions {
+      completion()
     }
   }
 
@@ -1028,6 +1049,36 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
       self?.completeReady(true)
       completion()
     }
+  }
+
+  func renderExternalTexture(
+    width: UInt32,
+    height: UInt32
+  ) async -> MTLTexture {
+    let descriptor = MTLTextureDescriptor.texture2DDescriptor(
+      pixelFormat: capturePixelFormat,
+      width: Int(width),
+      height: Int(height),
+      mipmapped: false
+    )
+    descriptor.usage = [.renderTarget, .shaderRead]
+    descriptor.storageMode = .shared
+    guard let texture = captureDevice.makeTexture(descriptor: descriptor) else {
+      fatalError("GpuSurface failed to create an external render texture")
+    }
+
+    _ = prepareExternalRender(texture: texture)
+    await waitForSetup()
+    await withCheckedContinuation { continuation in
+      renderPreparedExternalTexture(
+        texture: texture,
+        width: width,
+        height: height
+      ) {
+        continuation.resume()
+      }
+    }
+    return texture
   }
 
   var captureDevice: MTLDevice {

@@ -226,6 +226,17 @@ private func collectPreviewGpuSurfaces(
   }
 }
 
+@preconcurrency @MainActor
+private func renderPreviewGpuSurfaceFirstFrames(in view: PlatformView, scale: CGFloat) async {
+  for surface in collectPreviewGpuSurfaces(in: view) {
+    let pixelWidth = UInt32(surface.bounds.width * scale)
+    let pixelHeight = UInt32(surface.bounds.height * scale)
+    if pixelWidth > 0, pixelHeight > 0 {
+      _ = await surface.renderExternalTexture(width: pixelWidth, height: pixelHeight)
+    }
+  }
+}
+
 /// Captures a view to RGBA pixel data.
 /// Returns the data along with actual pixel dimensions (width, height).
 @preconcurrency @MainActor
@@ -329,9 +340,10 @@ private func captureViewToRGBA(
     tempWindow.layoutIfNeeded()
     view.layoutIfNeeded()
 
-    await view.ready()
-
     await withPreviewGpuSurfaceCaptureMode(in: view) {
+      await renderPreviewGpuSurfaceFirstFrames(in: view, scale: scale)
+      await view.ready()
+
       context.saveGState()
       context.translateBy(x: 0, y: actualSize.height)
       context.scaleBy(x: 1, y: -1)
@@ -382,9 +394,9 @@ private func captureViewToRGBA(
     tempWindow.orderFrontRegardless()
     tempWindow.display()
     forceTextFieldsToDisplay(in: view)
-    await view.ready()
-
     await withPreviewGpuSurfaceCaptureMode(in: view) {
+      await renderPreviewGpuSurfaceFirstFrames(in: view, scale: scale)
+      await view.ready()
 
       // Capture using cacheDisplay for text rendering
       if let bitmapRep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
@@ -511,35 +523,11 @@ private func drawGpuSurface(
   drawRect: CGRect,
   context: CGContext
 ) async {
-  let device = gpuSurface.captureDevice
-  let pixelFormat = gpuSurface.capturePixelFormat
-
-  let textureDescriptor = MTLTextureDescriptor.texture2DDescriptor(
-    pixelFormat: pixelFormat,
-    width: Int(pixelWidth),
-    height: Int(pixelHeight),
-    mipmapped: false
+  let captureTexture = await gpuSurface.renderExternalTexture(
+    width: pixelWidth,
+    height: pixelHeight
   )
-  textureDescriptor.usage = [.renderTarget, .shaderRead]
-  textureDescriptor.storageMode = .shared
-
-  guard let captureTexture = device.makeTexture(descriptor: textureDescriptor) else {
-    fatalError("ViewRenderer failed to create the GPU capture texture")
-  }
-
-  precondition(
-    gpuSurface.prepareExternalRender(texture: captureTexture),
-    "ViewRenderer attempted external capture before GPU setup completed"
-  )
-  await withCheckedContinuation { continuation in
-    gpuSurface.renderPreparedExternalTexture(
-      texture: captureTexture,
-      width: pixelWidth,
-      height: pixelHeight
-    ) {
-      continuation.resume()
-    }
-  }
+  let pixelFormat = captureTexture.pixelFormat
 
   var pixelBytes = [UInt8](repeating: 0, count: Int(pixelWidth) * Int(pixelHeight) * 4)
   switch pixelFormat {
