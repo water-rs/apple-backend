@@ -14,6 +14,11 @@ enum WuiDynamicRangeMode {
   case high
 }
 
+private func dynamicRangeAssociationKey() -> UnsafeRawPointer {
+  let selector = NSSelectorFromString("dev.waterui.dynamicRangeMode")
+  return unsafeBitCast(selector, to: UnsafeRawPointer.self)
+}
+
 @MainActor
 func applyDynamicRange(_ mode: WuiDynamicRangeMode, to layer: CALayer?) {
   guard let layer else { return }
@@ -21,10 +26,10 @@ func applyDynamicRange(_ mode: WuiDynamicRangeMode, to layer: CALayer?) {
   // Keep explicit nested overrides stable: if a sublayer already carries its own mode,
   // preserve that local mode and propagate from there.
   let localMode =
-    (objc_getAssociatedObject(layer, "dev.waterui.dynamicRangeMode") as? WuiDynamicRangeMode)
+    (objc_getAssociatedObject(layer, dynamicRangeAssociationKey()) as? WuiDynamicRangeMode)
     ?? mode
   objc_setAssociatedObject(
-    layer, "dev.waterui.dynamicRangeMode", localMode, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    layer, dynamicRangeAssociationKey(), localMode, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
 
   #if canImport(UIKit)
     layer.preferredDynamicRange = (localMode == .high) ? .high : .standard
@@ -42,7 +47,7 @@ func applyDynamicRange(_ mode: WuiDynamicRangeMode, to layer: CALayer?) {
 @MainActor
 func applyDynamicRange(_ mode: WuiDynamicRangeMode, to view: PlatformView) {
   objc_setAssociatedObject(
-    view, "dev.waterui.dynamicRangeMode", mode, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    view, dynamicRangeAssociationKey(), mode, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
   #if canImport(AppKit)
     view.wantsLayer = true
     guard let layer = view.layer else {
@@ -52,7 +57,7 @@ func applyDynamicRange(_ mode: WuiDynamicRangeMode, to view: PlatformView) {
     let layer = view.layer
   #endif
   objc_setAssociatedObject(
-    layer, "dev.waterui.dynamicRangeMode", mode, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    layer, dynamicRangeAssociationKey(), mode, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
   #if canImport(UIKit)
     layer.preferredDynamicRange = (mode == .high) ? .high : .standard
   #elseif canImport(AppKit)
@@ -67,7 +72,7 @@ func applyDynamicRange(_ mode: WuiDynamicRangeMode, to view: PlatformView) {
 private func resolveDynamicRangeOverride(startingAt view: PlatformView?) -> WuiDynamicRangeMode? {
   var current = view
   while let node = current {
-    if let tagged = objc_getAssociatedObject(node, "dev.waterui.dynamicRangeMode")
+    if let tagged = objc_getAssociatedObject(node, dynamicRangeAssociationKey())
       as? WuiDynamicRangeMode
     {
       return tagged
@@ -140,7 +145,7 @@ func configureMetalLayerDynamicRange(
   )
   objc_setAssociatedObject(
     layer,
-    "dev.waterui.dynamicRangeMode",
+    dynamicRangeAssociationKey(),
     presentationMode,
     .OBJC_ASSOCIATION_RETAIN_NONATOMIC
   )
