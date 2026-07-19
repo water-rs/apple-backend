@@ -110,7 +110,7 @@ final class WuiMetalViewCapture: @unchecked Sendable {
   @MainActor
   func shutdown() {
     for surface in activeGpuSurfaces.values {
-      surface.endExternalRendering()
+      surface.endExternalRendering(resumingPresentation: true)
     }
     activeGpuSurfaces.removeAll()
     overlayTexture = nil
@@ -353,7 +353,7 @@ final class WuiMetalViewCapture: @unchecked Sendable {
     }
 
     for (identifier, surface) in activeGpuSurfaces where next[identifier] == nil {
-      surface.endExternalRendering()
+      surface.endExternalRendering(resumingPresentation: true)
     }
     for (identifier, surface) in next where activeGpuSurfaces[identifier] == nil {
       surface.beginExternalRendering(onRedraw: onRedraw)

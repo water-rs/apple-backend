@@ -200,7 +200,7 @@ private func withPreviewGpuSurfaceCaptureMode<T>(
   defer {
     for surface in surfaces.reversed() {
       surface.endCaptureSuppression()
-      surface.endExternalRendering()
+      surface.endExternalRendering(resumingPresentation: false)
     }
   }
   return await body()

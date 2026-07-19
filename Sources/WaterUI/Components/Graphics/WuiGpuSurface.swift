@@ -948,10 +948,12 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
     }
   }
 
-  func endExternalRendering() {
+  func endExternalRendering(resumingPresentation: Bool) {
     if externalRenderingScopes.end() {
       renderState.setExternalRendering(false)
-      scheduleOnDemandRender()
+      if resumingPresentation {
+        scheduleOnDemandRender()
+      }
     }
   }
 
