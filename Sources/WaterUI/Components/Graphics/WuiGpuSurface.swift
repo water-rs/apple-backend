@@ -369,7 +369,6 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
   private var configuredDynamicRangeMode: WuiDynamicRangeMode?
   private let explicitDynamicRangePreference: WuiDynamicRangeMode?
   private let rendererDynamicRangeMode: WuiDynamicRangeMode
-  private var pictureInPictureHostBridge: WuiWaterKitVideoPictureInPictureHostBridge?
 
   /// Gesture tracking state
   private var gestureStartScale: CGFloat = 1.0
@@ -381,14 +380,9 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
   convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
     let stretchAxis = WuiStretchAxis(waterui_view_stretch_axis(anyview))
     let ffiSurface = waterui_force_as_gpu_surface(anyview)
-    let pictureInPictureHostId =
-      ffiSurface.has_picture_in_picture_host_id
-      ? ffiSurface.picture_in_picture_host_id
-      : nil
     self.init(
       stretchAxis: stretchAxis,
       ffiSurface: ffiSurface,
-      pictureInPictureHostId: pictureInPictureHostId,
       env: env
     )
   }
@@ -398,7 +392,6 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
   init(
     stretchAxis: WuiStretchAxis,
     ffiSurface: CWaterUI.WuiGpuSurface,
-    pictureInPictureHostId: UInt64?,
     env: WuiEnvironment
   ) {
     self.stretchAxis = stretchAxis
@@ -420,12 +413,6 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
     setupMetalLayer(device: metalDevice)
     setupPointerTracking()
     setupLifecycleObservers()
-    if let pictureInPictureHostId {
-      pictureInPictureHostBridge = WuiWaterKitVideoPictureInPictureHostBridge(
-        hostId: pictureInPictureHostId,
-        surface: self
-      )
-    }
   }
 
   private func setupLifecycleObservers() {
@@ -1296,8 +1283,6 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
   // MARK: - Cleanup
 
   @MainActor deinit {
-    pictureInPictureHostBridge?.shutdown()
-    pictureInPictureHostBridge = nil
     precondition(
       !externalRenderingScopes.isActive,
       "GpuSurface was deinitialized with active external rendering scopes"
