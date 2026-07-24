@@ -223,7 +223,7 @@ func makeNavigationBarState(from bar: CWaterUI.WuiBar, env: WuiEnvironment) -> W
     fatalError("Navigation bar subtitle pointer is null")
   }
   let subtitle = makeNavigationTitle(from: subtitlePtr, env: env)
-  let toolbar = WuiArray<CWaterUI.WuiNavigationToolbarItem>(bar.toolbar).toArray().map { item in
+  let toolbar = WuiArray<CWaterUI.WuiNavigationToolbarItem>(bar.toolbar).map { item in
     guard let content = item.content else {
       fatalError("Navigation toolbar item content pointer is null")
     }

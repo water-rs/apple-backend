@@ -265,7 +265,7 @@ final class WuiPicker: PlatformView, WuiComponent {
     }
 
     private func reconcileUIKitRadioButtons() {
-      let activeIds = Set(items.map(\.collectionId))
+      let activeIds = Set(items.lazy.map(\.collectionId))
       let removed = radioButtons.filter { !activeIds.contains($0.key) }
       for (_, button) in removed {
         radioStack.removeArrangedSubview(button)
@@ -294,7 +294,7 @@ final class WuiPicker: PlatformView, WuiComponent {
     }
   #elseif canImport(AppKit)
     private func reconcileAppKitPopupItems() {
-      let activeIds = Set(items.map(\.collectionId))
+      let activeIds = Set(items.lazy.map(\.collectionId))
       popupItems = popupItems.filter { activeIds.contains($0.key) }
       let menu = NSMenu()
       for item in items {
@@ -312,7 +312,7 @@ final class WuiPicker: PlatformView, WuiComponent {
     }
 
     private func reconcileAppKitRadioButtons() {
-      let activeIds = Set(items.map(\.collectionId))
+      let activeIds = Set(items.lazy.map(\.collectionId))
       let removed = radioButtons.filter { !activeIds.contains($0.key) }
       for (_, button) in removed {
         radioStack.removeArrangedSubview(button)

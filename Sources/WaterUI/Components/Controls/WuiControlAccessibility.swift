@@ -19,7 +19,10 @@ final class WuiControlAccessibility {
     guard let accessibilityLabel = label.accessibility_label else {
       fatalError("WaterUI control label has no accessibility signal")
     }
-    let targets = [target] + additionalTargets
+    var targets: [PlatformView] = []
+    targets.reserveCapacity(additionalTargets.count + 1)
+    targets.append(target)
+    targets.append(contentsOf: additionalTargets)
     let observation = WuiComputedObservation(
       WuiComputed<WuiStyledStr>(accessibilityLabel)
     ) { value, _ in

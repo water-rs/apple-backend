@@ -395,7 +395,7 @@ final class WuiMetalViewCapture: @unchecked Sendable {
   ) -> [RenderedGpuSurface] {
     var rendered: [RenderedGpuSurface] = []
     rendered.reserveCapacity(preparation.snapshots.count)
-    let activeSurfaceIds = Set(preparation.snapshots.map { ObjectIdentifier($0.surface) })
+    let activeSurfaceIds = Set(preparation.snapshots.lazy.map { ObjectIdentifier($0.surface) })
     surfaceTextures = surfaceTextures.filter { activeSurfaceIds.contains($0.key) }
 
     for snapshot in preparation.snapshots {

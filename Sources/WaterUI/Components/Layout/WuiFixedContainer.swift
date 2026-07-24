@@ -39,7 +39,7 @@ final class WuiFixedContainer: PlatformView, WuiComponent {
     let container: CWaterUI.WuiFixedContainer = waterui_force_as_fixed_container(anyview)
     let layout = WuiLayout(inner: container.layout!)
     let pointerArray = WuiArray<OpaquePointer>(container.contents)
-    let childViews = pointerArray.toArray().map {
+    let childViews = pointerArray.map {
       WuiAnyView(anyview: $0, env: env)
     }
     self.init(stretchAxis: stretchAxis, layout: layout, children: childViews)

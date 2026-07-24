@@ -12,10 +12,7 @@ struct WuiStyledStr {
   var chunks: [WuiStyledChunk]
 
   init(_ inner: CWaterUI.WuiStyledStr) {
-    self.chunks = []
-    for chunk in WuiArray(inner.chunks).toArray() {
-      chunks.append(WuiStyledChunk(chunk))
-    }
+    self.chunks = WuiArray(inner.chunks).map(WuiStyledChunk.init)
   }
 
   init(chunks: [WuiStyledChunk]) {

@@ -394,7 +394,10 @@ final class WuiProgress: PlatformView, WuiComponent {
     let accent = wuiProgressPlatformColor(accentObservation.value)
     if fourColor {
       guard let additionalPaletteObservations else { return }
-      indicatorPalette = [accent] + additionalPaletteObservations.colors
+      indicatorPalette.removeAll(keepingCapacity: true)
+      indicatorPalette.reserveCapacity(additionalPaletteObservations.colors.count + 1)
+      indicatorPalette.append(accent)
+      indicatorPalette.append(contentsOf: additionalPaletteObservations.colors)
     } else {
       indicatorPalette = [accent]
     }

@@ -225,7 +225,7 @@ final class WuiContainer: PlatformView, WuiComponent {
   /// the existing subview instances already attached for unchanged children.
   private func reconcileSubviews(_ ordered: [WuiAnyView]) {
     #if canImport(UIKit)
-      let wanted = Set(ordered.map(ObjectIdentifier.init))
+      let wanted = Set(ordered.lazy.map(ObjectIdentifier.init))
       for sub in subviews where !wanted.contains(ObjectIdentifier(sub)) {
         sub.removeFromSuperview()
       }

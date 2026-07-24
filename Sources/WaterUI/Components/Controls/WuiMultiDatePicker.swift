@@ -211,7 +211,7 @@ final class WuiMultiDatePicker: PlatformView, WuiComponent {
   private func syncFromModel() {
     let selected = selectedDates()
     let decorated = decoratedDates()
-    decoratedDateKeys = Set(decorated.map(dateKey))
+    decoratedDateKeys = Set(decorated.lazy.map(dateKey))
     #if canImport(UIKit)
       let selectedComponents = selected.map(dateComponents)
       let decoratedComponents = decorated.map(dateComponents)

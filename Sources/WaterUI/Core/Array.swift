@@ -151,6 +151,12 @@ struct WuiArray<T> {
     self.inner.toArray()
   }
 
+  func map<U>(_ transform: (T) -> U) -> [U] {
+    self.inner.withUnsafeBufferPointer { buffer in
+      buffer.map(transform)
+    }
+  }
+
   func withUnsafeBufferPointer<R>(_ body: (UnsafeBufferPointer<T>) -> R) -> R {
     self.inner.withUnsafeBufferPointer(body)
   }

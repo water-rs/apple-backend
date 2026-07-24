@@ -166,10 +166,8 @@ public struct WuiViewDimensions {
   init(_ raw: CWaterUI.WuiViewDimensions) {
     self.size = WuiSize(raw.size)
     self.horizontalGuides = WuiArray<CWaterUI.WuiHorizontalGuide>(raw.horizontal_guides)
-      .toArray()
       .map(WuiHorizontalGuide.init)
     self.verticalGuides = WuiArray<CWaterUI.WuiVerticalGuide>(raw.vertical_guides)
-      .toArray()
       .map(WuiVerticalGuide.init)
   }
 
@@ -260,7 +258,7 @@ final class WuiLayout {
     let rects = waterui_layout_place(inner, boundsRaw, children.ffiArray)
     let rawArray = unsafeBitCast(rects, to: CWaterUI.WuiArray.self)
     let bridged = WuiArray<CWaterUI.WuiRect>(c: rawArray)
-    return bridged.toArray().map { WuiRect($0).cgRect }
+    return bridged.map { WuiRect($0).cgRect }
   }
 
   func lazyStackAxis() -> LazyStackAxis {

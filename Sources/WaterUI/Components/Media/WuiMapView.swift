@@ -36,7 +36,7 @@ private func consumeMapAnnotations(
   _ array: CWaterUI.WuiArray_WuiAnnotation
 ) -> [WuiNativeMapAnnotation] {
   let raw = unsafeBitCast(array, to: CWaterUI.WuiArray.self)
-  return WuiArray<CWaterUI.WuiAnnotation>(c: raw).toArray().map(
+  return WuiArray<CWaterUI.WuiAnnotation>(c: raw).map(
     WuiNativeMapAnnotation.init(consuming:)
   )
 }

@@ -29,8 +29,7 @@ final class WuiAnyViews {
   func getIds(start: Int, end: Int) -> [Int32] {
     precondition(start >= 0 && start <= end && end <= count, "Invalid WuiAnyViews id range")
     let ids = waterui_anyviews_get_ids_in_range(inner, UInt(start), UInt(end))
-    let array = WuiArray<CWaterUI.WuiId>(ids).toArray()
-    return array.map(\.inner)
+    return WuiArray<CWaterUI.WuiId>(ids).map(\.inner)
   }
 
   func allIds() -> [Int32] {
@@ -57,8 +56,7 @@ func watchAnyViewsRangeIds(
   _ f: @escaping ([Int32], WuiWatcherMetadata) -> Void
 ) -> WatcherGuard {
   let data = wrap { (ids: CWaterUI.WuiArray_WuiId, metadata: WuiWatcherMetadata) in
-    let array = WuiArray<CWaterUI.WuiId>(ids).toArray()
-    f(array.map(\.inner), metadata)
+    f(WuiArray<CWaterUI.WuiId>(ids).map(\.inner), metadata)
   }
 
   let call:

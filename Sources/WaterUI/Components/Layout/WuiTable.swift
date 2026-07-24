@@ -179,7 +179,7 @@ final class WuiTable: PlatformView, WuiComponent {
     #if canImport(UIKit)
       updateAttachedViews()
     #elseif canImport(AppKit)
-      let activeIds = Set(columns.map(\.id))
+      let activeIds = Set(columns.lazy.map(\.id))
       nativeColumns = nativeColumns.filter { activeIds.contains($0.key) }
       for column in tableView.tableColumns {
         tableView.removeTableColumn(column)
@@ -228,7 +228,7 @@ final class WuiTable: PlatformView, WuiComponent {
       for column in columns {
         desired.append(contentsOf: column.rows.ordered)
       }
-      let desiredIds = Set(desired.map(ObjectIdentifier.init))
+      let desiredIds = Set(desired.lazy.map(ObjectIdentifier.init))
       for view in attachedViews where !desiredIds.contains(ObjectIdentifier(view)) {
         view.removeFromSuperview()
       }
