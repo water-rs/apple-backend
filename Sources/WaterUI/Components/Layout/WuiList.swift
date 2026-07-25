@@ -152,6 +152,24 @@ private func computeListSectionGroups(
   return groups
 }
 
+@MainActor
+private func resolveListSectionGroups(
+  contents: WuiAnyViews,
+  count: Int,
+  usesSections: Bool
+) -> [ListSectionGroup] {
+  if usesSections {
+    return computeListSectionGroups(contents: contents, count: count)
+  }
+  return [
+    ListSectionGroup(
+      label: nil,
+      footer: nil,
+      itemIndices: Array(0..<count)
+    )
+  ]
+}
+
 /// Whether `groups` is exactly one plain (unlabeled, no-footer) section, i.e. the
 /// flat list whose row indices map 1:1 to `itemIds` positions. Only this shape is
 /// safe to update with a row-level diff; any header/footer or cross-section move
@@ -196,6 +214,7 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
 
     private let env: WuiEnvironment
     private let contents: WuiAnyViews
+    private let usesSections: Bool
     private var contentsWatcher: WatcherGuard?
     private var itemIds: [Int32] = []
     private var sectionGroups: [ListSectionGroup] = [
@@ -204,6 +223,8 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
 
     // Edit mode state
     private var editingObservation: WuiComputedObservation<Bool>?
+    private var targetIndexObservation: WuiComputedObservation<Int32>?
+    private var scrollGenerationObservation: WuiComputedObservation<Int32>?
 
     // Callbacks
     private var onDeletePtr: OpaquePointer?
@@ -221,6 +242,7 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     init(ffiList: CWaterUI.WuiList, env: WuiEnvironment) {
       self.env = env
       self.contents = WuiAnyViews(ffiList.contents)
+      self.usesSections = ffiList.uses_sections
       self.onDeletePtr = ffiList.on_delete
       self.onMovePtr = ffiList.on_move
       super.init(frame: .zero, style: .insetGrouped)
@@ -256,6 +278,7 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       // Initial load + watch structural changes.
       installContentsWatch()
       reloadFromRust(animated: false)
+      installScrollController(ffiList)
     }
 
     @available(*, unavailable)
@@ -293,7 +316,11 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     private func updateFromRust(ids: [Int32], animated: Bool) {
       let oldIds = itemIds
       let oldGroups = sectionGroups
-      var newGroups = computeListSectionGroups(contents: contents, count: ids.count)
+      var newGroups = resolveListSectionGroups(
+        contents: contents,
+        count: ids.count,
+        usesSections: usesSections
+      )
       if newGroups.isEmpty {
         newGroups = [ListSectionGroup(label: nil, footer: nil, itemIndices: [])]
       }
@@ -341,11 +368,60 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
 
     private func indexPath(forFlat flat: Int) -> IndexPath? {
       for (sectionIdx, group) in sectionGroups.enumerated() {
-        if let row = group.itemIndices.firstIndex(of: flat) {
-          return IndexPath(row: row, section: sectionIdx)
-        }
+        guard
+          let first = group.itemIndices.first,
+          let last = group.itemIndices.last,
+          flat >= first,
+          flat <= last
+        else { continue }
+        let row = flat - first
+        precondition(
+          group.itemIndices[row] == flat,
+          "WaterUI List section item indices must be contiguous"
+        )
+        return IndexPath(row: row, section: sectionIdx)
       }
       return nil
+    }
+
+    private func installScrollController(_ descriptor: CWaterUI.WuiList) {
+      let pointers = [descriptor.target_index, descriptor.scroll_generation]
+      let presentCount = pointers.compactMap { $0 }.count
+      precondition(
+        presentCount == 0 || presentCount == pointers.count,
+        "WaterUI List controller pointers must be either both null or both non-null"
+      )
+      guard
+        let targetIndex = descriptor.target_index,
+        let generation = descriptor.scroll_generation
+      else { return }
+
+      targetIndexObservation = WuiComputedObservation(WuiComputed<Int32>(targetIndex)) { _, _ in }
+      let generationObservation = WuiComputedObservation(WuiComputed<Int32>(generation)) {
+        [weak self] request, _ in
+        guard request > 0 else { return }
+        self?.applyScrollControllerTarget()
+      }
+      scrollGenerationObservation = generationObservation
+      if generationObservation.value > 0 {
+        applyScrollControllerTarget()
+      }
+    }
+
+    private func applyScrollControllerTarget() {
+      guard let targetIndexObservation else {
+        fatalError("WaterUI List target observation is missing")
+      }
+      let target = Int(targetIndexObservation.value)
+      precondition(
+        target >= 0 && target < itemIds.count,
+        "List scroll target \(target) exceeds collection length \(itemIds.count)"
+      )
+      guard let indexPath = indexPath(forFlat: target) else {
+        fatalError("WaterUI List target \(target) has no native index path")
+      }
+      layoutIfNeeded()
+      scrollToRow(at: indexPath, at: .top, animated: false)
     }
 
     // MARK: - WuiComponent
@@ -416,7 +492,11 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       if editingStyle == .delete {
         let flat = flatIndex(for: indexPath)
         itemIds.remove(at: flat)
-        sectionGroups = computeListSectionGroups(contents: contents, count: itemIds.count)
+        sectionGroups = resolveListSectionGroups(
+          contents: contents,
+          count: itemIds.count,
+          usesSections: usesSections
+        )
         tableView.reloadData()
 
         if let deletePtr = onDeletePtr {
@@ -440,8 +520,11 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
         }
 
         self.itemIds.remove(at: flat)
-        self.sectionGroups = computeListSectionGroups(
-          contents: self.contents, count: self.itemIds.count)
+        self.sectionGroups = resolveListSectionGroups(
+          contents: self.contents,
+          count: self.itemIds.count,
+          usesSections: self.usesSections
+        )
         self.reloadData()
 
         if let deletePtr = self.onDeletePtr {
@@ -474,7 +557,11 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       let to = flatIndex(for: destinationIndexPath)
       let id = itemIds.remove(at: from)
       itemIds.insert(id, at: to)
-      sectionGroups = computeListSectionGroups(contents: contents, count: itemIds.count)
+      sectionGroups = resolveListSectionGroups(
+        contents: contents,
+        count: itemIds.count,
+        usesSections: usesSections
+      )
 
       if let movePtr = onMovePtr {
         waterui_call_move_action(movePtr, env.inner, UInt(from), UInt(to))
@@ -631,6 +718,7 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
 
     private let env: WuiEnvironment
     private let contents: WuiAnyViews
+    private let usesSections: Bool
     private var contentsWatcher: WatcherGuard?
     private var itemIds: [Int32] = []
     private var sectionGroups: [ListSectionGroup] = []
@@ -638,11 +726,14 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     /// row in NSTableView terminology), a content row, or a section footer.
     /// `tableView.numberOfRows == flatLayout.count`.
     private var flatLayout: [TableLayoutEntry] = []
+    private var flatRowByItemIndex: [Int] = []
     private let tableView: NSTableView
     private var lastColumnWidth: CGFloat = 0
 
     // Edit mode state
     private var editingObservation: WuiComputedObservation<Bool>?
+    private var targetIndexObservation: WuiComputedObservation<Int32>?
+    private var scrollGenerationObservation: WuiComputedObservation<Int32>?
     private var isInEditMode: Bool = false
 
     // Callbacks
@@ -670,6 +761,7 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     init(ffiList: CWaterUI.WuiList, env: WuiEnvironment) {
       self.env = env
       self.contents = WuiAnyViews(ffiList.contents)
+      self.usesSections = ffiList.uses_sections
       self.onDeletePtr = ffiList.on_delete
       self.onMovePtr = ffiList.on_move
       self.tableView = NSTableView()
@@ -721,6 +813,7 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       // Initial load + watch structural changes.
       installContentsWatch()
       reloadFromRust(animated: false)
+      installScrollController(ffiList)
     }
 
     @available(*, unavailable)
@@ -758,7 +851,11 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     private func updateFromRust(ids: [Int32], animated: Bool) {
       let oldIds = itemIds
       let oldGroups = sectionGroups
-      var newGroups = computeListSectionGroups(contents: contents, count: ids.count)
+      var newGroups = resolveListSectionGroups(
+        contents: contents,
+        count: ids.count,
+        usesSections: usesSections
+      )
       if newGroups.isEmpty {
         newGroups = [ListSectionGroup(label: nil, footer: nil, itemIndices: [])]
       }
@@ -774,7 +871,7 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       {
         itemIds = ids
         sectionGroups = newGroups
-        flatLayout = Self.buildFlatLayout(from: sectionGroups)
+        rebuildFlatLayout()
         let animation: NSTableView.AnimationOptions = animated ? .effectFade : []
         tableView.beginUpdates()
         if !diff.deletes.isEmpty {
@@ -789,7 +886,7 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
 
       itemIds = ids
       sectionGroups = newGroups
-      flatLayout = Self.buildFlatLayout(from: sectionGroups)
+      rebuildFlatLayout()
       tableView.reloadData()
     }
 
@@ -809,6 +906,20 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       return layout
     }
 
+    private func rebuildFlatLayout() {
+      flatLayout = Self.buildFlatLayout(from: sectionGroups)
+      flatRowByItemIndex = Array(repeating: -1, count: itemIds.count)
+      for (flatRow, entry) in flatLayout.enumerated() {
+        if case .row(let itemIndex) = entry {
+          flatRowByItemIndex[itemIndex] = flatRow
+        }
+      }
+      precondition(
+        !flatRowByItemIndex.contains(-1),
+        "WaterUI List flat layout must contain every item exactly once"
+      )
+    }
+
     private func itemIndex(forFlatRow flatRow: Int) -> Int? {
       guard flatRow >= 0, flatRow < flatLayout.count else { return nil }
       if case .row(let itemIndex) = flatLayout[flatRow] {
@@ -818,12 +929,49 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     }
 
     private func flatRow(forItemIndex itemIndex: Int) -> Int? {
-      for (flat, entry) in flatLayout.enumerated() {
-        if case .row(let idx) = entry, idx == itemIndex {
-          return flat
-        }
+      guard itemIndex >= 0, itemIndex < flatRowByItemIndex.count else { return nil }
+      return flatRowByItemIndex[itemIndex]
+    }
+
+    private func installScrollController(_ descriptor: CWaterUI.WuiList) {
+      let pointers = [descriptor.target_index, descriptor.scroll_generation]
+      let presentCount = pointers.compactMap { $0 }.count
+      precondition(
+        presentCount == 0 || presentCount == pointers.count,
+        "WaterUI List controller pointers must be either both null or both non-null"
+      )
+      guard
+        let targetIndex = descriptor.target_index,
+        let generation = descriptor.scroll_generation
+      else { return }
+
+      targetIndexObservation = WuiComputedObservation(WuiComputed<Int32>(targetIndex)) { _, _ in }
+      let generationObservation = WuiComputedObservation(WuiComputed<Int32>(generation)) {
+        [weak self] request, _ in
+        guard request > 0 else { return }
+        self?.applyScrollControllerTarget()
       }
-      return nil
+      scrollGenerationObservation = generationObservation
+      if generationObservation.value > 0 {
+        applyScrollControllerTarget()
+      }
+    }
+
+    private func applyScrollControllerTarget() {
+      guard let targetIndexObservation else {
+        fatalError("WaterUI List target observation is missing")
+      }
+      let target = Int(targetIndexObservation.value)
+      precondition(
+        target >= 0 && target < itemIds.count,
+        "List scroll target \(target) exceeds collection length \(itemIds.count)"
+      )
+      guard let row = flatRow(forItemIndex: target) else {
+        fatalError("WaterUI List target \(target) has no native table row")
+      }
+      layoutSubtreeIfNeeded()
+      contentView.scroll(to: NSPoint(x: 0, y: tableView.rect(ofRow: row).minY))
+      reflectScrolledClipView(contentView)
     }
 
     // MARK: - Delete Action
@@ -834,8 +982,12 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       guard resolveListItemDeletable(from: contents, at: itemIndex) else { return }
 
       itemIds.remove(at: itemIndex)
-      sectionGroups = computeListSectionGroups(contents: contents, count: itemIds.count)
-      flatLayout = Self.buildFlatLayout(from: sectionGroups)
+      sectionGroups = resolveListSectionGroups(
+        contents: contents,
+        count: itemIds.count,
+        usesSections: usesSections
+      )
+      rebuildFlatLayout()
       tableView.reloadData()
 
       waterui_call_index_action(deletePtr, env.inner, UInt(itemIndex))
@@ -922,8 +1074,12 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
 
       let movedId = itemIds.remove(at: sourceItem)
       itemIds.insert(movedId, at: destinationItem)
-      sectionGroups = computeListSectionGroups(contents: contents, count: itemIds.count)
-      flatLayout = Self.buildFlatLayout(from: sectionGroups)
+      sectionGroups = resolveListSectionGroups(
+        contents: contents,
+        count: itemIds.count,
+        usesSections: usesSections
+      )
+      rebuildFlatLayout()
       tableView.reloadData()
 
       if let movePtr = onMovePtr {

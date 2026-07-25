@@ -83,6 +83,9 @@ private func scrollMinSize(
 
     private var contentView: WuiAnyView
     private let axis: WuiAxis
+    private var targetXObservation: WuiComputedObservation<Float>?
+    private var targetYObservation: WuiComputedObservation<Float>?
+    private var scrollGenerationObservation: WuiComputedObservation<Int32>?
 
     // MARK: - WuiComponent Init
 
@@ -91,6 +94,7 @@ private func scrollMinSize(
       let ffiScroll: CWaterUI.WuiScrollView = waterui_force_as_scroll_view(anyview)
       let contentView = WuiAnyView(anyview: ffiScroll.content, env: env)
       self.init(stretchAxis: stretchAxis, content: contentView, axis: ffiScroll.axis)
+      installScrollController(ffiScroll)
     }
 
     // MARK: - Designated Init
@@ -184,6 +188,60 @@ private func scrollMinSize(
       }
     }
 
+    private func installScrollController(_ descriptor: CWaterUI.WuiScrollView) {
+      let pointers = [descriptor.target_x, descriptor.target_y, descriptor.scroll_generation]
+      let presentCount = pointers.compactMap { $0 }.count
+      precondition(
+        presentCount == 0 || presentCount == pointers.count,
+        "WaterUI ScrollView controller pointers must be either all null or all non-null"
+      )
+      guard
+        let targetX = descriptor.target_x,
+        let targetY = descriptor.target_y,
+        let generation = descriptor.scroll_generation
+      else { return }
+
+      targetXObservation = WuiComputedObservation(WuiComputed<Float>(targetX)) { _, _ in }
+      targetYObservation = WuiComputedObservation(WuiComputed<Float>(targetY)) { _, _ in }
+      let generationObservation = WuiComputedObservation(WuiComputed<Int32>(generation)) {
+        [weak self] request, _ in
+        guard request > 0 else { return }
+        self?.applyScrollControllerTarget()
+      }
+      scrollGenerationObservation = generationObservation
+      if generationObservation.value > 0 {
+        applyScrollControllerTarget()
+      }
+    }
+
+    private func applyScrollControllerTarget() {
+      guard let targetXObservation, let targetYObservation else {
+        fatalError("WaterUI ScrollView controller target observations are missing")
+      }
+      layoutIfNeeded()
+      let targetX = CGFloat(targetXObservation.value)
+      let targetY = CGFloat(targetYObservation.value)
+      precondition(
+        targetX.isFinite && targetY.isFinite,
+        "WaterUI ScrollView target must contain finite coordinates"
+      )
+      let minimumX = -adjustedContentInset.left
+      let minimumY = -adjustedContentInset.top
+      let maximumX = max(
+        minimumX,
+        contentSize.width - bounds.width + adjustedContentInset.right
+      )
+      let maximumY = max(
+        minimumY,
+        contentSize.height - bounds.height + adjustedContentInset.bottom
+      )
+      let point = CGPoint(
+        x: min(maximumX, max(minimumX, targetX - adjustedContentInset.left)),
+        y: min(maximumY, max(minimumY, targetY - adjustedContentInset.top))
+      )
+      setContentOffset(point, animated: false)
+    }
+
     override var intrinsicContentSize: CGSize {
       CGSize(width: UIView.noIntrinsicMetric, height: UIView.noIntrinsicMetric)
     }
@@ -199,6 +257,9 @@ private func scrollMinSize(
 
     private var contentHostView: WuiAnyView
     private let axis: WuiAxis
+    private var targetXObservation: WuiComputedObservation<Float>?
+    private var targetYObservation: WuiComputedObservation<Float>?
+    private var scrollGenerationObservation: WuiComputedObservation<Int32>?
 
     // MARK: - WuiComponent Init
 
@@ -207,6 +268,7 @@ private func scrollMinSize(
       let ffiScroll: CWaterUI.WuiScrollView = waterui_force_as_scroll_view(anyview)
       let contentView = WuiAnyView(anyview: ffiScroll.content, env: env)
       self.init(stretchAxis: stretchAxis, content: contentView, axis: ffiScroll.axis)
+      installScrollController(ffiScroll)
     }
 
     // MARK: - Designated Init
@@ -292,6 +354,47 @@ private func scrollMinSize(
 
       contentHostView.needsLayout = true
       contentHostView.layoutSubtreeIfNeeded()
+    }
+
+    private func installScrollController(_ descriptor: CWaterUI.WuiScrollView) {
+      let pointers = [descriptor.target_x, descriptor.target_y, descriptor.scroll_generation]
+      let presentCount = pointers.compactMap { $0 }.count
+      precondition(
+        presentCount == 0 || presentCount == pointers.count,
+        "WaterUI ScrollView controller pointers must be either all null or all non-null"
+      )
+      guard
+        let targetX = descriptor.target_x,
+        let targetY = descriptor.target_y,
+        let generation = descriptor.scroll_generation
+      else { return }
+
+      targetXObservation = WuiComputedObservation(WuiComputed<Float>(targetX)) { _, _ in }
+      targetYObservation = WuiComputedObservation(WuiComputed<Float>(targetY)) { _, _ in }
+      let generationObservation = WuiComputedObservation(WuiComputed<Int32>(generation)) {
+        [weak self] request, _ in
+        guard request > 0 else { return }
+        self?.applyScrollControllerTarget()
+      }
+      scrollGenerationObservation = generationObservation
+      if generationObservation.value > 0 {
+        applyScrollControllerTarget()
+      }
+    }
+
+    private func applyScrollControllerTarget() {
+      guard let targetXObservation, let targetYObservation else {
+        fatalError("WaterUI ScrollView controller target observations are missing")
+      }
+      layoutSubtreeIfNeeded()
+      let targetX = CGFloat(targetXObservation.value)
+      let targetY = CGFloat(targetYObservation.value)
+      precondition(
+        targetX.isFinite && targetY.isFinite,
+        "WaterUI ScrollView target must contain finite coordinates"
+      )
+      contentView.scroll(to: CGPoint(x: max(0, targetX), y: max(0, targetY)))
+      reflectScrolledClipView(contentView)
     }
 
     override var intrinsicContentSize: NSSize {
