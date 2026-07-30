@@ -11,7 +11,10 @@ let package = Package(
     .watchOS(.v26),
   ],
   products: [
-    .library(name: "WaterUI", targets: ["WaterUI"])
+    .library(name: "WaterUI", targets: ["WaterUI"]),
+    .library(name: "WaterUICEF", targets: ["WaterUICEF"]),
+    .library(name: "WaterUIChromium", targets: ["WaterUIChromium"]),
+    .library(name: "WaterUICefWebView", targets: ["WaterUICefWebView"]),
   ],
   targets: [
     .target(name: "CWaterUI"),
@@ -19,6 +22,18 @@ let package = Package(
       name: "WaterUI",
       dependencies: ["CWaterUI"],
       resources: [.process("Resources")]
+    ),
+    .target(
+      name: "WaterUICEF",
+      dependencies: ["CWaterUI", "WaterUI"]
+    ),
+    .target(
+      name: "WaterUIChromium",
+      dependencies: ["CWaterUI", "WaterUI", "WaterUICEF"]
+    ),
+    .target(
+      name: "WaterUICefWebView",
+      dependencies: ["CWaterUI", "WaterUI", "WaterUICEF"]
     ),
   ]
 )

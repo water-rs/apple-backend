@@ -103,8 +103,17 @@ private protocol WuiNativeToggleControl {
   }
 #elseif canImport(AppKit)
   @MainActor
+  private final class WuiSwitch: NSSwitch {
+    override func mouseDown(with event: NSEvent) {
+      // Keep the responder entry point on the composed control so AppKit enters
+      // NSSwitch's native tracking loop after WaterUI wrapper hit testing.
+      super.mouseDown(with: event)
+    }
+  }
+
+  @MainActor
   private final class WuiNativeSwitchControl: WuiNativeToggleControl {
-    let control = NSSwitch()
+    let control = WuiSwitch()
 
     var view: PlatformView { control }
 

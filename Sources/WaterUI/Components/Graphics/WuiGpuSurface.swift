@@ -1362,6 +1362,19 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
   }
 }
 
+/// Creates WaterUI's native GPU host for a renderer-owned surface descriptor.
+///
+/// Optional backend products use this factory to compose GPU-backed primitives
+/// without exposing the internal GPU surface component type.
+@MainActor
+public func makeWaterUIGpuSurface(
+  stretchAxis: WuiStretchAxis,
+  ffiSurface: CWaterUI.WuiGpuSurface,
+  env: WuiEnvironment
+) -> PlatformView {
+  WuiGpuSurface(stretchAxis: stretchAxis, ffiSurface: ffiSurface, env: env)
+}
+
 // MARK: - UIGestureRecognizerDelegate
 
 #if canImport(UIKit)

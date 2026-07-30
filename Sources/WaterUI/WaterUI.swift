@@ -93,7 +93,7 @@ struct WuiViewId: Hashable {
 /// - `stretchAxis` → `stretch_axis()`
 /// - `layoutPriority()` → `priority()`
 @MainActor
-protocol WuiComponent: PlatformView {
+public protocol WuiComponent: PlatformView {
   /// Raw FFI identifier for this component type.
   /// Must be obtained via `waterui_*_id()` FFI function.
   /// Used for O(1) 128-bit value-based registry lookup.
@@ -121,9 +121,9 @@ protocol WuiComponent: PlatformView {
 }
 
 extension WuiComponent {
-  var stretchAxis: WuiStretchAxis { .none }
-  func layoutPriority() -> Int32 { 0 }
-  func measure(_ proposal: WuiProposalSize) -> WuiViewDimensions {
+  public var stretchAxis: WuiStretchAxis { .none }
+  public func layoutPriority() -> Int32 { 0 }
+  public func measure(_ proposal: WuiProposalSize) -> WuiViewDimensions {
     WuiViewDimensions(size: sizeThatFits(proposal))
   }
 

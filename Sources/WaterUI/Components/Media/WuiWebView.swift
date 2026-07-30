@@ -90,16 +90,15 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
       guard
         let url = Bundle.module.url(
           forResource: name,
-          withExtension: "js",
-          subdirectory: "JavaScript"
+          withExtension: "js"
         )
       else {
-        fatalError("WaterUI is missing the bundled JavaScript/\(name).js resource")
+        fatalError("WaterUI is missing the bundled \(name).js resource")
       }
       do {
         return try String(contentsOf: url, encoding: .utf8)
       } catch {
-        fatalError("WaterUI could not load JavaScript/\(name).js: \(error)")
+        fatalError("WaterUI could not load \(name).js: \(error)")
       }
     }
   }
@@ -841,6 +840,9 @@ extension WebViewWrapper: WKUIDelegate {
 public func installWebViewController(env: OpaquePointer?) {
   guard let env else {
     fatalError("WebView controller installation requires a WaterUI environment")
+  }
+  if waterui_env_has_webview_controller(env) {
+    return
   }
   struct HandleTransfer: @unchecked Sendable {
     let value: CWaterUI.WuiWebViewHandle

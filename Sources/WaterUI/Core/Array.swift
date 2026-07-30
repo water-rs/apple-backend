@@ -267,25 +267,25 @@ extension WuiArray<CWaterUI.WuiTab> {
   }
 }
 
-struct WuiStr {
-  var inner: WuiArray<UInt8>
+public struct WuiStr {
+  private var inner: WuiArray<UInt8>
 
-  init(_ inner: CWaterUI.WuiStr) {
+  public init(_ inner: CWaterUI.WuiStr) {
     self.inner = WuiArray<UInt8>(inner._0)
   }
 
-  init(string: String) {
+  public init(string: String) {
     let bytes = [UInt8](string.utf8)
     self.inner = WuiArray<UInt8>(array: bytes)
   }
 
-  func toString() -> String {
+  public func toString() -> String {
     inner.withUnsafeBufferPointer { bytes in
       String(decoding: bytes, as: UTF8.self)
     }
   }
 
-  func intoInner() -> CWaterUI.WuiStr {
+  public func intoInner() -> CWaterUI.WuiStr {
     unsafeBitCast(self.inner.intoInner(), to: CWaterUI.WuiStr.self)
   }
 

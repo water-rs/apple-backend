@@ -52,7 +52,8 @@ private var builtinComponentsRegistered = false
 
 /// Register a component type that conforms to WuiComponent.
 @MainActor
-private func registerComponent<T: WuiComponent>(_ type: T.Type) {
+public func registerComponent<T: WuiComponent>(_ type: T.Type) {
+  registerBuiltinComponentsIfNeeded()
   let viewId = type.viewId
   componentRegistry[viewId] = { anyview, env in
     type.init(anyview: anyview, env: env)
@@ -281,7 +282,7 @@ private func registerBuiltinComponentsIfNeeded() {
       inner.sizeThatFits(proposal)
     }
 
-    func measure(_ proposal: WuiProposalSize) -> WuiViewDimensions {
+    public func measure(_ proposal: WuiProposalSize) -> WuiViewDimensions {
       inner.measure(proposal)
     }
 
@@ -475,7 +476,7 @@ private func registerBuiltinComponentsIfNeeded() {
       inner.sizeThatFits(proposal)
     }
 
-    func measure(_ proposal: WuiProposalSize) -> WuiViewDimensions {
+    public func measure(_ proposal: WuiProposalSize) -> WuiViewDimensions {
       inner.measure(proposal)
     }
 
