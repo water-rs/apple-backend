@@ -56,6 +56,10 @@ final class WuiTextField: PlatformView, WuiComponent {
   #if canImport(UIKit)
     private let keyboard: CWaterUI.WuiKeyboardType
   #endif
+  /// Maximum number of lines the field accepts: `1` is single-line, a larger
+  /// value caps a multi-line field, `0` means no limit.
+  private let lineLimit: Int
+  private var isSingleLine: Bool { lineLimit == 1 }
   private let env: WuiEnvironment
 
   private var labelTopConstraint: NSLayoutConstraint?
@@ -85,6 +89,7 @@ final class WuiTextField: PlatformView, WuiComponent {
         semanticLabel: ffiTextField.label,
         selectionMenu: selectionMenu,
         keyboard: ffiTextField.keyboard,
+        lineLimit: Int(ffiTextField.line_limit),
         env: env
       )
     #elseif canImport(AppKit)
@@ -96,6 +101,7 @@ final class WuiTextField: PlatformView, WuiComponent {
         promptAlignment: promptAlignment,
         semanticLabel: ffiTextField.label,
         selectionMenu: selectionMenu,
+        lineLimit: Int(ffiTextField.line_limit),
         env: env
       )
     #endif
@@ -111,6 +117,7 @@ final class WuiTextField: PlatformView, WuiComponent {
       semanticLabel: CWaterUI.WuiLabel,
       selectionMenu: OpaquePointer?,
       keyboard: CWaterUI.WuiKeyboardType,
+      lineLimit: Int,
       env: WuiEnvironment
     ) {
       self.stretchAxis = stretchAxis
@@ -118,6 +125,7 @@ final class WuiTextField: PlatformView, WuiComponent {
       self.binding = binding
       self.prompt = prompt
       self.keyboard = keyboard
+      self.lineLimit = lineLimit
       self.env = env
       super.init(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
       configureSubviews()
@@ -143,12 +151,14 @@ final class WuiTextField: PlatformView, WuiComponent {
       promptAlignment: WuiComputed<WuiHorizontalAlignment>,
       semanticLabel: CWaterUI.WuiLabel,
       selectionMenu: OpaquePointer?,
+      lineLimit: Int,
       env: WuiEnvironment
     ) {
       self.stretchAxis = stretchAxis
       self.labelView = label
       self.binding = binding
       self.prompt = prompt
+      self.lineLimit = lineLimit
       self.env = env
       super.init(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
       configureSubviews()
@@ -258,8 +268,10 @@ final class WuiTextField: PlatformView, WuiComponent {
       textView.delegate = self
       textView.installWuiFocusTarget(focusTarget)
       textView.isScrollEnabled = false
-      textView.textContainer.maximumNumberOfLines = 1
-      textView.textContainer.lineBreakMode = .byTruncatingTail
+      // `lineLimit == 0` means no limit, which is also UITextView's encoding for
+      // `maximumNumberOfLines`, so it maps straight through.
+      textView.textContainer.maximumNumberOfLines = lineLimit
+      textView.textContainer.lineBreakMode = isSingleLine ? .byTruncatingTail : .byWordWrapping
       textView.textContainerInset = UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
       textView.textContainer.lineFragmentPadding = 0
       textView.layer.cornerRadius = 10
@@ -299,6 +311,10 @@ final class WuiTextField: PlatformView, WuiComponent {
       textField.layer?.borderWidth = 1
       textField.isEditable = true
       textField.isSelectable = true
+      textField.usesSingleLineMode = isSingleLine
+      textField.maximumNumberOfLines = lineLimit
+      textField.cell?.wraps = !isSingleLine
+      textField.cell?.isScrollable = isSingleLine
       textField.delegate = self
       textField.installWuiFocusTarget(focusTarget)
       borderColorObservation = WuiComputedObservation(
@@ -464,11 +480,18 @@ final class WuiTextField: PlatformView, WuiComponent {
       shouldChangeTextIn range: NSRange,
       replacementText text: String
     ) -> Bool {
-      if text.contains("\n") {
+      guard text.contains("\n") else { return true }
+      if isSingleLine {
         // Keep single-line contract, but don't block IME composition updates.
         return textView.markedTextRange != nil
       }
-      return true
+      guard lineLimit > 0 else { return true }
+      // A capped multi-line field rejects an edit that would add lines beyond
+      // the limit rather than truncating what the user already typed.
+      let current = textView.text ?? ""
+      guard let editRange = Range(range, in: current) else { return true }
+      let candidate = current.replacingCharacters(in: editRange, with: text)
+      return candidate.components(separatedBy: "\n").count <= lineLimit
     }
 
     func textView(

@@ -193,7 +193,7 @@ final class WuiToggle: PlatformView, WuiComponent {
   private let toggleControl: any WuiNativeToggleControl
   private let binding: WuiBinding<Bool>
   private let labelView: WuiAnyView
-  private let disabled: WuiComputed<Bool>?
+  private let disabled: WuiComputed<Bool>
   private var bindingWatcher: WatcherGuard?
   private var disabledWatcher: WatcherGuard?
   private var accessibility: WuiControlAccessibility?
@@ -205,7 +205,7 @@ final class WuiToggle: PlatformView, WuiComponent {
       label: WuiAnyView(anyview: ffiToggle.label.view, env: env),
       binding: WuiBinding(ffiToggle.toggle),
       style: ffiToggle.style,
-      disabled: ffiToggle.disabled.map(WuiComputed<Bool>.init),
+      disabled: env.disabled,
       semanticLabel: ffiToggle.label
     )
   }
@@ -214,7 +214,7 @@ final class WuiToggle: PlatformView, WuiComponent {
     label: WuiAnyView,
     binding: WuiBinding<Bool>,
     style: WuiToggleStyle,
-    disabled: WuiComputed<Bool>?,
+    disabled: WuiComputed<Bool>,
     semanticLabel: CWaterUI.WuiLabel
   ) {
     self.toggleControl = Self.makeToggleControl(style: style, isOn: binding.value)
@@ -298,7 +298,6 @@ final class WuiToggle: PlatformView, WuiComponent {
   }
 
   private func startWatchingDisabled() {
-    guard let disabled else { return }
     disabledWatcher = disabled.watch { [weak self] isDisabled, _ in
       self?.toggleControl.setEnabled(!isDisabled)
     }

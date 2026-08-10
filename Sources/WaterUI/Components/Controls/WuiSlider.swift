@@ -37,7 +37,7 @@ final class WuiSlider: PlatformView, WuiComponent {
   private var maxLabelView: WuiAnyView
   private var binding: WuiBinding<Double>
   private var range: WuiRange_f64
-  private let disabled: WuiComputed<Bool>?
+  private let disabled: WuiComputed<Bool>
   private var disabledWatcher: WatcherGuard?
   private var accessibility: WuiControlAccessibility?
 
@@ -57,7 +57,6 @@ final class WuiSlider: PlatformView, WuiComponent {
     let minLabelView = WuiAnyView(anyview: ffiSlider.min_value_label, env: env)
     let maxLabelView = WuiAnyView(anyview: ffiSlider.max_value_label, env: env)
     let binding = WuiBinding<Double>(ffiSlider.value)
-    let disabled = ffiSlider.disabled.map { WuiComputed<Bool>($0) }
     self.init(
       stretchAxis: stretchAxis,
       label: labelView,
@@ -65,7 +64,7 @@ final class WuiSlider: PlatformView, WuiComponent {
       maxLabel: maxLabelView,
       range: ffiSlider.range,
       binding: binding,
-      disabled: disabled,
+      disabled: env.disabled,
       semanticLabel: ffiSlider.label
     )
   }
@@ -79,7 +78,7 @@ final class WuiSlider: PlatformView, WuiComponent {
     maxLabel: WuiAnyView,
     range: WuiRange_f64,
     binding: WuiBinding<Double>,
-    disabled: WuiComputed<Bool>? = nil,
+    disabled: WuiComputed<Bool>,
     semanticLabel: CWaterUI.WuiLabel
   ) {
     self.disabled = disabled
@@ -106,7 +105,6 @@ final class WuiSlider: PlatformView, WuiComponent {
   }
 
   private func startWatchingDisabled() {
-    guard let disabled else { return }
     disabledWatcher = disabled.watch { [weak self] isDisabled, _ in
       self?.applyDisabled(isDisabled)
     }

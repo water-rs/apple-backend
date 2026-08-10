@@ -70,7 +70,7 @@ final class WuiButton: PlatformView, WuiComponent {
   private let labelView: WuiAnyView
   private let style: WuiButtonStyle
   private var accessibility: WuiControlAccessibility?
-  private let disabled: WuiComputed<Bool>?
+  private let disabled: WuiComputed<Bool>
   private var disabledWatcher: WatcherGuard?
   private let env: WuiEnvironment
   private var accentObservation: WuiComputedObservation<WuiResolvedColor>?
@@ -84,13 +84,12 @@ final class WuiButton: PlatformView, WuiComponent {
     let labelEnv = makeButtonLabelEnvironment(style: ffiButton.style, parent: env)
     let labelView = WuiAnyView(anyview: ffiButton.label.view, env: labelEnv)
     let action = Action(inner: ffiButton.action, env: env)
-    let disabled = ffiButton.disabled.map { WuiComputed<Bool>($0) }
     self.init(
       label: labelView,
       action: action,
       style: ffiButton.style,
       semanticLabel: ffiButton.label,
-      disabled: disabled,
+      disabled: env.disabled,
       env: env
     )
   }
@@ -102,7 +101,7 @@ final class WuiButton: PlatformView, WuiComponent {
     action: Action,
     style: WuiButtonStyle = WuiButtonStyle_Automatic,
     semanticLabel: CWaterUI.WuiLabel,
-    disabled: WuiComputed<Bool>? = nil,
+    disabled: WuiComputed<Bool>,
     env: WuiEnvironment
   ) {
     self.action = action
@@ -126,7 +125,6 @@ final class WuiButton: PlatformView, WuiComponent {
   }
 
   private func startWatchingDisabled() {
-    guard let disabled else { return }
     disabledWatcher = disabled.watch { [weak self] isDisabled, _ in
       self?.applyDisabled(isDisabled)
     }
