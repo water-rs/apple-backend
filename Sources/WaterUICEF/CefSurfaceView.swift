@@ -44,6 +44,7 @@ open class CefSurfaceView: NSView, @preconcurrency NSTextInputClient {
   private var pendingComposition: CefPendingComposition?
   private var pendingUnmark = false
   private var displayLink: CADisplayLink?
+  private var screenChangeObserver: NSObjectProtocol?
 
   public init(surface: CWaterUI.WuiCefSurface, env: WuiEnvironment) {
     guard let state = surface.state else {
@@ -72,6 +73,9 @@ open class CefSurfaceView: NSView, @preconcurrency NSTextInputClient {
   }
 
   @MainActor deinit {
+    if let screenChangeObserver {
+      NotificationCenter.default.removeObserver(screenChangeObserver)
+    }
     displayLink?.invalidate()
     waterui_cef_surface_drop(cefState)
   }
@@ -99,6 +103,10 @@ open class CefSurfaceView: NSView, @preconcurrency NSTextInputClient {
   open override func viewDidMoveToWindow() {
     super.viewDidMoveToWindow()
     updateViewport()
+    if let screenChangeObserver {
+      NotificationCenter.default.removeObserver(screenChangeObserver)
+      self.screenChangeObserver = nil
+    }
     if window == nil {
       displayLink?.invalidate()
       displayLink = nil
@@ -383,16 +391,35 @@ open class CefSurfaceView: NSView, @preconcurrency NSTextInputClient {
       fatalError("CEF display link requires an attached AppKit window")
     }
     let link = window.displayLink(target: self, selector: #selector(requestCefFrame))
-    let maximumFramesPerSecond = Float(
-      window.screen?.maximumFramesPerSecond
-        ?? { fatalError("CEF display link requires a window on a display") }())
+    Self.applyFrameRatePreference(link: link, screen: window.screen)
+    link.add(to: .main, forMode: .common)
+    displayLink = link
+    // A window can attach before it lands on a display, and it can migrate
+    // between displays with different refresh ceilings; re-derive the range
+    // whenever the screen changes instead of crashing or freezing at the
+    // first screen's rate.
+    screenChangeObserver = NotificationCenter.default.addObserver(
+      forName: NSWindow.didChangeScreenNotification,
+      object: window,
+      queue: .main
+    ) { [weak self] _ in
+      MainActor.assumeIsolated {
+        guard let self, let link = self.displayLink else { return }
+        Self.applyFrameRatePreference(link: link, screen: self.window?.screen)
+      }
+    }
+  }
+
+  private static func applyFrameRatePreference(link: CADisplayLink, screen: NSScreen?) {
+    // A window between displays reports no screen; 60 is the floor every
+    // display provides, and the screen-change observer raises the range once
+    // the window lands on a high-refresh display.
+    let maximumFramesPerSecond = Float(screen?.maximumFramesPerSecond ?? 60)
     link.preferredFrameRateRange = CAFrameRateRange(
       minimum: min(60, maximumFramesPerSecond),
       maximum: maximumFramesPerSecond,
       preferred: maximumFramesPerSecond
     )
-    link.add(to: .main, forMode: .common)
-    displayLink = link
   }
 
   @objc private func requestCefFrame() {
