@@ -1328,4 +1328,6 @@ public final class WuiRootContext {
 
 extension Logger {
   static let waterui = Logger(subsystem: "dev.waterui", category: "WaterUI")
+  /// GPU surfaces, view effects, filters, and the Metal capture pipeline.
+  static let graphics = Logger(subsystem: "dev.waterui", category: "Graphics")
 }

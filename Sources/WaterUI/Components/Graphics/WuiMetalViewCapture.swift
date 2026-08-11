@@ -1,5 +1,6 @@
 import Foundation
 import Metal
+import OSLog
 import QuartzCore
 
 #if canImport(UIKit)
@@ -30,6 +31,36 @@ private final class WuiMetalFenceBatch {
   }
 }
 
+/// Captures a native view subtree — and any `GpuSurface` nested inside it — into
+/// a single Metal texture for the filter and view-effect pipelines.
+///
+/// # Orientation and scale contract
+///
+/// The destination texture is *top-down* (texel row 0 is the visually topmost
+/// row) and sized in device pixels, so it can be handed straight to wgpu and
+/// presented by a `CAMetalLayer` without any further flip or rescale. Neither
+/// property comes for free:
+///
+/// - `CARenderer` renders a layer tree bottom-up: layer-space y grows with the
+///   destination row index, which is the opposite of every other texture in this
+///   pipeline.
+/// - `CARenderer.bounds` is the destination rectangle in *pixels*, while the
+///   layer tree is laid out in *points*. Left alone, a 100×100pt subtree renders
+///   into the top-left 100×100 pixels of a 200×200px target on a 2× display.
+///
+/// Both are corrected in one step by `withCaptureTransform`, which mirrors and
+/// scales the captured layer tree for the duration of the `CARenderer` frame.
+/// Because the capture texture is then in the same orientation as a
+/// wgpu-rendered `GpuSurface` texture, `CaptureComposite.metal` is a plain
+/// identity copy for both of its inputs.
+///
+/// # Concurrency
+///
+/// View-tree state (`activeGpuSurfaces`, the `CARenderer`, the overlay texture)
+/// is main-actor isolated. GPU composition state lives in `Compositor`, which
+/// confines every one of its members to a private serial queue. The type is
+/// `@unchecked Sendable` because Swift cannot express that split; nothing here
+/// is shared without either the main actor or that serial queue mediating it.
 final class WuiMetalViewCapture: @unchecked Sendable {
   private struct GpuSurfaceSnapshot: @unchecked Sendable {
     let surface: WuiGpuSurface
@@ -57,6 +88,225 @@ final class WuiMetalViewCapture: @unchecked Sendable {
     let texture: MTLTexture
   }
 
+  /// Maps the captured layer tree's point space onto the pixel-sized destination.
+  private struct CaptureGeometry {
+    let scaleX: CGFloat
+    let scaleY: CGFloat
+    /// Destination height in pixels; the mirror axis of the capture transform.
+    let targetHeight: CGFloat
+  }
+
+  /// GPU composition state, confined to `queue`.
+  ///
+  /// Every member is touched only from inside `perform`, so the serial queue
+  /// supplies the mutual exclusion the type system cannot — hence
+  /// `@unchecked Sendable`. Work enqueued during teardown is therefore ordered
+  /// after any composition still in flight, and the queue's own strong
+  /// reference keeps the resources alive until that work drains.
+  private final class Compositor: @unchecked Sendable {
+    private let queue = DispatchQueue(
+      label: "dev.waterui.graphics.capture-composition",
+      qos: .userInteractive
+    )
+    private var commandQueue: MTLCommandQueue?
+    private var surfaceTextures: [ObjectIdentifier: SurfaceTextureEntry] = [:]
+    private var pipeline: MTLRenderPipelineState?
+    private var pipelineFormat: MTLPixelFormat = .invalid
+    private var sampler: MTLSamplerState?
+
+    func perform(_ body: @escaping @Sendable (Compositor) -> Void) {
+      queue.async { [self] in
+        body(self)
+      }
+    }
+
+    /// Drops cached per-surface textures once all in-flight composition drains.
+    func discardResources() {
+      queue.async { [self] in
+        surfaceTextures.removeAll()
+      }
+    }
+
+    func prepareSurfaceTextures(
+      snapshots: [GpuSurfaceSnapshot],
+      device: MTLDevice
+    ) -> [RenderedGpuSurface] {
+      let activeSurfaceIds = Set(snapshots.lazy.map { ObjectIdentifier($0.surface) })
+      surfaceTextures = surfaceTextures.filter { activeSurfaceIds.contains($0.key) }
+      return snapshots.map { snapshot in
+        RenderedGpuSurface(
+          snapshot: snapshot,
+          texture: surfaceTexture(for: snapshot, device: device)
+        )
+      }
+    }
+
+    func makeCommandBuffer(device: MTLDevice) -> MTLCommandBuffer {
+      if commandQueue == nil || commandQueue?.device !== device {
+        commandQueue = device.makeCommandQueue()
+      }
+      guard let commandBuffer = commandQueue?.makeCommandBuffer() else {
+        fatalError("Failed to create the Metal view composition command buffer")
+      }
+      return commandBuffer
+    }
+
+    func encodeComposition(
+      surfaces: [RenderedGpuSurface],
+      overlayTexture: MTLTexture?,
+      targetTexture: MTLTexture,
+      commandBuffer: MTLCommandBuffer,
+      device: MTLDevice
+    ) {
+      let descriptor = MTLRenderPassDescriptor()
+      descriptor.colorAttachments[0].texture = targetTexture
+      descriptor.colorAttachments[0].loadAction = .clear
+      descriptor.colorAttachments[0].storeAction = .store
+      descriptor.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 0)
+      guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: descriptor) else {
+        fatalError("Failed to create the Metal capture composition encoder")
+      }
+      encoder.setRenderPipelineState(
+        renderPipeline(device: device, format: targetTexture.pixelFormat)
+      )
+      encoder.setFragmentSamplerState(compositeSampler(device: device), index: 0)
+      // GpuSurface contents first, then the native overlay blended on top: the
+      // overlay is transparent wherever a surface's Metal layer was suppressed.
+      // Viewport origins are top-down, which matches both the snapshot rects
+      // (taken in flipped view coordinates) and the capture texture itself.
+      for surface in surfaces {
+        let snapshot = surface.snapshot
+        encoder.setViewport(
+          MTLViewport(
+            originX: Double(snapshot.origin.x),
+            originY: Double(snapshot.origin.y),
+            width: Double(snapshot.size.width),
+            height: Double(snapshot.size.height),
+            znear: 0,
+            zfar: 1
+          )
+        )
+        encoder.setScissorRect(
+          MTLScissorRect(
+            x: snapshot.origin.x,
+            y: snapshot.origin.y,
+            width: snapshot.size.width,
+            height: snapshot.size.height
+          )
+        )
+        encoder.setFragmentTexture(surface.texture, index: 0)
+        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+      }
+      if let overlayTexture {
+        encoder.setViewport(
+          MTLViewport(
+            originX: 0,
+            originY: 0,
+            width: Double(targetTexture.width),
+            height: Double(targetTexture.height),
+            znear: 0,
+            zfar: 1
+          )
+        )
+        encoder.setScissorRect(
+          MTLScissorRect(
+            x: 0,
+            y: 0,
+            width: targetTexture.width,
+            height: targetTexture.height
+          )
+        )
+        encoder.setFragmentTexture(overlayTexture, index: 0)
+        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+      }
+      encoder.endEncoding()
+    }
+
+    private func surfaceTexture(
+      for snapshot: GpuSurfaceSnapshot,
+      device: MTLDevice
+    ) -> MTLTexture {
+      let identifier = ObjectIdentifier(snapshot.surface)
+      if let entry = surfaceTextures[identifier],
+        entry.size.width == snapshot.size.width,
+        entry.size.height == snapshot.size.height,
+        entry.pixelFormat == snapshot.pixelFormat
+      {
+        return entry.texture
+      }
+      let descriptor = MTLTextureDescriptor.texture2DDescriptor(
+        pixelFormat: snapshot.pixelFormat,
+        width: snapshot.size.width,
+        height: snapshot.size.height,
+        mipmapped: false
+      )
+      descriptor.usage = [.shaderRead, .renderTarget]
+      descriptor.storageMode = .private
+      guard let texture = device.makeTexture(descriptor: descriptor) else {
+        fatalError("Failed to create a GpuSurface capture texture")
+      }
+      surfaceTextures[identifier] = SurfaceTextureEntry(
+        texture: texture,
+        size: snapshot.size,
+        pixelFormat: snapshot.pixelFormat
+      )
+      return texture
+    }
+
+    private func renderPipeline(
+      device: MTLDevice,
+      format: MTLPixelFormat
+    ) -> MTLRenderPipelineState {
+      if let pipeline, pipelineFormat == format {
+        return pipeline
+      }
+      let library: MTLLibrary
+      do {
+        library = try device.makeDefaultLibrary(bundle: Bundle.module)
+      } catch {
+        fatalError("Failed to load WaterUI's precompiled Metal library: \(error)")
+      }
+      guard let vertex = library.makeFunction(name: "capture_composite_vertex"),
+        let fragment = library.makeFunction(name: "capture_composite_fragment")
+      else {
+        fatalError("CaptureComposite.metal is missing required entry points")
+      }
+      let descriptor = MTLRenderPipelineDescriptor()
+      descriptor.vertexFunction = vertex
+      descriptor.fragmentFunction = fragment
+      descriptor.colorAttachments[0].pixelFormat = format
+      descriptor.colorAttachments[0].isBlendingEnabled = true
+      descriptor.colorAttachments[0].rgbBlendOperation = .add
+      descriptor.colorAttachments[0].alphaBlendOperation = .add
+      descriptor.colorAttachments[0].sourceRGBBlendFactor = .one
+      descriptor.colorAttachments[0].destinationRGBBlendFactor = .oneMinusSourceAlpha
+      descriptor.colorAttachments[0].sourceAlphaBlendFactor = .one
+      descriptor.colorAttachments[0].destinationAlphaBlendFactor = .oneMinusSourceAlpha
+      do {
+        let compiled = try device.makeRenderPipelineState(descriptor: descriptor)
+        pipeline = compiled
+        pipelineFormat = format
+        return compiled
+      } catch {
+        fatalError("Failed to compile the Metal capture composition pipeline: \(error)")
+      }
+    }
+
+    private func compositeSampler(device: MTLDevice) -> MTLSamplerState {
+      if let sampler { return sampler }
+      let descriptor = MTLSamplerDescriptor()
+      descriptor.minFilter = .linear
+      descriptor.magFilter = .linear
+      descriptor.sAddressMode = .clampToEdge
+      descriptor.tAddressMode = .clampToEdge
+      guard let created = device.makeSamplerState(descriptor: descriptor) else {
+        fatalError("Failed to create the Metal capture composition sampler")
+      }
+      sampler = created
+      return created
+    }
+  }
+
   private let contentView: PlatformView
   @MainActor var onRedraw: (() -> Void)?
 
@@ -67,11 +317,7 @@ final class WuiMetalViewCapture: @unchecked Sendable {
   @MainActor private var nativeCapturePixelFormat: MTLPixelFormat = .invalid
   @MainActor private var overlayTexture: MTLTexture?
 
-  private var commandQueue: MTLCommandQueue?
-  private var surfaceTextures: [ObjectIdentifier: SurfaceTextureEntry] = [:]
-  private var compositePipeline: MTLRenderPipelineState?
-  private var compositePipelineFormat: MTLPixelFormat = .invalid
-  private var compositeSampler: MTLSamplerState?
+  private let compositor = Compositor()
 
   @MainActor
   init(contentView: PlatformView) {
@@ -84,7 +330,15 @@ final class WuiMetalViewCapture: @unchecked Sendable {
     completion: @escaping WuiMetalViewCaptureCompletion
   ) {
     let preparation = prepareCapture(into: targetTexture)
-    preparation.nativeCaptureFence.addCompletedHandler { [self, preparation] commandBuffer in
+    Logger.graphics.debug(
+      """
+      Capture started: \(targetTexture.width, privacy: .public)\
+      x\(targetTexture.height, privacy: .public), \
+      gpuSurfaces=\(preparation.snapshots.count, privacy: .public)
+      """
+    )
+    let compositor = self.compositor
+    preparation.nativeCaptureFence.addCompletedHandler { [weak self] commandBuffer in
       guard commandBuffer.status == .completed else {
         fatalError(
           "Native Metal capture failed: \(String(describing: commandBuffer.error))"
@@ -96,11 +350,21 @@ final class WuiMetalViewCapture: @unchecked Sendable {
         }
         return
       }
-      DispatchQueue.global(qos: .userInteractive).async { [self, preparation] in
-        let rendered = prepareGpuSurfaceTextures(preparation)
-        DispatchQueue.main.async { [self, preparation, rendered] in
+      compositor.perform { compositor in
+        let rendered = compositor.prepareSurfaceTextures(
+          snapshots: preparation.snapshots,
+          device: preparation.device
+        )
+        DispatchQueue.main.async {
           MainActor.assumeIsolated {
-            submitGpuSurfaces(rendered, preparation: preparation, completion: completion)
+            // The capture pipeline outlives no one: it is owned by the effect
+            // view that requested this frame, so if it is gone the frame has
+            // nowhere to land and dropping it is the whole of the work left.
+            guard let self else {
+              Logger.graphics.debug("Native capture completed after teardown; frame dropped")
+              return
+            }
+            self.submitGpuSurfaces(rendered, preparation: preparation, completion: completion)
           }
         }
       }
@@ -109,6 +373,9 @@ final class WuiMetalViewCapture: @unchecked Sendable {
 
   @MainActor
   func shutdown() {
+    Logger.graphics.debug(
+      "Capture pipeline shutting down, externalSurfaces=\(self.activeGpuSurfaces.count, privacy: .public)"
+    )
     for surface in activeGpuSurfaces.values {
       surface.endExternalRendering(resumingPresentation: true)
     }
@@ -118,6 +385,7 @@ final class WuiMetalViewCapture: @unchecked Sendable {
     nativeCaptureQueue = nil
     nativeCaptureDevice = nil
     nativeCapturePixelFormat = .invalid
+    compositor.discardResources()
   }
 
   @MainActor deinit {
@@ -131,7 +399,11 @@ final class WuiMetalViewCapture: @unchecked Sendable {
   private func prepareCapture(into targetTexture: MTLTexture) -> Preparation {
     prepareCaptureView(contentView)
     let layer = resolveCaptureLayer(from: contentView)
-    let snapshots = collectGpuSurfaceSnapshots(targetTexture: targetTexture)
+    let geometry = captureGeometry(for: targetTexture)
+    let snapshots = collectGpuSurfaceSnapshots(
+      targetTexture: targetTexture,
+      geometry: geometry
+    )
     updateExternalGpuSurfaces(snapshots)
 
     let nativeTarget: MTLTexture
@@ -152,7 +424,7 @@ final class WuiMetalViewCapture: @unchecked Sendable {
 
     let nativeCaptureFence: MTLCommandBuffer
     if snapshots.isEmpty {
-      nativeCaptureFence = renderNativeLayer(layer, into: nativeTarget)
+      nativeCaptureFence = renderNativeLayer(layer, into: nativeTarget, geometry: geometry)
     } else {
       for snapshot in snapshots {
         snapshot.surface.beginCaptureSuppression()
@@ -162,7 +434,7 @@ final class WuiMetalViewCapture: @unchecked Sendable {
           snapshot.surface.endCaptureSuppression()
         }
       }
-      nativeCaptureFence = renderNativeLayer(layer, into: nativeTarget)
+      nativeCaptureFence = renderNativeLayer(layer, into: nativeTarget, geometry: geometry)
     }
 
     return Preparation(
@@ -171,6 +443,19 @@ final class WuiMetalViewCapture: @unchecked Sendable {
       overlayTexture: snapshots.isEmpty ? nil : nativeTarget,
       nativeCaptureFence: nativeCaptureFence,
       snapshots: snapshots
+    )
+  }
+
+  @MainActor
+  private func captureGeometry(for targetTexture: MTLTexture) -> CaptureGeometry {
+    precondition(
+      contentView.bounds.width > 0 && contentView.bounds.height > 0,
+      "WaterUI capture content must have non-zero bounds"
+    )
+    return CaptureGeometry(
+      scaleX: CGFloat(targetTexture.width) / contentView.bounds.width,
+      scaleY: CGFloat(targetTexture.height) / contentView.bounds.height,
+      targetHeight: CGFloat(targetTexture.height)
     )
   }
 
@@ -233,8 +518,60 @@ final class WuiMetalViewCapture: @unchecked Sendable {
     CATransaction.commit()
   }
 
+  /// Runs `body` with `layer` mapped onto the pixel-sized capture destination.
+  ///
+  /// `CARenderer` takes its destination rectangle in pixels but reads the layer
+  /// tree in points, and its destination row index grows with layer-space y —
+  /// the opposite of every other texture in this pipeline. One transform fixes
+  /// both: scale by the backing factor, mirror vertically, and translate the
+  /// mirrored tree back down onto the destination.
+  ///
+  /// Deriving the position from the layer's own position keeps the mapping
+  /// independent of its anchor point (AppKit uses `(0, 0)`, UIKit `(0.5, 0.5)`),
+  /// and concatenating onto the existing transform keeps any transform the view
+  /// already carries.
+  ///
+  /// The mutation is restored before this call returns, so no Core Animation
+  /// commit ever sees the capture geometry — the same contract the surrounding
+  /// `isHidden` dance relies on.
   @MainActor
-  private func renderNativeLayer(_ layer: CALayer, into texture: MTLTexture) -> MTLCommandBuffer {
+  private func withCaptureTransform<T>(
+    _ layer: CALayer,
+    geometry: CaptureGeometry,
+    _ body: () -> T
+  ) -> T {
+    let savedTransform = layer.transform
+    let savedPosition = layer.position
+
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    layer.transform = CATransform3DConcat(
+      savedTransform,
+      CATransform3DMakeScale(geometry.scaleX, -geometry.scaleY, 1)
+    )
+    layer.position = CGPoint(
+      x: savedPosition.x * geometry.scaleX,
+      y: geometry.targetHeight - savedPosition.y * geometry.scaleY
+    )
+    CATransaction.commit()
+
+    defer {
+      CATransaction.begin()
+      CATransaction.setDisableActions(true)
+      layer.transform = savedTransform
+      layer.position = savedPosition
+      CATransaction.commit()
+    }
+
+    return body()
+  }
+
+  @MainActor
+  private func renderNativeLayer(
+    _ layer: CALayer,
+    into texture: MTLTexture,
+    geometry: CaptureGeometry
+  ) -> MTLCommandBuffer {
     let device = texture.device
     if nativeCaptureQueue == nil || nativeCaptureDevice !== device
       || nativeCapturePixelFormat != texture.pixelFormat
@@ -268,13 +605,24 @@ final class WuiMetalViewCapture: @unchecked Sendable {
     }
 
     renderer.layer = layer
+    // The destination rectangle is in pixels; `withCaptureTransform` brings the
+    // point-space layer tree into that same space.
     renderer.bounds = CGRect(x: 0, y: 0, width: texture.width, height: texture.height)
-    let time = CACurrentMediaTime()
-    renderer.beginFrame(atTime: time, timeStamp: nil)
-    renderer.addUpdate(renderer.bounds)
-    renderer.render()
-    renderer.endFrame()
+    withCaptureTransform(layer, geometry: geometry) {
+      let time = CACurrentMediaTime()
+      renderer.beginFrame(atTime: time, timeStamp: nil)
+      renderer.addUpdate(renderer.bounds)
+      renderer.render()
+      renderer.endFrame()
+    }
 
+    // `CARenderer` encodes its work onto `queue` during `render()` but hands
+    // back no completion signal, so an empty command buffer committed right
+    // afterwards stands in as the fence: command buffers in one Metal queue
+    // execute in commit order, so this one completes only once the capture has.
+    // That is load-bearing, and it holds because `nativeCaptureQueue` is created
+    // here, handed to nothing but this `CARenderer`, and only ever driven from
+    // the main actor — never share this queue with other work.
     guard let commandBuffer = queue.makeCommandBuffer() else {
       fatalError("Failed to create the native Metal capture command buffer")
     }
@@ -283,11 +631,15 @@ final class WuiMetalViewCapture: @unchecked Sendable {
   }
 
   @MainActor
-  private func collectGpuSurfaceSnapshots(targetTexture: MTLTexture) -> [GpuSurfaceSnapshot] {
+  private func collectGpuSurfaceSnapshots(
+    targetTexture: MTLTexture,
+    geometry: CaptureGeometry
+  ) -> [GpuSurfaceSnapshot] {
     var snapshots: [GpuSurfaceSnapshot] = []
     collectGpuSurfaceSnapshots(
       from: contentView,
       into: &snapshots,
+      geometry: geometry,
       targetWidth: targetTexture.width,
       targetHeight: targetTexture.height
     )
@@ -298,25 +650,20 @@ final class WuiMetalViewCapture: @unchecked Sendable {
   private func collectGpuSurfaceSnapshots(
     from view: PlatformView,
     into snapshots: inout [GpuSurfaceSnapshot],
+    geometry: CaptureGeometry,
     targetWidth: Int,
     targetHeight: Int
   ) {
     if let surface = view as? WuiGpuSurface {
       let rect = surface.convert(surface.bounds, to: contentView)
-      precondition(
-        contentView.bounds.width > 0 && contentView.bounds.height > 0,
-        "WaterUI capture content must have non-zero bounds"
-      )
-      let scaleX = CGFloat(targetWidth) / contentView.bounds.width
-      let scaleY = CGFloat(targetHeight) / contentView.bounds.height
-      let originX = max(0, Int((rect.minX * scaleX).rounded(.down)))
-      let originY = max(0, Int((rect.minY * scaleY).rounded(.down)))
+      let originX = max(0, Int((rect.minX * geometry.scaleX).rounded(.down)))
+      let originY = max(0, Int((rect.minY * geometry.scaleY).rounded(.down)))
       let width = min(
-        Int((rect.width * scaleX).rounded(.up)),
+        Int((rect.width * geometry.scaleX).rounded(.up)),
         targetWidth - originX
       )
       let height = min(
-        Int((rect.height * scaleY).rounded(.up)),
+        Int((rect.height * geometry.scaleY).rounded(.up)),
         targetHeight - originY
       )
       if width > 0, height > 0 {
@@ -336,6 +683,7 @@ final class WuiMetalViewCapture: @unchecked Sendable {
       collectGpuSurfaceSnapshots(
         from: subview,
         into: &snapshots,
+        geometry: geometry,
         targetWidth: targetWidth,
         targetHeight: targetHeight
       )
@@ -353,9 +701,11 @@ final class WuiMetalViewCapture: @unchecked Sendable {
     }
 
     for (identifier, surface) in activeGpuSurfaces where next[identifier] == nil {
+      Logger.graphics.debug("GpuSurface left the captured subtree; presentation resumed")
       surface.endExternalRendering(resumingPresentation: true)
     }
     for (identifier, surface) in next where activeGpuSurfaces[identifier] == nil {
+      Logger.graphics.debug("GpuSurface joined the captured subtree; presentation suspended")
       surface.beginExternalRendering(onRedraw: onRedraw)
     }
     activeGpuSurfaces = next
@@ -390,24 +740,6 @@ final class WuiMetalViewCapture: @unchecked Sendable {
     return texture
   }
 
-  private func prepareGpuSurfaceTextures(
-    _ preparation: Preparation
-  ) -> [RenderedGpuSurface] {
-    var rendered: [RenderedGpuSurface] = []
-    rendered.reserveCapacity(preparation.snapshots.count)
-    let activeSurfaceIds = Set(preparation.snapshots.lazy.map { ObjectIdentifier($0.surface) })
-    surfaceTextures = surfaceTextures.filter { activeSurfaceIds.contains($0.key) }
-
-    for snapshot in preparation.snapshots {
-      let texture = ensureSurfaceTexture(
-        for: snapshot,
-        device: preparation.device
-      )
-      rendered.append(RenderedGpuSurface(snapshot: snapshot, texture: texture))
-    }
-    return rendered
-  }
-
   @MainActor
   private func submitGpuSurfaces(
     _ rendered: [RenderedGpuSurface],
@@ -416,13 +748,19 @@ final class WuiMetalViewCapture: @unchecked Sendable {
   ) {
     for item in rendered {
       guard item.snapshot.surface.prepareExternalRender(texture: item.texture) else {
+        Logger.graphics.debug("GpuSurface setup still pending; capture frame deferred")
         completion(false)
         return
       }
     }
 
-    let batch = WuiMetalFenceBatch(count: rendered.count) { [self, preparation, rendered] in
-      compose(preparation, rendered: rendered, completion: completion)
+    let batch = WuiMetalFenceBatch(count: rendered.count) { [compositor = self.compositor] in
+      Self.compose(
+        compositor,
+        preparation: preparation,
+        rendered: rendered,
+        completion: completion
+      )
     }
     for item in rendered {
       item.snapshot.surface.renderPreparedExternalTexture(
@@ -435,15 +773,20 @@ final class WuiMetalViewCapture: @unchecked Sendable {
     }
   }
 
-  @MainActor
-  private func compose(
-    _ preparation: Preparation,
+  /// Encodes the final composition off the main thread.
+  ///
+  /// Deliberately free of `self`: once the surfaces have rendered, the pass
+  /// depends on nothing but the compositor and the prepared textures, so it
+  /// completes correctly even if the owning view is torn down meanwhile.
+  private static func compose(
+    _ compositor: Compositor,
+    preparation: Preparation,
     rendered: [RenderedGpuSurface],
     completion: @escaping WuiMetalViewCaptureCompletion
   ) {
-    DispatchQueue.global(qos: .userInteractive).async { [self, preparation, rendered] in
-      let commandBuffer = makeCommandBuffer(device: preparation.device)
-      encodeComposition(
+    compositor.perform { compositor in
+      let commandBuffer = compositor.makeCommandBuffer(device: preparation.device)
+      compositor.encodeComposition(
         surfaces: rendered,
         overlayTexture: preparation.overlayTexture,
         targetTexture: preparation.targetTexture,
@@ -456,172 +799,12 @@ final class WuiMetalViewCapture: @unchecked Sendable {
             "Metal view composition failed: \(String(describing: commandBuffer.error))"
           )
         }
+        Logger.graphics.debug("Capture composition complete")
         DispatchQueue.main.async {
           completion(true)
         }
       }
       commandBuffer.commit()
     }
-  }
-
-  private func ensureSurfaceTexture(
-    for snapshot: GpuSurfaceSnapshot,
-    device: MTLDevice
-  ) -> MTLTexture {
-    let identifier = ObjectIdentifier(snapshot.surface)
-    if let entry = surfaceTextures[identifier],
-      entry.size.width == snapshot.size.width,
-      entry.size.height == snapshot.size.height,
-      entry.pixelFormat == snapshot.pixelFormat
-    {
-      return entry.texture
-    }
-    let descriptor = MTLTextureDescriptor.texture2DDescriptor(
-      pixelFormat: snapshot.pixelFormat,
-      width: snapshot.size.width,
-      height: snapshot.size.height,
-      mipmapped: false
-    )
-    descriptor.usage = [.shaderRead, .renderTarget]
-    descriptor.storageMode = .private
-    guard let texture = device.makeTexture(descriptor: descriptor) else {
-      fatalError("Failed to create a GpuSurface capture texture")
-    }
-    surfaceTextures[identifier] = SurfaceTextureEntry(
-      texture: texture,
-      size: snapshot.size,
-      pixelFormat: snapshot.pixelFormat
-    )
-    return texture
-  }
-
-  private func makeCommandBuffer(device: MTLDevice) -> MTLCommandBuffer {
-    if commandQueue == nil || commandQueue?.device !== device {
-      commandQueue = device.makeCommandQueue()
-    }
-    guard let commandBuffer = commandQueue?.makeCommandBuffer() else {
-      fatalError("Failed to create the Metal view composition command buffer")
-    }
-    return commandBuffer
-  }
-
-  private func encodeComposition(
-    surfaces: [RenderedGpuSurface],
-    overlayTexture: MTLTexture?,
-    targetTexture: MTLTexture,
-    commandBuffer: MTLCommandBuffer,
-    device: MTLDevice
-  ) {
-    let descriptor = MTLRenderPassDescriptor()
-    descriptor.colorAttachments[0].texture = targetTexture
-    descriptor.colorAttachments[0].loadAction = .clear
-    descriptor.colorAttachments[0].storeAction = .store
-    descriptor.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 0)
-    guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: descriptor) else {
-      fatalError("Failed to create the Metal capture composition encoder")
-    }
-    encoder.setRenderPipelineState(
-      compositePipeline(device: device, format: targetTexture.pixelFormat)
-    )
-    encoder.setFragmentSamplerState(compositeSampler(device: device), index: 0)
-    for surface in surfaces {
-      let snapshot = surface.snapshot
-      encoder.setViewport(
-        MTLViewport(
-          originX: Double(snapshot.origin.x),
-          originY: Double(snapshot.origin.y),
-          width: Double(snapshot.size.width),
-          height: Double(snapshot.size.height),
-          znear: 0,
-          zfar: 1
-        )
-      )
-      encoder.setScissorRect(
-        MTLScissorRect(
-          x: snapshot.origin.x,
-          y: snapshot.origin.y,
-          width: snapshot.size.width,
-          height: snapshot.size.height
-        )
-      )
-      encoder.setFragmentTexture(surface.texture, index: 0)
-      encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
-    }
-    if let overlayTexture {
-      encoder.setViewport(
-        MTLViewport(
-          originX: 0,
-          originY: 0,
-          width: Double(targetTexture.width),
-          height: Double(targetTexture.height),
-          znear: 0,
-          zfar: 1
-        )
-      )
-      encoder.setScissorRect(
-        MTLScissorRect(
-          x: 0,
-          y: 0,
-          width: targetTexture.width,
-          height: targetTexture.height
-        )
-      )
-      encoder.setFragmentTexture(overlayTexture, index: 0)
-      encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
-    }
-    encoder.endEncoding()
-  }
-
-  private func compositePipeline(
-    device: MTLDevice,
-    format: MTLPixelFormat
-  ) -> MTLRenderPipelineState {
-    if let compositePipeline, compositePipelineFormat == format {
-      return compositePipeline
-    }
-    let library: MTLLibrary
-    do {
-      library = try device.makeDefaultLibrary(bundle: Bundle.module)
-    } catch {
-      fatalError("Failed to load WaterUI's precompiled Metal library: \(error)")
-    }
-    guard let vertex = library.makeFunction(name: "capture_composite_vertex"),
-      let fragment = library.makeFunction(name: "capture_composite_fragment")
-    else {
-      fatalError("CaptureComposite.metal is missing required entry points")
-    }
-    let descriptor = MTLRenderPipelineDescriptor()
-    descriptor.vertexFunction = vertex
-    descriptor.fragmentFunction = fragment
-    descriptor.colorAttachments[0].pixelFormat = format
-    descriptor.colorAttachments[0].isBlendingEnabled = true
-    descriptor.colorAttachments[0].rgbBlendOperation = .add
-    descriptor.colorAttachments[0].alphaBlendOperation = .add
-    descriptor.colorAttachments[0].sourceRGBBlendFactor = .one
-    descriptor.colorAttachments[0].destinationRGBBlendFactor = .oneMinusSourceAlpha
-    descriptor.colorAttachments[0].sourceAlphaBlendFactor = .one
-    descriptor.colorAttachments[0].destinationAlphaBlendFactor = .oneMinusSourceAlpha
-    do {
-      let pipeline = try device.makeRenderPipelineState(descriptor: descriptor)
-      compositePipeline = pipeline
-      compositePipelineFormat = format
-      return pipeline
-    } catch {
-      fatalError("Failed to compile the Metal capture composition pipeline: \(error)")
-    }
-  }
-
-  private func compositeSampler(device: MTLDevice) -> MTLSamplerState {
-    if let compositeSampler { return compositeSampler }
-    let descriptor = MTLSamplerDescriptor()
-    descriptor.minFilter = .linear
-    descriptor.magFilter = .linear
-    descriptor.sAddressMode = .clampToEdge
-    descriptor.tAddressMode = .clampToEdge
-    guard let sampler = device.makeSamplerState(descriptor: descriptor) else {
-      fatalError("Failed to create the Metal capture composition sampler")
-    }
-    compositeSampler = sampler
-    return sampler
   }
 }
