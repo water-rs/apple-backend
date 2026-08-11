@@ -319,6 +319,16 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
       }
       if cookie.isSecure { parts.append("Secure") }
       if cookie.isHTTPOnly { parts.append("HttpOnly") }
+      if let policy = cookie.sameSitePolicy {
+        // Foundation names Lax and Strict; anything else is a policy WebKit
+        // understands and we do not, which is a reason to pass it through
+        // rather than to drop it.
+        switch policy {
+        case .sameSiteLax: parts.append("SameSite=Lax")
+        case .sameSiteStrict: parts.append("SameSite=Strict")
+        default: parts.append("SameSite=\(policy.rawValue)")
+        }
+      }
       return parts.joined(separator: "; ")
     }
     return lines.joined(separator: "\n")
