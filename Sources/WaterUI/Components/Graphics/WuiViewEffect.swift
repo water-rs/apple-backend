@@ -1,6 +1,7 @@
 import CWaterUI
 import Foundation
 import Metal
+import OSLog
 import QuartzCore
 
 #if canImport(UIKit)
@@ -55,12 +56,16 @@ private final class WuiViewEffectRenderState {
       prefersHDR
     )
     isAttached = true
+    Logger.graphics.debug(
+      "ViewEffect attached: \(width, privacy: .public)x\(height, privacy: .public)"
+    )
   }
 
   func detachIfNeeded() {
     guard isAttached else { return }
     waterui_view_effect_detach(effectState)
     isAttached = false
+    Logger.graphics.debug("ViewEffect detached")
   }
 
   func setInput(frame: WuiViewEffectCaptureFrame) {
@@ -152,10 +157,11 @@ final class WuiViewEffect: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
   }
 
   private func setupOutputLayer() {
+    // Only properties wgpu does not own belong here: configuring the surface
+    // overwrites `pixelFormat`, `colorspace`, `framebufferOnly`, `drawableSize`,
+    // `maximumDrawableCount`, and `wantsExtendedDynamicRangeContent`.
     let outputLayer = CAMetalLayer()
     outputLayer.device = metalDevice
-    outputLayer.framebufferOnly = true
-    outputLayer.maximumDrawableCount = 2
     outputLayer.isOpaque = false
     outputLayer.isHidden = true
     #if canImport(UIKit)
@@ -283,6 +289,13 @@ final class WuiViewEffect: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
     invalidateCapturedRendering()
   }
 
+  /// Arms the frame clock when there is work for it.
+  ///
+  /// Only the window is required, not a display: `WuiDisplayLinkDriver` drives
+  /// a window that is on no display — the preview renderer's offscreen capture
+  /// window, or a window between displays — from the main run loop instead of a
+  /// display link, so gating on `window.screen` here would strand those
+  /// captures waiting for a frame that never comes.
   private func scheduleFrameIfNeeded() {
     guard
       renderState.isAttached, window != nil, needsRender, !renderInFlight,
@@ -311,8 +324,10 @@ final class WuiViewEffect: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
       height: height
     )
 
-    capturePipeline.capture(into: frame.texture) { [self] captured in
-      finishCapturedFrame(frame, captured: captured)
+    // Weak: a capture that lands after this view is gone has nothing to finish,
+    // and the capture pipeline it runs on is owned by this view anyway.
+    capturePipeline.capture(into: frame.texture) { [weak self] captured in
+      self?.finishCapturedFrame(frame, captured: captured)
     }
   }
 
@@ -386,6 +401,7 @@ final class WuiViewEffect: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
   private func revealOutput() {
     guard !outputRevealed else { return }
     outputRevealed = true
+    Logger.graphics.debug("ViewEffect first filtered frame presented")
     CATransaction.begin()
     CATransaction.setDisableActions(true)
     outputLayer.isHidden = false

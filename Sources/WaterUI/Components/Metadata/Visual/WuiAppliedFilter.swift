@@ -1,6 +1,7 @@
 import CWaterUI
 import Foundation
 import Metal
+import OSLog
 import QuartzCore
 
 #if canImport(UIKit)
@@ -64,18 +65,28 @@ private final class WuiAppliedFilterRenderState {
     )
     waterui_applied_filter_setup(filterState)
     isAttached = true
+    Logger.graphics.debug(
+      "AppliedFilter attached: \(width, privacy: .public)x\(height, privacy: .public)"
+    )
   }
 
   func detachIfNeeded() {
     guard isAttached else { return }
     waterui_applied_filter_detach(filterState)
     isAttached = false
+    Logger.graphics.debug("AppliedFilter detached")
   }
 
-  func prepareCapture() -> (WuiAppliedFilterCaptureFrame, WuiAppliedFilterOutputSize)? {
+  /// Prepares the capture texture for one frame.
+  ///
+  /// Resolving the output size is what tells the filter state how large its
+  /// presentation surface must be; `prepare_capture` then reconfigures the
+  /// output surface (and with it the layer's drawable size) from that answer,
+  /// so the resolved size stays entirely on the Rust side.
+  func prepareCapture() -> WuiAppliedFilterCaptureFrame? {
     guard isAttached, width > 0, height > 0 else { return nil }
     precondition(isReady, "AppliedFilter capture requires completed asynchronous setup")
-    let outputSize = waterui_applied_filter_resolve_output_size(filterState, width, height)
+    waterui_applied_filter_resolve_output_size(filterState, width, height)
     waterui_applied_filter_prepare_capture(filterState, width, height)
     guard let rawTexture = waterui_applied_filter_get_capture_metal_texture(filterState) else {
       fatalError("AppliedFilter capture texture is unavailable")
@@ -84,10 +95,7 @@ private final class WuiAppliedFilterRenderState {
     guard let texture = object as? MTLTexture else {
       fatalError("AppliedFilter capture texture is not an MTLTexture")
     }
-    return (
-      WuiAppliedFilterCaptureFrame(texture: texture, width: width, height: height),
-      outputSize
-    )
+    return WuiAppliedFilterCaptureFrame(texture: texture, width: width, height: height)
   }
 
   func renderCapturedFrame(_ frame: WuiAppliedFilterCaptureFrame) -> Bool {
@@ -114,7 +122,6 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiFirstPaintReadyPart
   private var frameDriver: WuiDisplayLinkDriver!
   private var currentScaleFactor: CGFloat = 1
   private var configuredDynamicRangeMode: WuiDynamicRangeMode?
-  private var outputDrawablePixelSize = CGSize.zero
   private var needsRender = false
   private var renderInFlight = false
   private var detachAfterCapture = false
@@ -160,10 +167,11 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiFirstPaintReadyPart
   }
 
   private func setupOutputLayer(device: MTLDevice) {
+    // Only properties wgpu does not own belong here: configuring the surface
+    // overwrites `pixelFormat`, `colorspace`, `framebufferOnly`, `drawableSize`,
+    // `maximumDrawableCount`, and `wantsExtendedDynamicRangeContent`.
     let outputLayer = CAMetalLayer()
     outputLayer.device = device
-    outputLayer.framebufferOnly = true
-    outputLayer.maximumDrawableCount = 2
     outputLayer.isOpaque = false
     outputLayer.isHidden = true
     #if canImport(UIKit)
@@ -211,7 +219,6 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiFirstPaintReadyPart
       presentationMode: mode,
       rendererMode: .high
     )
-    outputDrawablePixelSize = .zero
     hideFilteredOutput()
     configuredDynamicRangeMode = mode
   }
@@ -276,6 +283,13 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiFirstPaintReadyPart
     invalidateCapturedRendering()
   }
 
+  /// Arms the frame clock when there is work for it.
+  ///
+  /// Only the window is required, not a display: `WuiDisplayLinkDriver` drives
+  /// a window that is on no display — the preview renderer's offscreen capture
+  /// window, or a window between displays — from the main run loop instead of a
+  /// display link, so gating on `window.screen` here would strand those
+  /// captures waiting for a frame that never comes.
   private func scheduleFrameIfNeeded() {
     guard
       renderState.isAttached, renderState.isReady, window != nil, needsRender, !renderInFlight
@@ -292,15 +306,16 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiFirstPaintReadyPart
       return
     }
     needsRender = false
-    guard let (frame, outputSize) = renderState.prepareCapture() else {
+    guard let frame = renderState.prepareCapture() else {
       return
     }
     renderInFlight = true
-    setOutputDrawableSize(width: outputSize.width, height: outputSize.height)
     stopDisplayLink()
 
-    capturePipeline.capture(into: frame.texture) { [self] captured in
-      finishCapturedFrame(frame, captured: captured)
+    // Weak: a capture that lands after this view is gone has nothing to finish,
+    // and the capture pipeline it runs on is owned by this view anyway.
+    capturePipeline.capture(into: frame.texture) { [weak self] captured in
+      self?.finishCapturedFrame(frame, captured: captured)
     }
   }
 
@@ -356,6 +371,7 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiFirstPaintReadyPart
   private func revealFilteredOutput() {
     guard !filteredOutputRevealed else { return }
     filteredOutputRevealed = true
+    Logger.graphics.debug("AppliedFilter first filtered frame presented")
     CATransaction.begin()
     CATransaction.setDisableActions(true)
     outputLayer.isHidden = false
@@ -462,27 +478,14 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiFirstPaintReadyPart
     requestRenderIfNeeded()
   }
 
+  /// Positions the presentation layer. Its drawable size belongs to wgpu, which
+  /// sets it from the filter's resolved output size on every reconfiguration.
   private func updateOutputLayerFrame() {
     CATransaction.begin()
     CATransaction.setDisableActions(true)
     outputLayer.frame = bounds
     outputLayer.contentsScale = currentScaleFactor
-    let drawableSize =
-      outputDrawablePixelSize == .zero
-      ? CGSize(
-        width: bounds.width * currentScaleFactor,
-        height: bounds.height * currentScaleFactor
-      )
-      : outputDrawablePixelSize
-    if drawableSize.width > 0, drawableSize.height > 0 {
-      outputLayer.drawableSize = drawableSize
-    }
     CATransaction.commit()
-  }
-
-  private func setOutputDrawableSize(width: UInt32, height: UInt32) {
-    outputDrawablePixelSize = CGSize(width: Int(width), height: Int(height))
-    updateOutputLayerFrame()
   }
 
   @MainActor deinit {
