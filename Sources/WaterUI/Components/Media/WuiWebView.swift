@@ -107,8 +107,9 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
     @convention(c) (
       UnsafeMutableRawPointer?,
       Bool,
+      CWaterUI.WuiJsReplyKind,
       CWaterUI.WuiStr
-    ) -> Void = { data, success, result in
+    ) -> Void = { data, success, kind, result in
       guard let data else {
         fatalError("WebView message reply received null callback data")
       }
@@ -118,8 +119,10 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
       }
 
       // Rust renders the reply so the envelope format is not restated here.
+      // `kind` is carried through untouched: whether the page receives a value
+      // or a Uint8Array is the handler's decision, not this transport's.
       let js = WuiStr(
-        waterui_webview_bridge_reply_script(ctx.requestId, success, result)
+        waterui_webview_bridge_reply_script(ctx.requestId, success, kind, result)
       ).toString()
       precondition(Thread.isMainThread, "WebView message replies must run on the UI thread")
       MainActor.assumeIsolated {
@@ -212,6 +215,7 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
         waterui_webview_bridge_reply_script(
           request.id,
           false,
+          WuiJsReplyKind(0),
           WuiStr(string: "no WaterUI handler named '\(handlerName)'").intoInner()
         )
       ).toString()
@@ -224,7 +228,7 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
     ).toOpaque()
     let msg = CWaterUI.WuiWebViewMessage(
       payload_base64: WuiStr(string: payloadB64).intoInner(),
-      reply: CWaterUI.WuiJsCallback(data: replyCtx, call: Self.messageReplyCallback)
+      reply: CWaterUI.WuiWebViewReply(data: replyCtx, call: Self.messageReplyCallback)
     )
     call(callback.data, msg)
   }
