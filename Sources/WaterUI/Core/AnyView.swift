@@ -229,8 +229,11 @@ private func registerBuiltinComponentsIfNeeded() {
   // WebView component
   registerComponent(WuiWebViewComponent.self)
 
-  // Map component
-  registerComponent(WuiMapViewComponent.self)
+  // Map component. Off unless the app enabled WaterUI's `map` feature, which
+  // is what exports the map symbols this component binds to.
+  #if WATERUI_MAP
+    registerComponent(WuiMapViewComponent.self)
+  #endif
 }
 
 // MARK: - WuiAnyView

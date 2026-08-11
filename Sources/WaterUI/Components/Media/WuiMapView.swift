@@ -4,6 +4,8 @@
 // # Layout Behavior
 // MapView is greedy - it expands to fill all available space.
 
+#if WATERUI_MAP
+
 import CWaterUI
 import Foundation
 import MapKit
@@ -236,3 +238,5 @@ final class WuiMapViewComponent: PlatformView, WuiComponent {
     override var isFlipped: Bool { true }
   #endif
 }
+
+#endif
