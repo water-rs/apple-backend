@@ -66,6 +66,68 @@ private func makeMapAnnotationsWatcher(
   return watcher
 }
 
+/// A location the application supplied, drawn as WaterUI's own marker.
+///
+/// MapKit's `showsUserLocation` tracks CoreLocation, which is a second source
+/// of truth. When the application drives the location itself, the map must show
+/// that reading instead so both agree.
+private struct WuiSuppliedLocation {
+  let coordinate: CLLocationCoordinate2D
+  let horizontalAccuracy: CLLocationDistance?
+
+  init?(_ location: CWaterUI.WuiLocation) {
+    guard location.has_location else {
+      return nil
+    }
+    coordinate = CLLocationCoordinate2D(
+      latitude: location.coordinate.latitude,
+      longitude: location.coordinate.longitude
+    )
+    horizontalAccuracy = location.has_horizontal_accuracy ? location.horizontal_accuracy : nil
+  }
+}
+
+@MainActor
+private func makeUserLocationComputed(
+  _ pointer: OpaquePointer
+) -> WuiComputed<WuiSuppliedLocation?> {
+  WuiComputed<WuiSuppliedLocation?>(
+    inner: pointer,
+    read: { pointer in WuiSuppliedLocation(waterui_read_computed_user_location(pointer)) },
+    watch: { pointer, callback in
+      let watcher = makeUserLocationWatcher(callback)
+      guard let guardPointer = waterui_watch_computed_user_location(pointer, watcher) else {
+        fatalError("Failed to watch the Map user location signal")
+      }
+      return WatcherGuard(guardPointer)
+    },
+    drop: waterui_drop_computed_user_location
+  )
+}
+
+@MainActor
+private func makeUserLocationWatcher(
+  _ callback: @escaping (WuiSuppliedLocation?, WuiWatcherMetadata) -> Void
+) -> OpaquePointer {
+  let data = wrap(callback)
+  let call:
+    @convention(c) (
+      UnsafeMutableRawPointer?,
+      CWaterUI.WuiLocation,
+      OpaquePointer?
+    ) -> Void = { data, value, metadata in
+      precondition(Thread.isMainThread, "Map user location left its owning UI thread")
+      callWrapper(data, WuiSuppliedLocation(value), metadata)
+    }
+  let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
+    dropWrapper($0, WuiSuppliedLocation?.self)
+  }
+  guard let watcher = waterui_new_watcher_user_location(data, call, drop) else {
+    fatalError("Failed to create the Map user location watcher")
+  }
+  return watcher
+}
+
 @MainActor
 private func makeMapRegionComputed(_ pointer: OpaquePointer) -> WuiComputed<WuiRegion> {
   WuiComputed<WuiRegion>(
@@ -112,6 +174,9 @@ final class WuiMapViewComponent: PlatformView, WuiComponent {
   private var regionObservation: WuiComputedObservation<WuiRegion>?
   private var annotationsObservation: WuiComputedObservation<[WuiNativeMapAnnotation]>?
   private var renderedAnnotations: [MKPointAnnotation] = []
+  private var userLocationObservation: WuiComputedObservation<WuiSuppliedLocation?>?
+  private var suppliedLocationOverlay: MKCircle?
+  private var suppliedLocationMarker: MKPointAnnotation?
 
   convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
     // Get the WuiMap config (returns by value)
@@ -164,10 +229,45 @@ final class WuiMapViewComponent: PlatformView, WuiComponent {
     self.annotationsObservation = annotationsObservation
     reconcileAnnotations(annotationsObservation.value)
 
+    // An application-supplied location replaces CoreLocation tracking, so the
+    // map never shows two disagreeing positions.
+    if let locationPointer = config.user_location {
+      mapView.showsUserLocation = false
+      let observation = WuiComputedObservation(makeUserLocationComputed(locationPointer)) {
+        [weak self] location, _ in
+        self?.applySuppliedLocation(location)
+      }
+      userLocationObservation = observation
+      applySuppliedLocation(observation.value)
+    }
+
     // Add map view as subview using manual frame layout
     mapView.translatesAutoresizingMaskIntoConstraints = true
     addSubview(mapView)
 
+  }
+
+  private func applySuppliedLocation(_ location: WuiSuppliedLocation?) {
+    if let overlay = suppliedLocationOverlay {
+      mapView.removeOverlay(overlay)
+      suppliedLocationOverlay = nil
+    }
+    if let marker = suppliedLocationMarker {
+      mapView.removeAnnotation(marker)
+      suppliedLocationMarker = nil
+    }
+    guard let location else {
+      return
+    }
+    let marker = MKPointAnnotation()
+    marker.coordinate = location.coordinate
+    mapView.addAnnotation(marker)
+    suppliedLocationMarker = marker
+    if let accuracy = location.horizontalAccuracy, accuracy > 0 {
+      let overlay = MKCircle(center: location.coordinate, radius: accuracy)
+      mapView.addOverlay(overlay)
+      suppliedLocationOverlay = overlay
+    }
   }
 
   @available(*, unavailable)
