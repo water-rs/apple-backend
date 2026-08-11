@@ -5,6 +5,7 @@
 // WebView is greedy - it expands to fill all available space.
 
 import CWaterUI
+import OSLog
 import Security
 import WebKit
 
@@ -27,8 +28,6 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
   private var progressObservation: NSKeyValueObservation?
   private var messageHandlers: [String: CWaterUI.WuiFn_WuiWebViewMessage] = [:]
   private var installedBridge = false
-  private var installedHandlerScripts: Set<String> = []
-  private let jsBridge = JsBridge()
 
   override init() {
     let config = WKWebViewConfiguration()
@@ -69,73 +68,38 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
     }
   }
 
-  @MainActor
-  private struct JsBridge {
-    let baseScript: String
-    private let handlerTemplate: String
-
-    init() {
-      baseScript = Self.loadScript(named: "Bridge")
-      handlerTemplate = Self.loadScript(named: "Handler")
-    }
-
-    func handlerScript(name: String) -> String {
-      handlerTemplate.replacingOccurrences(
-        of: "__WATERUI_HANDLER_NAME__",
-        with: WebViewWrapper.jsonQuoted(name)
-      )
-    }
-
-    private static func loadScript(named name: String) -> String {
-      guard
-        let url = Bundle.module.url(
-          forResource: name,
-          withExtension: "js"
-        )
-      else {
-        fatalError("WaterUI is missing the bundled \(name).js resource")
-      }
-      do {
-        return try String(contentsOf: url, encoding: .utf8)
-      } catch {
-        fatalError("WaterUI could not load \(name).js: \(error)")
-      }
-    }
-  }
-
+  /// Installs the shared bridge and the single message handler it transports over.
+  ///
+  /// The script comes from Rust so the envelope format is defined in exactly one
+  /// place; Swift only routes messages to the handler table it owns.
   private func ensureBridgeInstalled() {
     guard !installedBridge else { return }
     installedBridge = true
-    injectScript(jsBridge.baseScript, time: WuiScriptInjectionTime_DocumentStart)
+    // Transport first: the shared script calls `__wateruiSend`.
+    injectScript(Self.transportScript, time: WuiScriptInjectionTime_DocumentStart)
+    injectScript(
+      WuiStr(waterui_webview_bridge_script()).toString(),
+      time: WuiScriptInjectionTime_DocumentStart
+    )
+    webView.configuration.userContentController.add(self, name: Self.sendFunction)
   }
 
-  private func ensureHandlerScriptInstalled(name: String) {
-    guard installedHandlerScripts.insert(name).inserted else { return }
-    ensureBridgeInstalled()
-    injectScript(jsBridge.handlerScript(name: name), time: WuiScriptInjectionTime_DocumentStart)
-  }
+  private static let sendFunction = "__wateruiSend"
+  private static let transportScript = """
+    globalThis.__wateruiSend = function (envelope) { \
+    window.webkit.messageHandlers.\(sendFunction).postMessage(envelope); };
+    """
 
   private final class MessageReplyContext {
     weak var wrapper: WebViewWrapper?
-    let requestId: String
+    let requestId: UInt64
 
-    init(wrapper: WebViewWrapper, requestId: String) {
+    init(wrapper: WebViewWrapper, requestId: UInt64) {
       self.wrapper = wrapper
       self.requestId = requestId
     }
   }
 
-  private static func jsonQuoted(_ s: String) -> String {
-    do {
-      let data = try JSONSerialization.data(withJSONObject: [s])
-      guard let text = String(data: data, encoding: .utf8) else {
-        fatalError("JSONSerialization returned non-UTF-8 data for a Swift String")
-      }
-      return String(text.dropFirst().dropLast())
-    } catch {
-      fatalError("Failed to JSON-quote a WebView bridge string: \(error)")
-    }
-  }
 
   private static let messageReplyCallback:
     @convention(c) (
@@ -151,11 +115,10 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
         fatalError("WebView message reply outlived its WebView")
       }
 
-      let payload = WuiStr(result).toString()
-      let id = WebViewWrapper.jsonQuoted(ctx.requestId)
-      let ok = success ? "true" : "false"
-      let body = WebViewWrapper.jsonQuoted(payload)
-      let js = "window.__wateruiResolve(\(id), \(ok), \(body));"
+      // Rust renders the reply so the envelope format is not restated here.
+      let js = WuiStr(
+        waterui_webview_bridge_reply_script(ctx.requestId, success, result)
+      ).toString()
       precondition(Thread.isMainThread, "WebView message replies must run on the UI thread")
       MainActor.assumeIsolated {
         wrapper.webView.evaluateJavaScript(js) { _, error in
@@ -166,20 +129,19 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
       }
     }
 
+  /// Registering a name twice replaces the handler; one transport serves them all.
   func addHandler(_ name: String, callback: CWaterUI.WuiFn_WuiWebViewMessage) {
-    // Replace existing handler if present.
     if let existing = messageHandlers[name] {
       guard let drop = existing.drop else {
         fatalError("WebView message handler has no drop function")
       }
       drop(existing.data)
-      webView.configuration.userContentController.removeScriptMessageHandler(forName: name)
     }
     messageHandlers[name] = callback
-    webView.configuration.userContentController.add(self, name: name)
-    ensureHandlerScriptInstalled(name: name)
+    ensureBridgeInstalled()
   }
 
+  /// Removing a name that was never registered is a no-op.
   func removeHandler(_ name: String) {
     if let existing = messageHandlers.removeValue(forKey: name) {
       guard let drop = existing.drop else {
@@ -187,7 +149,6 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
       }
       drop(existing.data)
     }
-    webView.configuration.userContentController.removeScriptMessageHandler(forName: name)
   }
 
   nonisolated func userContentController(
@@ -198,29 +159,43 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
     }
   }
 
+  /// Routes one `waterui.invoke(...)` envelope to the handler it names.
+  ///
+  /// Page script reaches this transport directly, so a malformed envelope or an
+  /// unknown handler name is rejected back to JavaScript rather than being fatal.
   @MainActor
   private func handleScriptMessage(name: String, body: Any) {
-    guard let callback = messageHandlers[name] else { return }
-
-    // Expected payload: { id: string, payload: base64(string) }.
-    let dict = body as? [String: Any]
-    let requestId = dict?["id"] as? String
-    let payloadB64 = dict?["payload"] as? String
-
-    guard let requestId, let payloadB64 else {
-      fatalError("WebView bridge handler '\(name)' received a malformed request")
+    guard let envelope = body as? String else {
+      Logger.waterui.warning("WaterUI bridge received a non-string message body")
+      return
     }
 
-    let replyCtx = Unmanaged.passRetained(MessageReplyContext(wrapper: self, requestId: requestId))
-      .toOpaque()
-    let reply = CWaterUI.WuiJsCallback(data: replyCtx, call: Self.messageReplyCallback)
+    let request = waterui_webview_parse_bridge_request(WuiStr(string: envelope).intoInner())
+    let handlerName = WuiStr(request.name).toString()
+    let payloadB64 = WuiStr(request.payload_base64).toString()
+    guard request.ok else { return }
+
+    guard let callback = messageHandlers[handlerName], let call = callback.call else {
+      Logger.waterui.warning(
+        "page script called WaterUI handler '\(handlerName)', which is not registered")
+      let js = WuiStr(
+        waterui_webview_bridge_reply_script(
+          request.id,
+          false,
+          WuiStr(string: "no WaterUI handler named '\(handlerName)'").intoInner()
+        )
+      ).toString()
+      webView.evaluateJavaScript(js, completionHandler: nil)
+      return
+    }
+
+    let replyCtx = Unmanaged.passRetained(
+      MessageReplyContext(wrapper: self, requestId: request.id)
+    ).toOpaque()
     let msg = CWaterUI.WuiWebViewMessage(
       payload_base64: WuiStr(string: payloadB64).intoInner(),
-      reply: reply
+      reply: CWaterUI.WuiJsCallback(data: replyCtx, call: Self.messageReplyCallback)
     )
-    guard let call = callback.call else {
-      fatalError("WebView bridge handler '\(name)' has no callback function")
-    }
     call(callback.data, msg)
   }
 
@@ -228,8 +203,8 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
   private func cleanupForDrop() {
     // Break retain cycles: WKUserContentController strongly retains its message handlers.
     let controller = webView.configuration.userContentController
-    for name in messageHandlers.keys {
-      controller.removeScriptMessageHandler(forName: name)
+    if installedBridge {
+      controller.removeScriptMessageHandler(forName: Self.sendFunction)
     }
     for (_, cb) in messageHandlers {
       guard let drop = cb.drop else {
@@ -257,7 +232,6 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
 
     controller.removeAllUserScripts()
     installedBridge = false
-    installedHandlerScripts.removeAll()
   }
 
   func setCookie(_ setCookieHeaderValue: String) {
