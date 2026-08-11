@@ -28,6 +28,8 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
   private var progressObservation: NSKeyValueObservation?
   private var messageHandlers: [String: CWaterUI.WuiFn_WuiWebViewMessage] = [:]
   private var installedBridge = false
+  /// URI patterns whose documents may reach the bridge, or nil for every origin.
+  private var bridgeOriginPatterns: [String]?
 
   override init() {
     let config = WKWebViewConfiguration()
@@ -141,6 +143,29 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
     ensureBridgeInstalled()
   }
 
+  /// Restricts which documents may reach the bridge.
+  ///
+  /// A handler is a capability, so a page the view navigates to is not entitled
+  /// to the handlers the application registered.
+  func setBridgeOrigins(_ patterns: String) {
+    bridgeOriginPatterns = patterns == "*" ? nil : patterns.split(separator: "\n").map(String.init)
+  }
+
+  /// Whether a message from `frame` may be dispatched.
+  ///
+  /// WebKit reports the frame, so the origin is authenticated by the engine
+  /// rather than claimed by the page.
+  private func frameMayUseBridge(_ frame: WKFrameInfo) -> Bool {
+    guard frame.isMainFrame else { return false }
+    guard let patterns = bridgeOriginPatterns else { return true }
+    let origin = frame.securityOrigin
+    var candidate = "\(origin.protocol)://\(origin.host)"
+    if origin.port != 0 {
+      candidate += ":\(origin.port)"
+    }
+    return patterns.contains { $0 == candidate + "/*" || $0 == candidate }
+  }
+
   /// Removing a name that was never registered is a no-op.
   func removeHandler(_ name: String) {
     if let existing = messageHandlers.removeValue(forKey: name) {
@@ -155,7 +180,7 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
     _ userContentController: WKUserContentController, didReceive message: WKScriptMessage
   ) {
     Task { @MainActor [weak self] in
-      self?.handleScriptMessage(name: message.name, body: message.body)
+      self?.handleScriptMessage(name: message.name, body: message.body, frame: message.frameInfo)
     }
   }
 
@@ -164,7 +189,12 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
   /// Page script reaches this transport directly, so a malformed envelope or an
   /// unknown handler name is rejected back to JavaScript rather than being fatal.
   @MainActor
-  private func handleScriptMessage(name: String, body: Any) {
+  private func handleScriptMessage(name: String, body: Any, frame: WKFrameInfo) {
+    guard frameMayUseBridge(frame) else {
+      Logger.waterui.warning(
+        "a document outside the bridge origin policy tried to call a WaterUI handler")
+      return
+    }
     guard let envelope = body as? String else {
       Logger.waterui.warning("WaterUI bridge received a non-string message body")
       return
@@ -535,6 +565,11 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
       remove_handler: { rawPtr, name in
         WebViewWrapper.withHandle(rawPtr, operation: "remove_handler") { wrapper in
           wrapper.removeHandler(WuiStr(name).toString())
+        }
+      },
+      set_bridge_origins: { rawPtr, patterns in
+        WebViewWrapper.withHandle(rawPtr, operation: "set_bridge_origins") { wrapper in
+          wrapper.setBridgeOrigins(WuiStr(patterns).toString())
         }
       },
       set_cookie: { rawPtr, cookie in
