@@ -15,6 +15,7 @@
 import CWaterUI
 import Foundation
 import Metal
+import OSLog
 import QuartzCore
 
 #if canImport(UIKit)
@@ -370,7 +371,8 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
   private var currentScaleFactor: CGFloat = 1.0
   private var configuredDynamicRangeMode: WuiDynamicRangeMode?
   private let explicitDynamicRangePreference: WuiDynamicRangeMode?
-  private let rendererDynamicRangeMode: WuiDynamicRangeMode
+  /// Renderer target range, decided at the first attach and stable afterwards.
+  private var latchedRendererDynamicRangeMode: WuiDynamicRangeMode?
 
   /// Gesture tracking state
   private var gestureStartScale: CGFloat = 1.0
@@ -401,10 +403,6 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
     let metalDevice = wuiMetalDevice(environment: env)
     self.renderState = renderState
     self.explicitDynamicRangePreference = renderState.explicitDynamicRangePreference
-    // Apple windows can move between SDR and HDR displays, so automatic mode keeps one
-    // lifetime-stable FP16 renderer target and changes presentation range only.
-    self.rendererDynamicRangeMode =
-      renderState.explicitDynamicRangePreference == .standard ? .standard : .high
 
     super.init(frame: .zero)
 
@@ -493,10 +491,10 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
       case .began, .changed:
         let location = gesture.location(in: self)
         renderState.updatePointerPosition(location, scaleFactor: currentScaleFactor)
-        renderFrame()
+        scheduleInputRender()
       case .ended, .cancelled:
         renderState.updatePointerPosition(nil, scaleFactor: currentScaleFactor)
-        renderFrame()
+        scheduleInputRender()
       default:
         break
       }
@@ -508,7 +506,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
         let location = touch.location(in: self)
         renderState.updatePointerPosition(location, scaleFactor: currentScaleFactor)
         renderState.updatePointerHit(location, scaleFactor: currentScaleFactor)
-        renderFrame()
+        scheduleInputRender()
       }
     }
 
@@ -517,20 +515,20 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
       if let touch = touches.first {
         let location = touch.location(in: self)
         renderState.updatePointerPosition(location, scaleFactor: currentScaleFactor)
-        renderFrame()
+        scheduleInputRender()
       }
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
       super.touchesEnded(touches, with: event)
       renderState.updatePointerHit(nil, scaleFactor: currentScaleFactor)
-      renderFrame()
+      scheduleInputRender()
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
       super.touchesCancelled(touches, with: event)
       renderState.updatePointerHit(nil, scaleFactor: currentScaleFactor)
-      renderFrame()
+      scheduleInputRender()
     }
 
     // MARK: - Gesture Handlers (iOS)
@@ -566,7 +564,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
       default:
         break
       }
-      renderFrame()
+      scheduleInputRender()
     }
 
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
@@ -600,7 +598,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
       default:
         break
       }
-      renderFrame()
+      scheduleInputRender()
     }
 
     @objc private func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
@@ -610,13 +608,25 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
         gesturePanOffset = .zero
         renderState.triggerDoubleTap()
         renderState.resetGestureState()
-        renderFrame()
+        scheduleInputRender()
       }
     }
   #elseif canImport(AppKit)
     override func updateTrackingAreas() {
       super.updateTrackingAreas()
-      guard trackingArea == nil else { return }
+      // AppKit calls this whenever the geometry or window changes, and a
+      // tracking area installed against the previous window keeps reporting
+      // against it, so the old one is always removed first.
+      if let trackingArea {
+        removeTrackingArea(trackingArea)
+        self.trackingArea = nil
+      }
+      guard window != nil else { return }
+      // `.activeInKeyWindow` on purpose: pointer position feeds the renderer's
+      // hover state, and a background window has no hover to show. Tracking it
+      // there would wake the frame clock for a window the user is not using.
+      // `.inVisibleRect` keeps the area in step with the view's visible bounds,
+      // which makes the `rect` argument irrelevant.
       let options: NSTrackingArea.Options = [
         .mouseEnteredAndExited,
         .mouseMoved,
@@ -633,37 +643,53 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
       addTrackingArea(area)
     }
 
+    override func viewWillStartLiveResize() {
+      super.viewWillStartLiveResize()
+      // During a live resize the drawable has to be presented inside the same
+      // Core Animation transaction that commits the new layer geometry, or
+      // presented frames trail the window edge. wgpu reads this flag when it
+      // acquires the drawable and switches to the wait-then-present path.
+      // It stays off in steady state, where it would only make presentation
+      // block until the command buffer is scheduled.
+      metalLayer.presentsWithTransaction = true
+    }
+
+    override func viewDidEndLiveResize() {
+      super.viewDidEndLiveResize()
+      metalLayer.presentsWithTransaction = false
+    }
+
     override func mouseEntered(with event: NSEvent) {
       super.mouseEntered(with: event)
       let location = convert(event.locationInWindow, from: nil)
       renderState.updatePointerPosition(location, scaleFactor: currentScaleFactor)
-      renderFrame()
+      scheduleInputRender()
     }
 
     override func mouseMoved(with event: NSEvent) {
       super.mouseMoved(with: event)
       let location = convert(event.locationInWindow, from: nil)
       renderState.updatePointerPosition(location, scaleFactor: currentScaleFactor)
-      renderFrame()
+      scheduleInputRender()
     }
 
     override func mouseExited(with event: NSEvent) {
       super.mouseExited(with: event)
       renderState.updatePointerPosition(nil, scaleFactor: currentScaleFactor)
-      renderFrame()
+      scheduleInputRender()
     }
 
     override func mouseDragged(with event: NSEvent) {
       super.mouseDragged(with: event)
       let location = convert(event.locationInWindow, from: nil)
       renderState.updatePointerPosition(location, scaleFactor: currentScaleFactor)
-      renderFrame()
+      scheduleInputRender()
     }
 
     override func mouseUp(with event: NSEvent) {
       super.mouseUp(with: event)
       renderState.updatePointerHit(nil, scaleFactor: currentScaleFactor)
-      renderFrame()
+      scheduleInputRender()
     }
 
     override var acceptsFirstResponder: Bool { true }
@@ -701,7 +727,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
       default:
         break
       }
-      renderFrame()
+      scheduleInputRender()
     }
 
     override func scrollWheel(with event: NSEvent) {
@@ -766,7 +792,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
           )
         }
       }
-      renderFrame()
+      scheduleInputRender()
     }
 
     // Double-click to reset zoom/pan
@@ -776,7 +802,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
       let location = convert(event.locationInWindow, from: nil)
       renderState.updatePointerPosition(location, scaleFactor: currentScaleFactor)
       renderState.updatePointerHit(location, scaleFactor: currentScaleFactor)
-      renderFrame()
+      scheduleInputRender()
 
       // Check for double-click
       if event.clickCount == 2 {
@@ -784,7 +810,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
         gesturePanOffset = .zero
         renderState.triggerDoubleTap()
         renderState.resetGestureState()
-        renderFrame()
+        scheduleInputRender()
       }
     }
   #endif
@@ -797,10 +823,10 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
   // MARK: - Metal Layer Setup
 
   private func setupMetalLayer(device: MTLDevice) {
+    // Only properties wgpu does not own belong here: configuring the surface
+    // overwrites `pixelFormat`, `colorspace`, `framebufferOnly`, `drawableSize`,
+    // `maximumDrawableCount`, and `wantsExtendedDynamicRangeContent`.
     metalLayer.device = device
-    metalLayer.framebufferOnly = true
-    // Keep drawable count low for on-demand surfaces (memory + drawable pressure).
-    metalLayer.maximumDrawableCount = 2
     metalLayer.isOpaque = false  // Allow transparency for compositing with background
     #if canImport(UIKit)
       metalLayer.backgroundColor = UIColor.clear.cgColor  // Ensure no black background
@@ -819,17 +845,46 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
     #endif
   }
 
+  /// Resolves the renderer's target dynamic range for a requested presentation.
+  ///
+  /// Automatic mode follows the display: an SDR panel negotiates an SDR surface
+  /// format instead of paying for an FP16 target whose extended range it cannot
+  /// show. An explicit preference always wins.
+  ///
+  /// The answer is latched on first use because wgpu keeps the format it
+  /// negotiated for this renderer across detach/attach cycles — a later attach
+  /// cannot change it, and pretending otherwise would leave the layer's declared
+  /// format disagreeing with the surface's. Presentation range keeps tracking
+  /// the display, so moving an HDR-capable surface between displays still
+  /// switches EDR presentation on and off.
+  private func rendererDynamicRange(
+    presenting presentation: WuiDynamicRangeMode
+  ) -> WuiDynamicRangeMode {
+    if let latchedRendererDynamicRangeMode {
+      return latchedRendererDynamicRangeMode
+    }
+    let mode = explicitDynamicRangePreference ?? presentation
+    latchedRendererDynamicRangeMode = mode
+    Logger.graphics.debug(
+      "GpuSurface renderer target latched to \(mode == .high ? "HDR" : "SDR", privacy: .public)"
+    )
+    return mode
+  }
+
   /// Configure the metal layer for dynamic range rendering.
-  private func configureDynamicRange(_ mode: WuiDynamicRangeMode) {
-    guard configuredDynamicRangeMode != mode else { return }
+  private func configureDynamicRange(
+    presentation: WuiDynamicRangeMode,
+    renderer: WuiDynamicRangeMode
+  ) {
+    guard configuredDynamicRangeMode != presentation else { return }
     precondition(!isSurfaceAttached, "GpuSurface dynamic range cannot change while attached")
-    applyDynamicRange(mode, to: self)
+    applyDynamicRange(presentation, to: self)
     configureMetalLayerDynamicRange(
       metalLayer,
-      presentationMode: mode,
-      rendererMode: rendererDynamicRangeMode
+      presentationMode: presentation,
+      rendererMode: renderer
     )
-    configuredDynamicRangeMode = mode
+    configuredDynamicRangeMode = presentation
   }
 
   // MARK: - GPU Initialization
@@ -842,13 +897,18 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
       guard let window else { return }
     #endif
 
-    let dynamicRange = explicitDynamicRangePreference ?? requireInheritedDynamicRange(for: self)
-    if configuredDynamicRangeMode != dynamicRange {
+    let requestedRange = explicitDynamicRangePreference ?? requireInheritedDynamicRange(for: self)
+    let rendererRange = rendererDynamicRange(presenting: requestedRange)
+    // An SDR renderer target has no extended range to present, so a surface that
+    // latched SDR stays SDR even once its window reaches an HDR display.
+    let presentationRange: WuiDynamicRangeMode =
+      rendererRange == .standard ? .standard : requestedRange
+    if configuredDynamicRangeMode != presentationRange {
       if isSurfaceAttached {
         stopDisplayLink()
         renderState.detachIfNeeded()
       }
-      configureDynamicRange(dynamicRange)
+      configureDynamicRange(presentation: presentationRange, renderer: rendererRange)
     }
 
     #if canImport(UIKit)
@@ -860,13 +920,16 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
     let width = UInt32(bounds.width * currentScaleFactor)
     let height = UInt32(bounds.height * currentScaleFactor)
 
+    // wgpu owns `drawableSize`: it sets it from the configuration on the next
+    // render, so writing it here would only race the surface's own idea of the
+    // swapchain size. Ask for that render promptly instead, to keep the window
+    // between layout and reconfiguration short.
     let sizeChanged = renderState.updateSize(width: width, height: height)
-
-    // Update metal layer frame and drawable size
-    metalLayer.frame = bounds
     if sizeChanged {
-      metalLayer.drawableSize = CGSize(width: CGFloat(width), height: CGFloat(height))
+      keepRedrawing = true
     }
+
+    metalLayer.frame = bounds
     metalLayer.contentsScale = currentScaleFactor
 
     // Get pointer to metal layer for wgpu surface creation
@@ -877,8 +940,15 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
       layerPtr: layerPtr,
       width: width,
       height: height,
-      prefersHDR: rendererDynamicRangeMode == .high
+      prefersHDR: rendererRange == .high
     ) {
+      Logger.graphics.debug(
+        """
+        GpuSurface attached: \(width, privacy: .public)x\(height, privacy: .public), \
+        renderer=\(rendererRange == .high ? "HDR" : "SDR", privacy: .public), \
+        presentation=\(presentationRange == .high ? "HDR" : "SDR", privacy: .public)
+        """
+      )
       renderInitialFrame()
     }
   }
@@ -900,11 +970,32 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
     }
 
     guard let needsRedraw = renderState.requestRender(force: force) else {
+      // Nothing was rendered: either there is nothing to draw, the surface is
+      // not presentable yet, or asynchronous setup is still running. None of
+      // those clear by spinning the display link — the renderer's redraw
+      // callback wakes us when the situation changes — so let it stop.
+      keepRedrawing = false
       updateDisplayLinkState()
       return
     }
     completeReady(true)
     keepRedrawing = needsRedraw
+    updateDisplayLinkState()
+  }
+
+  /// Publishes input state and lets the display link drive the actual frame.
+  ///
+  /// Input events arrive faster than the display refreshes, and presenting
+  /// inline would block the main thread inside `nextDrawable` as soon as the
+  /// drawable pool is exhausted. The event handlers therefore only update
+  /// `renderState` (which marks it as needing a render) and arm the frame
+  /// clock, which coalesces a burst of events into one frame per refresh.
+  private func scheduleInputRender() {
+    if externalRenderingScopes.isActive {
+      externalRenderingScopes.notifyRedraw()
+      return
+    }
+    keepRedrawing = true
     updateDisplayLinkState()
   }
 
@@ -914,18 +1005,40 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
 
   private func isEffectivelyVisible() -> Bool {
     #if canImport(UIKit)
-      guard window != nil else { return false }
-      guard !isHidden, alpha > 0 else { return false }
+      guard let window else { return false }
+      guard hasVisibleAncestry() else { return false }
+      guard window.screen != nil else { return false }
       return UIApplication.shared.applicationState == .active
     #elseif canImport(AppKit)
       guard let window else { return false }
-      guard !isHidden, alphaValue > 0 else { return false }
+      guard hasVisibleAncestry() else { return false }
+      // A window that is on no display cannot present; the frame clock falls
+      // back to the run loop for those, so gating here keeps an offscreen
+      // window from rendering frames nobody sees.
+      guard window.screen != nil else { return false }
       if window.isMiniaturized { return false }
       if !window.occlusionState.contains(.visible) { return false }
       return true
     #else
       return true
     #endif
+  }
+
+  /// Reports whether this view and every ancestor is visible.
+  ///
+  /// A hidden or fully transparent ancestor hides this view just as effectively
+  /// as its own flags do, and neither `isHidden` nor `alpha` is inherited.
+  private func hasVisibleAncestry() -> Bool {
+    var node: PlatformView? = self
+    while let current = node {
+      #if canImport(UIKit)
+        if current.isHidden || current.alpha <= 0 { return false }
+      #elseif canImport(AppKit)
+        if current.isHidden || current.alphaValue <= 0 { return false }
+      #endif
+      node = current.superview
+    }
+    return true
   }
 
   private func updateDisplayLinkState() {
@@ -943,13 +1056,18 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
 
   func beginExternalRendering(onRedraw: (() -> Void)? = nil) {
     if externalRenderingScopes.begin(onRedraw: onRedraw) {
+      Logger.graphics.debug("GpuSurface entered external rendering; presentation suspended")
       renderState.setExternalRendering(true)
+      keepRedrawing = false
       stopDisplayLink()
     }
   }
 
   func endExternalRendering(resumingPresentation: Bool) {
     if externalRenderingScopes.end() {
+      Logger.graphics.debug(
+        "GpuSurface left external rendering, resuming=\(resumingPresentation, privacy: .public)"
+      )
       renderState.setExternalRendering(false)
       if resumingPresentation {
         scheduleOnDemandRender()
@@ -987,6 +1105,10 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
 
   private func completeSetupIfReady() {
     guard renderState.isSetupReady else { return }
+    guard !setupCompletions.isEmpty else { return }
+    Logger.graphics.debug(
+      "GpuSurface setup complete, waiters=\(self.setupCompletions.count, privacy: .public)"
+    )
     let completions = setupCompletions
     setupCompletions.removeAll()
     for completion in completions {
@@ -1036,6 +1158,12 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
     renderState.prepareMetalTexture(Unmanaged.passUnretained(texture).toOpaque())
   }
 
+  /// Renders one frame into a caller-owned texture and reports GPU completion.
+  ///
+  /// `self` is captured weakly because marking this surface ready is only
+  /// meaningful while it exists, but `completion` is invoked unconditionally:
+  /// it is the caller's half of the fence handshake, and dropping it would
+  /// strand the composition waiting on a frame that already finished.
   func renderPreparedExternalTexture(
     texture: MTLTexture,
     width: UInt32,
@@ -1090,10 +1218,15 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
     return device
   }
 
+  /// The pixel format an external capture texture must use.
+  ///
+  /// The format is established when the dynamic range is configured, which
+  /// happens on the way into the first attach; before that the layer still
+  /// carries Core Animation's default and would hand out the wrong format.
   var capturePixelFormat: MTLPixelFormat {
     precondition(
       configuredDynamicRangeMode != nil,
-      "GpuSurface must be attached before external capture"
+      "GpuSurface must have a configured dynamic range before external capture"
     )
     return metalLayer.pixelFormat
   }
@@ -1327,6 +1460,23 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
         ) { [weak self] _ in
           MainActor.assumeIsolated {
             self?.updateDisplayLinkState()
+          }
+        }
+      )
+      // A window can move between displays, or off every display entirely. The
+      // frame clock is locked to a specific display's refresh rate, so it has to
+      // be rebuilt; re-running the visibility check does exactly that.
+      windowObservers.append(
+        center.addObserver(
+          forName: NSWindow.didChangeScreenNotification,
+          object: window,
+          queue: .main
+        ) { [weak self] _ in
+          MainActor.assumeIsolated {
+            guard let self else { return }
+            self.stopDisplayLink()
+            self.initializeGpuIfNeeded()
+            self.updateDisplayLinkState()
           }
         }
       )
