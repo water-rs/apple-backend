@@ -1152,6 +1152,9 @@ public final class WuiRootContext {
       // Use manual frame-based layout, not AutoLayout
       rootView.translatesAutoresizingMaskIntoConstraints = true
       view.addSubview(rootView)
+      // Below anything the application installs, so a view with a context menu
+      // of its own still wins the gesture.
+      WuiInspector.installGesture(on: view, env: context.env)
       view.setNeedsLayout()
     }
 
@@ -1268,6 +1271,8 @@ public final class WuiRootContext {
       // Use manual frame-based layout, not AutoLayout
       rootView.translatesAutoresizingMaskIntoConstraints = true
       addSubview(rootView)
+      // As above: the window's own view is the last to see the click.
+      WuiInspector.installGesture(on: self, env: context.env)
       needsLayout = true
     }
 
