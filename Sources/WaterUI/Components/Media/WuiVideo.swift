@@ -26,7 +26,7 @@ final class WuiVideo: PlatformView, WuiComponent {
     playback = WuiVideoPlaybackCoordinator(descriptor.playbackDescriptor, loops: descriptor.loops)
 
     let playerLayer = AVPlayerLayer(player: playback.player)
-    playerLayer.videoGravity = AVLayerVideoGravity.from(descriptor.aspect_ratio)
+    playerLayer.videoGravity = AVLayerVideoGravity.from(descriptor.content_mode)
     self.playerLayer = playerLayer
 
     super.init(frame: .zero)

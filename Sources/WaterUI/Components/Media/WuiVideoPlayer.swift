@@ -118,7 +118,7 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
     #endif
 
     super.init(frame: .zero)
-    configurePlayerView(aspectRatio: AVLayerVideoGravity.from(descriptor.aspect_ratio))
+    configurePlayerView(gravity: AVLayerVideoGravity.from(descriptor.content_mode))
     playback.activate()
     emitPictureInPictureChanged(false)
   }
@@ -128,13 +128,13 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
     fatalError("init(coder:) has not been implemented")
   }
 
-  private func configurePlayerView(aspectRatio: AVLayerVideoGravity) {
+  private func configurePlayerView(gravity: AVLayerVideoGravity) {
     #if canImport(AppKit)
       playerView.player = playback.player
       playerView.controlsStyle = showControls ? .inline : .none
       playerView.showsFullScreenToggleButton = showControls
       playerView.allowsPictureInPicturePlayback = true
-      playerView.videoGravity = aspectRatio
+      playerView.videoGravity = gravity
       playerView.translatesAutoresizingMaskIntoConstraints = false
       playerView.wantsLayer = true
 
@@ -158,7 +158,7 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
       playerViewController.showsPlaybackControls = showControls
       playerViewController.allowsPictureInPicturePlayback = true
       playerViewController.canStartPictureInPictureAutomaticallyFromInline = true
-      playerViewController.videoGravity = aspectRatio
+      playerViewController.videoGravity = gravity
       playerViewController.view.translatesAutoresizingMaskIntoConstraints = true
       playerViewController.view.insetsLayoutMarginsFromSafeArea = false
       playerViewController.view.isUserInteractionEnabled = showControls

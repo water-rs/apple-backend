@@ -10,12 +10,12 @@ import OSLog
 #endif
 
 extension AVLayerVideoGravity {
-  static func from(_ aspect: WuiAspectRatio) -> AVLayerVideoGravity {
-    switch aspect {
-    case WuiAspectRatio_Fit: return .resizeAspect
-    case WuiAspectRatio_Fill: return .resizeAspectFill
-    case WuiAspectRatio_Stretch: return .resize
-    default: fatalError("Unsupported WaterUI video aspect ratio: \(aspect.rawValue)")
+  static func from(_ mode: WuiContentMode) -> AVLayerVideoGravity {
+    switch mode {
+    case WuiContentMode_Fit: return .resizeAspect
+    case WuiContentMode_Fill: return .resizeAspectFill
+    case WuiContentMode_Stretch: return .resize
+    default: fatalError("Unsupported WaterUI video content mode: \(mode.rawValue)")
     }
   }
 }
