@@ -46,8 +46,11 @@ enum WuiInspector {
     guard isAvailable(env: env) else { return }
 
     #if canImport(AppKit)
-      let recognizer = WuiInspectorClickRecognizer(env: env)
-      view.addGestureRecognizer(recognizer)
+      // Nothing to install: AppKit delivers secondary clicks through
+      // `rightMouseDown`, which the host view overrides. A gesture recognizer
+      // here would sit above every control and swallow the mouse tracking that
+      // sliders and drags depend on.
+      _ = view
     #elseif canImport(UIKit)
       // A phone has no secondary click. A two-finger long press is not something
       // an application is likely to have claimed, and is awkward enough not to
@@ -65,44 +68,39 @@ enum WuiInspector {
 }
 
 #if canImport(AppKit)
-  /// A secondary click anywhere in the window offers to inspect what is under it.
-  @MainActor
-  private final class WuiInspectorClickRecognizer: NSClickGestureRecognizer {
-    private let env: WuiEnvironment
-
-    init(env: WuiEnvironment) {
-      self.env = env
-      super.init(target: nil, action: nil)
-      self.buttonMask = 0x2  // secondary button
-      self.target = self
-      self.action = #selector(handle(_:))
-      // Let the view under the pointer handle the click first; this only runs
-      // when nothing else claimed it.
-      self.delaysPrimaryMouseButtonEvents = false
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-      fatalError("init(coder:) has not been implemented")
-    }
-
-    @objc func handle(_ sender: NSClickGestureRecognizer) {
-      guard sender.state == .ended, let view = sender.view else { return }
-      let point = sender.location(in: view)
+  extension WuiInspector {
+    /// Offers "Inspect Element" where the user secondary-clicked.
+    ///
+    /// Raised from the host view's `rightMouseDown`, so it runs only for the
+    /// secondary button and leaves every other event untouched — a view with a
+    /// context menu of its own handles the click before it reaches here.
+    static func presentMenu(for event: NSEvent, in view: NSView, env: WuiEnvironment) {
+      guard isAvailable(env: env) else { return }
 
       let menu = NSMenu()
       let item = NSMenuItem(
         title: "Inspect Element",
-        action: #selector(inspect(_:)),
+        action: #selector(WuiInspectorMenuTarget.inspect(_:)),
         keyEquivalent: ""
       )
-      item.target = self
+      let target = WuiInspectorMenuTarget(env: env)
+      item.target = target
+      item.representedObject = target  // the menu item is the only owner
       menu.addItem(item)
-      NSMenu.popUpContextMenu(menu, with: NSApp.currentEvent ?? NSEvent(), for: view)
-      _ = point
+      NSMenu.popUpContextMenu(menu, with: event, for: view)
+    }
+  }
+
+  /// Carries the environment from the menu item to the action.
+  @MainActor
+  private final class WuiInspectorMenuTarget: NSObject {
+    private let env: WuiEnvironment
+
+    init(env: WuiEnvironment) {
+      self.env = env
     }
 
-    @objc private func inspect(_ sender: NSMenuItem) {
+    @objc func inspect(_ sender: NSMenuItem) {
       WuiInspector.open(env: env)
     }
   }

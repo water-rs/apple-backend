@@ -1271,9 +1271,20 @@ public final class WuiRootContext {
       // Use manual frame-based layout, not AutoLayout
       rootView.translatesAutoresizingMaskIntoConstraints = true
       addSubview(rootView)
-      // As above: the window's own view is the last to see the click.
-      WuiInspector.installGesture(on: self, env: context.env)
       needsLayout = true
+    }
+
+    /// A secondary click that no view claimed offers to inspect the element.
+    ///
+    /// The responder chain brings it here only when nothing above wanted it, so
+    /// a view with its own context menu still wins, and no other event is
+    /// affected — which a gesture recognizer on this view could not promise.
+    public override func rightMouseDown(with event: NSEvent) {
+      guard let context else {
+        super.rightMouseDown(with: event)
+        return
+      }
+      WuiInspector.presentMenu(for: event, in: self, env: context.env)
     }
 
     public override var isFlipped: Bool { true }

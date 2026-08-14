@@ -471,6 +471,7 @@ private func registerBuiltinComponentsIfNeeded() {
       // This is critical: WaterUI uses Rust layout engine, not AutoLayout
       inner.translatesAutoresizingMaskIntoConstraints = true
       addSubview(inner)
+
     }
 
     @available(*, unavailable)
@@ -480,6 +481,19 @@ private func registerBuiltinComponentsIfNeeded() {
 
     public func layoutPriority() -> Int32 {
       inner.layoutPriority()
+    }
+
+    /// A wrapper is not a control: a click it does not contain belongs to
+    /// whatever is behind it.
+    ///
+    /// `NSView` answers a hit inside its own bounds with itself, which is right
+    /// for something that draws and wrong for something that only wraps. A
+    /// window-filling wrapper — the overlay layer a window composes above its
+    /// content — would otherwise swallow every click that misses its contents,
+    /// leaving the controls beneath it visible and dead.
+    public override func hitTest(_ point: NSPoint) -> NSView? {
+      let hit = super.hitTest(point)
+      return hit === self ? nil : hit
     }
 
     public func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {

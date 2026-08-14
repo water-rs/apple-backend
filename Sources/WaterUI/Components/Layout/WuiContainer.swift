@@ -237,6 +237,23 @@ final class WuiContainer: PlatformView, WuiComponent {
     #endif
   }
 
+
+  #if canImport(AppKit)
+    /// A layout container is not a control: a click none of its children want
+    /// belongs to whatever is behind it.
+    ///
+    /// `NSView` answers a hit inside its own bounds with itself, which is right
+    /// for something that draws and wrong for something that only arranges. A
+    /// window-filling container — the overlay layer a window composes above its
+    /// content, for snackbars and dialogs — would otherwise swallow every click
+    /// that misses its contents, leaving the controls beneath it visible and
+    /// dead.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+      let hit = super.hitTest(point)
+      return hit === self ? nil : hit
+    }
+  #endif
+
   func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
     if let lazyStack = LazyStackConfig(layout: wuiLayout) {
       return lazyStackSizeThatFits(proposal, config: lazyStack)
