@@ -285,6 +285,10 @@ private func scrollMinSize(
       hasVerticalScroller = isVertical
       hasHorizontalScroller = isHorizontal
       autohidesScrollers = true
+      // SwiftUI's ScrollView is transparent; NSScrollView's default opaque
+      // controlBackgroundColor punched a white/black rectangle over the
+      // themed window background (the UIKit branch already clears it).
+      drawsBackground = false
 
       // Use flipped document view for consistent coordinate system
       let documentView = FlippedView()

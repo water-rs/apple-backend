@@ -1176,7 +1176,9 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     private var fontObservation: WuiComputedObservation<WuiResolvedFontValue>?
 
     init(text: String, kind: Kind, env: WuiEnvironment) {
-      self.label = NSTextField(labelWithString: text.uppercased())
+      // SwiftUI section headers render the string as written; the legacy
+      // grouped-table uppercasing is not a macOS List behavior.
+      self.label = NSTextField(labelWithString: text)
       super.init(frame: .zero)
       translatesAutoresizingMaskIntoConstraints = true
       wantsLayer = true

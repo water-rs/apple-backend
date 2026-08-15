@@ -74,7 +74,6 @@ final class WuiNavigationDestinationState {
     private var colorWatcher: WatcherGuard?
     private var hiddenWatcher: WatcherGuard?
     private var backgroundObservation: WuiComputedObservation<WuiResolvedColor>?
-    private var surfaceObservation: WuiComputedObservation<WuiResolvedColor>?
     private var foregroundObservation: WuiComputedObservation<WuiResolvedColor>?
     private var accentObservation: WuiComputedObservation<WuiResolvedColor>?
     private var borderObservation: WuiComputedObservation<WuiResolvedColor>?
@@ -124,16 +123,6 @@ final class WuiNavigationDestinationState {
       }
       if let color = backgroundObservation?.value {
         view.backgroundColor = color.toUIColor()
-      }
-      surfaceObservation = WuiComputedObservation(
-        themeColor: WuiColorSlot_Surface,
-        env: env
-      ) { [weak self] color, _ in
-        guard let self, self.usesThemeBarColor else { return }
-        self.applyResolvedBarColor(color)
-      }
-      if usesThemeBarColor, let color = surfaceObservation?.value {
-        applyResolvedBarColor(color)
       }
       foregroundObservation = WuiComputedObservation(
         themeColor: WuiColorSlot_Foreground,
@@ -279,8 +268,8 @@ final class WuiNavigationDestinationState {
           }
         }
         applyBarColor(barColor.value)
-      } else if let background = backgroundObservation?.value {
-        applyResolvedBarColor(background)
+      } else {
+        applyDefaultBarAppearance()
       }
 
       if let barHidden = barState?.hidden {
@@ -310,11 +299,20 @@ final class WuiNavigationDestinationState {
 
     private func refreshNavigationAppearance() {
       if usesThemeBarColor {
-        guard let surface = surfaceObservation?.value else { return }
-        applyResolvedBarColor(surface)
+        applyDefaultBarAppearance()
       } else if let color = barState?.color?.value {
         applyResolvedBarColor(color)
       }
+    }
+
+    /// SwiftUI's default navigation bar is the system one: a translucent blur
+    /// while scrolled under, fully transparent at the scroll edge. Clearing
+    /// the item-level appearances restores exactly that; painting the theme
+    /// Surface here made every bar an always-opaque gray band.
+    private func applyDefaultBarAppearance() {
+      navigationItem.standardAppearance = nil
+      navigationItem.scrollEdgeAppearance = nil
+      navigationItem.compactAppearance = nil
     }
 
     private func applyResolvedBarColor(_ color: WuiResolvedColor) {

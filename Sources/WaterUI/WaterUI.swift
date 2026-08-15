@@ -634,7 +634,11 @@ public final class ThemeBridge {
           UIColor.secondarySystemBackground
         },
         installColorSignal(env: env, slot: WuiColorSlot_SurfaceVariant) {
-          UIColor.tertiarySystemBackground
+          // Mirrors the AppKit mapping: `tertiarySystemBackground` is pure
+          // white in light mode — identical to the Background slot — so an
+          // "alternate surface" filled with it is invisible. The system fill
+          // is the color intended for input fields and shape fills.
+          UIColor.tertiarySystemFill
         },
         installColorSignal(env: env, slot: WuiColorSlot_Border) { UIColor.separator },
         installColorSignal(env: env, slot: WuiColorSlot_Foreground) { UIColor.label },
@@ -686,7 +690,11 @@ public final class ThemeBridge {
         installColorSignal(env: env, slot: WuiColorSlot_Accent) {
           NSColor.controlAccentColor
         },
-        installColorSignal(env: env, slot: WuiColorSlot_AccentForeground) { NSColor.white },
+        installColorSignal(env: env, slot: WuiColorSlot_AccentForeground) {
+          // The semantic "text on accent" color: flips to black under accent
+          // colors and contrast settings where a constant white would fail.
+          NSColor.alternateSelectedControlTextColor
+        },
         installColorSignal(env: env, slot: WuiColorSlot_AccentContainer) {
           NSColor.controlAccentColor.withAlphaComponent(0.16)
         },

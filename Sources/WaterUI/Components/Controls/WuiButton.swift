@@ -20,19 +20,37 @@ import CWaterUI
 #endif
 
 func buttonLabelForegroundSlot(for style: WuiButtonStyle) -> WuiColorSlot {
-  switch style {
-  case WuiButtonStyle_BorderedProminent:
-    WuiColorSlot_AccentForeground
-  case WuiButtonStyle_Plain:
-    WuiColorSlot_Foreground
-  case WuiButtonStyle_Automatic,
-    WuiButtonStyle_Link,
-    WuiButtonStyle_Borderless,
-    WuiButtonStyle_Bordered:
-    WuiColorSlot_Accent
-  default:
-    fatalError("Unsupported WaterUI button style: \(style.rawValue)")
-  }
+  #if canImport(UIKit)
+    switch style {
+    case WuiButtonStyle_BorderedProminent:
+      WuiColorSlot_AccentForeground
+    case WuiButtonStyle_Plain:
+      WuiColorSlot_Foreground
+    case WuiButtonStyle_Automatic,
+      WuiButtonStyle_Link,
+      WuiButtonStyle_Borderless,
+      WuiButtonStyle_Bordered:
+      WuiColorSlot_Accent
+    default:
+      fatalError("Unsupported WaterUI button style: \(style.rawValue)")
+    }
+  #elseif canImport(AppKit)
+    // SwiftUI on macOS draws bordered button titles in the primary label
+    // color; only link/borderless styles are accent-tinted.
+    switch style {
+    case WuiButtonStyle_BorderedProminent:
+      WuiColorSlot_AccentForeground
+    case WuiButtonStyle_Automatic,
+      WuiButtonStyle_Bordered,
+      WuiButtonStyle_Plain:
+      WuiColorSlot_Foreground
+    case WuiButtonStyle_Link,
+      WuiButtonStyle_Borderless:
+      WuiColorSlot_Accent
+    default:
+      fatalError("Unsupported WaterUI button style: \(style.rawValue)")
+    }
+  #endif
 }
 
 @MainActor
@@ -53,6 +71,14 @@ private func makeButtonLabelEnvironment(
   return child
 }
 
+#if canImport(AppKit)
+  /// Overlays the button bezel without stealing its mouse events, so the
+  /// native bezel shows its own pressed/disabled states.
+  private final class WuiHitTestTransparentView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+  }
+#endif
+
 @MainActor
 final class WuiButton: PlatformView, WuiComponent {
   static var rawId: CWaterUI.WuiTypeId { waterui_button_id() }
@@ -62,8 +88,7 @@ final class WuiButton: PlatformView, WuiComponent {
     private let labelContainer = UIView()
   #elseif canImport(AppKit)
     private let button: NSButton
-    private let labelContainer = NSView()
-    private let backgroundView = NSView()  // Custom background that fills the frame
+    private let labelContainer = WuiHitTestTransparentView()
   #endif
 
   private let action: Action
@@ -74,8 +99,6 @@ final class WuiButton: PlatformView, WuiComponent {
   private var disabledWatcher: WatcherGuard?
   private let env: WuiEnvironment
   private var accentObservation: WuiComputedObservation<WuiResolvedColor>?
-  private var surfaceObservation: WuiComputedObservation<WuiResolvedColor>?
-  private var borderObservation: WuiComputedObservation<WuiResolvedColor>?
 
   // MARK: - WuiComponent Init
 
@@ -138,7 +161,6 @@ final class WuiButton: PlatformView, WuiComponent {
     #elseif canImport(AppKit)
       labelContainer.alphaValue = isDisabled ? 0.45 : 1
     #endif
-    applyThemeAppearance()
     invalidateCapturedRendering()
   }
 
@@ -147,16 +169,38 @@ final class WuiButton: PlatformView, WuiComponent {
     fatalError("init(coder:) has not been implemented")
   }
 
+  /// Label padding inside the button chrome, styled after the platform's
+  /// own defaults: SwiftUI's bordered iOS buttons sit at roughly (14, 7)
+  /// and macOS push bezels leave wide side insets around the title.
+  private var contentPadding: (horizontal: CGFloat, vertical: CGFloat) {
+    #if canImport(UIKit)
+      switch style {
+      case WuiButtonStyle_Link:
+        (0, 0)
+      case WuiButtonStyle_Bordered, WuiButtonStyle_BorderedProminent:
+        (14, 7)
+      default:
+        (8, 4)
+      }
+    #elseif canImport(AppKit)
+      switch style {
+      case WuiButtonStyle_Link:
+        (0, 0)
+      case WuiButtonStyle_Automatic, WuiButtonStyle_Bordered, WuiButtonStyle_BorderedProminent:
+        (16, 5)
+      default:
+        (8, 4)
+      }
+    #endif
+  }
+
   // MARK: - WuiComponent
 
   func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
     // Button has stretchAxis = .none, so it always reports its content size.
     // When width/height is constrained, the label measures with that constraint
     // (allowing text to wrap) and the button grows in the cross-axis as needed.
-
-    // Use minimal padding for Link style, standard padding for others
-    let horizontalPadding: CGFloat = style == WuiButtonStyle_Link ? 0 : 8
-    let verticalPadding: CGFloat = style == WuiButtonStyle_Link ? 0 : 4
+    let (horizontalPadding, verticalPadding) = contentPadding
 
     var labelProposal = WuiProposalSize()
     if let proposedWidth = proposal.width {
@@ -183,58 +227,30 @@ final class WuiButton: PlatformView, WuiComponent {
       labelContainer.isUserInteractionEnabled = false
     #endif
 
-    // Use minimal padding for Link style, standard padding for others
-    let horizontalPadding: CGFloat = style == WuiButtonStyle_Link ? 0 : 8
-    let verticalPadding: CGFloat = style == WuiButtonStyle_Link ? 0 : 4
+    let (horizontalPadding, verticalPadding) = contentPadding
 
     #if canImport(AppKit)
-      // On AppKit, use a custom backgroundView instead of NSButton's bezel
-      // NSButton's .rounded bezel has fixed intrinsic size and doesn't fill its frame
-      backgroundView.translatesAutoresizingMaskIntoConstraints = false
-      backgroundView.wantsLayer = true
-
-      // Add views in order: background, button (invisible, handles clicks), label
-      addSubview(backgroundView)
       addSubview(button)
       addSubview(labelContainer)
-
-      NSLayoutConstraint.activate([
-        backgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
-        backgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
-        backgroundView.topAnchor.constraint(equalTo: topAnchor),
-        backgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
-
-        button.leadingAnchor.constraint(equalTo: leadingAnchor),
-        button.trailingAnchor.constraint(equalTo: trailingAnchor),
-        button.topAnchor.constraint(equalTo: topAnchor),
-        button.bottomAnchor.constraint(equalTo: bottomAnchor),
-
-        labelContainer.leadingAnchor.constraint(
-          equalTo: leadingAnchor, constant: horizontalPadding),
-        labelContainer.trailingAnchor.constraint(
-          equalTo: trailingAnchor, constant: -horizontalPadding),
-        labelContainer.topAnchor.constraint(equalTo: topAnchor, constant: verticalPadding),
-        labelContainer.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -verticalPadding),
-      ])
     #else
       addSubview(button)
       button.addSubview(labelContainer)
-
-      NSLayoutConstraint.activate([
-        button.leadingAnchor.constraint(equalTo: leadingAnchor),
-        button.trailingAnchor.constraint(equalTo: trailingAnchor),
-        button.topAnchor.constraint(equalTo: topAnchor),
-        button.bottomAnchor.constraint(equalTo: bottomAnchor),
-
-        labelContainer.leadingAnchor.constraint(
-          equalTo: button.leadingAnchor, constant: horizontalPadding),
-        labelContainer.trailingAnchor.constraint(
-          equalTo: button.trailingAnchor, constant: -horizontalPadding),
-        labelContainer.topAnchor.constraint(equalTo: button.topAnchor, constant: verticalPadding),
-        labelContainer.bottomAnchor.constraint(
-          equalTo: button.bottomAnchor, constant: -verticalPadding),
-      ])
     #endif
+
+    NSLayoutConstraint.activate([
+      button.leadingAnchor.constraint(equalTo: leadingAnchor),
+      button.trailingAnchor.constraint(equalTo: trailingAnchor),
+      button.topAnchor.constraint(equalTo: topAnchor),
+      button.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+      labelContainer.leadingAnchor.constraint(
+        equalTo: button.leadingAnchor, constant: horizontalPadding),
+      labelContainer.trailingAnchor.constraint(
+        equalTo: button.trailingAnchor, constant: -horizontalPadding),
+      labelContainer.topAnchor.constraint(equalTo: button.topAnchor, constant: verticalPadding),
+      labelContainer.bottomAnchor.constraint(
+        equalTo: button.bottomAnchor, constant: -verticalPadding),
+    ])
 
     #if canImport(UIKit)
       button.addTarget(self, action: #selector(didTap), for: .touchUpInside)
@@ -247,24 +263,27 @@ final class WuiButton: PlatformView, WuiComponent {
       button.target = self
       button.action = #selector(didTap)
       button.title = ""
+      // The native bezel is what SwiftUI renders for bordered styles on
+      // macOS: platform gradient, pressed state, and appearance adaptation
+      // all come from NSButton. `.flexiblePush` is the push bezel that may
+      // grow beyond the standard control height, which arbitrary WaterUI
+      // labels routinely need.
+      switch style {
+      case WuiButtonStyle_Automatic, WuiButtonStyle_Bordered, WuiButtonStyle_BorderedProminent:
+        button.isBordered = true
+        button.bezelStyle = .flexiblePush
+      case WuiButtonStyle_Plain, WuiButtonStyle_Link, WuiButtonStyle_Borderless:
+        button.isBordered = false
+        button.isTransparent = true
+      default:
+        fatalError("Unsupported WaterUI button style: \(style.rawValue)")
+      }
     #endif
   }
 
   private func installThemeObservers() {
     accentObservation = WuiComputedObservation(
       themeColor: WuiColorSlot_Accent,
-      env: env
-    ) { [weak self] _, _ in
-      self?.applyThemeAppearance()
-    }
-    surfaceObservation = WuiComputedObservation(
-      themeColor: WuiColorSlot_Surface,
-      env: env
-    ) { [weak self] _, _ in
-      self?.applyThemeAppearance()
-    }
-    borderObservation = WuiComputedObservation(
-      themeColor: WuiColorSlot_Border,
       env: env
     ) { [weak self] _, _ in
       self?.applyThemeAppearance()
@@ -278,52 +297,28 @@ final class WuiButton: PlatformView, WuiComponent {
   }
 
   private func applyThemeAppearance() {
-    guard let accent = accentObservation?.value,
-      let surface = surfaceObservation?.value,
-      let border = borderObservation?.value
-    else {
-      return
-    }
+    guard let accent = accentObservation?.value else { return }
 
     #if canImport(UIKit)
       button.tintColor = accent.toUIColor()
-      var configuration = UIButton.Configuration.plain()
+      // The native configurations are what SwiftUI's button styles resolve
+      // to on iOS: .bordered is the tinted fill, .borderedProminent the
+      // filled accent capsule. Insets stay zero because the WaterUI label
+      // view is overlaid and padded by this component.
+      var configuration: UIButton.Configuration =
+        switch style {
+        case WuiButtonStyle_Bordered:
+          .tinted()
+        case WuiButtonStyle_BorderedProminent:
+          .filled()
+        default:
+          .plain()
+        }
       configuration.contentInsets = .zero
-      switch style {
-      case WuiButtonStyle_Automatic, WuiButtonStyle_Plain,
-        WuiButtonStyle_Link, WuiButtonStyle_Borderless:
-        break
-      case WuiButtonStyle_Bordered:
-        configuration.background.backgroundColor = surface.toUIColor()
-        configuration.background.strokeColor = border.toUIColor()
-        configuration.background.strokeWidth = 1
-        configuration.cornerStyle = .medium
-      case WuiButtonStyle_BorderedProminent:
-        configuration.background.backgroundColor = accent.toUIColor()
-        configuration.cornerStyle = .medium
-      default:
-        fatalError("Unsupported WaterUI button style: \(style.rawValue)")
-      }
       button.configuration = configuration
     #elseif canImport(AppKit)
-      button.isBordered = false
-      button.isTransparent = true
-      backgroundView.layer?.cornerRadius = 8
-      switch style {
-      case WuiButtonStyle_Automatic, WuiButtonStyle_Bordered:
-        backgroundView.layer?.backgroundColor = surface.toNSColor().cgColor
-        backgroundView.layer?.borderColor = border.toNSColor().cgColor
-        backgroundView.layer?.borderWidth = 1
-      case WuiButtonStyle_Plain, WuiButtonStyle_Link, WuiButtonStyle_Borderless:
-        backgroundView.layer?.backgroundColor = nil
-        backgroundView.layer?.borderColor = nil
-        backgroundView.layer?.borderWidth = 0
-      case WuiButtonStyle_BorderedProminent:
-        backgroundView.layer?.backgroundColor = accent.toNSColor().cgColor
-        backgroundView.layer?.borderColor = nil
-        backgroundView.layer?.borderWidth = 0
-      default:
-        fatalError("Unsupported WaterUI button style: \(style.rawValue)")
+      if style == WuiButtonStyle_BorderedProminent {
+        button.bezelColor = accent.toNSColor()
       }
     #endif
     invalidateCapturedRendering()
@@ -347,22 +342,6 @@ final class WuiButton: PlatformView, WuiComponent {
   #endif
 
   #if canImport(AppKit)
-    private func updateBackgroundForHighlight(_ highlighted: Bool) {
-      guard
-        style != WuiButtonStyle_Link && style != WuiButtonStyle_Plain
-          && style != WuiButtonStyle_Borderless
-      else { return }
-      guard highlighted else {
-        applyThemeAppearance()
-        return
-      }
-      let base =
-        style == WuiButtonStyle_BorderedProminent
-        ? accentObservation?.value.toNSColor()
-        : surfaceObservation?.value.toNSColor()
-      backgroundView.layer?.backgroundColor = base?.withAlphaComponent(0.7).cgColor
-    }
-
     /// Sets up tracking area for hover effects (Link style cursor change)
     private func setupLinkTrackingArea() {
       let trackingArea = NSTrackingArea(
@@ -390,8 +369,6 @@ final class WuiButton: PlatformView, WuiComponent {
       if style == WuiButtonStyle_Link {
         // Natural press feedback: reduce opacity like SwiftUI
         labelView.alphaValue = 0.5
-      } else {
-        updateBackgroundForHighlight(true)
       }
       super.mouseDown(with: event)
     }
@@ -400,8 +377,6 @@ final class WuiButton: PlatformView, WuiComponent {
       if style == WuiButtonStyle_Link {
         // Restore opacity
         labelView.alphaValue = 1.0
-      } else {
-        updateBackgroundForHighlight(false)
       }
       super.mouseUp(with: event)
     }

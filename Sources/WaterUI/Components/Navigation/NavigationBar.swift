@@ -26,6 +26,7 @@ final class WuiNavigationSearchCoordinator: NSObject {
   private var textWatcher: WatcherGuard?
   private var promptWatcher: WatcherGuard?
   private var promptRenderer: WuiStyledStrRenderer?
+  private var bodyFontObservation: WuiComputedObservation<WuiResolvedFontValue>?
   private var isSyncing = false
 
   init(search: WuiNavigationSearch) {
@@ -43,6 +44,9 @@ final class WuiNavigationSearchCoordinator: NSObject {
       }
       promptWatcher = search.prompt.watch { [weak self] value, _ in
         self?.applyPrompt(value)
+      }
+      bodyFontObservation = .bodyFont(env: search.env) { [weak self] font in
+        self?.uiSearchBar?.searchTextField.font = font.toPlatformFont()
       }
       applyText(search.text.value.toString())
       applyPrompt(search.prompt.value)
@@ -91,6 +95,11 @@ final class WuiNavigationSearchCoordinator: NSObject {
       }
       promptWatcher = search.prompt.watch { [weak self] value, _ in
         self?.applyPrompt(value)
+      }
+      bodyFontObservation = .bodyFont(env: search.env) { [weak self] font in
+        guard let field = self?.nsSearchField else { return }
+        field.font = font.toPlatformFont()
+        field.invalidateIntrinsicContentSize()
       }
       applyText(search.text.value.toString())
       applyPrompt(search.prompt.value)

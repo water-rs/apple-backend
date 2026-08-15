@@ -37,7 +37,9 @@ final class WuiSecureField: PlatformView, WuiComponent {
   private var labelView: WuiAnyView
   private var binding: WuiBinding<WuiStr>
   private var bindingWatcher: WatcherGuard?
+  private var bodyFontObservation: WuiComputedObservation<WuiResolvedFontValue>?
   private var accessibility: WuiControlAccessibility?
+  private let env: WuiEnvironment
 
   // Layout constants
   private let verticalSpacing: CGFloat = 4.0
@@ -54,7 +56,8 @@ final class WuiSecureField: PlatformView, WuiComponent {
       stretchAxis: stretchAxis,
       label: labelView,
       binding: binding,
-      semanticLabel: ffiSecureField.label
+      semanticLabel: ffiSecureField.label,
+      env: env
     )
   }
 
@@ -64,11 +67,13 @@ final class WuiSecureField: PlatformView, WuiComponent {
     stretchAxis: WuiStretchAxis,
     label: WuiAnyView,
     binding: WuiBinding<WuiStr>,
-    semanticLabel: CWaterUI.WuiLabel
+    semanticLabel: CWaterUI.WuiLabel,
+    env: WuiEnvironment
   ) {
     self.stretchAxis = stretchAxis
     self.labelView = label
     self.binding = binding
+    self.env = env
     super.init(frame: .zero)
     configureSubviews()
     configureTextField()
@@ -193,6 +198,11 @@ final class WuiSecureField: PlatformView, WuiComponent {
       textField.delegate = self
       textField.installWuiFocusTarget(focusTarget)
     #endif
+    bodyFontObservation = .bodyFont(env: env) { [weak self] font in
+      guard let self else { return }
+      textField.font = font.toPlatformFont()
+      invalidateLayoutHierarchy()
+    }
   }
 
   #if canImport(UIKit)

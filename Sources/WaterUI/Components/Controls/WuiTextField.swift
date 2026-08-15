@@ -324,33 +324,19 @@ final class WuiTextField: PlatformView, WuiComponent {
     #endif
   }
 
-  /// Keeps the control's own font in sync with the themed body font. The cell
-  /// measures and the field editor types with this font, so it must match the
-  /// attributed content or oversized text gets clipped and typing starts in
-  /// the platform default size.
   private func installBodyFont() {
-    bodyFontObservation = WuiComputedObservation(
-      themeFont: WuiFontSlot_Body,
-      env: env
-    ) { [weak self] font, _ in
-      self?.applyBodyFont(font)
+    bodyFontObservation = .bodyFont(env: env) { [weak self] font in
+      guard let self else { return }
+      #if canImport(UIKit)
+        textView.font = font.toPlatformFont()
+      #elseif canImport(AppKit)
+        textField.font = font.toPlatformFont()
+      #endif
+      // Setting the control font rewrites attribute runs on existing content
+      // (UIKit) — restore the styled value on top of it.
+      applyResolvedBindingValue()
+      invalidateLayoutHierarchy()
     }
-    guard let bodyFontObservation else {
-      fatalError("WaterUI text field failed to observe the body font slot")
-    }
-    applyBodyFont(bodyFontObservation.value)
-  }
-
-  private func applyBodyFont(_ font: WuiResolvedFontValue) {
-    #if canImport(UIKit)
-      textView.font = font.toPlatformFont()
-    #elseif canImport(AppKit)
-      textField.font = font.toPlatformFont()
-    #endif
-    // Setting the control font rewrites attribute runs on existing content
-    // (UIKit) — restore the styled value on top of it.
-    applyResolvedBindingValue()
-    invalidateLayoutHierarchy()
   }
 
   private func applyBindingValue(_ styled: WuiStyledStr) {

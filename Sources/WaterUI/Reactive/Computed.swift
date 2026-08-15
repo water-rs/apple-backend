@@ -84,6 +84,25 @@ extension WuiComputedObservation where T == WuiResolvedFontValue {
     }
     self.init(WuiComputed<WuiResolvedFontValue>(pointer), onChange: onChange)
   }
+
+  /// Observes the themed body font and applies it immediately and on every
+  /// change. Text controls must keep their control font in sync with the
+  /// theme: the control's cell measures and its editor types with that font,
+  /// so a mismatch clips oversized attributed content and makes typing start
+  /// in the platform default size.
+  static func bodyFont(
+    env: WuiEnvironment,
+    apply: @escaping (WuiResolvedFontValue) -> Void
+  ) -> WuiComputedObservation<WuiResolvedFontValue> {
+    let observation = WuiComputedObservation(
+      themeFont: WuiFontSlot_Body,
+      env: env
+    ) { font, _ in
+      apply(font)
+    }
+    apply(observation.value)
+    return observation
+  }
 }
 
 extension WuiComputed where T == WuiStr {
