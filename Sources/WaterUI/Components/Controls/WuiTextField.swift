@@ -24,6 +24,69 @@ import CWaterUI
   }
 #endif
 
+#if canImport(AppKit)
+  /// `NSTextFieldCell` has no content-inset support, so drawing, editing, and
+  /// measurement are all inset here — the AppKit counterpart of the UIKit
+  /// branch's `textContainerInset`.
+  private final class WuiPaddedTextFieldCell: NSTextFieldCell {
+    static let insets = NSEdgeInsets(top: 6, left: 10, bottom: 6, right: 10)
+
+    private func inset(_ rect: NSRect) -> NSRect {
+      NSRect(
+        x: rect.origin.x + Self.insets.left,
+        y: rect.origin.y + Self.insets.top,
+        width: rect.width - Self.insets.left - Self.insets.right,
+        height: rect.height - Self.insets.top - Self.insets.bottom
+      )
+    }
+
+    override func cellSize(forBounds rect: NSRect) -> NSSize {
+      var size = super.cellSize(forBounds: inset(rect))
+      size.width += Self.insets.left + Self.insets.right
+      size.height += Self.insets.top + Self.insets.bottom
+      return size
+    }
+
+    override func drawingRect(forBounds rect: NSRect) -> NSRect {
+      super.drawingRect(forBounds: inset(rect))
+    }
+
+    override func select(
+      withFrame rect: NSRect,
+      in controlView: NSView,
+      editor textObj: NSText,
+      delegate: Any?,
+      start selStart: Int,
+      length selLength: Int
+    ) {
+      super.select(
+        withFrame: inset(rect),
+        in: controlView,
+        editor: textObj,
+        delegate: delegate,
+        start: selStart,
+        length: selLength
+      )
+    }
+
+    override func edit(
+      withFrame rect: NSRect,
+      in controlView: NSView,
+      editor textObj: NSText,
+      delegate: Any?,
+      event: NSEvent?
+    ) {
+      super.edit(
+        withFrame: inset(rect),
+        in: controlView,
+        editor: textObj,
+        delegate: delegate,
+        event: event
+      )
+    }
+  }
+#endif
+
 @MainActor
 final class WuiTextField: PlatformView, WuiComponent {
   static var rawId: CWaterUI.WuiTypeId { waterui_text_field_id() }
@@ -47,6 +110,7 @@ final class WuiTextField: PlatformView, WuiComponent {
   private var borderColorObservation: WuiComputedObservation<WuiResolvedColor>?
   private var fillColorObservation: WuiComputedObservation<WuiResolvedColor>?
   private var promptAlignmentObservation: WuiComputedObservation<WuiHorizontalAlignment>?
+  private var bodyFontObservation: WuiComputedObservation<WuiResolvedFontValue>?
   private var accessibility: WuiControlAccessibility?
 
   private let labelView: WuiAnyView
@@ -290,6 +354,7 @@ final class WuiTextField: PlatformView, WuiComponent {
         self?.textView.backgroundColor = color.toUIColor()
       }
       textView.backgroundColor = fillColorObservation?.value.toUIColor()
+      installBodyFont()
 
       placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
       placeholderLabel.numberOfLines = 1
@@ -305,6 +370,9 @@ final class WuiTextField: PlatformView, WuiComponent {
           equalTo: textView.topAnchor, constant: textView.textContainerInset.top),
       ])
     #elseif canImport(AppKit)
+      // Must precede the cell-forwarding setters below (`usesSingleLineMode`,
+      // `wraps`, `isScrollable`), which configure whichever cell is installed.
+      textField.cell = WuiPaddedTextFieldCell(textCell: "")
       textField.isBordered = false
       textField.wantsLayer = true
       textField.layer?.cornerRadius = 6
@@ -331,7 +399,37 @@ final class WuiTextField: PlatformView, WuiComponent {
         self?.textField.backgroundColor = color.toNSColor()
       }
       textField.backgroundColor = fillColorObservation?.value.toNSColor()
+      installBodyFont()
     #endif
+  }
+
+  /// Keeps the control's own font in sync with the themed body font. The cell
+  /// measures and the field editor types with this font, so it must match the
+  /// attributed content or oversized text gets clipped and typing starts in
+  /// the platform default size.
+  private func installBodyFont() {
+    bodyFontObservation = WuiComputedObservation(
+      themeFont: WuiFontSlot_Body,
+      env: env
+    ) { [weak self] font, _ in
+      self?.applyBodyFont(font)
+    }
+    guard let bodyFontObservation else {
+      fatalError("WaterUI text field failed to observe the body font slot")
+    }
+    applyBodyFont(bodyFontObservation.value)
+  }
+
+  private func applyBodyFont(_ font: WuiResolvedFontValue) {
+    #if canImport(UIKit)
+      textView.font = font.toPlatformFont()
+    #elseif canImport(AppKit)
+      textField.font = font.toPlatformFont()
+    #endif
+    // Setting the control font rewrites attribute runs on existing content
+    // (UIKit) — restore the styled value on top of it.
+    applyResolvedBindingValue()
+    invalidateLayoutHierarchy()
   }
 
   private func applyBindingValue(_ styled: WuiStyledStr) {
