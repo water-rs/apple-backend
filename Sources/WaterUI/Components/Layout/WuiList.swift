@@ -665,6 +665,21 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
 #endif
 
 #if canImport(AppKit)
+  /// SwiftUI's macOS List draws a hairline separator under each row except
+  /// the last of its section; NSTableView has no per-row separator concept,
+  /// so the row view draws it.
+  private final class WuiListRowView: NSTableRowView {
+    var showsSeparator = false
+
+    override func draw(_ dirtyRect: NSRect) {
+      super.draw(dirtyRect)
+      guard showsSeparator else { return }
+      NSColor.separatorColor.setFill()
+      let hairline = 1 / (window?.backingScaleFactor ?? 1)
+      NSRect(x: 0, y: 0, width: bounds.width, height: hairline).fill()
+    }
+  }
+
   private final class WuiListRowContainerView: NSView {
     private var contentWuiView: WuiAnyView?
     private var deleteButton: NSButton?
@@ -781,9 +796,9 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
 
       super.init(frame: .zero)
 
-      // Configure table view to look like SwiftUI List
+      // Configure table view to look like SwiftUI List. The column's real
+      // width is driven from the content width on every layout pass.
       let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("content"))
-      column.width = 200
       tableView.addTableColumn(column)
       tableView.headerView = nil
       tableView.dataSource = self
@@ -794,9 +809,11 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       // height from the row view's Auto Layout fitting size, which can
       // pin to a single-line intrinsic when wrapped text hasn't been
       // re-measured at the table width yet.
-      tableView.rowHeight = 44
       tableView.style = .inset
-      tableView.backgroundColor = .clear
+      // SwiftUI's macOS List draws its content on the text background
+      // (white in light mode), not the window background — verified against
+      // an NSHostingView reference render of a real SwiftUI List.
+      tableView.backgroundColor = .textBackgroundColor
       tableView.selectionHighlightStyle = .regular
 
       // Enable drag-and-drop if move callback exists
@@ -1150,13 +1167,22 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     }
 
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
-      let rowView = NSTableRowView()
+      let rowView = WuiListRowView()
       rowView.isEmphasized = true
+      // SwiftUI separates row–row boundaries only; the last row of a
+      // section (followed by a footer, header, or nothing) has none.
+      if case .row = flatLayout[row], row + 1 < flatLayout.count,
+        case .row = flatLayout[row + 1]
+      {
+        rowView.showsSeparator = true
+      }
       return rowView
     }
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-      guard row >= 0, row < flatLayout.count else { return 44 }
+      // AppKit can probe rows transiently during insert/remove animations
+      // before `flatLayout` catches up; answer with the minimum row height.
+      guard row >= 0, row < flatLayout.count else { return Self.minimumRowHeight }
       switch flatLayout[row] {
       case .header:
         return 38
@@ -1166,9 +1192,13 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
         let item = resolveListItem(from: contents, at: itemIndex, env: env)
         let size = item.view.sizeThatFits(
           WuiProposalSize(width: Float(tableView.bounds.width), height: nil))
-        return max(size.height, 44)
+        return max(size.height, Self.minimumRowHeight)
       }
     }
+
+    /// macOS list rows follow the pointer metric (~24pt like SwiftUI's List),
+    /// not the 44pt iOS touch-target floor.
+    private static let minimumRowHeight: CGFloat = 24
 
     func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
       guard row >= 0, row < flatLayout.count else { return false }

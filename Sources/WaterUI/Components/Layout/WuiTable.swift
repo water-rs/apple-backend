@@ -9,8 +9,16 @@ import CWaterUI
 @MainActor
 private final class WuiTableColumnNode {
   let id: Int32
-  let label: WuiText
   let rows: WuiStableViewCollection
+  #if canImport(UIKit)
+    let label: WuiText
+  #elseif canImport(AppKit)
+    // The native header cell renders plain text; the styled label reduces to
+    // its string. Paragraph alignment is not representable in an
+    // NSTableHeaderCell and is consumed without projection.
+    private let labelObservation: WuiComputedObservation<WuiStyledStr>
+    var title: String { labelObservation.value.toString() }
+  #endif
 
   init(
     id: Int32,
@@ -29,17 +37,29 @@ private final class WuiTableColumnNode {
       fatalError("Table column label has no paragraph-alignment signal")
     }
     self.id = id
-    self.label = WuiText(
-      content: WuiComputed<WuiStyledStr>(labelContent),
-      paragraphAlignment: WuiComputed<WuiHorizontalAlignment>(labelAlignment),
-      env: env
-    )
+    #if canImport(UIKit)
+      self.label = WuiText(
+        content: WuiComputed<WuiStyledStr>(labelContent),
+        paragraphAlignment: WuiComputed<WuiHorizontalAlignment>(labelAlignment),
+        env: env
+      )
+    #elseif canImport(AppKit)
+      self.labelObservation = WuiComputedObservation(
+        WuiComputed<WuiStyledStr>(labelContent)
+      ) { _, _ in
+        onContentChange()
+      }
+      // Consume the alignment signal so its native handle is released.
+      _ = WuiComputed<WuiHorizontalAlignment>(labelAlignment)
+    #endif
     self.rows = WuiStableViewCollection(
       consuming: rows,
       env: env,
       onChange: onRowsChange
     )
-    self.label.onIntrinsicContentChange = onContentChange
+    #if canImport(UIKit)
+      self.label.onIntrinsicContentChange = onContentChange
+    #endif
   }
 }
 
@@ -60,6 +80,12 @@ final class WuiTable: PlatformView, WuiComponent {
     private var attachedViews: [PlatformView] = []
   #elseif canImport(AppKit)
     private let tableView = NSTableView()
+    // Hosted manually: NSTableHeaderView renders the native column headers
+    // (titles, dividers, bottom hairline) without needing the NSScrollView
+    // that normally positions it.
+    private let nativeHeader = NSTableHeaderView()
+    /// The standard height of the native header band.
+    private let nativeHeaderHeight: CGFloat = 24
     private var nativeColumns: [Int32: NSTableColumn] = [:]
     private var appKitRowHeights: [CGFloat] = []
   #endif
@@ -91,10 +117,11 @@ final class WuiTable: PlatformView, WuiComponent {
       tableView.allowsColumnReordering = false
       tableView.allowsColumnResizing = false
       tableView.allowsColumnSelection = false
-      tableView.headerView = nil
+      tableView.headerView = nativeHeader
       tableView.dataSource = self
       tableView.delegate = self
       addSubview(tableView)
+      addSubview(nativeHeader)
     #endif
 
     columnsWatcher = watchAnyViewsIds(source) { [weak self] ids, metadata in
@@ -152,14 +179,8 @@ final class WuiTable: PlatformView, WuiComponent {
             nativeColumns[column.id] = native
             return native
           }()
+        native.title = column.title
         tableView.addTableColumn(native)
-        if column.label.superview !== self {
-          addSubview(column.label)
-        }
-      }
-      for subview in subviews
-      where subview is WuiText && !columns.contains(where: { $0.label === subview }) {
-        subview.removeFromSuperview()
       }
     #endif
     reloadContent()
@@ -170,9 +191,13 @@ final class WuiTable: PlatformView, WuiComponent {
       updateAttachedViews()
       setNeedsLayout()
     #elseif canImport(AppKit)
+      for column in columns {
+        nativeColumns[column.id]!.title = column.title
+      }
       appKitRowHeights = rowHeights()
       updateNativeColumnWidths(columnWidths())
       tableView.reloadData()
+      nativeHeader.needsDisplay = true
       needsLayout = true
     #endif
     invalidateIntrinsicContentSize()
@@ -204,10 +229,14 @@ final class WuiTable: PlatformView, WuiComponent {
 
   private func columnWidths() -> [CGFloat] {
     columns.map { column in
-      var width = max(
-        minimumColumnWidth,
-        column.label.sizeThatFits(WuiProposalSize()).width + horizontalPadding * 2
-      )
+      #if canImport(UIKit)
+        let headerWidth =
+          column.label.sizeThatFits(WuiProposalSize()).width + horizontalPadding * 2
+      #elseif canImport(AppKit)
+        // The native header cell measures its own title (padding included).
+        let headerWidth = nativeColumns[column.id]!.headerCell.cellSize.width
+      #endif
+      var width = max(minimumColumnWidth, headerWidth)
       for row in column.rows.ordered {
         width = max(
           width,
@@ -220,11 +249,15 @@ final class WuiTable: PlatformView, WuiComponent {
 
   private func headerHeight() -> CGFloat {
     guard !columns.isEmpty else { return 0 }
-    return max(
-      28,
-      (columns.map { $0.label.sizeThatFits(WuiProposalSize()).height }.max() ?? 0)
-        + verticalPadding * 2
-    )
+    #if canImport(UIKit)
+      return max(
+        28,
+        (columns.map { $0.label.sizeThatFits(WuiProposalSize()).height }.max() ?? 0)
+          + verticalPadding * 2
+      )
+    #elseif canImport(AppKit)
+      return nativeHeaderHeight
+    #endif
   }
 
   private func rowHeights() -> [CGFloat] {
@@ -285,17 +318,13 @@ final class WuiTable: PlatformView, WuiComponent {
       let widths = columnWidths()
       updateNativeColumnWidths(widths)
       let headerHeight = headerHeight()
+      nativeHeader.frame = NSRect(x: 0, y: 0, width: bounds.width, height: headerHeight)
       tableView.frame = NSRect(
         x: 0,
         y: headerHeight,
         width: bounds.width,
         height: max(0, bounds.height - headerHeight)
       )
-      var x: CGFloat = 0
-      for (column, width) in zip(columns, widths) {
-        column.label.frame = NSRect(x: x, y: 0, width: width, height: headerHeight)
-        x += width
-      }
     }
 
   #endif

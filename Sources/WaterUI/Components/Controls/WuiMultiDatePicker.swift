@@ -223,7 +223,8 @@ final class WuiMultiDatePicker: PlatformView, WuiComponent {
     #elseif canImport(AppKit)
       let current = selected.first ?? range.start
       picker.dateValue = toDate(current)
-      toggleButton.title = buttonTitle(for: current, selected: selected)
+      picker.font = selectionFontObservation.value.toPlatformFont()
+      applyToggleGlyph(for: current, selected: selected)
       for view in selectionList.arrangedSubviews {
         selectionList.removeArrangedSubview(view)
         view.removeFromSuperview()
@@ -233,11 +234,7 @@ final class WuiMultiDatePicker: PlatformView, WuiComponent {
           labelWithString: formatted(date, decorated: decoratedDateKeys.contains(dateKey(date)))
         )
         label.textColor = selectionForegroundObservation.value.toNSColor()
-        let font = selectionFontObservation.value
-        label.font = NSFont.systemFont(
-          ofSize: CGFloat(font.size),
-          weight: font.weight.toNSFontWeight()
-        )
+        label.font = selectionFontObservation.value.toPlatformFont()
         selectionList.addArrangedSubview(label)
       }
     #endif
@@ -277,15 +274,38 @@ final class WuiMultiDatePicker: PlatformView, WuiComponent {
       )
     }
 
-    private func buttonTitle(for current: CWaterUI.WuiDate, selected: [CWaterUI.WuiDate]) -> String
-    {
-      selected.contains { dateKey($0) == dateKey(current) } ? "Remove Date" : "Add Date"
+    /// Icon-only toggle: SF Symbols carry the add/remove semantics without a
+    /// hardcoded, non-localizable visible title.
+    private func applyToggleGlyph(for current: CWaterUI.WuiDate, selected: [CWaterUI.WuiDate]) {
+      let isSelected = selected.contains { dateKey($0) == dateKey(current) }
+      let symbolName = isSelected ? "minus.circle" : "plus.circle"
+      let description = isSelected ? "Remove Date" : "Add Date"
+      guard
+        let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: description)
+      else {
+        fatalError("SF Symbol \(symbolName) is unavailable")
+      }
+      toggleButton.image = image
+      toggleButton.title = ""
     }
+
+    private static let selectionDateFormatter: DateFormatter = {
+      let formatter = DateFormatter()
+      formatter.dateStyle = .medium
+      formatter.timeStyle = .none
+      return formatter
+    }()
 
     private func formatted(_ date: CWaterUI.WuiDate, decorated: Bool) -> String {
       let suffix = decorated ? " •" : ""
-      return
-        "\(date.year)-\(String(format: "%02d", date.month))-\(String(format: "%02d", date.day))\(suffix)"
+      guard let resolved = calendar.date(from: dateComponentsAppKit(date)) else {
+        fatalError("MultiDatePicker selection produced an invalid calendar date")
+      }
+      return Self.selectionDateFormatter.string(from: resolved) + suffix
+    }
+
+    private func dateComponentsAppKit(_ date: CWaterUI.WuiDate) -> DateComponents {
+      DateComponents(year: Int(date.year), month: Int(date.month), day: Int(date.day))
     }
 
   #endif

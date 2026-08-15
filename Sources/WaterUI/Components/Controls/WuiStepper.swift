@@ -23,6 +23,7 @@ final class WuiStepper: PlatformView, WuiComponent {
   private let env: WuiEnvironment
   private var bindingWatcher: WatcherGuard?
   private var stepObservation: WuiComputedObservation<Int32>?
+  private var bodyFontObservation: WuiComputedObservation<WuiResolvedFontValue>?
   private var valueFormatterObservation: WuiComputedObservation<WuiStyledStr>?
   private var valueRenderer: WuiStyledStrRenderer?
   private var accessibility: WuiControlAccessibility?
@@ -69,6 +70,15 @@ final class WuiStepper: PlatformView, WuiComponent {
     configureSubviews()
     startBindingWatcher()
     configureStepper()
+    if let formattedValueLabel {
+      // The label displays attributed content, but its control font is the
+      // measurement fallback for empty/partial states and must track the
+      // theme like every other text control.
+      bodyFontObservation = .bodyFont(env: env) { [weak self] font in
+        formattedValueLabel.font = font.toPlatformFont()
+        self?.invalidateLayoutHierarchy()
+      }
+    }
     installStepObservation(step)
     installValueFormatterObservation(valueFormatter)
     accessibility = WuiControlAccessibility(
