@@ -64,6 +64,7 @@ final class WuiPicker: PlatformView, WuiComponent {
   private let selectionBinding: WuiBinding<WuiId>
   private var itemWatcher: WatcherGuard?
   private var selectionWatcher: WatcherGuard?
+  private var bodyFontObservation: WuiComputedObservation<WuiResolvedFontValue>?
 
   #if canImport(UIKit)
     private let segmentedControl = UISegmentedControl()
@@ -91,17 +92,26 @@ final class WuiPicker: PlatformView, WuiComponent {
     self.init(
       items: items,
       selection: WuiBinding<WuiId>(selection),
-      style: PickerStyle(picker.style)
+      style: PickerStyle(picker.style),
+      env: env
     )
   }
 
-  private init(items: OpaquePointer, selection: WuiBinding<WuiId>, style: PickerStyle) {
+  private init(
+    items: OpaquePointer,
+    selection: WuiBinding<WuiId>,
+    style: PickerStyle,
+    env: WuiEnvironment
+  ) {
     self.source = WuiAnyViews(items)
     self.selectionBinding = selection
     self.style = style
     super.init(frame: .zero)
 
     configureSubviews()
+    bodyFontObservation = .bodyFont(env: env) { [weak self] font in
+      self?.applyBodyFont(font)
+    }
     itemWatcher = watchAnyViewsIds(source) { [weak self] ids, metadata in
       guard let self else { return }
       withPlatformAnimation(metadata) {
@@ -125,7 +135,16 @@ final class WuiPicker: PlatformView, WuiComponent {
   private func configureSubviews() {
     #if canImport(UIKit)
       segmentedControl.addTarget(self, action: #selector(segmentedChanged), for: .valueChanged)
-      menuButton.configuration = .bordered()
+      // SwiftUI's menu picker is a plain accent-tinted title with a trailing
+      // up/down chevron, not a filled gray capsule.
+      var menuConfiguration = UIButton.Configuration.plain()
+      menuConfiguration.image = UIImage(systemName: "chevron.up.chevron.down")
+      menuConfiguration.imagePlacement = .trailing
+      menuConfiguration.imagePadding = 4
+      menuConfiguration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
+        scale: .small
+      )
+      menuButton.configuration = menuConfiguration
       menuButton.showsMenuAsPrimaryAction = true
       radioStack.axis = .vertical
       radioStack.spacing = 8
@@ -211,9 +230,44 @@ final class WuiPicker: PlatformView, WuiComponent {
         reconcileAppKitRadioButtons()
       }
     #endif
+    if let font = bodyFontObservation?.value {
+      applyBodyFont(font)
+    }
     syncSelection()
     invalidateIntrinsicContentSize()
     invalidateCapturedRendering()
+  }
+
+  /// SwiftUI pickers render their options in the environment font; every
+  /// native control here must track the themed body font or the picker stays
+  /// at the platform default size while surrounding text scales.
+  private func applyBodyFont(_ font: WuiResolvedFontValue) {
+    let platformFont = font.toPlatformFont()
+    #if canImport(UIKit)
+      segmentedControl.setTitleTextAttributes([.font: platformFont], for: .normal)
+      let transformer = UIConfigurationTextAttributesTransformer { attributes in
+        var attributes = attributes
+        attributes.font = platformFont
+        return attributes
+      }
+      if var configuration = menuButton.configuration {
+        configuration.titleTextAttributesTransformer = transformer
+        menuButton.configuration = configuration
+      }
+      for button in radioButtons.values {
+        if var configuration = button.configuration {
+          configuration.titleTextAttributesTransformer = transformer
+          button.configuration = configuration
+        }
+      }
+    #elseif canImport(AppKit)
+      segmentedControl.font = platformFont
+      popupButton.font = platformFont
+      for button in radioButtons.values {
+        button.font = platformFont
+      }
+    #endif
+    invalidateLayoutHierarchy()
   }
 
   private func updateLabels() {

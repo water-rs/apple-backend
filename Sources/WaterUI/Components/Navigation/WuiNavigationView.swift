@@ -4,6 +4,12 @@
 // # Layout Behavior
 // NavigationView stretches to fill available space (greedy).
 // Contains a navigation bar and content area.
+//
+// The bar only renders here when the destination is NOT hosted by a native
+// navigation controller (e.g. inside Tabs or a split-view detail). On iOS it
+// is a real standalone UINavigationBar; macOS has no native in-content bar
+// primitive, so the bar is composed from the platform's own materials
+// (NSVisualEffectView header material + hairline separator).
 
 import CWaterUI
 
@@ -31,20 +37,17 @@ final class WuiNavigationView: PlatformView, WuiComponent {
   private var hiddenWatcher: WatcherGuard?
   private var searchCoordinator: WuiNavigationSearchCoordinator?
   private var backAction: Action?
-  private let usesThemeBarColor: Bool
-  private var barBackgroundObservation: WuiComputedObservation<WuiResolvedColor>?
-  private var borderObservation: WuiComputedObservation<WuiResolvedColor>?
-  private var overlaySurfaceObservation: WuiComputedObservation<WuiResolvedColor>?
 
   #if canImport(UIKit)
-    private let navBarView = UIView()
-    private let borderView = UIView()
-    private var inlineBackButton: UIButton?
+    private let navigationBar = UINavigationBar()
+    private let barItem = UINavigationItem()
+    private var backItem: UIBarButtonItem?
     private var overlayBackButton: UIButton?
     private var searchView: UIView?
   #elseif canImport(AppKit)
-    private let navBarView = NSView()
+    private let navBarView = NSVisualEffectView()
     private let borderView = NSView()
+    private var borderObservation: WuiComputedObservation<WuiResolvedColor>?
     private var inlineBackButton: NSButton?
     private var overlayBackButton: NSButton?
     private var searchView: NSView?
@@ -84,7 +87,7 @@ final class WuiNavigationView: PlatformView, WuiComponent {
     self.destinationState = destinationState
     self.titleView = barState.title.view
     self.backAction = backAction
-    self.usesThemeBarColor = barState.color == nil
+
     super.init(frame: .zero)
 
     configureNavBar()
@@ -127,70 +130,105 @@ final class WuiNavigationView: PlatformView, WuiComponent {
 
   private func configureNavBar() {
     if hasNavigationController {
-      navBarView.isHidden = true
+      barIsInstalled = false
       return
     }
+    barIsInstalled = true
 
-    navBarView.translatesAutoresizingMaskIntoConstraints = true
-    addSubview(navBarView)
+    #if canImport(UIKit)
+      navigationBar.translatesAutoresizingMaskIntoConstraints = true
+      navigationBar.items = [barItem]
+      addSubview(navigationBar)
 
-    #if canImport(AppKit)
-      navBarView.wantsLayer = true
+      titleView.translatesAutoresizingMaskIntoConstraints = true
+      barItem.titleView = titleView
+
+      if let trailingView = barState.trailing {
+        trailingView.translatesAutoresizingMaskIntoConstraints = true
+        barItem.rightBarButtonItem = UIBarButtonItem(customView: trailingView)
+      }
+      rebuildLeadingItems()
+    #elseif canImport(AppKit)
+      navBarView.translatesAutoresizingMaskIntoConstraints = true
+      // The header material is the platform's own bar background: a
+      // translucent in-window blur that adapts to the appearance.
+      navBarView.material = .headerView
+      navBarView.blendingMode = .withinWindow
+      addSubview(navBarView)
+
       borderView.wantsLayer = true
+      borderObservation = WuiComputedObservation(
+        themeColor: WuiColorSlot_Border,
+        env: env
+      ) { [weak self] color, _ in
+        self?.borderView.layer?.backgroundColor = color.toNSColor().cgColor
+      }
+      if let border = borderObservation?.value {
+        borderView.layer?.backgroundColor = border.toNSColor().cgColor
+      }
+
+      titleView.translatesAutoresizingMaskIntoConstraints = true
+      navBarView.addSubview(titleView)
+
+      if let leadingView = barState.leading {
+        leadingView.translatesAutoresizingMaskIntoConstraints = true
+        navBarView.addSubview(leadingView)
+      }
+
+      if let trailingView = barState.trailing {
+        trailingView.translatesAutoresizingMaskIntoConstraints = true
+        navBarView.addSubview(trailingView)
+      }
+
+      borderView.translatesAutoresizingMaskIntoConstraints = true
+      navBarView.addSubview(borderView)
+
+      installInlineBackButton()
     #endif
-
-    barBackgroundObservation = WuiComputedObservation(
-      themeColor: WuiColorSlot_Surface,
-      env: env
-    ) { [weak self] color, _ in
-      guard let self, self.usesThemeBarColor else { return }
-      self.applyBarColor(color)
-    }
-    borderObservation = WuiComputedObservation(
-      themeColor: WuiColorSlot_Border,
-      env: env
-    ) { [weak self] color, _ in
-      self?.applyBorderColor(color)
-    }
-    overlaySurfaceObservation = WuiComputedObservation(
-      themeColor: WuiColorSlot_Surface,
-      env: env
-    ) { [weak self] color, _ in
-      self?.applyOverlaySurfaceColor(color)
-    }
-    if let background = barBackgroundObservation?.value {
-      applyBarColor(background)
-    }
-    if let border = borderObservation?.value {
-      applyBorderColor(border)
-    }
-
-    titleView.translatesAutoresizingMaskIntoConstraints = true
-    navBarView.addSubview(titleView)
-
-    if let leadingView = barState.leading {
-      leadingView.translatesAutoresizingMaskIntoConstraints = true
-      navBarView.addSubview(leadingView)
-    }
-
-    if let trailingView = barState.trailing {
-      trailingView.translatesAutoresizingMaskIntoConstraints = true
-      navBarView.addSubview(trailingView)
-    }
-
-    borderView.translatesAutoresizingMaskIntoConstraints = true
-    navBarView.addSubview(borderView)
-
-    installInlineBackButton()
 
     if let search = barState.search {
       let (searchView, coordinator) = makeInlineNavigationSearchView(search)
       searchView.translatesAutoresizingMaskIntoConstraints = true
-      navBarView.addSubview(searchView)
+      #if canImport(UIKit)
+        addSubview(searchView)
+      #elseif canImport(AppKit)
+        navBarView.addSubview(searchView)
+      #endif
       self.searchView = searchView
       searchCoordinator = coordinator
     }
   }
+
+  /// Whether this view renders its own bar (no native controller hosts it).
+  private var barIsInstalled = false
+
+  #if canImport(UIKit)
+    /// The back chevron plus the semantic leading item. SwiftUI's back
+    /// button is an accent-tinted chevron; the previous-title text is not
+    /// available at this level and is deliberately omitted rather than
+    /// hardcoding a non-localized literal.
+    private func rebuildLeadingItems() {
+      var items: [UIBarButtonItem] = []
+      if backAction != nil {
+        let back = UIBarButtonItem(
+          image: UIImage(systemName: "chevron.backward"),
+          style: .plain,
+          target: self,
+          action: #selector(backButtonTapped)
+        )
+        backItem = back
+        items.append(back)
+      } else {
+        backItem = nil
+      }
+      if let leadingView = barState.leading {
+        leadingView.translatesAutoresizingMaskIntoConstraints = true
+        items.append(UIBarButtonItem(customView: leadingView))
+      }
+      barItem.leftBarButtonItems = items
+      barItem.leftItemsSupplementBackButton = false
+    }
+  #endif
 
   private func configureContent() {
     contentView.translatesAutoresizingMaskIntoConstraints = true
@@ -216,92 +254,82 @@ final class WuiNavigationView: PlatformView, WuiComponent {
     applyBarHidden(hidden.value)
   }
 
+  /// Applied only for an app-provided explicit bar color; the default bar
+  /// keeps the platform chrome (system appearance on iOS, header material
+  /// on macOS).
   private func applyBarColor(_ color: WuiResolvedColor) {
     #if canImport(UIKit)
-      navBarView.backgroundColor = color.toUIColor()
+      let appearance = UINavigationBarAppearance()
+      appearance.configureWithOpaqueBackground()
+      appearance.backgroundColor = color.toUIColor()
+      navigationBar.standardAppearance = appearance
+      navigationBar.scrollEdgeAppearance = appearance
+      navigationBar.compactAppearance = appearance
     #elseif canImport(AppKit)
+      navBarView.wantsLayer = true
+      navBarView.material = .windowBackground
       navBarView.layer?.backgroundColor = color.toNSColor().cgColor
     #endif
   }
 
-  private func applyBorderColor(_ color: WuiResolvedColor) {
-    #if canImport(UIKit)
-      borderView.backgroundColor = color.toUIColor()
-    #elseif canImport(AppKit)
-      borderView.layer?.backgroundColor = color.toNSColor().cgColor
-    #endif
-  }
-
-  private func applyOverlaySurfaceColor(_ color: WuiResolvedColor) {
-    #if canImport(UIKit)
-      overlayBackButton?.backgroundColor = color.toUIColor().withAlphaComponent(0.92)
-    #elseif canImport(AppKit)
-      overlayBackButton?.layer?.backgroundColor =
-        color.toNSColor()
-        .withAlphaComponent(0.92)
-        .cgColor
-    #endif
-  }
+  private var barIsHidden = false
 
   private func applyBarHidden(_ hidden: Bool) {
-    navBarView.isHidden = hidden
-    updateBackButtonVisibility()
+    barIsHidden = hidden
     #if canImport(UIKit)
+      navigationBar.isHidden = hidden
+      searchView?.isHidden = hidden
       setNeedsLayout()
       layoutIfNeeded()
     #elseif canImport(AppKit)
+      navBarView.isHidden = hidden
       needsLayout = true
     #endif
+    updateBackButtonVisibility()
   }
 
-  private func installInlineBackButton() {
-    #if canImport(UIKit)
-      let button = UIButton(type: .system)
-      button.setImage(UIImage(systemName: "chevron.backward"), for: .normal)
-      button.setTitle("Back", for: .normal)
-      button.semanticContentAttribute = .forceLeftToRight
-      button.addTarget(self, action: #selector(backButtonTapped), for: .touchUpInside)
-      button.translatesAutoresizingMaskIntoConstraints = true
-      navBarView.addSubview(button)
-      inlineBackButton = button
-    #elseif canImport(AppKit)
-      let button = NSButton(title: "Back", target: self, action: #selector(backButtonTapped))
-      button.image = NSImage(systemSymbolName: "chevron.backward", accessibilityDescription: "Back")
-      button.bezelStyle = .inline
+  #if canImport(AppKit)
+    private func installInlineBackButton() {
+      guard
+        let chevron = NSImage(
+          systemSymbolName: "chevron.backward",
+          accessibilityDescription: "Back"
+        )
+      else {
+        fatalError("SF Symbol chevron.backward is unavailable")
+      }
+      let button = NSButton(image: chevron, target: self, action: #selector(backButtonTapped))
+      button.bezelStyle = .accessoryBarAction
       button.isBordered = false
-      button.wantsLayer = true
-      button.layer?.cornerRadius = 8
       button.translatesAutoresizingMaskIntoConstraints = true
       navBarView.addSubview(button)
       inlineBackButton = button
-    #endif
-  }
+    }
+  #endif
 
   private func installOverlayBackButton() {
     #if canImport(UIKit)
       let button = UIButton(type: .system)
       button.setImage(UIImage(systemName: "chevron.backward"), for: .normal)
-      button.layer.cornerRadius = 8
       button.addTarget(self, action: #selector(backButtonTapped), for: .touchUpInside)
       button.translatesAutoresizingMaskIntoConstraints = true
       addSubview(button)
       overlayBackButton = button
-      if let surface = overlaySurfaceObservation?.value {
-        applyOverlaySurfaceColor(surface)
-      }
     #elseif canImport(AppKit)
-      let button = NSButton(frame: .zero)
-      button.image = NSImage(systemSymbolName: "chevron.backward", accessibilityDescription: "Back")
+      guard
+        let chevron = NSImage(
+          systemSymbolName: "chevron.backward",
+          accessibilityDescription: "Back"
+        )
+      else {
+        fatalError("SF Symbol chevron.backward is unavailable")
+      }
+      let button = NSButton(image: chevron, target: self, action: #selector(backButtonTapped))
       button.bezelStyle = .accessoryBarAction
       button.isBordered = false
-      button.target = self
-      button.action = #selector(backButtonTapped)
       button.translatesAutoresizingMaskIntoConstraints = true
       addSubview(button)
       overlayBackButton = button
-      if let surface = overlaySurfaceObservation?.value {
-        applyOverlaySurfaceColor(surface)
-      }
     #endif
   }
 
@@ -314,10 +342,16 @@ final class WuiNavigationView: PlatformView, WuiComponent {
   }
 
   private func updateBackButtonVisibility() {
-    let showsInlineBack = backAction != nil && !navBarView.isHidden
-    let showsOverlayBack = backAction != nil && navBarView.isHidden
-    inlineBackButton?.isHidden = !showsInlineBack
+    let barVisible = barIsInstalled && !barIsHidden
+    let showsOverlayBack = backAction != nil && !barVisible
     overlayBackButton?.isHidden = !showsOverlayBack
+    #if canImport(UIKit)
+      if barIsInstalled {
+        rebuildLeadingItems()
+      }
+    #elseif canImport(AppKit)
+      inlineBackButton?.isHidden = !(backAction != nil && barVisible)
+    #endif
   }
 
   func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
@@ -350,153 +384,184 @@ final class WuiNavigationView: PlatformView, WuiComponent {
     }
   #endif
 
+  private let itemSpacing: CGFloat = 8
+  private let horizontalInset: CGFloat = 16
+
   private func performLayout() {
-    let barHeight = navBarView.isHidden ? 0 : measuredNavBarHeight()
-    let headerHeight = navBarView.isHidden ? 0 : measuredHeaderHeight()
-    let searchHeight = navBarView.isHidden ? 0 : measuredSearchHeight()
-    let horizontalInset: CGFloat = 16
-    let itemSpacing: CGFloat = 8
-
-    navBarView.frame = CGRect(x: 0, y: 0, width: bounds.width, height: barHeight)
-
-    var leadingCursor = horizontalInset
-    if let inlineBackButton, !inlineBackButton.isHidden {
-      let size = inlineBackButtonSize(headerHeight: headerHeight)
-      inlineBackButton.frame = CGRect(
-        x: leadingCursor,
-        y: (headerHeight - size.height) / 2,
-        width: size.width,
-        height: size.height
-      )
-      leadingCursor = inlineBackButton.frame.maxX + itemSpacing
+    guard barIsInstalled, !barIsHidden else {
+      overlayBackButton?.frame = CGRect(x: 8, y: 8, width: 30, height: 30)
+      contentView.frame = bounds
+      return
     }
 
-    if let leadingView = barState.leading {
-      let leadingSize = leadingView.sizeThatFits(
-        WuiProposalSize(width: Float(max(bounds.width * 0.3, 1)), height: Float(headerHeight))
-      )
-      leadingView.frame = CGRect(
-        x: leadingCursor,
-        y: (headerHeight - leadingSize.height) / 2,
-        width: leadingSize.width,
-        height: leadingSize.height
-      )
-      leadingCursor = leadingView.frame.maxX + itemSpacing
-    }
-
-    var trailingBoundary = bounds.width - horizontalInset
-    if let trailingView = barState.trailing {
-      let trailingSize = trailingView.sizeThatFits(
-        WuiProposalSize(width: Float(max(bounds.width * 0.3, 1)), height: Float(headerHeight))
-      )
-      trailingView.frame = CGRect(
-        x: trailingBoundary - trailingSize.width,
-        y: (headerHeight - trailingSize.height) / 2,
-        width: trailingSize.width,
-        height: trailingSize.height
-      )
-      trailingBoundary = trailingView.frame.minX - itemSpacing
-    }
-
-    let titleProposalWidth = max(trailingBoundary - leadingCursor, 1)
-    let titleSize = titleView.sizeThatFits(
-      WuiProposalSize(width: Float(titleProposalWidth), height: Float(headerHeight))
-    )
-    let minTitleX = leadingCursor
-    let maxTitleX = max(minTitleX, trailingBoundary - titleSize.width)
-    let centeredTitleX = (bounds.width - titleSize.width) / 2
-    let titleX = min(max(centeredTitleX, minTitleX), maxTitleX)
-    titleView.frame = CGRect(
-      x: titleX,
-      y: (headerHeight - titleSize.height) / 2,
-      width: titleSize.width,
-      height: titleSize.height
-    )
-
-    if let searchView {
-      searchView.frame = CGRect(
-        x: horizontalInset,
-        y: headerHeight + 8,
-        width: max(bounds.width - horizontalInset * 2, 1),
-        height: searchHeight
-      )
-    }
-
-    borderView.frame = CGRect(x: 0, y: barHeight - 1, width: bounds.width, height: 1)
-    overlayBackButton?.frame = CGRect(x: 8, y: 8, width: 30, height: 30)
-
-    contentView.frame = CGRect(
-      x: 0,
-      y: barHeight,
-      width: bounds.width,
-      height: bounds.height - barHeight
-    )
-  }
-
-  private func measuredNavBarHeight() -> CGFloat {
-    let headerHeight = measuredHeaderHeight()
-    let searchHeight = measuredSearchHeight()
-    if searchHeight > 0 {
-      return headerHeight + 8 + searchHeight + 8
-    }
-    return headerHeight
-  }
-
-  private func measuredHeaderHeight() -> CGFloat {
     #if canImport(UIKit)
-      let baseline = UINavigationBar().sizeThatFits(
+      sizeBarItemViews()
+      let barHeight = navigationBar.sizeThatFits(
         CGSize(width: bounds.width, height: UIView.layoutFittingCompressedSize.height)
       ).height
+      navigationBar.frame = CGRect(x: 0, y: 0, width: bounds.width, height: barHeight)
+
+      var contentTop = barHeight
+      if let searchView {
+        let searchHeight = max(
+          searchView.sizeThatFits(
+            CGSize(
+              width: max(bounds.width - horizontalInset * 2, 1),
+              height: UIView.layoutFittingCompressedSize.height
+            )
+          ).height,
+          44
+        )
+        searchView.frame = CGRect(
+          x: horizontalInset,
+          y: barHeight,
+          width: max(bounds.width - horizontalInset * 2, 1),
+          height: searchHeight
+        )
+        contentTop = barHeight + searchHeight + itemSpacing
+      }
+
+      contentView.frame = CGRect(
+        x: 0,
+        y: contentTop,
+        width: bounds.width,
+        height: bounds.height - contentTop
+      )
     #elseif canImport(AppKit)
+      layoutAppKitBar()
+    #endif
+  }
+
+  #if canImport(UIKit)
+    /// UIBarButtonItem custom views and the title view size themselves; a
+    /// WaterUI view has no intrinsic size, so measure and stamp the frames
+    /// before the bar lays out.
+    private func sizeBarItemViews() {
+      let barProposal = WuiProposalSize(
+        width: Float(max(bounds.width * 0.4, 1)),
+        height: nil
+      )
+      let titleSize = titleView.sizeThatFits(barProposal)
+      titleView.frame.size = titleSize
+      if let leadingView = barState.leading {
+        leadingView.frame.size = leadingView.sizeThatFits(barProposal)
+      }
+      if let trailingView = barState.trailing {
+        trailingView.frame.size = trailingView.sizeThatFits(barProposal)
+      }
+    }
+  #elseif canImport(AppKit)
+    private func layoutAppKitBar() {
+      let headerHeight = measuredHeaderHeight()
+      let searchHeight = measuredSearchHeight()
+      let barHeight =
+        searchHeight > 0
+        ? headerHeight + itemSpacing + searchHeight + itemSpacing
+        : headerHeight
+
+      navBarView.frame = CGRect(x: 0, y: 0, width: bounds.width, height: barHeight)
+
+      var leadingCursor = horizontalInset
+      if let inlineBackButton, !inlineBackButton.isHidden {
+        let size = inlineBackButton.fittingSize
+        inlineBackButton.frame = CGRect(
+          x: leadingCursor,
+          y: (headerHeight - size.height) / 2,
+          width: size.width,
+          height: size.height
+        )
+        leadingCursor = inlineBackButton.frame.maxX + itemSpacing
+      }
+
+      if let leadingView = barState.leading {
+        let leadingSize = leadingView.sizeThatFits(
+          WuiProposalSize(width: Float(max(bounds.width * 0.3, 1)), height: Float(headerHeight))
+        )
+        leadingView.frame = CGRect(
+          x: leadingCursor,
+          y: (headerHeight - leadingSize.height) / 2,
+          width: leadingSize.width,
+          height: leadingSize.height
+        )
+        leadingCursor = leadingView.frame.maxX + itemSpacing
+      }
+
+      var trailingBoundary = bounds.width - horizontalInset
+      if let trailingView = barState.trailing {
+        let trailingSize = trailingView.sizeThatFits(
+          WuiProposalSize(width: Float(max(bounds.width * 0.3, 1)), height: Float(headerHeight))
+        )
+        trailingView.frame = CGRect(
+          x: trailingBoundary - trailingSize.width,
+          y: (headerHeight - trailingSize.height) / 2,
+          width: trailingSize.width,
+          height: trailingSize.height
+        )
+        trailingBoundary = trailingView.frame.minX - itemSpacing
+      }
+
+      let titleProposalWidth = max(trailingBoundary - leadingCursor, 1)
+      let titleSize = titleView.sizeThatFits(
+        WuiProposalSize(width: Float(titleProposalWidth), height: Float(headerHeight))
+      )
+      let minTitleX = leadingCursor
+      let maxTitleX = max(minTitleX, trailingBoundary - titleSize.width)
+      let centeredTitleX = (bounds.width - titleSize.width) / 2
+      let titleX = min(max(centeredTitleX, minTitleX), maxTitleX)
+      titleView.frame = CGRect(
+        x: titleX,
+        y: (headerHeight - titleSize.height) / 2,
+        width: titleSize.width,
+        height: titleSize.height
+      )
+
+      if let searchView {
+        searchView.frame = CGRect(
+          x: horizontalInset,
+          y: headerHeight + itemSpacing,
+          width: max(bounds.width - horizontalInset * 2, 1),
+          height: searchHeight
+        )
+      }
+
+      let hairline = 1 / (window?.backingScaleFactor ?? 1)
+      borderView.frame = CGRect(
+        x: 0, y: barHeight - hairline, width: bounds.width, height: hairline)
+
+      contentView.frame = CGRect(
+        x: 0,
+        y: barHeight,
+        width: bounds.width,
+        height: bounds.height - barHeight
+      )
+    }
+
+    private func measuredHeaderHeight() -> CGFloat {
       let baseline = max(NSButton().fittingSize.height, titleView.fittingSize.height)
-    #endif
-
-    let titleSize = titleView.sizeThatFits(
-      WuiProposalSize(width: Float(max(bounds.width, 1)), height: nil)
-    )
-    let leadingHeight =
-      barState.leading?.sizeThatFits(
-        WuiProposalSize(width: Float(max(bounds.width * 0.3, 1)), height: nil)
-      ).height ?? 0
-    let trailingHeight =
-      barState.trailing?.sizeThatFits(
-        WuiProposalSize(width: Float(max(bounds.width * 0.3, 1)), height: nil)
-      ).height ?? 0
-    let backHeight = inlineBackButtonSize(headerHeight: baseline).height
-    return max(
-      baseline,
-      titleSize.height + 16,
-      leadingHeight + 16,
-      trailingHeight + 16,
-      backHeight + 16
-    )
-  }
-
-  private func measuredSearchHeight() -> CGFloat {
-    guard let searchView else { return 0 }
-    #if canImport(UIKit)
+      let titleSize = titleView.sizeThatFits(
+        WuiProposalSize(width: Float(max(bounds.width, 1)), height: nil)
+      )
+      let leadingHeight =
+        barState.leading?.sizeThatFits(
+          WuiProposalSize(width: Float(max(bounds.width * 0.3, 1)), height: nil)
+        ).height ?? 0
+      let trailingHeight =
+        barState.trailing?.sizeThatFits(
+          WuiProposalSize(width: Float(max(bounds.width * 0.3, 1)), height: nil)
+        ).height ?? 0
+      let backHeight = inlineBackButton.map { $0.isHidden ? 0 : $0.fittingSize.height } ?? 0
       return max(
-        searchView.sizeThatFits(
-          CGSize(
-            width: max(bounds.width - 32, 1), height: UIView.layoutFittingCompressedSize.height)
-        ).height,
-        44
+        baseline,
+        titleSize.height + itemSpacing * 2,
+        leadingHeight + itemSpacing * 2,
+        trailingHeight + itemSpacing * 2,
+        backHeight + itemSpacing * 2
       )
-    #elseif canImport(AppKit)
-      return max(searchView.fittingSize.height, 28)
-    #endif
-  }
+    }
 
-  private func inlineBackButtonSize(headerHeight: CGFloat) -> CGSize {
-    guard let inlineBackButton else { return .zero }
-    #if canImport(UIKit)
-      return inlineBackButton.sizeThatFits(
-        CGSize(width: max(bounds.width * 0.4, 44), height: max(headerHeight, 44))
-      )
-    #elseif canImport(AppKit)
-      return inlineBackButton.sizeThatFits(
-        CGSize(width: max(bounds.width * 0.4, 44), height: max(headerHeight, 24))
-      )
-    #endif
-  }
+    private func measuredSearchHeight() -> CGFloat {
+      guard let searchView else { return 0 }
+      return max(searchView.fittingSize.height, 28)
+    }
+  #endif
 }

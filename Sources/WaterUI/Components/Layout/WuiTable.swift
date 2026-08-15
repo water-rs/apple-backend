@@ -51,8 +51,6 @@ final class WuiTable: PlatformView, WuiComponent {
   private let source: WuiAnyViews
   private let collection = WuiStableSemanticCollection<Int32, WuiTableColumnNode>()
   private var columnsWatcher: WatcherGuard?
-  private var surfaceObservation: WuiComputedObservation<WuiResolvedColor>?
-  private var borderObservation: WuiComputedObservation<WuiResolvedColor>?
 
   private let horizontalPadding: CGFloat = 12
   private let verticalPadding: CGFloat = 6
@@ -84,7 +82,6 @@ final class WuiTable: PlatformView, WuiComponent {
     #if canImport(UIKit)
       clipsToBounds = true
     #elseif canImport(AppKit)
-      wantsLayer = true
       tableView.style = .inset
       tableView.usesAlternatingRowBackgroundColors = false
       tableView.gridStyleMask = []
@@ -107,7 +104,6 @@ final class WuiTable: PlatformView, WuiComponent {
       }
     }
     reconcileColumns(ids: source.allIds())
-    installTheme()
   }
 
   @available(*, unavailable)
@@ -134,45 +130,6 @@ final class WuiTable: PlatformView, WuiComponent {
       )
     }
     updateColumns()
-  }
-
-  private func installTheme() {
-    let surface = WuiComputedObservation(
-      themeColor: WuiColorSlot_Surface,
-      env: env
-    ) { [weak self] color, _ in
-      self?.applySurface(color)
-    }
-    let border = WuiComputedObservation(
-      themeColor: WuiColorSlot_Border,
-      env: env
-    ) { [weak self] color, _ in
-      self?.applyBorder(color)
-    }
-    surfaceObservation = surface
-    borderObservation = border
-    applySurface(surface.value)
-    applyBorder(border.value)
-  }
-
-  private func applySurface(_ color: WuiResolvedColor) {
-    #if canImport(UIKit)
-      backgroundColor = color.toUIColor()
-    #elseif canImport(AppKit)
-      layer?.backgroundColor = color.toNSColor().cgColor
-    #endif
-    invalidateCapturedRendering()
-  }
-
-  private func applyBorder(_ color: WuiResolvedColor) {
-    #if canImport(UIKit)
-      layer.borderColor = color.toUIColor().cgColor
-      layer.borderWidth = 1 / traitCollection.displayScale
-    #elseif canImport(AppKit)
-      layer?.borderColor = color.toNSColor().cgColor
-      layer?.borderWidth = 1 / (window?.backingScaleFactor ?? 1)
-    #endif
-    invalidateCapturedRendering()
   }
 
   private func updateColumns() {
@@ -341,19 +298,6 @@ final class WuiTable: PlatformView, WuiComponent {
       }
     }
 
-    override func viewDidMoveToWindow() {
-      super.viewDidMoveToWindow()
-      if let border = borderObservation?.value {
-        applyBorder(border)
-      }
-    }
-
-    override func viewDidChangeBackingProperties() {
-      super.viewDidChangeBackingProperties()
-      if let border = borderObservation?.value {
-        applyBorder(border)
-      }
-    }
   #endif
 }
 

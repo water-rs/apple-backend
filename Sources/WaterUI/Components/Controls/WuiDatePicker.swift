@@ -62,6 +62,7 @@ final class WuiDatePicker: PlatformView, WuiComponent {
   private var labelView: WuiAnyView
   private var binding: WuiBinding<CWaterUI.WuiDateTime>
   private var bindingWatcher: WatcherGuard?
+  private var bodyFontObservation: WuiComputedObservation<WuiResolvedFontValue>?
   private var isSyncingFromBinding = false
   private let pickerType: CWaterUI.WuiDatePickerType
   private var accessibility: WuiControlAccessibility?
@@ -155,6 +156,16 @@ final class WuiDatePicker: PlatformView, WuiComponent {
 
     addSubview(labelView)
     addSubview(datePicker)
+
+    #if canImport(AppKit)
+      // The text-field-and-stepper picker renders themed text; its control
+      // font must track the body slot like every other text control.
+      bodyFontObservation = .bodyFont(env: env) { [weak self] font in
+        guard let self else { return }
+        datePicker.font = font.toPlatformFont()
+        invalidateLayoutHierarchy()
+      }
+    #endif
 
     #if canImport(UIKit)
       if showsSeconds {

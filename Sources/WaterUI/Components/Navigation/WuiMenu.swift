@@ -25,6 +25,7 @@ final class WuiMenu: PlatformView, WuiComponent {
     private let button = UIButton(type: .system)
   #elseif canImport(AppKit)
     private let button = WuiMenuButton()
+    private let indicatorView = NSImageView()
     private var nativeMenu = NSMenu()
   #endif
 
@@ -76,21 +77,49 @@ final class WuiMenu: PlatformView, WuiComponent {
       button.trailingAnchor.constraint(equalTo: trailingAnchor),
       button.topAnchor.constraint(equalTo: topAnchor),
       button.bottomAnchor.constraint(equalTo: bottomAnchor),
-      labelView.leadingAnchor.constraint(equalTo: button.leadingAnchor, constant: 8),
-      labelView.trailingAnchor.constraint(equalTo: button.trailingAnchor, constant: -8),
       labelView.topAnchor.constraint(equalTo: button.topAnchor, constant: 4),
       labelView.bottomAnchor.constraint(equalTo: button.bottomAnchor, constant: -4),
     ])
 
     #if canImport(UIKit)
       labelView.isUserInteractionEnabled = false
-      button.configuration = .bordered()
+      // SwiftUI's Menu renders a plain accent-tinted label, not a filled
+      // capsule.
+      button.configuration = .plain()
       button.showsMenuAsPrimaryAction = true
+      NSLayoutConstraint.activate([
+        labelView.leadingAnchor.constraint(equalTo: button.leadingAnchor, constant: 8),
+        labelView.trailingAnchor.constraint(equalTo: button.trailingAnchor, constant: -8),
+      ])
     #elseif canImport(AppKit)
       button.bezelStyle = .rounded
       button.title = ""
       button.target = self
       button.action = #selector(showMenu)
+      // macOS menus are pull-downs: the trailing up/down chevron is part of
+      // the native control language and tells the user this pops a menu.
+      guard
+        let indicator = NSImage(
+          systemSymbolName: "chevron.up.chevron.down",
+          accessibilityDescription: nil
+        )
+      else {
+        fatalError("SF Symbol chevron.up.chevron.down is unavailable")
+      }
+      indicatorView.image = indicator
+      indicatorView.symbolConfiguration = NSImage.SymbolConfiguration(
+        pointSize: NSFont.smallSystemFontSize,
+        weight: .semibold
+      )
+      indicatorView.contentTintColor = .secondaryLabelColor
+      indicatorView.translatesAutoresizingMaskIntoConstraints = false
+      button.addSubview(indicatorView)
+      NSLayoutConstraint.activate([
+        labelView.leadingAnchor.constraint(equalTo: button.leadingAnchor, constant: 8),
+        indicatorView.leadingAnchor.constraint(equalTo: labelView.trailingAnchor, constant: 4),
+        indicatorView.trailingAnchor.constraint(equalTo: button.trailingAnchor, constant: -8),
+        indicatorView.centerYAnchor.constraint(equalTo: button.centerYAnchor),
+      ])
     #endif
   }
 
@@ -136,8 +165,13 @@ final class WuiMenu: PlatformView, WuiComponent {
   func layoutPriority() -> Int32 { 0 }
 
   func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
-    let horizontalPadding: CGFloat = 16
     let verticalPadding: CGFloat = 8
+    #if canImport(UIKit)
+      let horizontalPadding: CGFloat = 16
+    #elseif canImport(AppKit)
+      // Side padding plus the pull-down indicator and its spacing.
+      let horizontalPadding: CGFloat = 16 + indicatorView.intrinsicContentSize.width + 4
+    #endif
     var labelProposal = WuiProposalSize()
     if let proposedWidth = proposal.width {
       labelProposal.width = max(proposedWidth - Float(horizontalPadding), 0)

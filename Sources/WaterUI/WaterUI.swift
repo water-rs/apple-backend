@@ -645,16 +645,24 @@ public final class ThemeBridge {
         installColorSignal(env: env, slot: WuiColorSlot_MutedForeground) {
           UIColor.secondaryLabel
         },
-        installColorSignal(env: env, slot: WuiColorSlot_Accent) { UIColor.tintColor },
+        installColorSignal(env: env, slot: WuiColorSlot_Accent) { Self.appAccentColor() },
         installColorSignal(env: env, slot: WuiColorSlot_AccentForeground) { UIColor.white },
         installColorSignal(env: env, slot: WuiColorSlot_AccentContainer) {
-          UIColor.tintColor.withAlphaComponent(0.16)
+          Self.appAccentColor().withAlphaComponent(0.16)
         },
         installColorSignal(env: env, slot: WuiColorSlot_Tertiary) { UIColor.systemPurple },
         installColorSignal(env: env, slot: WuiColorSlot_TertiaryContainer) {
           UIColor.systemPurple.withAlphaComponent(0.16)
         },
       ]
+    }
+
+    /// The app's asset-catalog accent, the same source SwiftUI resolves for
+    /// its default tint. `UIColor.tintColor` is view-context dependent and
+    /// collapses to systemBlue when resolved outside a view hierarchy, which
+    /// is exactly how the theme table resolves colors.
+    private static func appAccentColor() -> UIColor {
+      UIColor(named: "AccentColor") ?? .tintColor
     }
 
     private static func installColorSignal(

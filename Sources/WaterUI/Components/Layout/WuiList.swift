@@ -582,7 +582,8 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
       let flat = flatIndex(for: indexPath)
       let item = resolveListItem(from: contents, at: flat, env: env)
-      let width = tableView.bounds.width
+      let insets = WuiListCell.rowInsets
+      let width = tableView.bounds.width - insets.leading - insets.trailing
       let proposal = WuiProposalSize(
         width: width > 0 ? Float(width) : nil,
         height: nil
@@ -591,7 +592,7 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       // Apple's inset-grouped table style uses a 44pt minimum touch
       // target — keep that floor when the measured content is shorter
       // (single-line rows, dividers, etc).
-      return max(size.height, 44)
+      return max(size.height + insets.top + insets.bottom, 44)
     }
   }
 
@@ -603,10 +604,16 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     private var contentWuiView: WuiAnyView?
     private var deletableObservation: WuiComputedObservation<Bool>?
 
+    /// SwiftUI's default inset-grouped row insets; the height measurement in
+    /// `heightForRowAt` must subtract/add exactly these values.
+    static let rowInsets = NSDirectionalEdgeInsets(top: 11, leading: 20, bottom: 11, trailing: 20)
+
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
       super.init(style: style, reuseIdentifier: reuseIdentifier)
+      // SwiftUI's inset-grouped rows are opaque cards floating on the
+      // grouped background; a clear cell made the rounded cards disappear.
       selectionStyle = .none
-      backgroundColor = .clear
+      backgroundColor = .secondarySystemGroupedBackground
     }
 
     @available(*, unavailable)
@@ -628,11 +635,17 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       view.translatesAutoresizingMaskIntoConstraints = false
       contentView.addSubview(view)
 
+      // Content sits inside SwiftUI's default row insets instead of running
+      // flush to the card edge.
+      let insets = Self.rowInsets
       NSLayoutConstraint.activate([
-        view.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-        view.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-        view.topAnchor.constraint(equalTo: contentView.topAnchor),
-        view.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+        view.leadingAnchor.constraint(
+          equalTo: contentView.leadingAnchor, constant: insets.leading),
+        view.trailingAnchor.constraint(
+          equalTo: contentView.trailingAnchor, constant: -insets.trailing),
+        view.topAnchor.constraint(equalTo: contentView.topAnchor, constant: insets.top),
+        view.bottomAnchor.constraint(
+          equalTo: contentView.bottomAnchor, constant: -insets.bottom),
       ])
 
       deletableObservation = deletable.map { signal in

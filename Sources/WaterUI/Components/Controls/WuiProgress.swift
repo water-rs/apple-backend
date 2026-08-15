@@ -234,7 +234,12 @@ final class WuiProgress: PlatformView, WuiComponent {
     private let progressView = UIProgressView(progressViewStyle: .default)
     private let activityIndicator = UIActivityIndicatorView(style: .medium)
   #elseif canImport(AppKit)
+    // The layer-drawn pair only serves the four-color mode, which
+    // NSProgressIndicator cannot render; everything else projects to the
+    // native indicators SwiftUI uses on macOS.
     private let linearProgress = WuiLayerProgressView<WuiLinearProgressGeometry>()
+    private let nativeSpinner = NSProgressIndicator()
+    private let nativeLinear = NSProgressIndicator()
   #endif
 
   convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
@@ -337,6 +342,13 @@ final class WuiProgress: PlatformView, WuiComponent {
   }
 
   private var progressControlSize: CGSize {
+    #if canImport(AppKit)
+      if !fourColor {
+        return style == WuiProgressStyle_Circular
+          ? nativeSpinner.intrinsicContentSize
+          : CGSize(width: 100, height: nativeLinear.intrinsicContentSize.height)
+      }
+    #endif
     if style == WuiProgressStyle_Circular {
       return circularProgress.intrinsicContentSize
     }
@@ -357,6 +369,16 @@ final class WuiProgress: PlatformView, WuiComponent {
       addSubview(activityIndicator)
     #elseif canImport(AppKit)
       addSubview(linearProgress)
+      nativeSpinner.style = .spinning
+      nativeSpinner.controlSize = .small
+      nativeSpinner.isDisplayedWhenStopped = true
+      nativeLinear.style = .bar
+      nativeLinear.minValue = 0
+      nativeLinear.maxValue = 1
+      addSubview(nativeSpinner)
+      addSubview(nativeLinear)
+      nativeSpinner.isHidden = true
+      nativeLinear.isHidden = true
     #endif
   }
 
@@ -490,21 +512,39 @@ final class WuiProgress: PlatformView, WuiComponent {
         }
       }
     #elseif canImport(AppKit)
-      if style == WuiProgressStyle_Circular {
-        linearProgress.isHidden = true
-        circularProgress.isHidden = false
-        if isIndeterminate {
-          circularProgress.setIndeterminate(true)
+      if fourColor {
+        if style == WuiProgressStyle_Circular {
+          linearProgress.isHidden = true
+          circularProgress.isHidden = false
+          if isIndeterminate {
+            circularProgress.setIndeterminate(true)
+          } else {
+            circularProgress.setProgress(value, metadata: metadata)
+          }
         } else {
-          circularProgress.setProgress(value, metadata: metadata)
+          circularProgress.isHidden = true
+          linearProgress.isHidden = false
+          if isIndeterminate {
+            linearProgress.setIndeterminate(true)
+          } else {
+            linearProgress.setProgress(value, metadata: metadata)
+          }
         }
       } else {
         circularProgress.isHidden = true
-        linearProgress.isHidden = false
+        linearProgress.isHidden = true
+        let indicator = style == WuiProgressStyle_Circular ? nativeSpinner : nativeLinear
+        let other = style == WuiProgressStyle_Circular ? nativeLinear : nativeSpinner
+        other.isHidden = true
+        other.stopAnimation(nil)
+        indicator.isHidden = false
         if isIndeterminate {
-          linearProgress.setIndeterminate(true)
+          indicator.isIndeterminate = true
+          indicator.startAnimation(nil)
         } else {
-          linearProgress.setProgress(value, metadata: metadata)
+          indicator.stopAnimation(nil)
+          indicator.isIndeterminate = false
+          indicator.doubleValue = value
         }
       }
     #endif
@@ -540,6 +580,8 @@ final class WuiProgress: PlatformView, WuiComponent {
       activityIndicator.frame = controlFrame
     #elseif canImport(AppKit)
       linearProgress.frame = controlFrame
+      nativeSpinner.frame = controlFrame
+      nativeLinear.frame = controlFrame
     #endif
     y += controlSize.height
 

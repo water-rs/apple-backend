@@ -30,6 +30,7 @@ final class WuiSystemIcon: PlatformView, WuiComponent {
 
   private let iconName: String
   private var foregroundObservation: WuiComputedObservation<WuiResolvedColor>?
+  private var bodyFontObservation: WuiComputedObservation<WuiResolvedFontValue>?
 
   // MARK: - WuiComponent Init
 
@@ -54,6 +55,12 @@ final class WuiSystemIcon: PlatformView, WuiComponent {
     }
     if let color = foregroundObservation?.value {
       applyForeground(color)
+    }
+    // SwiftUI's Image(systemName:) scales with the environment font; the
+    // glyph must track the themed body font instead of freezing at the
+    // symbol's default point size.
+    bodyFontObservation = .bodyFont(env: env) { [weak self] font in
+      self?.applySymbolFont(font)
     }
   }
 
@@ -94,6 +101,28 @@ final class WuiSystemIcon: PlatformView, WuiComponent {
       }
       imageView.image = image
     #endif
+  }
+
+  private func applySymbolFont(_ font: WuiResolvedFontValue) {
+    #if canImport(UIKit)
+      imageView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
+        font: font.toPlatformFont()
+      )
+    #elseif canImport(AppKit)
+      let size = CGFloat(font.size)
+      let configuration = NSImage.SymbolConfiguration(
+        pointSize: size,
+        weight: font.weight.toNSFontWeight()
+      )
+      guard
+        let base = NSImage(systemSymbolName: iconName, accessibilityDescription: nil),
+        let sized = base.withSymbolConfiguration(configuration)
+      else {
+        fatalError("SF Symbol \(iconName) rejected the themed font configuration")
+      }
+      imageView.image = sized
+    #endif
+    invalidateLayoutHierarchy()
   }
 
   private func applyForeground(_ color: WuiResolvedColor) {
