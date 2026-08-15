@@ -672,7 +672,11 @@ public final class ThemeBridge {
           NSColor.controlBackgroundColor
         },
         installColorSignal(env: env, slot: WuiColorSlot_SurfaceVariant) {
-          NSColor.underPageBackgroundColor
+          // `underPageBackgroundColor` is the dark document-canvas color (58.8%
+          // gray at 90% opacity in light mode) and reads as a black block on a
+          // light UI. `tertiarySystemFill` is AppKit's fill for input fields
+          // and search bars, adapting correctly to both appearances.
+          NSColor.tertiarySystemFill
         },
         installColorSignal(env: env, slot: WuiColorSlot_Border) { NSColor.separatorColor },
         installColorSignal(env: env, slot: WuiColorSlot_Foreground) { NSColor.labelColor },
