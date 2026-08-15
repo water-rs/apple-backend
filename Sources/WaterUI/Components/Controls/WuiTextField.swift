@@ -24,69 +24,6 @@ import CWaterUI
   }
 #endif
 
-#if canImport(AppKit)
-  /// `NSTextFieldCell` has no content-inset support, so drawing, editing, and
-  /// measurement are all inset here — the AppKit counterpart of the UIKit
-  /// branch's `textContainerInset`.
-  private final class WuiPaddedTextFieldCell: NSTextFieldCell {
-    static let insets = NSEdgeInsets(top: 6, left: 10, bottom: 6, right: 10)
-
-    private func inset(_ rect: NSRect) -> NSRect {
-      NSRect(
-        x: rect.origin.x + Self.insets.left,
-        y: rect.origin.y + Self.insets.top,
-        width: rect.width - Self.insets.left - Self.insets.right,
-        height: rect.height - Self.insets.top - Self.insets.bottom
-      )
-    }
-
-    override func cellSize(forBounds rect: NSRect) -> NSSize {
-      var size = super.cellSize(forBounds: inset(rect))
-      size.width += Self.insets.left + Self.insets.right
-      size.height += Self.insets.top + Self.insets.bottom
-      return size
-    }
-
-    override func drawingRect(forBounds rect: NSRect) -> NSRect {
-      super.drawingRect(forBounds: inset(rect))
-    }
-
-    override func select(
-      withFrame rect: NSRect,
-      in controlView: NSView,
-      editor textObj: NSText,
-      delegate: Any?,
-      start selStart: Int,
-      length selLength: Int
-    ) {
-      super.select(
-        withFrame: inset(rect),
-        in: controlView,
-        editor: textObj,
-        delegate: delegate,
-        start: selStart,
-        length: selLength
-      )
-    }
-
-    override func edit(
-      withFrame rect: NSRect,
-      in controlView: NSView,
-      editor textObj: NSText,
-      delegate: Any?,
-      event: NSEvent?
-    ) {
-      super.edit(
-        withFrame: inset(rect),
-        in: controlView,
-        editor: textObj,
-        delegate: delegate,
-        event: event
-      )
-    }
-  }
-#endif
-
 @MainActor
 final class WuiTextField: PlatformView, WuiComponent {
   static var rawId: CWaterUI.WuiTypeId { waterui_text_field_id() }
@@ -370,13 +307,11 @@ final class WuiTextField: PlatformView, WuiComponent {
           equalTo: textView.topAnchor, constant: textView.textContainerInset.top),
       ])
     #elseif canImport(AppKit)
-      // Must precede the cell-forwarding setters below (`usesSingleLineMode`,
-      // `wraps`, `isScrollable`), which configure whichever cell is installed.
-      textField.cell = WuiPaddedTextFieldCell(textCell: "")
-      textField.isBordered = false
-      textField.wantsLayer = true
-      textField.layer?.cornerRadius = 6
-      textField.layer?.borderWidth = 1
+      // The native rounded bezel is what SwiftUI's default TextField renders
+      // on macOS: platform fill, hairline border, focus ring, and content
+      // padding all come from AppKit and adapt to the effective appearance.
+      textField.isBezeled = true
+      textField.bezelStyle = .roundedBezel
       textField.isEditable = true
       textField.isSelectable = true
       textField.usesSingleLineMode = isSingleLine
@@ -385,20 +320,6 @@ final class WuiTextField: PlatformView, WuiComponent {
       textField.cell?.isScrollable = isSingleLine
       textField.delegate = self
       textField.installWuiFocusTarget(focusTarget)
-      borderColorObservation = WuiComputedObservation(
-        themeColor: WuiColorSlot_Border,
-        env: env
-      ) { [weak self] color, _ in
-        self?.textField.layer?.borderColor = color.toNSColor().cgColor
-      }
-      textField.layer?.borderColor = borderColorObservation?.value.toNSColor().cgColor
-      fillColorObservation = WuiComputedObservation(
-        themeColor: WuiColorSlot_SurfaceVariant,
-        env: env
-      ) { [weak self] color, _ in
-        self?.textField.backgroundColor = color.toNSColor()
-      }
-      textField.backgroundColor = fillColorObservation?.value.toNSColor()
       installBodyFont()
     #endif
   }
