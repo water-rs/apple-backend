@@ -1260,6 +1260,7 @@ public final class WuiRootContext {
     private var context: WuiRootContext?
     private var startupTask: Task<Void, Never>?
     private var backgroundObservation: WuiComputedObservation<WuiResolvedColor>?
+    private var rootWindowBinding: WuiRootWindowBinding?
 
     public override init(frame frameRect: NSRect) {
       super.init(frame: frameRect)
@@ -1270,6 +1271,21 @@ public final class WuiRootContext {
         self.context = context
         self.setupView(context)
       }
+    }
+
+    /// Hands this view's window to the main window that declared it.
+    ///
+    /// The two arrive in either order — a host may put this view in a window
+    /// before the runtime has started, or start it before the view is placed —
+    /// so both paths ask, and the first one to find the pair does the binding.
+    public override func viewDidMoveToWindow() {
+      super.viewDidMoveToWindow()
+      bindRootWindowIfReady()
+    }
+
+    private func bindRootWindowIfReady() {
+      guard rootWindowBinding == nil, let context, let window else { return }
+      rootWindowBinding = bindRootWindow(window, to: context.window)
     }
 
     @available(*, unavailable)
@@ -1292,6 +1308,7 @@ public final class WuiRootContext {
       rootView.translatesAutoresizingMaskIntoConstraints = true
       addSubview(rootView)
       needsLayout = true
+      bindRootWindowIfReady()
     }
 
     /// A secondary click that no view claimed offers to inspect the element.

@@ -227,13 +227,11 @@ func installWindowManager(env: OpaquePointer, services: WuiNativeServices) {
       Logger.waterui.debug("Creating window: \(titleObservation.value.toString())")
 
       // Create window with appropriate style
-      var styleMask = windowStyleMask(from: wuiWindow.style)
-      if wuiWindow.resizable {
-        styleMask.insert(.resizable)
-      }
-      if !wuiWindow.closable {
-        styleMask.remove(.closable)
-      }
+      let styleMask = windowStyleMask(
+        style: wuiWindow.style,
+        closable: wuiWindow.closable,
+        resizable: wuiWindow.resizable
+      )
       let frameRect = resources.initialFrame
       let contentRect = NSWindow.contentRect(forFrameRect: frameRect, styleMask: styleMask)
 
@@ -398,18 +396,33 @@ func installWindowManager(env: OpaquePointer, services: WuiNativeServices) {
     }
 
     /// Convert WuiWindowStyle to NSWindow.StyleMask
-    private func windowStyleMask(from style: WuiWindowStyle) -> NSWindow.StyleMask {
-      switch style {
-      case WuiWindowStyle_Titled:
-        return [.titled, .closable, .miniaturizable]
-      case WuiWindowStyle_Borderless:
-        return [.borderless]
-      case WuiWindowStyle_FullSizeContentView:
-        return [.titled, .closable, .miniaturizable, .fullSizeContentView]
-      default:
-        fatalError("Unsupported window style: \(style.rawValue)")
-      }
+  }
+
+  /// The AppKit style mask a declared window asks for.
+  @MainActor
+  private func windowStyleMask(
+    style: WuiWindowStyle,
+    closable: Bool,
+    resizable: Bool
+  ) -> NSWindow.StyleMask {
+    var mask: NSWindow.StyleMask
+    switch style {
+    case WuiWindowStyle_Titled:
+      mask = [.titled, .closable, .miniaturizable]
+    case WuiWindowStyle_Borderless:
+      mask = [.borderless]
+    case WuiWindowStyle_FullSizeContentView:
+      mask = [.titled, .closable, .miniaturizable, .fullSizeContentView]
+    default:
+      fatalError("Unsupported window style: \(style.rawValue)")
     }
+    if resizable {
+      mask.insert(.resizable)
+    }
+    if !closable {
+      mask.remove(.closable)
+    }
+    return mask
   }
 
   @MainActor
@@ -497,6 +510,96 @@ func installWindowManager(env: OpaquePointer, services: WuiNativeServices) {
     func windowDidExitFullScreen(_ notification: Notification) {
       resources?.publishState(WuiWindowState_Normal)
     }
+  }
+
+  /// The application's main window, bound to the `Window` that declared it.
+  ///
+  /// Every other window is created by the manager above from its declaration.
+  /// The main one is not: the host — the scaffolded application, the preview
+  /// host, a SwiftUI container — owns an `NSWindow` before any WaterUI content
+  /// exists, so the declaration has to be attached to a window that is already
+  /// there. Until it was, the main window's declaration reached AppKit not at
+  /// all: its title, style and state were read across the boundary and then
+  /// dropped, and what people saw was whatever placeholder the host had set.
+  ///
+  /// The frame is the one exception to "the declaration wins". The host's
+  /// window already has a position on a real screen, and the declared default
+  /// names the origin rather than that position, so applying it would shove
+  /// every application into a corner. The real frame is published into the
+  /// binding instead — which is what every later move and resize does too — and
+  /// from then on the binding drives the window in both directions.
+  @MainActor
+  public final class WuiRootWindowBinding {
+    private let resources = WindowResources()
+    private let delegate: WindowDelegate
+
+    fileprivate init(window: NSWindow, declaration: WuiWindowContext) {
+      guard let rawTitle = declaration.title else {
+        fatalError("Main window title signal is null")
+      }
+      guard let rawFrame = declaration.frame else {
+        fatalError("Main window frame binding is null")
+      }
+      guard let rawState = declaration.state else {
+        fatalError("Main window state binding is null")
+      }
+
+      resources.window = window
+      window.styleMask = windowStyleMask(
+        style: declaration.style,
+        closable: declaration.closable,
+        resizable: declaration.resizable
+      )
+
+      // An empty title is a window with none of its own, and the host has
+      // already set the application's name — which is what should be read then,
+      // and which nothing on the Rust side knows.
+      let titleObservation = WuiComputedObservation(
+        WuiComputed<WuiStr>(OpaquePointer(UnsafeMutableRawPointer(rawTitle)))
+      ) { [weak window] title, _ in
+        let declared = title.toString()
+        guard !declared.isEmpty else { return }
+        window?.title = declared
+      }
+      resources.titleObservation = titleObservation
+      let declaredTitle = titleObservation.value.toString()
+      if !declaredTitle.isEmpty {
+        window.title = declaredTitle
+      }
+
+      let frameBinding = WuiBinding<CWaterUI.WuiRect>(
+        OpaquePointer(UnsafeMutableRawPointer(rawFrame))
+      )
+      resources.frameBinding = frameBinding
+      // Seeded before watching, so adopting a window never moves it.
+      frameBinding.set(WuiRect(window.frame).toCStruct())
+      resources.startWatchingFrame(window: window)
+
+      let stateBinding = WuiBinding<CWaterUI.WuiWindowState>(
+        OpaquePointer(UnsafeMutableRawPointer(rawState))
+      )
+      resources.stateBinding = stateBinding
+      resources.stateWatcher = stateBinding.watch { [weak resources] state, _ in
+        resources?.applyState(state)
+      }
+
+      // The host owns this window's lifetime, so closing it is the host's
+      // business; the delegate is here to report what the user does to it.
+      delegate = WindowDelegate(resources: resources, contentView: nil, onClose: { _ in })
+      window.delegate = delegate
+    }
+  }
+
+  /// Binds the application's main window to the window a host already created.
+  ///
+  /// Binding twice would leave two sets of watchers fighting over one window,
+  /// so a host binds once and keeps the result for as long as the window lives.
+  @MainActor
+  public func bindRootWindow(
+    _ window: NSWindow,
+    to declaration: WuiWindowContext
+  ) -> WuiRootWindowBinding {
+    WuiRootWindowBinding(window: window, declaration: declaration)
   }
 
 #endif

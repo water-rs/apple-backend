@@ -220,8 +220,15 @@ public enum WaterUIMainMenu {
     
     // MARK: - Helpers
     
+    /// What this application calls itself in its own menu.
+    ///
+    /// The display name comes first because that is the one an application
+    /// chooses for people to read; `CFBundleName` is generated from the Xcode
+    /// product name, which every WaterUI application shares. Reading it first
+    /// is why they all announced themselves as the scaffold's target.
     private static var appName: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
             ?? ProcessInfo.processInfo.processName
     }
 }
