@@ -10,6 +10,7 @@ import CWaterUI
 private final class WuiNativeTab {
   let id: Int32
   let title: String
+  let icon: PlatformImage?
   let contentHandle: OpaquePointer
   let content: WuiNavigationView
   let enabled: WuiComputed<Bool>
@@ -20,6 +21,7 @@ private final class WuiNativeTab {
   init(
     id: Int32,
     title: String,
+    icon: PlatformImage?,
     contentHandle: OpaquePointer,
     content: WuiNavigationView,
     enabled: WuiComputed<Bool>,
@@ -27,6 +29,7 @@ private final class WuiNativeTab {
   ) {
     self.id = id
     self.title = title
+    self.icon = icon
     self.contentHandle = contentHandle
     self.content = content
     self.enabled = enabled
@@ -48,13 +51,23 @@ private final class WuiNativeTab {
     var shouldSelectIndex: ((Int) -> Bool)?
     var didSelectIndex: ((Int) -> Void)?
 
+    /// AppKit selects the first item the moment it is inserted, and asks about
+    /// it before the item is registered with the tab view — so the index comes
+    /// back as `NSNotFound`. Passing that on as an array index crashed the app
+    /// on the first tab.
+    private func knownIndex(of tabViewItem: NSTabViewItem?, in tabView: NSTabView) -> Int? {
+      guard let tabViewItem else { return nil }
+      let index = tabView.indexOfTabViewItem(tabViewItem)
+      return index == NSNotFound ? nil : index
+    }
+
     override func tabView(
       _ tabView: NSTabView,
       shouldSelect tabViewItem: NSTabViewItem?
     ) -> Bool {
       guard super.tabView(tabView, shouldSelect: tabViewItem) else { return false }
-      guard let tabViewItem else { return true }
-      return shouldSelectIndex?(tabView.indexOfTabViewItem(tabViewItem)) ?? true
+      guard let index = knownIndex(of: tabViewItem, in: tabView) else { return true }
+      return shouldSelectIndex?(index) ?? true
     }
 
     override func tabView(
@@ -62,11 +75,78 @@ private final class WuiNativeTab {
       didSelect tabViewItem: NSTabViewItem?
     ) {
       super.tabView(tabView, didSelect: tabViewItem)
-      guard let tabViewItem else { return }
-      didSelectIndex?(tabView.indexOfTabViewItem(tabViewItem))
+      guard let index = knownIndex(of: tabViewItem, in: tabView) else { return }
+      didSelectIndex?(index)
     }
   }
 #endif
+
+/// Resolves a tab's icon into an image the platform's tab bar can host.
+///
+/// A tab bar item is an image beside a title, not a view, so the icon cannot
+/// simply be rendered in place. Two sources, in order of fidelity:
+///
+/// 1. A system symbol, which the platform draws itself — it stays vector, picks
+///    up the bar's tint and selection state, and follows Dynamic Type.
+/// 2. Any other icon view, which has to be rasterized here. It is drawn as a
+///    template so the bar still tints it, but it is a bitmap fixed at the size
+///    it was rendered.
+@MainActor
+private func tabBarIcon(from tab: CWaterUI.WuiTab, env: WuiEnvironment) -> PlatformImage? {
+  if let systemIcon = tab.system_icon {
+    let name = WuiStr(waterui_menu_item_take_icon(systemIcon).name).toString()
+    if !name.isEmpty {
+      #if canImport(UIKit)
+        return UIImage(systemName: name)
+      #elseif canImport(AppKit)
+        return NSImage(systemSymbolName: name, accessibilityDescription: nil)
+      #endif
+    }
+  }
+
+  guard let iconPointer = tab.icon else { return nil }
+  let view = WuiAnyView(anyview: iconPointer, env: env)
+  return rasterize(view: view)
+}
+
+/// Renders a view into a template image at the platform's tab-icon size.
+///
+/// The view is laid out at the size it asks for, capped to the tab-bar icon
+/// size, then drawn into an image at screen scale. Template rendering hands the
+/// tint back to the tab bar, which is what makes the icon respond to selection.
+@MainActor
+private func rasterize(view: WuiAnyView) -> PlatformImage? {
+  let maxSide: CGFloat = 28
+  let proposal = WuiProposalSize(width: Float(maxSide), height: Float(maxSide))
+  var size = view.sizeThatFits(proposal)
+  if !(size.width.isFinite && size.height.isFinite) || size.width <= 0 || size.height <= 0 {
+    size = CGSize(width: maxSide, height: maxSide)
+  }
+  size = CGSize(width: min(size.width, maxSide), height: min(size.height, maxSide))
+  view.frame = CGRect(origin: .zero, size: size)
+  #if canImport(UIKit)
+    view.layoutIfNeeded()
+  #elseif canImport(AppKit)
+    view.layoutSubtreeIfNeeded()
+  #endif
+
+  #if canImport(UIKit)
+    let renderer = UIGraphicsImageRenderer(size: size)
+    let image = renderer.image { context in
+      view.layer.render(in: context.cgContext)
+    }
+    return image.withRenderingMode(.alwaysTemplate)
+  #elseif canImport(AppKit)
+    guard let representation = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+      return nil
+    }
+    view.cacheDisplay(in: view.bounds, to: representation)
+    let image = NSImage(size: size)
+    image.addRepresentation(representation)
+    image.isTemplate = true
+    return image
+  #endif
+}
 
 @MainActor
 final class WuiTabs: PlatformView, WuiComponent {
@@ -119,6 +199,7 @@ final class WuiTabs: PlatformView, WuiComponent {
       return WuiNativeTab(
         id: Int32(bitPattern: UInt32(truncatingIfNeeded: tab.id)),
         title: title,
+        icon: tabBarIcon(from: tab, env: env),
         contentHandle: contentHandle,
         content: WuiNavigationView(ffiNav: navigationView, env: env),
         enabled: WuiComputed<Bool>(enabledPointer),
@@ -160,7 +241,11 @@ final class WuiTabs: PlatformView, WuiComponent {
       tabController.viewControllers = tabs.map { tab in
         let controller = UIViewController()
         controller.view = tab.content
-        controller.tabBarItem = UITabBarItem(title: tab.title, image: nil, selectedImage: nil)
+        controller.tabBarItem = UITabBarItem(
+          title: tab.title,
+          image: tab.icon,
+          selectedImage: nil
+        )
         return controller
       }
       tabController.view.translatesAutoresizingMaskIntoConstraints = true
@@ -169,7 +254,11 @@ final class WuiTabs: PlatformView, WuiComponent {
     #elseif canImport(AppKit)
       switch style {
       case WuiTabStyle_Automatic:
-        tabController.tabStyle = .unspecified
+        // The Mac's own answer for a window's top-level sections: each tab is a
+        // toolbar item with its icon above its title. `.unspecified` draws no
+        // selector at all — it means "the app supplies its own" — so an
+        // automatic tab container rendered with no way to change tabs.
+        tabController.tabStyle = .toolbar
       case WuiTabStyle_TabBar:
         tabController.tabStyle = .segmentedControlOnTop
       case WuiTabStyle_Sidebar:
@@ -178,7 +267,8 @@ final class WuiTabs: PlatformView, WuiComponent {
         fatalError("Unsupported Apple tab style: \(style.rawValue)")
       }
       tabController.shouldSelectIndex = { [weak self] index in
-        self?.tabs[index].enabled.value ?? false
+        guard let self, self.tabs.indices.contains(index) else { return true }
+        return self.tabs[index].enabled.value
       }
       tabController.didSelectIndex = { [weak self] index in
         self?.selectedNativeIndex(index)
@@ -189,6 +279,9 @@ final class WuiTabs: PlatformView, WuiComponent {
         controller.title = tab.title
         let item = NSTabViewItem(viewController: controller)
         item.label = tab.title
+        if let icon = tab.icon {
+          item.image = icon
+        }
         tabController.addTabViewItem(item)
       }
       tabController.view.translatesAutoresizingMaskIntoConstraints = true
@@ -255,6 +348,7 @@ final class WuiTabs: PlatformView, WuiComponent {
 
   private func selectedNativeIndex(_ index: Int) {
     guard !synchronizingSelection else { return }
+    guard tabs.indices.contains(index) else { return }
     select(id: tabs[index].id, initiatedByUser: true)
   }
 
@@ -264,7 +358,7 @@ final class WuiTabs: PlatformView, WuiComponent {
       tabController.view.frame = bounds
     }
   #elseif canImport(AppKit)
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     override func layout() {
       super.layout()
