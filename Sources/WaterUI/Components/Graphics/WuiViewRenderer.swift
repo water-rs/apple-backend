@@ -237,6 +237,74 @@ private func renderPreviewGpuSurfaceFirstFrames(in view: PlatformView, scale: CG
   }
 }
 
+/// Renders a view into a template image, for chrome that takes an image, not a view.
+///
+/// A tab bar item is an image beside a title, so an icon that is a view has to
+/// become one. The view goes through the same offscreen capture the preview
+/// renderer uses, which is what makes a `WaterUI` icon work at all: icons are
+/// SVG, an SVG is a scene on a Metal surface, and a Metal surface draws nothing
+/// into `cacheDisplay`. Only this path attaches the view to a window, drives its
+/// first frame and composites the surface.
+///
+/// The result is a template image so the bar keeps tinting it with its own
+/// selection colour.
+@preconcurrency @MainActor
+func renderViewToTemplateImage(
+  _ view: WuiAnyView,
+  maxSide: CGFloat
+) async -> PlatformImage? {
+  let display = requireCaptureDisplay()
+  let scale = captureScale(for: display)
+  #if canImport(UIKit)
+    let dynamicRange = resolveDynamicRange(for: display.screen)
+  #elseif canImport(AppKit)
+    let dynamicRange = resolveDynamicRange(for: display)
+  #endif
+
+  // Transparent, so only the icon itself lands in the image.
+  let background = WuiResolvedColor(red: 0, green: 0, blue: 0, opacity: 0, headroom: 1)
+  let (rgba, width, height) = await captureViewToRGBA(
+    view: view,
+    proposedSize: CGSize(width: maxSide, height: maxSide),
+    display: display,
+    scale: scale,
+    dynamicRange: dynamicRange,
+    background: background
+  )
+  guard width > 0, height > 0 else { return nil }
+
+  let provider: CGDataProvider? = rgba.withUnsafeBytes { buffer in
+    guard let base = buffer.baseAddress else { return nil }
+    return CGDataProvider(data: Data(bytes: base, count: buffer.count) as CFData)
+  }
+  guard
+    let provider,
+    let cgImage = CGImage(
+      width: width,
+      height: height,
+      bitsPerComponent: 8,
+      bitsPerPixel: 32,
+      bytesPerRow: width * 4,
+      space: CGColorSpaceCreateDeviceRGB(),
+      bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+      provider: provider,
+      decode: nil,
+      shouldInterpolate: true,
+      intent: .defaultIntent
+    )
+  else { return nil }
+
+  let pointSize = CGSize(width: CGFloat(width) / scale, height: CGFloat(height) / scale)
+  #if canImport(UIKit)
+    return UIImage(cgImage: cgImage, scale: scale, orientation: .up)
+      .withRenderingMode(.alwaysTemplate)
+  #elseif canImport(AppKit)
+    let image = NSImage(cgImage: cgImage, size: pointSize)
+    image.isTemplate = true
+    return image
+  #endif
+}
+
 /// Captures a view to RGBA pixel data.
 /// Returns the data along with actual pixel dimensions (width, height).
 @preconcurrency @MainActor

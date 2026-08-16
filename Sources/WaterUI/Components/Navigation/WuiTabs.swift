@@ -11,6 +11,12 @@ private final class WuiNativeTab {
   let id: Int32
   let title: String
   let icon: PlatformImage?
+  /// The icon as a view, when the platform does not know it as a symbol.
+  ///
+  /// Rendering it is asynchronous, so the tab item is created without an image
+  /// and the image arrives afterwards. Holding the view here keeps it alive
+  /// until then.
+  let iconView: WuiAnyView?
   let contentHandle: OpaquePointer
   let content: WuiNavigationView
   let enabled: WuiComputed<Bool>
@@ -22,6 +28,7 @@ private final class WuiNativeTab {
     id: Int32,
     title: String,
     icon: PlatformImage?,
+    iconView: WuiAnyView?,
     contentHandle: OpaquePointer,
     content: WuiNavigationView,
     enabled: WuiComputed<Bool>,
@@ -30,6 +37,7 @@ private final class WuiNativeTab {
     self.id = id
     self.title = title
     self.icon = icon
+    self.iconView = iconView
     self.contentHandle = contentHandle
     self.content = content
     self.enabled = enabled
@@ -81,70 +89,22 @@ private final class WuiNativeTab {
   }
 #endif
 
-/// Resolves a tab's icon into an image the platform's tab bar can host.
+/// The tab's icon as a symbol the platform already knows, if it is one.
 ///
-/// A tab bar item is an image beside a title, not a view, so the icon cannot
-/// simply be rendered in place. Two sources, in order of fidelity:
-///
-/// 1. A system symbol, which the platform draws itself — it stays vector, picks
-///    up the bar's tint and selection state, and follows Dynamic Type.
-/// 2. Any other icon view, which has to be rasterized here. It is drawn as a
-///    template so the bar still tints it, but it is a bitmap fixed at the size
-///    it was rendered.
+/// A symbol is the better of the two sources: the platform draws it itself, so
+/// it stays vector, picks up the bar's tint and selection state, and follows
+/// Dynamic Type. Any other icon is a view, and a view has to be rendered into an
+/// image — see `installIconViews()`, which does it asynchronously because
+/// rendering one means driving a GPU surface through a frame.
 @MainActor
-private func tabBarIcon(from tab: CWaterUI.WuiTab, env: WuiEnvironment) -> PlatformImage? {
-  if let systemIcon = tab.system_icon {
-    let name = WuiStr(waterui_menu_item_take_icon(systemIcon).name).toString()
-    if !name.isEmpty {
-      #if canImport(UIKit)
-        return UIImage(systemName: name)
-      #elseif canImport(AppKit)
-        return NSImage(systemSymbolName: name, accessibilityDescription: nil)
-      #endif
-    }
-  }
-
-  guard let iconPointer = tab.icon else { return nil }
-  let view = WuiAnyView(anyview: iconPointer, env: env)
-  return rasterize(view: view)
-}
-
-/// Renders a view into a template image at the platform's tab-icon size.
-///
-/// The view is laid out at the size it asks for, capped to the tab-bar icon
-/// size, then drawn into an image at screen scale. Template rendering hands the
-/// tint back to the tab bar, which is what makes the icon respond to selection.
-@MainActor
-private func rasterize(view: WuiAnyView) -> PlatformImage? {
-  let maxSide: CGFloat = 28
-  let proposal = WuiProposalSize(width: Float(maxSide), height: Float(maxSide))
-  var size = view.sizeThatFits(proposal)
-  if !(size.width.isFinite && size.height.isFinite) || size.width <= 0 || size.height <= 0 {
-    size = CGSize(width: maxSide, height: maxSide)
-  }
-  size = CGSize(width: min(size.width, maxSide), height: min(size.height, maxSide))
-  view.frame = CGRect(origin: .zero, size: size)
+private func tabBarSystemIcon(from tab: CWaterUI.WuiTab) -> PlatformImage? {
+  guard let systemIcon = tab.system_icon else { return nil }
+  let name = WuiStr(waterui_menu_item_take_icon(systemIcon).name).toString()
+  guard !name.isEmpty else { return nil }
   #if canImport(UIKit)
-    view.layoutIfNeeded()
+    return UIImage(systemName: name)
   #elseif canImport(AppKit)
-    view.layoutSubtreeIfNeeded()
-  #endif
-
-  #if canImport(UIKit)
-    let renderer = UIGraphicsImageRenderer(size: size)
-    let image = renderer.image { context in
-      view.layer.render(in: context.cgContext)
-    }
-    return image.withRenderingMode(.alwaysTemplate)
-  #elseif canImport(AppKit)
-    guard let representation = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
-      return nil
-    }
-    view.cacheDisplay(in: view.bounds, to: representation)
-    let image = NSImage(size: size)
-    image.addRepresentation(representation)
-    image.isTemplate = true
-    return image
+    return NSImage(systemSymbolName: name, accessibilityDescription: nil)
   #endif
 }
 
@@ -199,7 +159,8 @@ final class WuiTabs: PlatformView, WuiComponent {
       return WuiNativeTab(
         id: Int32(bitPattern: UInt32(truncatingIfNeeded: tab.id)),
         title: title,
-        icon: tabBarIcon(from: tab, env: env),
+        icon: tabBarSystemIcon(from: tab),
+        iconView: tab.icon.map { WuiAnyView(anyview: $0, env: env) },
         contentHandle: contentHandle,
         content: WuiNavigationView(ffiNav: navigationView, env: env),
         enabled: WuiComputed<Bool>(enabledPointer),
@@ -209,6 +170,7 @@ final class WuiTabs: PlatformView, WuiComponent {
 
     super.init(frame: .zero)
     configureNativeController()
+    installIconViews()
     installReactiveState()
     select(id: selection.value.inner, initiatedByUser: false)
   }
@@ -286,6 +248,38 @@ final class WuiTabs: PlatformView, WuiComponent {
       }
       tabController.view.translatesAutoresizingMaskIntoConstraints = true
       addSubview(tabController.view)
+    #endif
+  }
+
+  /// Fills in the icons that are views rather than symbols.
+  ///
+  /// A view icon is a scene on a GPU surface, so producing an image from it
+  /// means attaching it to a window and driving a frame — asynchronous work the
+  /// tab item cannot wait on. The item is therefore created without an image and
+  /// gains one when the render lands, which is invisible in practice: it
+  /// resolves within the first frames of the bar appearing.
+  private func installIconViews() {
+    for (index, tab) in tabs.enumerated() {
+      guard let iconView = tab.iconView else { continue }
+      Task { @MainActor [weak self] in
+        guard let image = await renderViewToTemplateImage(iconView, maxSide: Self.iconMaxSide)
+        else { return }
+        self?.applyIcon(image, at: index)
+      }
+    }
+  }
+
+  /// The size a tab-bar icon is rendered at, matching the platform's own.
+  private static let iconMaxSide: CGFloat = 28
+
+  private func applyIcon(_ image: PlatformImage, at index: Int) {
+    #if canImport(UIKit)
+      guard let controllers = tabController.viewControllers, controllers.indices.contains(index)
+      else { return }
+      controllers[index].tabBarItem.image = image
+    #elseif canImport(AppKit)
+      guard tabController.tabViewItems.indices.contains(index) else { return }
+      tabController.tabViewItems[index].image = image
     #endif
   }
 

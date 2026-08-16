@@ -14,6 +14,8 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
 
   private let sidebarView: WuiAnyView
   private let placeholderView: WuiAnyView
+  /// The middle column's empty state, kept apart from [`placeholderView`].
+  private let emptyColumnView = PlatformView()
   private let primarySelection: WuiBinding<Int32>
   private let contentHandle: UnsafeMutablePointer<CWaterUI.WuiNavigationSplitDetail>?
   private let secondarySelection: WuiBinding<Int32>?
@@ -33,7 +35,6 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
     private let primaryController = UIViewController()
     private let supplementaryController = UIViewController()
     private let secondaryController = UIViewController()
-    private let placeholderController = UIViewController()
     private var contentControllers: [Int32: UIViewController] = [:]
     private var detailControllers: [Int32: UIViewController] = [:]
   #elseif canImport(AppKit)
@@ -147,8 +148,12 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
   private func configureNativeSplit() {
     #if canImport(UIKit)
       primaryController.view = sidebarView
-      placeholderController.view = placeholderView
-      supplementaryController.view = placeholderView
+      // The placeholder is one view, so it can be the empty state of one column
+      // only: a `UIView` belongs to a single view controller and has a single
+      // superview, and assigning it to a second one raises. It goes to the
+      // detail column — the one Apple's own split views leave a placeholder in —
+      // while the middle column gets an empty view of its own.
+      supplementaryController.view = emptyColumnView
       secondaryController.view = placeholderView
       splitController.delegate = self
       switch style {
@@ -173,7 +178,8 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
       addSubview(splitController.view)
     #elseif canImport(AppKit)
       primaryController.view = sidebarView
-      supplementaryController.view = placeholderView
+      // As above: one placeholder view, so one column may hold it.
+      supplementaryController.view = emptyColumnView
       secondaryController.view = placeholderView
       let sidebarItem = NSSplitViewItem(sidebarWithViewController: primaryController)
       sidebarItem.minimumThickness = CGFloat(widths.min)
@@ -201,10 +207,10 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
     }
     if selected == 0 {
       #if canImport(UIKit)
-        supplementaryController.view = placeholderView
+        supplementaryController.view = emptyColumnView
         if splitController.isCollapsed { splitController.show(.primary) }
       #elseif canImport(AppKit)
-        supplementaryController.view = placeholderView
+        supplementaryController.view = emptyColumnView
       #endif
       return
     }

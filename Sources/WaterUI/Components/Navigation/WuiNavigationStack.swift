@@ -936,11 +936,24 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
       }
     }
 
+    /// Sizes a titlebar accessory by `WaterUI`'s layout rather than AppKit's.
+    ///
+    /// `fittingSize` asks AppKit's constraint system, which knows nothing about
+    /// a `WaterUI` view and answers with its compressed size — a text button so
+    /// measured comes back narrower than its own label and wraps it. The Rust
+    /// layout engine is the source of truth for every `WaterUI` container, so the
+    /// accessory is measured with an unbounded proposal, which is what asking for
+    /// an intrinsic size means here.
+    private func accessorySize(of view: NSView) -> NSSize {
+      guard let measured = view as? WuiAnyView else { return view.fittingSize }
+      return measured.sizeThatFits(WuiProposalSize(width: nil, height: nil))
+    }
+
     private func installTitleAccessory(_ titleView: NSView, in window: NSWindow) {
       let accessory = ensureTitleAccessory(in: window)
       titleView.removeFromSuperview()
       titleView.translatesAutoresizingMaskIntoConstraints = true
-      titleView.frame = NSRect(origin: .zero, size: titleView.fittingSize)
+      titleView.frame = NSRect(origin: .zero, size: accessorySize(of: titleView))
       accessory.view = titleView
       titleContainer = titleView
     }
@@ -974,7 +987,7 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
       let accessory = ensureLeadingAccessory(in: window)
       leadingView.removeFromSuperview()
       leadingView.translatesAutoresizingMaskIntoConstraints = true
-      leadingView.frame = NSRect(origin: .zero, size: leadingView.fittingSize)
+      leadingView.frame = NSRect(origin: .zero, size: accessorySize(of: leadingView))
       accessory.view = leadingView
       leadingContainer = leadingView
     }
@@ -990,7 +1003,7 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
       let accessory = ensureTrailingAccessory(in: window)
       trailingView.removeFromSuperview()
       trailingView.translatesAutoresizingMaskIntoConstraints = true
-      trailingView.frame = NSRect(origin: .zero, size: trailingView.fittingSize)
+      trailingView.frame = NSRect(origin: .zero, size: accessorySize(of: trailingView))
       accessory.view = trailingView
       trailingContainer = trailingView
     }
