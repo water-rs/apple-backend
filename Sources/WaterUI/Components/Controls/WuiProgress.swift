@@ -341,15 +341,24 @@ final class WuiProgress: PlatformView, WuiComponent {
     return valueObservation.value
   }
 
+  /// Whether this indicator draws as a round spinner rather than a bar.
+  ///
+  /// Apple has no counterpart to Material's morphing loading indicator, so the
+  /// loading style bridges to the platform's own loading indicator, which is the
+  /// circular one. It is not faked as a Material shape.
+  private var isRound: Bool {
+    style == WuiProgressStyle_Circular || style == WuiProgressStyle_Loading
+  }
+
   private var progressControlSize: CGSize {
     #if canImport(AppKit)
       if !fourColor {
-        return style == WuiProgressStyle_Circular
+        return isRound
           ? nativeSpinner.intrinsicContentSize
           : CGSize(width: 100, height: nativeLinear.intrinsicContentSize.height)
       }
     #endif
-    if style == WuiProgressStyle_Circular {
+    if isRound {
       return circularProgress.intrinsicContentSize
     }
     #if canImport(UIKit)
@@ -484,7 +493,7 @@ final class WuiProgress: PlatformView, WuiComponent {
     let isIndeterminate = value == .infinity
 
     #if canImport(UIKit)
-      if style == WuiProgressStyle_Circular {
+      if isRound {
         progressView.isHidden = true
         if isIndeterminate {
           circularProgress.isHidden = true
@@ -513,7 +522,7 @@ final class WuiProgress: PlatformView, WuiComponent {
       }
     #elseif canImport(AppKit)
       if fourColor {
-        if style == WuiProgressStyle_Circular {
+        if isRound {
           linearProgress.isHidden = true
           circularProgress.isHidden = false
           if isIndeterminate {
@@ -533,8 +542,8 @@ final class WuiProgress: PlatformView, WuiComponent {
       } else {
         circularProgress.isHidden = true
         linearProgress.isHidden = true
-        let indicator = style == WuiProgressStyle_Circular ? nativeSpinner : nativeLinear
-        let other = style == WuiProgressStyle_Circular ? nativeLinear : nativeSpinner
+        let indicator = isRound ? nativeSpinner : nativeLinear
+        let other = isRound ? nativeLinear : nativeSpinner
         other.isHidden = true
         other.stopAnimation(nil)
         indicator.isHidden = false
@@ -569,9 +578,9 @@ final class WuiProgress: PlatformView, WuiComponent {
     if labelSize.height > 0 { y += verticalSpacing }
 
     let controlFrame = CGRect(
-      x: style == WuiProgressStyle_Circular ? (width - controlSize.width) / 2 : 0,
+      x: isRound ? (width - controlSize.width) / 2 : 0,
       y: y,
-      width: style == WuiProgressStyle_Circular ? controlSize.width : width,
+      width: isRound ? controlSize.width : width,
       height: controlSize.height
     )
     circularProgress.frame = controlFrame

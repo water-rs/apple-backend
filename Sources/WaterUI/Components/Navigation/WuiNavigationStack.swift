@@ -670,7 +670,11 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
         return .automatic
       case WuiNavigationTitleDisplayMode_Inline:
         return .never
-      case WuiNavigationTitleDisplayMode_Large:
+      // UIKit's navigation bar has two title sizes, not three: there is no
+      // counterpart to Material's medium flexible app bar, so a medium title
+      // takes the large one. The asymmetry is real and is not papered over
+      // with a hand-drawn bar.
+      case WuiNavigationTitleDisplayMode_Medium, WuiNavigationTitleDisplayMode_Large:
         return .always
       default:
         fatalError("Unsupported WaterUI navigation title display mode: \(mode.rawValue)")
