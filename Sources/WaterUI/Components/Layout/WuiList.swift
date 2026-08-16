@@ -1033,7 +1033,7 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       )
     }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     override func layout() {
       super.layout()

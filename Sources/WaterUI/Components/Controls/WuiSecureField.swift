@@ -118,7 +118,7 @@ final class WuiSecureField: PlatformView, WuiComponent {
   // MARK: - Layout
 
   #if canImport(AppKit)
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
   #endif
 
   // MARK: - Update Methods

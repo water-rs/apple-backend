@@ -464,7 +464,7 @@ final class WuiViewEffect: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
       handleWindowChange()
     }
   #elseif canImport(AppKit)
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     override func layout() {
       super.layout()

@@ -371,7 +371,7 @@ final class WuiNavigationView: PlatformView, WuiComponent {
       performLayout()
     }
   #elseif canImport(AppKit)
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     override func viewDidMoveToWindow() {
       super.viewDidMoveToWindow()

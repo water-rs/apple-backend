@@ -138,7 +138,7 @@ final class WuiMaterialBackground: PlatformView, WuiComponent {
       super.layoutSubviews()
     }
   #elseif canImport(AppKit)
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     override func layout() {
       super.layout()

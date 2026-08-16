@@ -147,7 +147,7 @@ final class WuiDatePicker: PlatformView, WuiComponent {
   }
 
   #if canImport(AppKit)
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
   #endif
 
   private func configureSubviews(env: WuiEnvironment) {

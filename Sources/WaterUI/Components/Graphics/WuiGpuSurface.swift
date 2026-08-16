@@ -358,8 +358,22 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
 
   private var isSurfaceAttached: Bool { renderState.isSurfaceAttached }
   private let externalRenderingScopes = WuiExternalRenderingScopes()
-  private lazy var frameDriver = WuiDisplayLinkDriver { [weak self] in
-    self?.renderFrame()
+  /// The display-link driver, created on first use.
+  ///
+  /// Deliberately not `lazy`: the driver's callback holds a weak reference to
+  /// this surface, and `deinit` stops the display link. A `lazy` property would
+  /// *create* the driver at that point for a surface that never rendered — and
+  /// forming a weak reference to an object already deallocating traps.
+  private var frameDriverStorage: WuiDisplayLinkDriver?
+  private var frameDriver: WuiDisplayLinkDriver {
+    if let driver = frameDriverStorage {
+      return driver
+    }
+    let driver = WuiDisplayLinkDriver { [weak self] in
+      self?.renderFrame()
+    }
+    frameDriverStorage = driver
+    return driver
   }
   private var captureSuppressionCount = 0
   private var keepRedrawing = false
@@ -960,7 +974,8 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
   }
 
   private func stopDisplayLink() {
-    frameDriver.stop()
+    // Only a driver that exists can be running, and this runs from `deinit`.
+    frameDriverStorage?.stop()
   }
 
   private func renderFrame(force: Bool = false) {
@@ -1340,7 +1355,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
       updateDisplayLinkState()
     }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     override var wantsLayer: Bool {
       get { true }

@@ -227,7 +227,7 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
       applyResolvedDynamicRange(to: layer, for: self)
     }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     override var wantsLayer: Bool {
       get { true }

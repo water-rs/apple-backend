@@ -13,7 +13,9 @@ import AppKit
 
 @MainActor
 class Action {
-    private var inner: OpaquePointer?
+    // `nonisolated(unsafe)`: only ever touched on the main actor, plus by the
+    // deinit below, which cannot be isolated.
+    private nonisolated(unsafe) var inner: OpaquePointer?
     private var env: WuiEnvironment?
     private let callback: (() -> Void)?
 
@@ -40,7 +42,11 @@ class Action {
         waterui_call_action(inner, env.inner)
     }
 
-    @MainActor deinit {
+    // Not `@MainActor`: an isolated deinit goes through
+    // `swift_task_deinitOnExecutorImpl`, whose executor check faults when AppKit
+    // releases the owner from an autorelease-pool drain inside `NSView.dealloc`.
+    // The body only hands a pointer back to Rust.
+    nonisolated deinit {
         if let inner {
             waterui_drop_action(inner)
         }

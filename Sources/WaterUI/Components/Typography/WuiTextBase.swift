@@ -184,7 +184,7 @@ class WuiTextBase: PlatformView {
   }
 
   #if canImport(AppKit)
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
   #endif
 
   // MARK: - Text Updates

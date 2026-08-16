@@ -59,7 +59,7 @@ final class WuiAccessibilityIdentifier: PlatformView, WuiComponent {
         contentView.frame = bounds
     }
     #elseif canImport(AppKit)
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     override func layout() {
         super.layout()

@@ -335,7 +335,7 @@ final class WuiContainer: PlatformView, WuiComponent {
       return intrinsic
     }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     override func viewDidMoveToSuperview() {
       super.viewDidMoveToSuperview()

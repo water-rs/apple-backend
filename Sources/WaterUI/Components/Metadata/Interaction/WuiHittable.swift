@@ -80,7 +80,7 @@ final class WuiHittable: PlatformView, WuiComponent {
       contentView.frame = bounds
     }
   #elseif canImport(AppKit)
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
       guard currentEnabled else { return nil }

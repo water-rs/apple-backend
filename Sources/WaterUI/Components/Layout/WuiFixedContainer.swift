@@ -122,7 +122,7 @@ final class WuiFixedContainer: PlatformView, WuiComponent {
       sizeThatFits(WuiProposalSize())
     }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
   #endif
 
   private func performLayout() {

@@ -1324,7 +1324,7 @@ public final class WuiRootContext {
       WuiInspector.presentMenu(for: event, in: self, env: context.env)
     }
 
-    public override var isFlipped: Bool { true }
+    nonisolated public override var isFlipped: Bool { true }
 
     public override func layout() {
       super.layout()

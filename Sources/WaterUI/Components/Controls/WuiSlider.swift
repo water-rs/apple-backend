@@ -155,7 +155,7 @@ final class WuiSlider: PlatformView, WuiComponent {
   // MARK: - Layout
 
   #if canImport(AppKit)
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
   #endif
 
   private func setupConstraints() {

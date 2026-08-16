@@ -268,7 +268,7 @@ import CWaterUI
       fatalError("init(coder:) has not been implemented")
     }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     // MARK: - WuiComponent
 

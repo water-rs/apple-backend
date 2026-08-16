@@ -206,7 +206,7 @@ final class WuiStandardDynamicRange: PlatformView, WuiComponent {
       applyDynamicRange(.standard, to: self)
     }
   #elseif canImport(AppKit)
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     override func layout() {
       super.layout()
@@ -261,7 +261,7 @@ final class WuiHighDynamicRange: PlatformView, WuiComponent {
       applyDynamicRange(.high, to: self)
     }
   #elseif canImport(AppKit)
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     override func layout() {
       super.layout()

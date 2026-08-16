@@ -735,7 +735,7 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
     }
   #elseif canImport(AppKit)
     private func setupTitlebar() {
-      guard let window else { return }
+      guard let window, window.hasTitlebar else { return }
       guard backAccessory == nil else { return }
 
       let button = NSButton(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
@@ -759,7 +759,7 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
     }
 
     private func updateTitlebarState() {
-      guard let window else { return }
+      guard let window, window.hasTitlebar else { return }
 
       hiddenWatcher = nil
       let topBarState = viewStack.last?.barState
@@ -1067,7 +1067,7 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
       navController?.view.frame = bounds
     }
   #elseif canImport(AppKit)
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     override func layout() {
       super.layout()
@@ -1095,5 +1095,16 @@ private func navigationRestorationIdentifier(depth: Int) -> String {
       }
       return destination.destinationState.attemptPop()
     }
+  }
+#endif
+
+#if canImport(AppKit)
+  extension NSWindow {
+    /// Whether this window has a titlebar to hang accessories off.
+    ///
+    /// `addTitlebarAccessoryViewController` reaches for `titlebarViewController`,
+    /// which raises `NSInternalInconsistencyException` on a window without
+    /// `.titled` — the offscreen window preview renders into, among others.
+    var hasTitlebar: Bool { styleMask.contains(.titled) }
   }
 #endif

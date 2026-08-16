@@ -335,7 +335,7 @@ final class WuiMapViewComponent: PlatformView, WuiComponent {
       mapView.frame = bounds
     }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
   #endif
 }
 

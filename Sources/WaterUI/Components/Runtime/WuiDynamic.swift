@@ -101,7 +101,7 @@ final class WuiDynamic: PlatformView, WuiComponent {
   #endif
 
   #if canImport(AppKit)
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
   #endif
 
   @MainActor deinit {

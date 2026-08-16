@@ -77,7 +77,7 @@ final class WuiVideo: PlatformView, WuiComponent {
       layoutPlayerLayer()
     }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     override var wantsLayer: Bool {
       get { true }

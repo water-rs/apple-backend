@@ -453,7 +453,7 @@ final class WuiPicker: PlatformView, WuiComponent {
   }
 
   #if canImport(AppKit)
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
   #endif
 
   #if canImport(UIKit)

@@ -409,6 +409,6 @@ private func scrollMinSize(
   // MARK: - Flipped Document View
 
   private class FlippedView: NSView {
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
   }
 #endif

@@ -65,7 +65,7 @@ final class WuiFocused: PlatformView, WuiComponent {
         contentView.frame = bounds
     }
     #elseif canImport(AppKit)
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()

@@ -520,7 +520,7 @@ private func registerBuiltinComponentsIfNeeded() {
       return applyStretchAxisToIntrinsicSize(intrinsic)
     }
 
-    override public var isFlipped: Bool { true }
+    nonisolated override public var isFlipped: Bool { true }
 
     public func sizeThatFits(_ size: NSSize) -> NSSize {
       sizeThatFits(WuiProposalSize(size: size))

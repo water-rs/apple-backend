@@ -107,7 +107,7 @@ final class WuiOffset: PlatformView, WuiComponent {
       contentView.center = CGPoint(x: bounds.midX, y: bounds.midY)
     }
   #elseif canImport(AppKit)
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     override func layout() {
       super.layout()
