@@ -393,17 +393,10 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
 
     private var viewStack: [NavigationEntry] = []
     private var currentIndex = 0
-    private var backButton: NSButton?
-    private var backAccessory: NSTitlebarAccessoryViewController?
-    private var titleAccessory: NSTitlebarAccessoryViewController?
-    private var titleContainer: NSView?
-    private var leadingAccessory: NSTitlebarAccessoryViewController?
-    private var leadingContainer: NSView?
-    private var trailingAccessory: NSTitlebarAccessoryViewController?
-    private var trailingContainer: NSView?
-    private var searchAccessory: NSTitlebarAccessoryViewController?
-    private var searchContainer: NSView?
-    private var searchCoordinator: WuiNavigationSearchCoordinator?
+    private weak var windowToolbar: WuiWindowToolbar?
+    /// Starts true so a stack with no tab container above it — the common case —
+    /// publishes its chrome without being told to.
+    private var chromeIsActive = true
     private var hiddenWatcher: WatcherGuard?
     private var pendingRemovedEntries: [NavigationEntry] = []
     private var pendingAppearanceIndex: Int?
@@ -736,30 +729,36 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
   #elseif canImport(AppKit)
     private func setupTitlebar() {
       guard let window, window.hasTitlebar else { return }
-      guard backAccessory == nil else { return }
-
-      let button = NSButton(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
-      button.image = NSImage(systemSymbolName: "chevron.backward", accessibilityDescription: "Back")
-      button.bezelStyle = .accessoryBarAction
-      button.isBordered = false
-      button.imagePosition = .imageOnly
-      button.target = self
-      button.action = #selector(backButtonTapped)
-      button.isHidden = true
-      backButton = button
-
-      let accessory = NSTitlebarAccessoryViewController()
-      accessory.view = button
-      accessory.layoutAttribute = .leading
-      window.addTitlebarAccessoryViewController(accessory)
-      backAccessory = accessory
-
-      window.titleVisibility = .visible
+      windowToolbar = WuiWindowToolbar.attached(to: window)
       updateTitlebarState()
     }
 
+    /// Whether this stack is the one the user is looking at.
+    ///
+    /// A tab container keeps every tab's content in the window and hides all but
+    /// one, so being in a window is not the same as being on screen. Only the
+    /// stack that is actually visible may publish chrome; see
+    /// `NSView.setNavigationChromeActive(_:)`.
+    func setChromeActive(_ active: Bool) {
+      guard chromeIsActive != active else { return }
+      chromeIsActive = active
+      if active {
+        updateTitlebarState()
+      } else {
+        windowToolbar?.clearContent(owner: self)
+      }
+    }
+
+    /// Publishes this stack's chrome to the window toolbar.
+    ///
+    /// The items go through `NSToolbarItem` rather than titlebar accessory
+    /// views, which is what gives them the system's own appearance — the glass
+    /// capsule around a toolbar button, the search field's presentation, the
+    /// spacing between items. A window has one toolbar, so the stack claims it
+    /// while it is on screen and gives it back when it leaves; see
+    /// `WuiWindowToolbar`.
     private func updateTitlebarState() {
-      guard let window, window.hasTitlebar else { return }
+      guard let windowToolbar, chromeIsActive else { return }
 
       hiddenWatcher = nil
       let topBarState = viewStack.last?.barState
@@ -769,24 +768,42 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
         }
       }
 
-      let isHidden = topBarState?.hidden?.value ?? false
-      backButton?.isHidden = currentIndex <= 0 || isHidden
-      applyTitle(isHidden ? nil : topBarState?.title, in: window)
-      installLeadingAccessory(isHidden ? nil : topBarState?.leading, in: window)
-      installSearchAccessory(isHidden ? nil : topBarState?.search, in: window)
-      installTrailingAccessory(isHidden ? nil : topBarState?.trailing, in: window)
+      guard topBarState?.hidden?.value != true else {
+        windowToolbar.clearContent(owner: self)
+        return
+      }
+
+      var content = WuiWindowToolbar.Content()
+      content.showsBack = currentIndex > 0
+      content.onBack = { [weak self] in self?.backButtonTapped() }
+      if let title = topBarState?.title {
+        if title.isPlainText {
+          content.title = title.text ?? ""
+        } else {
+          content.titleView = title.view
+        }
+      }
+      content.leading = topBarState?.leadingItem
+      content.trailing = topBarState?.trailingItem
+      content.search = topBarState?.search
+      windowToolbar.setContent(content, owner: self)
     }
 
-    @objc private func backButtonTapped() {
+    private func backButtonTapped() {
       guard viewStack.last?.destinationState.attemptPop() != false else { return }
       waterui_navigation_pop(childEnv.inner)
     }
 
     override func viewDidMoveToWindow() {
       super.viewDidMoveToWindow()
-      if window != nil {
-        setupTitlebar()
+      if window == nil {
+        // Several stacks exist at once behind a tab container; one that has been
+        // switched away from must not leave its buttons in the toolbar.
+        windowToolbar?.clearContent(owner: self)
+        windowToolbar = nil
+        return
       }
+      setupTitlebar()
     }
 
     private func applyAppKitTransaction(
@@ -917,155 +934,6 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
       }
     }
 
-    private func applyTitle(_ title: WuiNavigationTitle?, in window: NSWindow) {
-      guard let title else {
-        window.titleVisibility = .visible
-        window.title = ""
-        removeTitleAccessory()
-        return
-      }
-
-      if title.isPlainText {
-        window.titleVisibility = .visible
-        window.title = title.text ?? ""
-        removeTitleAccessory()
-      } else {
-        window.titleVisibility = .hidden
-        window.title = ""
-        installTitleAccessory(title.view, in: window)
-      }
-    }
-
-    /// Sizes a titlebar accessory by `WaterUI`'s layout rather than AppKit's.
-    ///
-    /// `fittingSize` asks AppKit's constraint system, which knows nothing about
-    /// a `WaterUI` view and answers with its compressed size — a text button so
-    /// measured comes back narrower than its own label and wraps it. The Rust
-    /// layout engine is the source of truth for every `WaterUI` container, so the
-    /// accessory is measured with an unbounded proposal, which is what asking for
-    /// an intrinsic size means here.
-    private func accessorySize(of view: NSView) -> NSSize {
-      guard let measured = view as? WuiAnyView else { return view.fittingSize }
-      return measured.sizeThatFits(WuiProposalSize(width: nil, height: nil))
-    }
-
-    private func installTitleAccessory(_ titleView: NSView, in window: NSWindow) {
-      let accessory = ensureTitleAccessory(in: window)
-      titleView.removeFromSuperview()
-      titleView.translatesAutoresizingMaskIntoConstraints = true
-      titleView.frame = NSRect(origin: .zero, size: accessorySize(of: titleView))
-      accessory.view = titleView
-      titleContainer = titleView
-    }
-
-    private func ensureTitleAccessory(in window: NSWindow) -> NSTitlebarAccessoryViewController {
-      if let titleAccessory {
-        return titleAccessory
-      }
-
-      let accessory = NSTitlebarAccessoryViewController()
-      accessory.layoutAttribute = .centerX
-      window.addTitlebarAccessoryViewController(accessory)
-      titleAccessory = accessory
-      return accessory
-    }
-
-    private func removeTitleAccessory() {
-      titleContainer?.removeFromSuperview()
-      titleContainer = nil
-      titleAccessory?.view = NSView(frame: .zero)
-    }
-
-    private func installLeadingAccessory(_ leadingView: NSView?, in window: NSWindow) {
-      guard let leadingView else {
-        leadingContainer?.removeFromSuperview()
-        leadingContainer = nil
-        leadingAccessory?.view = NSView(frame: .zero)
-        return
-      }
-
-      let accessory = ensureLeadingAccessory(in: window)
-      leadingView.removeFromSuperview()
-      leadingView.translatesAutoresizingMaskIntoConstraints = true
-      leadingView.frame = NSRect(origin: .zero, size: accessorySize(of: leadingView))
-      accessory.view = leadingView
-      leadingContainer = leadingView
-    }
-
-    private func installTrailingAccessory(_ trailingView: NSView?, in window: NSWindow) {
-      guard let trailingView else {
-        trailingContainer?.removeFromSuperview()
-        trailingContainer = nil
-        trailingAccessory?.view = NSView(frame: .zero)
-        return
-      }
-
-      let accessory = ensureTrailingAccessory(in: window)
-      trailingView.removeFromSuperview()
-      trailingView.translatesAutoresizingMaskIntoConstraints = true
-      trailingView.frame = NSRect(origin: .zero, size: accessorySize(of: trailingView))
-      accessory.view = trailingView
-      trailingContainer = trailingView
-    }
-
-    private func installSearchAccessory(_ search: WuiNavigationSearch?, in window: NSWindow) {
-      guard let search else {
-        searchCoordinator = nil
-        searchContainer?.removeFromSuperview()
-        searchContainer = nil
-        searchAccessory?.view = NSView(frame: .zero)
-        return
-      }
-
-      let accessory = ensureSearchAccessory(in: window)
-      let (searchField, coordinator) = makeInlineNavigationSearchView(search)
-      searchField.removeFromSuperview()
-      searchField.translatesAutoresizingMaskIntoConstraints = true
-      searchField.frame = NSRect(
-        origin: .zero,
-        size: CGSize(
-          width: max(searchField.fittingSize.width, 240), height: searchField.fittingSize.height)
-      )
-      accessory.view = searchField
-      searchContainer = searchField
-      searchCoordinator = coordinator
-    }
-
-    private func ensureLeadingAccessory(in window: NSWindow) -> NSTitlebarAccessoryViewController {
-      if let leadingAccessory {
-        return leadingAccessory
-      }
-
-      let accessory = NSTitlebarAccessoryViewController()
-      accessory.layoutAttribute = .leading
-      window.addTitlebarAccessoryViewController(accessory)
-      leadingAccessory = accessory
-      return accessory
-    }
-
-    private func ensureSearchAccessory(in window: NSWindow) -> NSTitlebarAccessoryViewController {
-      if let searchAccessory {
-        return searchAccessory
-      }
-
-      let accessory = NSTitlebarAccessoryViewController()
-      accessory.layoutAttribute = .trailing
-      window.addTitlebarAccessoryViewController(accessory)
-      searchAccessory = accessory
-      return accessory
-    }
-
-    private func ensureTrailingAccessory(in window: NSWindow) -> NSTitlebarAccessoryViewController {
-      if let trailingAccessory {
-        return trailingAccessory
-      }
-
-      let accessory = NSTitlebarAccessoryViewController()
-      accessory.layoutAttribute = .trailing
-      window.addTitlebarAccessoryViewController(accessory)
-      trailingAccessory = accessory
-      return accessory
-    }
   #endif
 
   func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {

@@ -398,6 +398,15 @@ final class WuiButton: PlatformView, WuiComponent {
     action.call()
   }
 
+  /// Performs this button's action without a click on its own view.
+  ///
+  /// Chrome that presents a button as something else — a toolbar item drawn
+  /// from the button's label rather than its view — still has to run the action
+  /// the caller attached.
+  func invokeAction() {
+    action.call()
+  }
+
   #if canImport(AppKit)
     nonisolated override var isFlipped: Bool { true }
   #endif

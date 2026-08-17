@@ -53,42 +53,6 @@ private final class WuiNativeTab {
   }
 }
 
-#if canImport(AppKit)
-  @MainActor
-  private final class WuiNativeTabViewController: NSTabViewController {
-    var shouldSelectIndex: ((Int) -> Bool)?
-    var didSelectIndex: ((Int) -> Void)?
-
-    /// AppKit selects the first item the moment it is inserted, and asks about
-    /// it before the item is registered with the tab view — so the index comes
-    /// back as `NSNotFound`. Passing that on as an array index crashed the app
-    /// on the first tab.
-    private func knownIndex(of tabViewItem: NSTabViewItem?, in tabView: NSTabView) -> Int? {
-      guard let tabViewItem else { return nil }
-      let index = tabView.indexOfTabViewItem(tabViewItem)
-      return index == NSNotFound ? nil : index
-    }
-
-    override func tabView(
-      _ tabView: NSTabView,
-      shouldSelect tabViewItem: NSTabViewItem?
-    ) -> Bool {
-      guard super.tabView(tabView, shouldSelect: tabViewItem) else { return false }
-      guard let index = knownIndex(of: tabViewItem, in: tabView) else { return true }
-      return shouldSelectIndex?(index) ?? true
-    }
-
-    override func tabView(
-      _ tabView: NSTabView,
-      didSelect tabViewItem: NSTabViewItem?
-    ) {
-      super.tabView(tabView, didSelect: tabViewItem)
-      guard let index = knownIndex(of: tabViewItem, in: tabView) else { return }
-      didSelectIndex?(index)
-    }
-  }
-#endif
-
 /// The tab's icon as a symbol the platform already knows, if it is one.
 ///
 /// A symbol is the better of the two sources: the platform draws it itself, so
@@ -123,7 +87,14 @@ final class WuiTabs: PlatformView, WuiComponent {
   #if canImport(UIKit)
     private let tabController = UITabBarController()
   #elseif canImport(AppKit)
-    private let tabController = WuiNativeTabViewController()
+    private var tabControl: NSSegmentedControl?
+    private weak var windowToolbar: WuiWindowToolbar?
+    private var visibleIndex = 0
+    /// Set for the sidebar form; the split view owns the layout then.
+    private var splitController: NSSplitViewController?
+    private var sidebarTable: NSTableView?
+    private var sidebarContentHost: NSView?
+    private var sidebarIcons: [Int: PlatformImage] = [:]
   #endif
 
   convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
@@ -171,6 +142,9 @@ final class WuiTabs: PlatformView, WuiComponent {
     super.init(frame: .zero)
     configureNativeController()
     installIconViews()
+    #if canImport(AppKit)
+      installSidebarIcons()
+    #endif
     installReactiveState()
     select(id: selection.value.inner, initiatedByUser: false)
   }
@@ -214,42 +188,138 @@ final class WuiTabs: PlatformView, WuiComponent {
       addSubview(tabController.view)
 
     #elseif canImport(AppKit)
+      for tab in tabs {
+        tab.content.translatesAutoresizingMaskIntoConstraints = true
+        tab.content.isHidden = true
+      }
+
       switch style {
-      case WuiTabStyle_Automatic:
-        // The Mac's own answer for a window's top-level sections: each tab is a
-        // toolbar item with its icon above its title. `.unspecified` draws no
-        // selector at all — it means "the app supplies its own" — so an
-        // automatic tab container rendered with no way to change tabs.
-        tabController.tabStyle = .toolbar
-      case WuiTabStyle_TabBar:
-        tabController.tabStyle = .segmentedControlOnTop
+      case WuiTabStyle_Automatic, WuiTabStyle_TabBar:
+        configureToolbarTabs()
       case WuiTabStyle_Sidebar:
-        tabController.tabStyle = .toolbar
+        configureSidebarTabs()
       default:
         fatalError("Unsupported Apple tab style: \(style.rawValue)")
       }
-      tabController.shouldSelectIndex = { [weak self] index in
-        guard let self, self.tabs.indices.contains(index) else { return true }
-        return self.tabs[index].enabled.value
-      }
-      tabController.didSelectIndex = { [weak self] index in
-        self?.selectedNativeIndex(index)
-      }
-      for tab in tabs {
-        let controller = NSViewController()
-        controller.view = tab.content
-        controller.title = tab.title
-        let item = NSTabViewItem(viewController: controller)
-        item.label = tab.title
-        if let icon = tab.icon {
-          item.image = icon
-        }
-        tabController.addTabViewItem(item)
-      }
-      tabController.view.translatesAutoresizingMaskIntoConstraints = true
-      addSubview(tabController.view)
     #endif
   }
+
+  #if canImport(AppKit)
+    /// Presents the tabs as one segmented control in the window toolbar.
+    ///
+    /// This is what the Mac shows for a window's top-level sections, and it is a
+    /// control this view owns and offers to the toolbar rather than an
+    /// `NSTabViewController` in its `.toolbar` style. That style seizes the
+    /// window's toolbar and becomes its delegate, leaving no room for the
+    /// navigation chrome of the tab on screen — the Mac shows both at once, so
+    /// both must go through one toolbar. See `WuiWindowToolbar`.
+    private func configureToolbarTabs() {
+      let control = NSSegmentedControl(
+        labels: tabs.map(\.title),
+        trackingMode: .selectOne,
+        target: self,
+        action: #selector(segmentedControlChanged)
+      )
+      control.segmentStyle = .automatic
+      control.sizeToFit()
+      tabControl = control
+
+      for tab in tabs {
+        addSubview(tab.content)
+      }
+    }
+
+    /// Presents the tabs as a full-height sidebar beside the content.
+    ///
+    /// The sidebar is a real `NSSplitViewItem(sidebarWithViewController:)`, which
+    /// is what gives it the inset glass panel, the collapse button in the
+    /// toolbar and the system's own row chrome. Rows carry icons here, unlike
+    /// the toolbar form.
+    private func configureSidebarTabs() {
+      let sidebarList = NSTableView()
+      sidebarList.headerView = nil
+      sidebarList.style = .sourceList
+      sidebarList.rowSizeStyle = .default
+      sidebarList.selectionHighlightStyle = .regular
+      sidebarList.addTableColumn(NSTableColumn(identifier: Self.sidebarColumn))
+      sidebarList.dataSource = self
+      sidebarList.delegate = self
+      sidebarTable = sidebarList
+
+      let scroll = NSScrollView()
+      scroll.documentView = sidebarList
+      scroll.hasVerticalScroller = true
+      scroll.drawsBackground = false
+
+      let sidebarController = NSViewController()
+      sidebarController.view = scroll
+
+      let contentHost = NSView()
+      for tab in tabs {
+        contentHost.addSubview(tab.content)
+      }
+      sidebarContentHost = contentHost
+      let contentController = NSViewController()
+      contentController.view = contentHost
+
+      let split = NSSplitViewController()
+      let sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebarController)
+      sidebarItem.minimumThickness = 180
+      split.addSplitViewItem(sidebarItem)
+      split.addSplitViewItem(NSSplitViewItem(viewController: contentController))
+      split.view.translatesAutoresizingMaskIntoConstraints = true
+      splitController = split
+      addSubview(split.view)
+    }
+
+    private static let sidebarColumn = NSUserInterfaceItemIdentifier("dev.waterui.tabs.sidebar")
+
+    // The sidebar's table talks to this view through the extension below, which
+    // cannot see private storage — these are its window onto it.
+    var tabCount: Int { tabs.count }
+    var sidebarTableView: NSTableView? { sidebarTable }
+
+    func tabEnabled(at row: Int) -> Bool {
+      tabs.indices.contains(row) && tabs[row].enabled.value
+    }
+
+    /// One sidebar row: the tab's icon beside its title, as the source list draws it.
+    func sidebarRowView(at row: Int) -> NSView? {
+      guard tabs.indices.contains(row) else { return nil }
+      let cell = NSTableCellView()
+      let title = NSTextField(labelWithString: tabs[row].displayTitle(badge: badgeValue(at: row)))
+      title.translatesAutoresizingMaskIntoConstraints = false
+      cell.addSubview(title)
+      cell.textField = title
+
+      var titleLeading = title.leadingAnchor.constraint(
+        equalTo: cell.leadingAnchor, constant: 4)
+      if let icon = sidebarIcons[row] {
+        let imageView = NSImageView(image: icon)
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        cell.addSubview(imageView)
+        cell.imageView = imageView
+        NSLayoutConstraint.activate([
+          imageView.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
+          imageView.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+          imageView.widthAnchor.constraint(equalToConstant: 18),
+          imageView.heightAnchor.constraint(equalToConstant: 18),
+        ])
+        titleLeading = title.leadingAnchor.constraint(
+          equalTo: imageView.trailingAnchor, constant: 6)
+      }
+      NSLayoutConstraint.activate([
+        titleLeading,
+        title.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+        title.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor, constant: -4),
+      ])
+      return cell
+    }
+
+    private func badgeValue(at row: Int) -> Int32 {
+      tabs.indices.contains(row) ? (tabs[row].badge?.value ?? 0) : 0
+    }
+  #endif
 
   /// Fills in the icons that are views rather than symbols.
   ///
@@ -258,30 +328,37 @@ final class WuiTabs: PlatformView, WuiComponent {
   /// tab item cannot wait on. The item is therefore created without an image and
   /// gains one when the render lands, which is invisible in practice: it
   /// resolves within the first frames of the bar appearing.
+  ///
+  /// The Mac's toolbar tab control shows titles only — the system's own tabs
+  /// carry no image there — so icons are rendered for the platforms that draw
+  /// them and skipped where they would not be shown.
   private func installIconViews() {
-    for (index, tab) in tabs.enumerated() {
-      guard let iconView = tab.iconView else { continue }
-      Task { @MainActor [weak self] in
-        guard let image = await renderViewToTemplateImage(iconView, maxSide: Self.iconMaxSide)
-        else { return }
-        self?.applyIcon(image, at: index)
+    #if canImport(UIKit)
+      for (index, tab) in tabs.enumerated() {
+        guard let iconView = tab.iconView else { continue }
+        Task { @MainActor [weak self] in
+          guard let image = await renderViewToTemplateImage(iconView, maxSide: Self.iconMaxSide)
+          else { return }
+          self?.applyIcon(image, at: index)
+        }
       }
-    }
+    #endif
   }
 
-  /// The size a tab-bar icon is rendered at, matching the platform's own.
-  private static let iconMaxSide: CGFloat = 28
+  #if canImport(UIKit)
+    /// The size a tab icon is rendered at, matching what the platform draws.
+    ///
+    /// A phone's tab bar icon is roughly 25pt. The image is a bitmap, so the bar
+    /// scales it rather than laying it out, and rendering at the wrong size is
+    /// visible.
+    private static let iconMaxSide: CGFloat = 25
 
-  private func applyIcon(_ image: PlatformImage, at index: Int) {
-    #if canImport(UIKit)
+    private func applyIcon(_ image: PlatformImage, at index: Int) {
       guard let controllers = tabController.viewControllers, controllers.indices.contains(index)
       else { return }
       controllers[index].tabBarItem.image = image
-    #elseif canImport(AppKit)
-      guard tabController.tabViewItems.indices.contains(index) else { return }
-      tabController.tabViewItems[index].image = image
-    #endif
-  }
+    }
+  #endif
 
   private func installReactiveState() {
     selectionWatcher = selection.watch { [weak self] selected, _ in
@@ -315,7 +392,9 @@ final class WuiTabs: PlatformView, WuiComponent {
     #if canImport(UIKit)
       tabController.viewControllers?[index].tabBarItem.badgeValue = count > 0 ? String(count) : nil
     #elseif canImport(AppKit)
-      tabController.tabViewItems[index].label = tabs[index].displayTitle(badge: count)
+      tabControl?.setLabel(tabs[index].displayTitle(badge: count), forSegment: index)
+      tabControl?.sizeToFit()
+      offerTabsToToolbar()
     #endif
   }
 
@@ -331,7 +410,7 @@ final class WuiTabs: PlatformView, WuiComponent {
     #if canImport(UIKit)
       tabController.selectedIndex = index
     #elseif canImport(AppKit)
-      tabController.selectedTabViewItemIndex = index
+      showTab(at: index)
     #endif
     synchronizingSelection = false
 
@@ -356,7 +435,93 @@ final class WuiTabs: PlatformView, WuiComponent {
 
     override func layout() {
       super.layout()
-      tabController.view.frame = bounds
+      if let splitController {
+        // The split view owns the layout in the sidebar form; each tab's content
+        // fills the detail side.
+        splitController.view.frame = bounds
+        if let host = sidebarContentHost {
+          for tab in tabs {
+            tab.content.frame = host.bounds
+          }
+        }
+        return
+      }
+      for tab in tabs {
+        tab.content.frame = bounds
+      }
+    }
+
+    override func viewDidMoveToWindow() {
+      super.viewDidMoveToWindow()
+      guard let window, window.hasTitlebar else {
+        windowToolbar?.setTabs(nil)
+        windowToolbar = nil
+        return
+      }
+      windowToolbar = WuiWindowToolbar.attached(to: window)
+      offerTabsToToolbar()
+      showTab(at: visibleIndex)
+    }
+
+    /// Hands the tab control to the window toolbar, where the Mac shows tabs.
+    private func offerTabsToToolbar() {
+      windowToolbar?.setTabs(tabControl)
+    }
+
+    /// Shows one tab's content, hiding the rest.
+    private func showTab(at index: Int) {
+      guard tabs.indices.contains(index) else { return }
+      visibleIndex = index
+      let contentBounds = sidebarContentHost?.bounds ?? bounds
+      for (position, tab) in tabs.enumerated() {
+        let isVisible = position == index
+        tab.content.isHidden = !isVisible
+        tab.content.frame = contentBounds
+        // Every tab's content stays in the window whether or not it is showing,
+        // so hiding it does not move it out of the window and nothing tells the
+        // navigation stack inside it to stop contributing chrome. Say so
+        // explicitly, or whichever stack published last owns the toolbar
+        // regardless of which tab the user is looking at.
+        tab.content.setNavigationChromeActive(isVisible)
+      }
+      tabControl?.selectedSegment = index
+      if let sidebarTable, sidebarTable.selectedRow != index {
+        sidebarTable.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
+      }
+    }
+
+    @objc private func segmentedControlChanged(_ sender: NSSegmentedControl) {
+      let index = sender.selectedSegment
+      guard tabs.indices.contains(index) else { return }
+      guard tabs[index].enabled.value else {
+        // A disabled tab may not be entered; put the control back.
+        sender.selectedSegment = visibleIndex
+        return
+      }
+      selectedNativeIndex(index)
+    }
+  #endif
+
+  #if canImport(AppKit)
+    /// Renders the icons the sidebar form shows beside each row.
+    ///
+    /// The toolbar form draws no icon at all, so this is the only Mac
+    /// presentation that needs them.
+    private func installSidebarIcons() {
+      guard splitController != nil else { return }
+      for (index, tab) in tabs.enumerated() {
+        if let icon = tab.icon {
+          sidebarIcons[index] = icon
+          sidebarTable?.reloadData()
+          continue
+        }
+        guard let iconView = tab.iconView else { continue }
+        Task { @MainActor [weak self] in
+          guard let image = await renderViewToTemplateImage(iconView, maxSide: 18) else { return }
+          self?.sidebarIcons[index] = image
+          self?.sidebarTable?.reloadData()
+        }
+      }
     }
   #endif
 }
@@ -378,6 +543,35 @@ final class WuiTabs: PlatformView, WuiComponent {
       didSelect viewController: UIViewController
     ) {
       selectedNativeIndex(tabBarController.selectedIndex)
+    }
+  }
+#endif
+
+#if canImport(AppKit)
+  extension WuiTabs: NSTableViewDataSource, NSTableViewDelegate {
+    func numberOfRows(in tableView: NSTableView) -> Int {
+      tabCount
+    }
+
+    func tableView(
+      _ tableView: NSTableView,
+      viewFor tableColumn: NSTableColumn?,
+      row: Int
+    ) -> NSView? {
+      sidebarRowView(at: row)
+    }
+
+    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
+      tabEnabled(at: row)
+    }
+
+    func tableViewSelectionDidChange(_ notification: Notification) {
+      guard let table = notification.object as? NSTableView, table === sidebarTableView else {
+        return
+      }
+      let row = table.selectedRow
+      guard row >= 0 else { return }
+      selectedNativeIndex(row)
     }
   }
 #endif

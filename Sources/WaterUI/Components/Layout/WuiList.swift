@@ -671,12 +671,20 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
   private final class WuiListRowView: NSTableRowView {
     var showsSeparator = false
 
+    /// Where the separator starts, measured from the row's leading edge.
+    ///
+    /// A Mac list insets it to the row content's own left edge rather than
+    /// running it wall to wall, so the rule lines up with the text above and
+    /// below it. Measured against a plain SwiftUI `List`.
+    var separatorInset: CGFloat = 0
+
     override func draw(_ dirtyRect: NSRect) {
       super.draw(dirtyRect)
       guard showsSeparator else { return }
       NSColor.separatorColor.setFill()
       let hairline = 1 / (window?.backingScaleFactor ?? 1)
-      NSRect(x: 0, y: 0, width: bounds.width, height: hairline).fill()
+      let inset = min(separatorInset, bounds.width)
+      NSRect(x: inset, y: 0, width: bounds.width - inset, height: hairline).fill()
     }
   }
 
@@ -771,6 +779,12 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     // Pasteboard type for drag-and-drop
     private static let dragType = NSPasteboard.PasteboardType("dev.waterui.listitem")
 
+    /// How far a row's content sits in from the list's leading edge.
+    ///
+    /// The separator is inset to match, so the rule lines up with the text above
+    /// and below it rather than running wall to wall.
+    static let rowContentInset: CGFloat = 20
+
     private enum TableLayoutEntry {
       case header(label: String, sectionIndex: Int)
       case row(itemIndex: Int)
@@ -809,7 +823,12 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       // height from the row view's Auto Layout fitting size, which can
       // pin to a single-line intrinsic when wrapped text hasn't been
       // re-measured at the table width yet.
-      tableView.style = .inset
+      // `.inset` gives every row a rounded, inset background of its own, which a
+      // Mac list does not have. Measured against a plain SwiftUI `List`: rows
+      // abut, carry no card of their own, and sit directly on the content
+      // background — the separator is what divides them.
+      tableView.style = .fullWidth
+      tableView.intercellSpacing = NSSize(width: 0, height: 0)
       // SwiftUI's macOS List draws its content on the text background
       // (white in light mode), not the window background — verified against
       // an NSHostingView reference render of a real SwiftUI List.
@@ -1169,6 +1188,7 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
       let rowView = WuiListRowView()
       rowView.isEmphasized = true
+      rowView.separatorInset = Self.rowContentInset
       // SwiftUI separates row–row boundaries only; the last row of a
       // section (followed by a footer, header, or nothing) has none.
       if case .row = flatLayout[row], row + 1 < flatLayout.count,

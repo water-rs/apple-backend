@@ -197,27 +197,41 @@ struct WuiNavigationBarState {
   let color: WuiComputed<WuiResolvedColor>?
   let hidden: WuiComputed<Bool>?
 
-  var leading: WuiAnyView? {
+  var leadingItem: WuiNavigationToolbarItem? {
     toolbar.first {
       $0.placement == WuiNavigationToolbarPlacement_Cancellation
         || $0.placement == WuiNavigationToolbarPlacement_TopBarLeading
-    }?.view
+    }
   }
 
-  var trailing: WuiAnyView? {
+  var trailingItem: WuiNavigationToolbarItem? {
     toolbar.first {
       $0.placement == WuiNavigationToolbarPlacement_PrimaryAction
         || $0.placement == WuiNavigationToolbarPlacement_SecondaryAction
         || $0.placement == WuiNavigationToolbarPlacement_Confirmation
         || $0.placement == WuiNavigationToolbarPlacement_TopBarTrailing
-    }?.view
+    }
   }
+
+  var leading: WuiAnyView? { leadingItem?.view }
+
+  var trailing: WuiAnyView? { trailingItem?.view }
 }
 
 @MainActor
 struct WuiNavigationToolbarItem {
   let placement: WuiNavigationToolbarPlacement
   let view: WuiAnyView
+  /// The item's name, when it was declared as a semantic label.
+  ///
+  /// A Mac toolbar draws the icon alone and keeps the name for the overflow
+  /// menu, the tooltip and assistive technology, so the name is needed apart
+  /// from the content view rather than only inside it.
+  let title: WuiComputed<WuiStyledStr>?
+  /// The item's icon as a symbol the platform already knows.
+  let systemIconName: String?
+  /// The item's icon as a view, when it is not a platform symbol.
+  let iconView: WuiAnyView?
 }
 
 @MainActor
@@ -236,9 +250,15 @@ func makeNavigationBarState(from bar: CWaterUI.WuiBar, env: WuiEnvironment) -> W
     guard let content = item.content else {
       fatalError("Navigation toolbar item content pointer is null")
     }
+    let systemIconName = item.system_icon.map { icon in
+      WuiStr(waterui_menu_item_take_icon(icon).name).toString()
+    }
     return WuiNavigationToolbarItem(
       placement: item.placement,
-      view: WuiAnyView(anyview: content, env: env)
+      view: WuiAnyView(anyview: content, env: env),
+      title: item.title.map(WuiComputed<WuiStyledStr>.init),
+      systemIconName: systemIconName?.isEmpty == true ? nil : systemIconName,
+      iconView: item.icon.map { WuiAnyView(anyview: $0, env: env) }
     )
   }
 
