@@ -832,6 +832,12 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       // SwiftUI's macOS List draws its content on the text background
       // (white in light mode), not the window background — verified against
       // an NSHostingView reference render of a real SwiftUI List.
+      //
+      // Except in a sidebar, where the split view supplies a translucent
+      // material and anything opaque painted over it reads as a white card
+      // floating on the panel instead of the panel itself. The check happens
+      // once the view is in its window, since that is when its ancestry is
+      // known.
       tableView.backgroundColor = .textBackgroundColor
       tableView.selectionHighlightStyle = .regular
 
@@ -863,6 +869,31 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       installContentsWatch()
       reloadFromRust(animated: false)
       installScrollController(ffiList)
+    }
+
+    override func viewDidMoveToWindow() {
+      super.viewDidMoveToWindow()
+      // A sidebar's split view supplies a translucent material, and an opaque
+      // background painted over it reads as a white card floating on the panel
+      // rather than as the panel itself. A sidebar list also takes the
+      // source-list row chrome, which is what draws the rounded selection.
+      // Neither can be known before the list is in its window, since both
+      // depend on its ancestry.
+      let inSidebar = isInsideSidebar
+      tableView.backgroundColor = inSidebar ? .clear : .textBackgroundColor
+      tableView.style = inSidebar ? .sourceList : .fullWidth
+    }
+
+    /// Whether this list is inside a split view's sidebar column.
+    private var isInsideSidebar: Bool {
+      var ancestor: NSView? = superview
+      while let view = ancestor {
+        if let effect = view as? NSVisualEffectView, effect.material == .sidebar {
+          return true
+        }
+        ancestor = view.superview
+      }
+      return false
     }
 
     @available(*, unavailable)
@@ -1249,7 +1280,10 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       label.translatesAutoresizingMaskIntoConstraints = false
       addSubview(label)
       NSLayoutConstraint.activate([
-        label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+        // The same inset the rows use, so a section's name lines up with the
+        // content it names rather than sitting proud of it.
+        label.leadingAnchor.constraint(
+          equalTo: leadingAnchor, constant: WuiList.rowContentInset),
         label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -16),
         label.topAnchor.constraint(equalTo: topAnchor, constant: kind == .header ? 14 : 6),
         label.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -6),

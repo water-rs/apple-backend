@@ -245,7 +245,17 @@ final class WuiToggle: PlatformView, WuiComponent {
     isOn: Bool
   ) -> any WuiNativeToggleControl {
     switch style {
-    case WuiToggleStyle_Automatic, WuiToggleStyle_Switch:
+    case WuiToggleStyle_Automatic:
+      // What the platform itself reaches for. A Mac writes a boolean setting as
+      // a checkbox beside its label — the switch is the phone's answer, and
+      // measured against SwiftUI a `Toggle` in a macOS form is a checkbox. Both
+      // remain available by asking for them.
+      #if canImport(UIKit)
+        return WuiNativeSwitchControl(isOn: isOn)
+      #elseif canImport(AppKit)
+        return WuiNativeCheckboxControl(isOn: isOn)
+      #endif
+    case WuiToggleStyle_Switch:
       return WuiNativeSwitchControl(isOn: isOn)
     case WuiToggleStyle_Checkbox:
       return WuiNativeCheckboxControl(isOn: isOn)

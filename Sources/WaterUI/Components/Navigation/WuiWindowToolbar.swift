@@ -126,19 +126,28 @@
       window?.title = content.title ?? window?.title ?? ""
     }
 
+    /// The toolbar's items, in order.
+    ///
+    /// The tab control is anchored to the toolbar's centre slot rather than
+    /// placed between flexible spaces. Balancing it with spaces makes its
+    /// position depend on how many items sit either side of it, so it shifts
+    /// whenever the page on screen contributes a different number of actions —
+    /// which is not what a Mac does: the tabs stay put and the actions move
+    /// around them.
     private var currentIdentifiers: [NSToolbarItem.Identifier] {
       var identifiers: [NSToolbarItem.Identifier] = []
       if content.showsBack { identifiers.append(Self.backIdentifier) }
       if content.leading != nil { identifiers.append(Self.leadingIdentifier) }
       if content.titleView != nil { identifiers.append(Self.titleIdentifier) }
-      if tabsView != nil {
-        identifiers.append(.flexibleSpace)
-        identifiers.append(Self.tabsIdentifier)
-      }
+      if tabsView != nil { identifiers.append(Self.tabsIdentifier) }
       identifiers.append(.flexibleSpace)
       if content.trailing != nil { identifiers.append(Self.trailingIdentifier) }
       if content.search != nil { identifiers.append(Self.searchIdentifier) }
       return identifiers
+    }
+
+    func toolbarCenteredItemIdentifiers(_ toolbar: NSToolbar) -> Set<NSToolbarItem.Identifier> {
+      tabsView == nil ? [] : [Self.tabsIdentifier]
     }
 
     // MARK: - NSToolbarDelegate
