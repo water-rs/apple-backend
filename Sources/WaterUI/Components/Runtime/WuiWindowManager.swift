@@ -302,7 +302,13 @@ func installWindowManager(env: OpaquePointer, services: WuiNativeServices) {
 
       // Add content on top of container
       containerView.addSubview(contentView)
-      window.contentView = containerView
+      // The window's content is a view *controller*, so that components built
+      // out of view controllers — a split view above all — can join the
+      // window's controller hierarchy. `NSSplitViewItem` only extends a sidebar
+      // into the titlebar for a split view controller that is in it.
+      let rootController = NSViewController()
+      rootController.view = containerView
+      window.contentViewController = rootController
 
       // Set up window delegate to track state changes and update binding on native close
       let delegate = WindowDelegate(

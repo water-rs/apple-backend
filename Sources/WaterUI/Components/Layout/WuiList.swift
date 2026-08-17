@@ -878,6 +878,9 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       installScrollController(ffiList)
     }
 
+    /// Whether this list draws as a sidebar's contents.
+    private var isSidebarContent = false
+
     /// Draws this list as a sidebar's contents.
     ///
     /// A sidebar's split view supplies a translucent material, and an opaque
@@ -889,9 +892,11 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     /// has inserted its material view by the time the list is in the window is
     /// not something to depend on, and guessing wrong leaves a white panel.
     func applySidebarPresentation(_ isSidebar: Bool) {
+      isSidebarContent = isSidebar
       tableView.backgroundColor = isSidebar ? .clear : .textBackgroundColor
       tableView.style = isSidebar ? .sourceList : .fullWidth
       drawsBackground = false
+      tableView.reloadData()
     }
 
     @available(*, unavailable)
@@ -1219,8 +1224,10 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       rowView.isEmphasized = true
       rowView.separatorInset = Self.rowContentInset
       // SwiftUI separates row–row boundaries only; the last row of a
-      // section (followed by a footer, header, or nothing) has none.
-      if case .row = flatLayout[row], row + 1 < flatLayout.count,
+      // section (followed by a footer, header, or nothing) has none. A sidebar
+      // has none at all: its rows are told apart by the selection's rounded
+      // highlight, not by rules between them.
+      if !isSidebarContent, case .row = flatLayout[row], row + 1 < flatLayout.count,
         case .row = flatLayout[row + 1]
       {
         rowView.showsSeparator = true

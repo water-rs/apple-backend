@@ -378,6 +378,22 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
   #elseif canImport(AppKit)
     nonisolated override var isFlipped: Bool { true }
 
+    /// Joins the window's view-controller hierarchy.
+    ///
+    /// A split view controller that belongs to no parent never receives the
+    /// appearance callbacks AppKit drives its columns from, and its sidebar item
+    /// is not treated as a window's sidebar at all. The view stays exactly where
+    /// the layout engine put it; only the controller relationship is added.
+    override func viewDidMoveToWindow() {
+      super.viewDidMoveToWindow()
+      guard let window, let root = window.contentViewController,
+        splitController.parent !== root
+      else {
+        return
+      }
+      root.addChild(splitController)
+    }
+
     override func layout() {
       super.layout()
       splitController.view.frame = bounds
