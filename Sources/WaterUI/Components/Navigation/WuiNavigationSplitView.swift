@@ -181,6 +181,9 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
       // As above: one placeholder view, so one column may hold it.
       supplementaryController.view = emptyColumnView
       secondaryController.view = placeholderView
+      // The sidebar column's contents draw on the split view's own material
+      // instead of painting a background over it.
+      sidebarView.setIsSidebarContent(true)
       let sidebarItem = NSSplitViewItem(sidebarWithViewController: primaryController)
       sidebarItem.minimumThickness = CGFloat(widths.min)
       sidebarItem.maximumThickness = CGFloat(widths.max)

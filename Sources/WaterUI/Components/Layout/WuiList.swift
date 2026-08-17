@@ -878,29 +878,20 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       installScrollController(ffiList)
     }
 
-    override func viewDidMoveToWindow() {
-      super.viewDidMoveToWindow()
-      // A sidebar's split view supplies a translucent material, and an opaque
-      // background painted over it reads as a white card floating on the panel
-      // rather than as the panel itself. A sidebar list also takes the
-      // source-list row chrome, which is what draws the rounded selection.
-      // Neither can be known before the list is in its window, since both
-      // depend on its ancestry.
-      let inSidebar = isInsideSidebar
-      tableView.backgroundColor = inSidebar ? .clear : .textBackgroundColor
-      tableView.style = inSidebar ? .sourceList : .fullWidth
-    }
-
-    /// Whether this list is inside a split view's sidebar column.
-    private var isInsideSidebar: Bool {
-      var ancestor: NSView? = superview
-      while let view = ancestor {
-        if let effect = view as? NSVisualEffectView, effect.material == .sidebar {
-          return true
-        }
-        ancestor = view.superview
-      }
-      return false
+    /// Draws this list as a sidebar's contents.
+    ///
+    /// A sidebar's split view supplies a translucent material, and an opaque
+    /// background painted over it reads as a white card floating on the panel
+    /// rather than as the panel itself. A sidebar list also takes the
+    /// source-list row chrome, which is what draws the rounded selection.
+    ///
+    /// The split view says so rather than the list inferring it: whether AppKit
+    /// has inserted its material view by the time the list is in the window is
+    /// not something to depend on, and guessing wrong leaves a white panel.
+    func applySidebarPresentation(_ isSidebar: Bool) {
+      tableView.backgroundColor = isSidebar ? .clear : .textBackgroundColor
+      tableView.style = isSidebar ? .sourceList : .fullWidth
+      drawsBackground = false
     }
 
     @available(*, unavailable)

@@ -319,5 +319,20 @@
         subview.setNavigationChromeActive(active)
       }
     }
+
+    /// Tells the lists in this subtree that they are a sidebar's contents.
+    ///
+    /// Said explicitly by whoever owns the sidebar, because a list cannot tell
+    /// from its own ancestry: whether AppKit has inserted its material view by
+    /// the time the list reaches the window is not something to depend on.
+    func setIsSidebarContent(_ isSidebar: Bool) {
+      if let list = self as? WuiList {
+        list.applySidebarPresentation(isSidebar)
+        return
+      }
+      for subview in subviews {
+        subview.setIsSidebarContent(isSidebar)
+      }
+    }
   }
 #endif
