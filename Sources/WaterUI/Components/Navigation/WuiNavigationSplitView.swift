@@ -42,6 +42,14 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
     private let primaryController = NSViewController()
     private let supplementaryController = NSViewController()
     private let secondaryController = NSViewController()
+    // A split view arranges the *view* each item's controller had when the item
+    // was added. Assigning a controller's `view` afterwards therefore swaps a
+    // view the split view no longer arranges, and the column goes blank — which
+    // is what an empty detail column beside a populated sidebar looks like. Each
+    // column is a container that stays put, and its child is what changes.
+    private let supplementaryContainer = WuiSplitColumnContainer()
+    private let secondaryContainer = WuiSplitColumnContainer()
+    private var hasPlacedSidebar = false
   #endif
 
   convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
@@ -179,8 +187,10 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
     #elseif canImport(AppKit)
       primaryController.view = sidebarView
       // As above: one placeholder view, so one column may hold it.
-      supplementaryController.view = emptyColumnView
-      secondaryController.view = placeholderView
+      supplementaryController.view = supplementaryContainer
+      secondaryController.view = secondaryContainer
+      supplementaryContainer.show(emptyColumnView)
+      secondaryContainer.show(placeholderView)
       // The sidebar column's contents draw on the split view's own material
       // instead of painting a background over it.
       sidebarView.setIsSidebarContent(true)
@@ -198,11 +208,26 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
           NSSplitViewItem(viewController: supplementaryController)
         )
       }
-      let detailItem = NSSplitViewItem(viewController: secondaryController)
-      if style == WuiNavigationSplitStyle_ProminentDetail {
-        detailItem.holdingPriority = .defaultHigh
+      // The detail column keeps the default holding priority, which is below the
+      // sidebar's: holding priority is resistance to being resized, so the low
+      // one is the column that absorbs the window's width. Raising the detail's
+      // instead made it hold the width it starts at — zero, since a column of
+      // `WaterUI` views has no intrinsic width of its own — and the sidebar
+      // swallowed the whole window while the detail column stayed empty.
+      //
+      // Every style therefore arranges the same way here: a Mac sidebar already
+      // holds its width while the detail takes the rest, and collapses first
+      // when the window runs out of room. The style is what a compact platform
+      // needs in order to decide which column to show at all.
+      switch style {
+      case WuiNavigationSplitStyle_Automatic,
+        WuiNavigationSplitStyle_Balanced,
+        WuiNavigationSplitStyle_ProminentDetail:
+        break
+      default:
+        fatalError("Unsupported navigation split style: \(style.rawValue)")
       }
-      splitController.addSplitViewItem(detailItem)
+      splitController.addSplitViewItem(NSSplitViewItem(viewController: secondaryController))
       splitController.view.translatesAutoresizingMaskIntoConstraints = true
       addSubview(splitController.view)
     #endif
@@ -242,7 +267,7 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
       splitController.show(.supplementary)
     #elseif canImport(AppKit)
       content.setBackAction(nil)
-      supplementaryController.view = content
+      supplementaryContainer.show(content)
     #endif
   }
 
@@ -259,7 +284,7 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
           splitController.show(contentHandle == nil ? .primary : .supplementary)
         }
       #elseif canImport(AppKit)
-        secondaryController.view = placeholderView
+        secondaryContainer.show(placeholderView)
       #endif
       return
     }
@@ -283,7 +308,7 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
       splitController.show(.secondary)
     #elseif canImport(AppKit)
       detail.setBackAction(nil)
-      secondaryController.view = detail
+      secondaryContainer.show(detail)
     #endif
   }
 
@@ -356,6 +381,13 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
     override func layout() {
       super.layout()
       splitController.view.frame = bounds
+      // A split view divides whatever width it is given, so the sidebar's ideal
+      // width can only be applied once there is a width to divide. Applied once:
+      // after that the divider is the reader's to move.
+      if !hasPlacedSidebar, bounds.width > CGFloat(widths.ideal) {
+        hasPlacedSidebar = true
+        splitController.splitView.setPosition(CGFloat(widths.ideal), ofDividerAt: 0)
+      }
     }
   #endif
 }
@@ -393,6 +425,40 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
         secondarySelection.value != 0
       {
         secondarySelection.set(0)
+      }
+    }
+  }
+#endif
+
+#if canImport(AppKit)
+  /// One split-view column, whose contents change while the column does not.
+  ///
+  /// A split view arranges the view each item's controller had at the moment the
+  /// item was added, so replacing a controller's `view` later swaps a view the
+  /// split view is no longer arranging: the column keeps showing the old one, or
+  /// nothing. The column is this container from the start, and selecting a
+  /// destination changes the child inside it.
+  @MainActor
+  final class WuiSplitColumnContainer: NSView {
+    nonisolated override var isFlipped: Bool { true }
+
+    /// Makes `view` the column's only content.
+    func show(_ view: NSView) {
+      guard view.superview !== self else { return }
+      for existing in subviews {
+        existing.removeFromSuperview()
+      }
+      view.removeFromSuperview()
+      view.frame = bounds
+      view.autoresizingMask = [.width, .height]
+      addSubview(view)
+      needsLayout = true
+    }
+
+    override func layout() {
+      super.layout()
+      for subview in subviews {
+        subview.frame = bounds
       }
     }
   }

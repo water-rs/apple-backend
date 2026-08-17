@@ -268,13 +268,18 @@
         (view as? WuiAnyView)?.sizeThatFits(WuiProposalSize(width: nil, height: nil))
         ?? view.fittingSize
       view.removeFromSuperview()
-      view.translatesAutoresizingMaskIntoConstraints = true
       view.frame = NSRect(origin: .zero, size: size)
+      // The toolbar measures an item through the constraint system, so the size
+      // the layout engine produced is stated as constraints rather than through
+      // the item's own long-deprecated size bounds.
+      view.translatesAutoresizingMaskIntoConstraints = false
+      NSLayoutConstraint.activate([
+        view.widthAnchor.constraint(equalToConstant: size.width),
+        view.heightAnchor.constraint(equalToConstant: size.height),
+      ])
 
       let item = NSToolbarItem(itemIdentifier: identifier)
       item.view = view
-      item.minSize = size
-      item.maxSize = size
       return item
     }
 
