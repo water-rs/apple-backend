@@ -270,11 +270,20 @@ final class WuiToggle: PlatformView, WuiComponent {
     let hasLabel = labelSize.width > 0 && labelSize.height > 0
     let intrinsicWidth = controlSize.width + (hasLabel ? horizontalSpacing + labelSize.width : 0)
     let width: CGFloat
-    if hasLabel, let proposedWidth = proposal.width {
-      width = max(CGFloat(proposedWidth), intrinsicWidth)
-    } else {
+    #if canImport(UIKit)
+      // A phone's toggle is a row: the label at one end, the switch at the
+      // other, filling whatever width it is offered.
+      if hasLabel, let proposedWidth = proposal.width {
+        width = max(CGFloat(proposedWidth), intrinsicWidth)
+      } else {
+        width = intrinsicWidth
+      }
+    #elseif canImport(AppKit)
+      // A Mac's is one control: the checkbox and its title side by side, taking
+      // their own width. Filling the row is what pushed the box to the far edge
+      // of the window, which no Mac does.
       width = intrinsicWidth
-    }
+    #endif
     return CGSize(width: width, height: max(controlSize.height, labelSize.height))
   }
 
@@ -288,16 +297,30 @@ final class WuiToggle: PlatformView, WuiComponent {
     labelView.setContentCompressionResistancePriority(.required, for: .horizontal)
     labelView.setContentHuggingPriority(.defaultHigh, for: .horizontal)
 
-    NSLayoutConstraint.activate([
-      labelView.leadingAnchor.constraint(equalTo: leadingAnchor),
-      labelView.centerYAnchor.constraint(equalTo: centerYAnchor),
-      controlView.trailingAnchor.constraint(equalTo: trailingAnchor),
-      controlView.centerYAnchor.constraint(equalTo: centerYAnchor),
-      labelView.trailingAnchor.constraint(
-        lessThanOrEqualTo: controlView.leadingAnchor,
-        constant: -horizontalSpacing
-      ),
-    ])
+    #if canImport(UIKit)
+      NSLayoutConstraint.activate([
+        labelView.leadingAnchor.constraint(equalTo: leadingAnchor),
+        labelView.centerYAnchor.constraint(equalTo: centerYAnchor),
+        controlView.trailingAnchor.constraint(equalTo: trailingAnchor),
+        controlView.centerYAnchor.constraint(equalTo: centerYAnchor),
+        labelView.trailingAnchor.constraint(
+          lessThanOrEqualTo: controlView.leadingAnchor,
+          constant: -horizontalSpacing
+        ),
+      ])
+    #elseif canImport(AppKit)
+      // Checkbox first, then its title — the order a Mac reads them in.
+      NSLayoutConstraint.activate([
+        controlView.leadingAnchor.constraint(equalTo: leadingAnchor),
+        controlView.centerYAnchor.constraint(equalTo: centerYAnchor),
+        labelView.leadingAnchor.constraint(
+          equalTo: controlView.trailingAnchor,
+          constant: horizontalSpacing
+        ),
+        labelView.centerYAnchor.constraint(equalTo: centerYAnchor),
+        labelView.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
+      ])
+    #endif
   }
 
   private func startWatchingBinding() {

@@ -726,7 +726,8 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
         deleteButton = button
 
         NSLayoutConstraint.activate([
-          view.leadingAnchor.constraint(equalTo: leadingAnchor),
+          view.leadingAnchor.constraint(
+            equalTo: leadingAnchor, constant: WuiList.rowContentInset),
           view.topAnchor.constraint(equalTo: topAnchor),
           view.bottomAnchor.constraint(equalTo: bottomAnchor),
 
@@ -735,9 +736,15 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
           button.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
       } else {
+        // The same inset the separator and the section headers use, so a row's
+        // content, the rule under it and the name of its section all start at
+        // one edge. Without it the text sat flush against the window while the
+        // header appeared indented, which is what made the two look reversed.
         NSLayoutConstraint.activate([
-          view.leadingAnchor.constraint(equalTo: leadingAnchor),
-          view.trailingAnchor.constraint(equalTo: trailingAnchor),
+          view.leadingAnchor.constraint(
+            equalTo: leadingAnchor, constant: WuiList.rowContentInset),
+          view.trailingAnchor.constraint(
+            equalTo: trailingAnchor, constant: -WuiList.rowContentInset),
           view.topAnchor.constraint(equalTo: topAnchor),
           view.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
