@@ -187,6 +187,11 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
       let sidebarItem = NSSplitViewItem(sidebarWithViewController: primaryController)
       sidebarItem.minimumThickness = CGFloat(widths.min)
       sidebarItem.maximumThickness = CGFloat(widths.max)
+      // The sidebar runs the whole height of the window, with the traffic
+      // lights and the collapse control inside it — the arrangement every Mac
+      // application with a sidebar uses. The window supplies full-size content
+      // for this to have room to happen.
+      sidebarItem.allowsFullHeightLayout = true
       splitController.addSplitViewItem(sidebarItem)
       if contentHandle != nil {
         splitController.addSplitViewItem(
