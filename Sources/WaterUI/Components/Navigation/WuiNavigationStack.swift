@@ -323,6 +323,14 @@ final class WuiNavigationDestinationState {
       if let accent = accentObservation?.value {
         applyNavigationAccent(accent)
       }
+      // Re-asserted on every appearance: the toolbar's visibility lives on the
+      // navigation controller, not this item, and switching tabs takes the
+      // controller's view out of the window and drops it. The platform keeps
+      // bottom-bar items through a tab switch (measured against the SwiftUI
+      // iOS 26 baseline), so returning to this tab shows them again.
+      if toolbarItems?.isEmpty == false {
+        navigationController?.setToolbarHidden(false, animated: false)
+      }
     }
 
     private func applyBarColor(_ color: WuiResolvedColor) {
