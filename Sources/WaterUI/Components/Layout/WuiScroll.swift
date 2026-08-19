@@ -412,3 +412,7 @@ private func scrollMinSize(
     nonisolated override var isFlipped: Bool { true }
   }
 #endif
+
+/// A scroll view owns its content insets: handed the full window, it keeps
+/// content inside the safe area while the scrolled surface reaches the edges.
+extension WuiScroll: WuiSafeAreaManaging {}

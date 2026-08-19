@@ -24,8 +24,10 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
   private let env: WuiEnvironment
   private let widths: CWaterUI.WuiNavigationColumnWidth
   private let style: WuiNavigationSplitStyle
-  private var contentViews: [Int32: WuiNavigationView] = [:]
-  private var detailViews: [Int32: WuiNavigationView] = [:]
+  #if canImport(AppKit)
+    private var contentViews: [Int32: WuiNavigationView] = [:]
+    private var detailViews: [Int32: WuiNavigationView] = [:]
+  #endif
   private var primarySelectionWatcher: WatcherGuard?
   private var secondarySelectionWatcher: WatcherGuard?
   private var visibilityWatcher: WatcherGuard?
@@ -35,8 +37,8 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
     private let primaryController = UIViewController()
     private let supplementaryController = UIViewController()
     private let secondaryController = UIViewController()
-    private var contentControllers: [Int32: UIViewController] = [:]
-    private var detailControllers: [Int32: UIViewController] = [:]
+    private var contentControllers: [Int32: WuiContentViewController] = [:]
+    private var detailControllers: [Int32: WuiContentViewController] = [:]
   #elseif canImport(AppKit)
     private let splitController = NSSplitViewController()
     private let primaryController = NSViewController()
@@ -157,6 +159,13 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
     )
   }
 
+  #if canImport(UIKit)
+    override func didMoveToWindow() {
+      super.didMoveToWindow()
+      wuiSyncControllerHierarchy(of: splitController)
+    }
+  #endif
+
   private func configureNativeSplit() {
     #if canImport(UIKit)
       primaryController.view = sidebarView
@@ -186,8 +195,9 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
         splitController.setViewController(supplementaryController, for: .supplementary)
       }
       splitController.setViewController(secondaryController, for: .secondary)
-      splitController.view.translatesAutoresizingMaskIntoConstraints = true
-      addSubview(splitController.view)
+      // The view is attached by `wuiSyncControllerHierarchy` at window time,
+      // after the controller has a parent — see that helper for why the order
+      // matters.
     #elseif canImport(AppKit)
       primaryController.view = sidebarView
       // As above: one placeholder view, so one column may hold it.
@@ -239,12 +249,12 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
 
   private func showPrimarySelection(_ selected: Int32) {
     guard let contentHandle else {
-      showDetailSelection(selected, binding: primarySelection)
+      showDetailSelection(selected)
       return
     }
     if selected == 0 {
       #if canImport(UIKit)
-        supplementaryController.view = emptyColumnView
+        splitController.setViewController(supplementaryController, for: .supplementary)
         if splitController.isCollapsed { splitController.show(.primary) }
       #elseif canImport(AppKit)
         supplementaryController.view = emptyColumnView
@@ -252,38 +262,27 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
       return
     }
 
-    let content = destinationView(for: selected, handle: contentHandle, cache: &contentViews)
     #if canImport(UIKit)
-      let controller =
-        contentControllers[selected]
-        ?? {
-          let controller = UIViewController()
-          controller.view = content
-          contentControllers[selected] = controller
-          return controller
-        }()
-      content.setBackAction(
-        splitController.isCollapsed
-          ? Action(callback: { [weak self] in self?.primarySelection.set(0) })
-          : nil
-      )
+      let controller = destinationController(
+        for: selected, handle: contentHandle, cache: &contentControllers)
       splitController.setViewController(controller, for: .supplementary)
       splitController.show(.supplementary)
     #elseif canImport(AppKit)
+      let content = destinationView(for: selected, handle: contentHandle, cache: &contentViews)
       content.setBackAction(nil)
       supplementaryContainer.show(content)
     #endif
   }
 
   private func showSecondarySelection(_ selected: Int32) {
-    guard let secondarySelection else { return }
-    showDetailSelection(selected, binding: secondarySelection)
+    guard secondarySelection != nil else { return }
+    showDetailSelection(selected)
   }
 
-  private func showDetailSelection(_ selected: Int32, binding: WuiBinding<Int32>) {
+  private func showDetailSelection(_ selected: Int32) {
     if selected == 0 {
       #if canImport(UIKit)
-        secondaryController.view = placeholderView
+        splitController.setViewController(secondaryController, for: .secondary)
         if splitController.isCollapsed {
           splitController.show(contentHandle == nil ? .primary : .supplementary)
         }
@@ -293,44 +292,65 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
       return
     }
 
-    let detail = destinationView(for: selected, handle: detailHandle, cache: &detailViews)
     #if canImport(UIKit)
-      let controller =
-        detailControllers[selected]
-        ?? {
-          let controller = UIViewController()
-          controller.view = detail
-          detailControllers[selected] = controller
-          return controller
-        }()
-      detail.setBackAction(
-        splitController.isCollapsed
-          ? Action(callback: { binding.set(0) })
-          : nil
-      )
+      let controller = destinationController(
+        for: selected, handle: detailHandle, cache: &detailControllers)
       splitController.setViewController(controller, for: .secondary)
       splitController.show(.secondary)
     #elseif canImport(AppKit)
+      let detail = destinationView(for: selected, handle: detailHandle, cache: &detailViews)
       detail.setBackAction(nil)
       secondaryContainer.show(detail)
     #endif
   }
 
-  private func destinationView(
-    for selected: Int32,
-    handle: UnsafeMutablePointer<CWaterUI.WuiNavigationSplitDetail>,
-    cache: inout [Int32: WuiNavigationView]
-  ) -> WuiNavigationView {
-    if let cached = cache[selected] { return cached }
-    let navigationView = waterui_split_navigation_detail_content(
-      handle,
-      CWaterUI.WuiId(inner: selected),
-      env.inner
-    )
-    let destination = WuiNavigationView(ffiNav: navigationView, env: env)
-    cache[selected] = destination
-    return destination
-  }
+  #if canImport(UIKit)
+    /// One destination as a column page: the platform column bar shows its
+    /// chrome (title, back, large-title mode) through `navigationItem`, the
+    /// way every UIKit split-view column works — including the collapsed
+    /// form, where the system pushes the page and provides the back button.
+    /// Popping back through that system back clears the selection via the
+    /// split delegate's `willShow` callback.
+    private func destinationController(
+      for selected: Int32,
+      handle: UnsafeMutablePointer<CWaterUI.WuiNavigationSplitDetail>,
+      cache: inout [Int32: WuiContentViewController]
+    ) -> WuiContentViewController {
+      if let cached = cache[selected] { return cached }
+      let navView = waterui_split_navigation_detail_content(
+        handle,
+        CWaterUI.WuiId(inner: selected),
+        env.inner
+      )
+      let controller = WuiContentViewController(
+        contentView: WuiAnyView(anyview: navView.content, env: env),
+        barState: makeNavigationBarState(from: navView.bar, env: env),
+        destinationState: WuiNavigationDestinationState(navView.state, env: env),
+        isRoot: true,
+        env: env
+      )
+      controller.navigationItem.largeTitleDisplayMode = wuiLargeTitleDisplayMode(
+        navView.bar.display_mode)
+      cache[selected] = controller
+      return controller
+    }
+  #elseif canImport(AppKit)
+    private func destinationView(
+      for selected: Int32,
+      handle: UnsafeMutablePointer<CWaterUI.WuiNavigationSplitDetail>,
+      cache: inout [Int32: WuiNavigationView]
+    ) -> WuiNavigationView {
+      if let cached = cache[selected] { return cached }
+      let navigationView = waterui_split_navigation_detail_content(
+        handle,
+        CWaterUI.WuiId(inner: selected),
+        env.inner
+      )
+      let destination = WuiNavigationView(ffiNav: navigationView, env: env)
+      cache[selected] = destination
+      return destination
+    }
+  #endif
 
   private func applyColumnVisibility(_ visibility: Int32) {
     #if canImport(UIKit)
@@ -445,13 +465,23 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
       willShow column: UISplitViewController.Column
     ) {
       guard splitViewController.isCollapsed else { return }
+      // Deferred one hop: this fires inside the split view's own layout
+      // transition, and writing the binding immediately re-enters that
+      // transition through the selection watcher (which shows columns).
+      // The write also crosses into Rust, where a panic at this depth
+      // cannot unwind. One main-actor hop runs it after the transition.
       if column == .primary, primarySelection.value != 0 {
-        primarySelection.set(0)
+        let selection = primarySelection
+        Task { @MainActor in
+          if selection.value != 0 { selection.set(0) }
+        }
       } else if column == .supplementary,
         let secondarySelection,
         secondarySelection.value != 0
       {
-        secondarySelection.set(0)
+        Task { @MainActor in
+          if secondarySelection.value != 0 { secondarySelection.set(0) }
+        }
       }
     }
   }
@@ -519,3 +549,7 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
     }
   }
 #endif
+
+/// A split view projects into the platform's own split container, which owns
+/// its columns' chrome and insets; the window hands it the full bounds.
+extension WuiNavigationSplitView: WuiSafeAreaManaging {}

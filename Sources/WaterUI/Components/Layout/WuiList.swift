@@ -1429,3 +1429,6 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     }
   }
 #endif
+
+/// A platform list is a scroll view and owns its content insets the same way.
+extension WuiList: WuiSafeAreaManaging {}

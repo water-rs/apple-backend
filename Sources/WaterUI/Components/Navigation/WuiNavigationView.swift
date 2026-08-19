@@ -708,3 +708,13 @@ final class WuiNavigationView: PlatformView, WuiComponent {
     }
   #endif
 }
+
+/// While its own bar is not on screen — it delegates to an enclosing stack, or
+/// the bar is hidden — a navigation view is a wrapper around its content. With
+/// a visible in-content bar it answers for itself: the bar is laid out from
+/// this view's own top edge, which is not safe-area aware.
+extension WuiNavigationView: WuiPrimaryContentProviding {
+  var wuiPrimaryContent: PlatformView? {
+    barIsInstalled && !barIsHidden ? nil : contentView
+  }
+}

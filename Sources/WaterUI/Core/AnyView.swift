@@ -288,6 +288,20 @@ private func registerBuiltinComponentsIfNeeded() {
       inner.layoutPriority()
     }
 
+    /// A wrapper is not a control: a touch it does not contain belongs to
+    /// whatever is behind it.
+    ///
+    /// `UIView` answers a hit inside its own bounds with itself, which is right
+    /// for something that draws and wrong for something that only wraps. A
+    /// window-filling wrapper — the overlay layer a window composes above its
+    /// content — would otherwise swallow every touch that misses its contents,
+    /// leaving the controls beneath it visible and dead. Interactive views
+    /// (gesture wrappers, controls) are their own classes and keep the default.
+    override public func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+      let hit = super.hitTest(point, with: event)
+      return hit === self ? nil : hit
+    }
+
     public func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
       inner.sizeThatFits(proposal)
     }
@@ -738,3 +752,7 @@ private func registerBuiltinComponentsIfNeeded() {
     }
   }
 #endif
+
+extension WuiAnyView: WuiPrimaryContentProviding {
+  var wuiPrimaryContent: PlatformView? { inner }
+}

@@ -11,6 +11,10 @@ struct WuiNavigationTitle {
   let view: WuiAnyView
   let text: String?
   let isPlainText: Bool
+  /// The title's live text, when it is semantic text. The bar item that shows
+  /// this title watches the signal instead of freezing the string it happened
+  /// to hold at construction — `text!("{unread} unread")` keeps counting.
+  let textSignal: WuiComputed<WuiStyledStr>?
 }
 
 @MainActor
@@ -186,6 +190,27 @@ func makeInlineNavigationSearchView(
     coordinator.attach(searchController: controller)
     return (controller, coordinator)
   }
+
+  /// WaterUI's title display mode as UIKit's.
+  ///
+  /// UIKit's navigation bar has two title sizes, not three: there is no
+  /// counterpart to Material's medium flexible app bar, so a medium title
+  /// takes the large one. The asymmetry is real and is not papered over with
+  /// a hand-drawn bar.
+  func wuiLargeTitleDisplayMode(_ mode: WuiNavigationTitleDisplayMode)
+    -> UINavigationItem.LargeTitleDisplayMode
+  {
+    switch mode {
+    case WuiNavigationTitleDisplayMode_Automatic:
+      return .automatic
+    case WuiNavigationTitleDisplayMode_Inline:
+      return .never
+    case WuiNavigationTitleDisplayMode_Medium, WuiNavigationTitleDisplayMode_Large:
+      return .always
+    default:
+      fatalError("Unsupported WaterUI navigation title display mode: \(mode.rawValue)")
+    }
+  }
 #endif
 
 @MainActor
@@ -304,7 +329,9 @@ private func makeNavigationTitle(from titlePtr: OpaquePointer, env: WuiEnvironme
 {
   let titleView = WuiAnyView(anyview: titlePtr, env: env)
   let (text, isPlainText) = extractNavigationTitleText(from: titleView)
-  return WuiNavigationTitle(view: titleView, text: text, isPlainText: isPlainText)
+  let textSignal = (wuiResolvedPrimaryContent(of: titleView) as? WuiText)?.semanticContent
+  return WuiNavigationTitle(
+    view: titleView, text: text, isPlainText: isPlainText, textSignal: textSignal)
 }
 
 @MainActor

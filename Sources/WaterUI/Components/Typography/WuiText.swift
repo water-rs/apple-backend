@@ -14,6 +14,9 @@ final class WuiText: WuiTextBase, WuiComponent {
   static var rawId: CWaterUI.WuiTypeId { waterui_text_id() }
 
   private var content: WuiComputed<WuiStyledStr>
+  /// The text as its live signal, for chrome that shows this text through a
+  /// platform object (a navigation bar title) instead of this view.
+  var semanticContent: WuiComputed<WuiStyledStr> { content }
   private var paragraphAlignment: WuiComputed<WuiHorizontalAlignment>
   private var env: WuiEnvironment
   private var contentWatcher: WatcherGuard?

@@ -119,3 +119,7 @@ final class WuiIgnoreSafeArea: PlatformView, WuiComponent {
     }
     #endif
 }
+
+/// Escaping the safe area is the component's whole purpose; a window whose
+/// root ignores the safe area must be handed the full window bounds.
+extension WuiIgnoreSafeArea: WuiSafeAreaManaging {}

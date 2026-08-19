@@ -81,3 +81,7 @@ final class WuiWithEnv: PlatformView, WuiComponent {
     }
   #endif
 }
+
+extension WuiWithEnv: WuiPrimaryContentProviding {
+  var wuiPrimaryContent: PlatformView? { contentView }
+}

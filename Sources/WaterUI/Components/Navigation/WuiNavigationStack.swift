@@ -70,9 +70,16 @@ final class WuiNavigationDestinationState {
     private let contentView: UIView
     private let barState: WuiNavigationBarState?
     private let env: WuiEnvironment
+    /// Whether this destination is the stack's root. UIKit shows a back button
+    /// for the top item whenever its `backAction` is set — that is how the
+    /// browser-style back affordance works — so the root, which has nothing to
+    /// pop to, must not install one.
+    private let isRoot: Bool
     let destinationState: WuiNavigationDestinationState
     private var colorWatcher: WatcherGuard?
     private var hiddenWatcher: WatcherGuard?
+    private var titleWatcher: WatcherGuard?
+    private var subtitleWatcher: WatcherGuard?
     private var backgroundObservation: WuiComputedObservation<WuiResolvedColor>?
     private var foregroundObservation: WuiComputedObservation<WuiResolvedColor>?
     private var accentObservation: WuiComputedObservation<WuiResolvedColor>?
@@ -84,12 +91,14 @@ final class WuiNavigationDestinationState {
       contentView: UIView,
       barState: WuiNavigationBarState?,
       destinationState: WuiNavigationDestinationState,
+      isRoot: Bool,
       env: WuiEnvironment
     ) {
       self.contentView = contentView
       self.barState = barState
       self.env = env
       self.destinationState = destinationState
+      self.isRoot = isRoot
       self.usesThemeBarColor = barState?.color == nil
       super.init(nibName: nil, bundle: nil)
 
@@ -109,6 +118,12 @@ final class WuiNavigationDestinationState {
       applyThemedBackground()
       contentView.translatesAutoresizingMaskIntoConstraints = true
       view.addSubview(contentView)
+      // The bar's scroll-coupled behavior — large-title expansion, scroll-edge
+      // appearance, bottom-bar effects — is driven by the content scroll view,
+      // which UIKit cannot find on its own behind the WaterUI wrapper views.
+      if let scrollView = wuiResolvedPrimaryContent(of: contentView) as? UIScrollView {
+        setContentScrollView(scrollView, for: [.top, .bottom])
+      }
       applyNavigationChrome()
       startWatching()
     }
@@ -149,7 +164,6 @@ final class WuiNavigationDestinationState {
 
     override func viewWillAppear(_ animated: Bool) {
       super.viewWillAppear(animated)
-      navigationController?.navigationBar.sizeToFit()
       applyBarState(animated: animated)
     }
 
@@ -165,13 +179,23 @@ final class WuiNavigationDestinationState {
 
     override func viewDidLayoutSubviews() {
       super.viewDidLayoutSubviews()
-      contentView.frame = view.bounds
+      // A scroll surface owns its insets and gets the full page, so scrolled
+      // content passes under the bars. Plain content is inset to the safe
+      // area — which includes the bars once this controller is contained —
+      // the way a pushed SwiftUI page's content starts below its bar.
+      if wuiResolvedPrimaryContent(of: contentView) is WuiSafeAreaManaging {
+        contentView.frame = view.bounds
+      } else {
+        contentView.frame = view.safeAreaLayoutGuide.layoutFrame
+      }
     }
 
     private func applyNavigationChrome() {
-      navigationItem.backAction = UIAction { [weak self] _ in
-        guard let self, self.destinationState.attemptPop() else { return }
-        waterui_navigation_pop(self.env.inner)
+      if !isRoot {
+        navigationItem.backAction = UIAction { [weak self] _ in
+          guard let self, self.destinationState.attemptPop() else { return }
+          waterui_navigation_pop(self.env.inner)
+        }
       }
 
       if let title = barState?.title {
@@ -182,12 +206,20 @@ final class WuiNavigationDestinationState {
           navigationItem.title = title.text
           navigationItem.titleView = title.view
         }
+        // A semantic title is a signal; the platform bar shows a string, so
+        // the string follows the signal rather than freezing at first render.
+        titleWatcher = title.textSignal?.watch { [weak self] value, _ in
+          self?.navigationItem.title = value.toString()
+        }
       } else {
         navigationItem.title = nil
         navigationItem.titleView = nil
       }
 
       navigationItem.subtitle = barState?.subtitle.text
+      subtitleWatcher = barState?.subtitle.textSignal?.watch { [weak self] value, _ in
+        self?.navigationItem.subtitle = value.toString()
+      }
 
       let semanticItems = barState?.toolbar ?? []
       let leadingViews = semanticItems.filter {
@@ -501,15 +533,16 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
         for: rootView,
         barState: barState,
         destinationState: destinationState,
-        displayMode: convertDisplayMode(displayMode),
+        displayMode: wuiLargeTitleDisplayMode(displayMode),
         restorationDepth: 0
       )
       navController = UINavigationController(rootViewController: rootVC)
       navController.navigationBar.prefersLargeTitles = true
       navController.delegate = self
       navController.interactivePopGestureRecognizer?.delegate = self
-      navController.view.translatesAutoresizingMaskIntoConstraints = true
-      addSubview(navController.view)
+      // The view is attached by `wuiSyncControllerHierarchy` at window time,
+      // after the controller has a parent — see that helper for why the order
+      // matters.
       viewStack.append(rootVC)
     #elseif canImport(AppKit)
       rootView.identifier = NSUserInterfaceItemIdentifier(
@@ -564,7 +597,7 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
           for: contentView,
           barState: barState,
           destinationState: destinationState,
-          displayMode: convertDisplayMode(navView.bar.display_mode),
+          displayMode: wuiLargeTitleDisplayMode(navView.bar.display_mode),
           restorationDepth: Int(transaction.retained_prefix) + offset + 1
         )
       }
@@ -630,6 +663,7 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
         contentView: view,
         barState: barState,
         destinationState: destinationState,
+        isRoot: restorationDepth == 0,
         env: childEnv
       )
       vc.restorationIdentifier = navigationRestorationIdentifier(depth: restorationDepth)
@@ -653,25 +687,6 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
       }
       vc.navigationItem.largeTitleDisplayMode = displayMode
       return vc
-    }
-
-    private func convertDisplayMode(_ mode: WuiNavigationTitleDisplayMode)
-      -> UINavigationItem.LargeTitleDisplayMode
-    {
-      switch mode {
-      case WuiNavigationTitleDisplayMode_Automatic:
-        return .automatic
-      case WuiNavigationTitleDisplayMode_Inline:
-        return .never
-      // UIKit's navigation bar has two title sizes, not three: there is no
-      // counterpart to Material's medium flexible app bar, so a medium title
-      // takes the large one. The asymmetry is real and is not papered over
-      // with a hand-drawn bar.
-      case WuiNavigationTitleDisplayMode_Medium, WuiNavigationTitleDisplayMode_Large:
-        return .always
-      default:
-        fatalError("Unsupported WaterUI navigation title display mode: \(mode.rawValue)")
-      }
     }
 
     func navigationController(
@@ -943,6 +958,11 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
   }
 
   #if canImport(UIKit)
+    override func didMoveToWindow() {
+      super.didMoveToWindow()
+      wuiSyncControllerHierarchy(of: navController)
+    }
+
     override func layoutSubviews() {
       super.layoutSubviews()
       navController?.view.frame = bounds
@@ -999,3 +1019,7 @@ private func navigationRestorationIdentifier(depth: Int) -> String {
     var hasTitlebar: Bool { styleMask.contains(.titled) }
   }
 #endif
+
+/// A navigation stack projects into the platform's own navigation container,
+/// which owns its bars and content insets; the window hands it the full bounds.
+extension WuiNavigationStack: WuiSafeAreaManaging {}

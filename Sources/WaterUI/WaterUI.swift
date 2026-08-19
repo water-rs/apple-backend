@@ -1209,34 +1209,15 @@ public final class WuiRootContext {
       context.rootView.layoutIfNeeded()
     }
 
+    /// Whether the window insets the root content to the safe area.
+    ///
+    /// The root resolves through its wrapper views (env scopes, the window's
+    /// overlay stack) to the view that actually decides: a platform chrome
+    /// container or scroll surface ([`WuiSafeAreaManaging`]) owns its bars and
+    /// insets and must be handed the full window, while plain content is inset
+    /// so it does not sit under the status bar.
     private func shouldApplySafeArea(to rootView: UIView) -> Bool {
-      guard let contentView = primaryContentView(from: rootView) else {
-        return true
-      }
-      return !isScrollableRootView(contentView)
-    }
-
-    private func primaryContentView(from rootView: UIView) -> UIView? {
-      guard let inner = rootView.subviews.first else { return nil }
-      guard !inner.subviews.isEmpty else { return inner }
-      // App::new wraps content + overlay in a ZStack; use the main content layer.
-      return inner.subviews.first
-    }
-
-    private func isScrollableRootView(_ view: UIView) -> Bool {
-      var current: UIView? = view
-      while let node = current {
-        if node is WuiScroll || node is WuiList {
-          return true
-        }
-        let children = node.subviews
-        if children.count == 1 {
-          current = children.first
-          continue
-        }
-        return false
-      }
-      return false
+      !(wuiResolvedPrimaryContent(of: rootView) is WuiSafeAreaManaging)
     }
 
     private func updateColorSchemeFromTraits() {

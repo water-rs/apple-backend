@@ -238,16 +238,20 @@ final class WuiContainer: PlatformView, WuiComponent {
   }
 
 
-  #if canImport(AppKit)
-    /// A layout container is not a control: a click none of its children want
-    /// belongs to whatever is behind it.
-    ///
-    /// `NSView` answers a hit inside its own bounds with itself, which is right
-    /// for something that draws and wrong for something that only arranges. A
-    /// window-filling container — the overlay layer a window composes above its
-    /// content, for snackbars and dialogs — would otherwise swallow every click
-    /// that misses its contents, leaving the controls beneath it visible and
-    /// dead.
+  // A layout container is not a control: a click none of its children want
+  // belongs to whatever is behind it.
+  //
+  // The platform view answers a hit inside its own bounds with itself, which is
+  // right for something that draws and wrong for something that only arranges.
+  // A window-filling container — the overlay layer a window composes above its
+  // content, for snackbars and dialogs — would otherwise swallow every click
+  // that misses its contents, leaving the controls beneath it visible and dead.
+  #if canImport(UIKit)
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+      let hit = super.hitTest(point, with: event)
+      return hit === self ? nil : hit
+    }
+  #elseif canImport(AppKit)
     override func hitTest(_ point: NSPoint) -> NSView? {
       let hit = super.hitTest(point)
       return hit === self ? nil : hit

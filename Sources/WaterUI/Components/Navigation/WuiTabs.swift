@@ -161,6 +161,13 @@ final class WuiTabs: PlatformView, WuiComponent {
     )
   }
 
+  #if canImport(UIKit)
+    override func didMoveToWindow() {
+      super.didMoveToWindow()
+      wuiSyncControllerHierarchy(of: tabController)
+    }
+  #endif
+
   private func configureNativeController() {
     #if canImport(UIKit)
       tabController.delegate = self
@@ -184,8 +191,9 @@ final class WuiTabs: PlatformView, WuiComponent {
         )
         return controller
       }
-      tabController.view.translatesAutoresizingMaskIntoConstraints = true
-      addSubview(tabController.view)
+      // The view is attached by `wuiSyncControllerHierarchy` at window time,
+      // after the controller has a parent — see that helper for why the order
+      // matters.
 
     #elseif canImport(AppKit)
       for tab in tabs {
@@ -579,3 +587,7 @@ final class WuiTabs: PlatformView, WuiComponent {
     }
   }
 #endif
+
+/// Tabs project into the platform's own tab container, which owns its bar and
+/// content insets; the window hands it the full bounds.
+extension WuiTabs: WuiSafeAreaManaging {}
