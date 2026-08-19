@@ -20,9 +20,30 @@ private struct ResolvedListItem {
   let selected: WuiComputed<Bool>?
 }
 
+/// A section's header and footer as reactive text.
+///
+/// Both are signals rather than strings: a section title localizes, and an app
+/// can drive it from its own state ("3 unread"). A section with neither is a
+/// pure divider, which is why this exists separately from "the item carries no
+/// section at all".
+@MainActor
 private struct ListSectionInfo {
-  let label: String?
-  let footer: String?
+  let label: WuiComputed<WuiStyledStr>?
+  let footer: WuiComputed<WuiStyledStr>?
+}
+
+/// Takes ownership of the section handles an FFI item carries and drops them.
+///
+/// Every path that reads a `WuiListItem` owns its section signals, so a path
+/// that does not need them still has to release them.
+@MainActor
+private func dropListItemSection(_ listItem: CWaterUI.WuiListItem) {
+  if let labelPtr = listItem.section.label {
+    _ = WuiComputed<WuiStyledStr>(labelPtr)
+  }
+  if let footerPtr = listItem.section.footer {
+    _ = WuiComputed<WuiStyledStr>(footerPtr)
+  }
 }
 
 @MainActor
@@ -39,11 +60,9 @@ private func resolveListItem(
   guard let contentPtr = listItem.content else {
     fatalError("List item content pointer is null at index \(index)")
   }
-  // The FFI item carries section_label / section_footer by value. We don't
-  // need them here, but they own their byte buffers — wrap them so they
-  // get dropped when this scope exits instead of leaking.
-  _ = WuiStr(listItem.section_label)
-  _ = WuiStr(listItem.section_footer)
+  // The section signals come back by value and are owned here; the grouping
+  // pass reads them, this path only has to release them.
+  dropListItemSection(listItem)
 
   return ResolvedListItem(
     view: WuiAnyView(anyview: contentPtr, env: env),
@@ -69,8 +88,7 @@ private func resolveListItemDeletable(
   if let selectedPtr = listItem.selected {
     _ = WuiComputed<Bool>(selectedPtr)
   }
-  _ = WuiStr(listItem.section_label)
-  _ = WuiStr(listItem.section_footer)
+  dropListItemSection(listItem)
 
   guard let deletablePtr = listItem.deletable else {
     return defaultValue
@@ -101,15 +119,13 @@ private func peekListItemSection(
     _ = WuiComputed<Bool>(selectedPtr)
   }
 
-  let labelStr = WuiStr(listItem.section_label).toString()
-  let footerStr = WuiStr(listItem.section_footer).toString()
-
-  if labelStr.isEmpty && footerStr.isEmpty {
+  guard listItem.section.has_value else {
+    dropListItemSection(listItem)
     return nil
   }
   return ListSectionInfo(
-    label: labelStr.isEmpty ? nil : labelStr,
-    footer: footerStr.isEmpty ? nil : footerStr,
+    label: listItem.section.label.map { WuiComputed<WuiStyledStr>($0) },
+    footer: listItem.section.footer.map { WuiComputed<WuiStyledStr>($0) }
   )
 }
 
@@ -120,8 +136,8 @@ private func peekListItemSection(
 /// array that belong to this section, in their original order.
 @MainActor
 private struct ListSectionGroup {
-  let label: String?
-  let footer: String?
+  let label: WuiComputed<WuiStyledStr>?
+  let footer: WuiComputed<WuiStyledStr>?
   let itemIndices: [Int]
 }
 
@@ -131,8 +147,8 @@ private func computeListSectionGroups(
   count: Int
 ) -> [ListSectionGroup] {
   var groups: [ListSectionGroup] = []
-  var pendingLabel: String? = nil
-  var pendingFooter: String? = nil
+  var pendingLabel: WuiComputed<WuiStyledStr>? = nil
+  var pendingFooter: WuiComputed<WuiStyledStr>? = nil
   var pendingIndices: [Int] = []
 
   func flush() {
@@ -182,6 +198,7 @@ private func resolveListSectionGroups(
 /// flat list whose row indices map 1:1 to `itemIds` positions. Only this shape is
 /// safe to update with a row-level diff; any header/footer or cross-section move
 /// is reloaded instead.
+@MainActor
 private func isSinglePlainSection(_ groups: [ListSectionGroup]) -> Bool {
   guard groups.count == 1 else { return false }
   let only = groups[0]
@@ -260,6 +277,17 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
 
       // Register a reusable cell class
       register(WuiListCell.self, forCellReuseIdentifier: WuiListCell.reuseIdentifier)
+      // Section chrome is a view rather than a title string, because a section
+      // header is reactive text: it has to follow its signal without the table
+      // reloading the section around it.
+      register(
+        WuiListSectionHeaderFooterView.self,
+        forHeaderFooterViewReuseIdentifier: WuiListSectionHeaderFooterView.headerReuseIdentifier)
+      register(
+        WuiListSectionHeaderFooterView.self,
+        forHeaderFooterViewReuseIdentifier: WuiListSectionHeaderFooterView.footerReuseIdentifier)
+      estimatedSectionHeaderHeight = 28
+      estimatedSectionFooterHeight = 24
 
       // Drive row heights through `heightForRowAt` against the measured
       // content (Layout/SubView protocol) instead of relying on
@@ -455,12 +483,30 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       return sectionGroups[section].itemIndices.count
     }
 
-    func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-      return sectionGroups[section].label
+    func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
+      guard let label = sectionGroups[section].label else { return nil }
+      return dequeueSectionChrome(text: label, kind: .header)
     }
 
-    func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
-      return sectionGroups[section].footer
+    func tableView(_ tableView: UITableView, viewForFooterInSection section: Int) -> UIView? {
+      guard let footer = sectionGroups[section].footer else { return nil }
+      return dequeueSectionChrome(text: footer, kind: .footer)
+    }
+
+    private func dequeueSectionChrome(
+      text: WuiComputed<WuiStyledStr>,
+      kind: WuiListSectionHeaderFooterView.Kind
+    ) -> UIView {
+      let identifier =
+        kind == .header
+        ? WuiListSectionHeaderFooterView.headerReuseIdentifier
+        : WuiListSectionHeaderFooterView.footerReuseIdentifier
+      let dequeued = dequeueReusableHeaderFooterView(withIdentifier: identifier)
+      guard let chrome = dequeued as? WuiListSectionHeaderFooterView else {
+        fatalError("Expected WuiListSectionHeaderFooterView for reuse identifier \(identifier)")
+      }
+      chrome.configure(text: text, kind: kind)
+      return chrome
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -602,6 +648,50 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       // target — keep that floor when the measured content is shorter
       // (single-line rows, dividers, etc).
       return max(size.height + insets.top + insets.bottom, 44)
+    }
+  }
+
+  // MARK: - WuiListSectionHeaderFooterView
+
+  /// Section header or footer in the iOS `UITableView`-based list.
+  ///
+  /// The chrome is UIKit's own grouped header/footer content configuration, so
+  /// the typography, insets and color stay the platform's. Only the text comes
+  /// from the app, and it follows its signal in place — the table never
+  /// reloads the section to change a title.
+  @MainActor
+  private final class WuiListSectionHeaderFooterView: UITableViewHeaderFooterView {
+    static let headerReuseIdentifier = "WuiListSectionHeader"
+    static let footerReuseIdentifier = "WuiListSectionFooter"
+
+    enum Kind {
+      case header
+      case footer
+    }
+
+    private var kind: Kind = .header
+    private var textWatcher: WatcherGuard?
+
+    func configure(text: WuiComputed<WuiStyledStr>, kind: Kind) {
+      self.kind = kind
+      textWatcher = text.watch { [weak self] value, _ in
+        self?.applyText(value.toString())
+      }
+      applyText(text.value.toString())
+    }
+
+    override func prepareForReuse() {
+      super.prepareForReuse()
+      textWatcher = nil
+    }
+
+    private func applyText(_ text: String) {
+      var configuration =
+        kind == .header
+        ? UIListContentConfiguration.groupedHeader()
+        : UIListContentConfiguration.groupedFooter()
+      configuration.text = text
+      contentConfiguration = configuration
     }
   }
 
@@ -859,9 +949,9 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     static let rowContentInset: CGFloat = 20
 
     private enum TableLayoutEntry {
-      case header(label: String, sectionIndex: Int)
+      case header(label: WuiComputed<WuiStyledStr>, sectionIndex: Int)
       case row(itemIndex: Int)
-      case footer(label: String, sectionIndex: Int)
+      case footer(label: WuiComputed<WuiStyledStr>, sectionIndex: Int)
     }
 
     // MARK: - WuiComponent Init
@@ -1389,12 +1479,18 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     private let label: NSTextField
     private var foregroundObservation: WuiComputedObservation<WuiResolvedColor>?
     private var fontObservation: WuiComputedObservation<WuiResolvedFontValue>?
+    private var textWatcher: WatcherGuard?
 
-    init(text: String, kind: Kind, env: WuiEnvironment) {
+    init(text: WuiComputed<WuiStyledStr>, kind: Kind, env: WuiEnvironment) {
       // SwiftUI section headers render the string as written; the legacy
-      // grouped-table uppercasing is not a macOS List behavior.
-      self.label = NSTextField(labelWithString: text)
+      // grouped-table uppercasing is not a macOS List behavior. The typography
+      // is the list's (below), so only the text itself comes from the app —
+      // and it follows its signal rather than being frozen here.
+      self.label = NSTextField(labelWithString: text.value.toString())
       super.init(frame: .zero)
+      textWatcher = text.watch { [weak self] value, _ in
+        self?.label.stringValue = value.toString()
+      }
       translatesAutoresizingMaskIntoConstraints = true
       wantsLayer = true
 
