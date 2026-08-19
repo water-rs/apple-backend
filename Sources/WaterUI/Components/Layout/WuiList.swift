@@ -618,6 +618,20 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     /// `heightForRowAt` must subtract/add exactly these values.
     static let rowInsets = NSDirectionalEdgeInsets(top: 11, leading: 20, bottom: 11, trailing: 20)
 
+    /// Whether the row's content chain carries a navigation link's identity.
+    ///
+    /// The link marker (`WuiNavigationLinkHint`) wraps the link's button, and
+    /// wrapper views sit between the row and it; the primary-content chain
+    /// walks through them.
+    private static func containsNavigationLink(_ view: PlatformView) -> Bool {
+      var current: PlatformView? = view
+      while let node = current {
+        if node is WuiNavigationLinkHint { return true }
+        current = (node as? WuiPrimaryContentProviding)?.wuiPrimaryContent
+      }
+      return false
+    }
+
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
       super.init(style: style, reuseIdentifier: reuseIdentifier)
       // SwiftUI's inset-grouped rows are opaque cards floating on the
@@ -646,6 +660,12 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       contentWuiView = view
       view.translatesAutoresizingMaskIntoConstraints = false
       contentView.addSubview(view)
+
+      // iOS draws the destination-following affordance around a link row —
+      // the disclosure chevron — while the link itself stays a plain button.
+      // The row asks its content chain whether it is one; a Mac's list draws
+      // no such affordance, so the AppKit list does nothing with the hint.
+      accessoryType = Self.containsNavigationLink(view) ? .disclosureIndicator : .none
 
       // Content sits inside SwiftUI's default row insets instead of running
       // flush to the card edge.

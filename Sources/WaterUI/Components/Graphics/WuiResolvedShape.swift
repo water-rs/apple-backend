@@ -11,6 +11,7 @@ import QuartzCore
 final class WuiResolvedShape: PlatformView, WuiComponent, WuiGraphicsPrimitiveSizing {
   static var rawId: CWaterUI.WuiTypeId { waterui_resolved_shape_id() }
 
+  private let shapeKind: WuiShapeKind
   private let pathCommands: [WuiPathCommand]
   private let shapeLayer = CAShapeLayer()
   private var fillObservation: WuiComputedObservation<WuiResolvedColor>?
@@ -20,6 +21,7 @@ final class WuiResolvedShape: PlatformView, WuiComponent, WuiGraphicsPrimitiveSi
     stretchAxis = WuiStretchAxis(waterui_view_stretch_axis(anyview))
 
     let shape = waterui_force_as_resolved_shape(anyview)
+    shapeKind = shape.kind
     pathCommands = WuiShapePath.commands(from: shape.commands)
     guard let fill = shape.fill else {
       fatalError("ResolvedShape fill computed pointer is null")
@@ -65,7 +67,8 @@ final class WuiResolvedShape: PlatformView, WuiComponent, WuiGraphicsPrimitiveSi
   private func updateShapeLayer() {
     guard !bounds.isEmpty else { return }
     shapeLayer.frame = bounds
-    shapeLayer.path = WuiShapePath.makePath(commands: pathCommands, in: bounds)
+    shapeLayer.path = WuiShapePath.makePath(
+      kind: shapeKind, commands: pathCommands, in: bounds)
   }
 
   private func applyFill(_ color: WuiResolvedColor) {

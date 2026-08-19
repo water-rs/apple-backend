@@ -208,6 +208,7 @@ private func registerBuiltinComponentsIfNeeded() {
   registerMetadataComponent(WuiRetain.self)
   registerMetadataComponent(WuiContextMenu.self)
   registerMetadataComponent(WuiHittable.self)
+  registerMetadataComponent(WuiNavigationLinkHint.self)
   registerMetadataComponent(WuiNavigationTransitionSourceView.self)
   registerMetadataComponent(WuiNavigationTransitionDestinationView.self)
 

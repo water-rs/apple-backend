@@ -15,6 +15,7 @@ final class WuiClipShape: PlatformView, WuiComponent {
     static var rawId: CWaterUI.WuiTypeId { waterui_metadata_clip_shape_id() }
 
     private let contentView: any WuiComponent
+    private let shapeKind: WuiShapeKind
     private let pathCommands: [WuiPathCommand]
     private var maskLayer: CAShapeLayer?
 
@@ -25,6 +26,7 @@ final class WuiClipShape: PlatformView, WuiComponent {
     required init(anyview: OpaquePointer, env: WuiEnvironment) {
         let metadata = waterui_force_as_metadata_clip_shape(anyview)
         contentView = WuiAnyView.resolve(anyview: metadata.content, env: env)
+        shapeKind = metadata.value.kind
         pathCommands = WuiShapePath.commands(from: metadata.value.commands)
 
         super.init(frame: .zero)
@@ -82,6 +84,7 @@ final class WuiClipShape: PlatformView, WuiComponent {
             #endif
         }
 
-        maskLayer?.path = WuiShapePath.makePath(commands: pathCommands, in: bounds)
+        maskLayer?.path = WuiShapePath.makePath(
+            kind: shapeKind, commands: pathCommands, in: bounds)
     }
 }
