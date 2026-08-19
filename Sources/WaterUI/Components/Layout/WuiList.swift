@@ -17,6 +17,7 @@ import CWaterUI
 private struct ResolvedListItem {
   let view: WuiAnyView
   let deletable: WuiComputed<Bool>?
+  let selected: WuiComputed<Bool>?
 }
 
 private struct ListSectionInfo {
@@ -46,7 +47,8 @@ private func resolveListItem(
 
   return ResolvedListItem(
     view: WuiAnyView(anyview: contentPtr, env: env),
-    deletable: listItem.deletable.map { WuiComputed<Bool>($0) }
+    deletable: listItem.deletable.map { WuiComputed<Bool>($0) },
+    selected: listItem.selected.map { WuiComputed<Bool>($0) }
   )
 }
 
@@ -63,6 +65,9 @@ private func resolveListItemDeletable(
   let listItem = waterui_force_as_list_item(viewPtr)
   if let contentPtr = listItem.content {
     waterui_drop_anyview(contentPtr)
+  }
+  if let selectedPtr = listItem.selected {
+    _ = WuiComputed<Bool>(selectedPtr)
   }
   _ = WuiStr(listItem.section_label)
   _ = WuiStr(listItem.section_footer)
@@ -91,6 +96,9 @@ private func peekListItemSection(
   }
   if let deletablePtr = listItem.deletable {
     _ = WuiComputed<Bool>(deletablePtr)
+  }
+  if let selectedPtr = listItem.selected {
+    _ = WuiComputed<Bool>(selectedPtr)
   }
 
   let labelStr = WuiStr(listItem.section_label).toString()
@@ -464,7 +472,8 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       let flat = flatIndex(for: indexPath)
       let item = resolveListItem(from: contents, at: flat, env: env)
       let itemId = itemIds[flat]
-      cell.configure(with: item.view, deletable: item.deletable) { [weak self] metadata in
+      cell.configure(with: item.view, deletable: item.deletable, selected: item.selected) {
+        [weak self] metadata in
         guard let self else { return }
         guard let updatedFlat = self.itemIds.firstIndex(of: itemId),
           let updatedPath = self.indexPath(forFlat: updatedFlat)
@@ -603,6 +612,7 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
 
     private var contentWuiView: WuiAnyView?
     private var deletableObservation: WuiComputedObservation<Bool>?
+    private var selectedObservation: WuiComputedObservation<Bool>?
 
     /// SwiftUI's default inset-grouped row insets; the height measurement in
     /// `heightForRowAt` must subtract/add exactly these values.
@@ -624,11 +634,13 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     func configure(
       with view: WuiAnyView,
       deletable: WuiComputed<Bool>?,
+      selected: WuiComputed<Bool>?,
       onDeletableChange: @escaping (WuiWatcherMetadata) -> Void
     ) {
       // Remove previous content
       contentWuiView?.removeFromSuperview()
       deletableObservation = nil
+      selectedObservation = nil
 
       // Add new content
       contentWuiView = view
@@ -653,6 +665,19 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
           onDeletableChange(metadata)
         }
       }
+
+      selectedObservation = selected.map { signal in
+        WuiComputedObservation(signal) { [weak self] value, _ in
+          self?.applySelected(value)
+        }
+      }
+      applySelected(selectedObservation?.value ?? false)
+    }
+
+    /// A selected row fills with the system's selection gray, as a SwiftUI
+    /// `List(selection:)` row does; the card color returns when it clears.
+    private func applySelected(_ selected: Bool) {
+      backgroundColor = selected ? .systemGray4 : .secondarySystemGroupedBackground
     }
 
     override func prepareForReuse() {
@@ -660,6 +685,8 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       contentWuiView?.removeFromSuperview()
       contentWuiView = nil
       deletableObservation = nil
+      selectedObservation = nil
+      applySelected(false)
     }
   }
 #endif
@@ -670,6 +697,15 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
   /// so the row view draws it.
   private final class WuiListRowView: NSTableRowView {
     var showsSeparator = false
+
+    /// Selection reads the window, not the responder chain: the table never
+    /// becomes first responder (clicks go to the row's own content), yet a
+    /// selected row in a key window shows the accent highlight — as a SwiftUI
+    /// sidebar's selection does.
+    override var isEmphasized: Bool {
+      get { window?.isKeyWindow ?? false }
+      set { _ = newValue }
+    }
 
     /// Where the separator starts, measured from the row's leading edge.
     ///
@@ -692,19 +728,23 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     private var contentWuiView: WuiAnyView?
     private var deleteButton: NSButton?
     private var deletableObservation: WuiComputedObservation<Bool>?
+    private var selectedObservation: WuiComputedObservation<Bool>?
 
     func configure(
       with view: WuiAnyView,
       itemId: Int32,
       deletable: WuiComputed<Bool>?,
+      selected: WuiComputed<Bool>?,
       showsDeleteControl: Bool,
       target: AnyObject?,
       action: Selector?,
-      onDeletableChange: @escaping (WuiWatcherMetadata) -> Void
+      onDeletableChange: @escaping (WuiWatcherMetadata) -> Void,
+      onSelectedChange: @escaping (Bool) -> Void
     ) {
       contentWuiView?.removeFromSuperview()
       deleteButton?.removeFromSuperview()
       deletableObservation = nil
+      selectedObservation = nil
 
       let observation = deletable.map { signal in
         WuiComputedObservation(signal) { _, metadata in
@@ -712,6 +752,12 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
         }
       }
       deletableObservation = observation
+
+      selectedObservation = selected.map { signal in
+        WuiComputedObservation(signal) { value, _ in
+          onSelectedChange(value)
+        }
+      }
 
       contentWuiView = view
       view.translatesAutoresizingMaskIntoConstraints = false
@@ -880,6 +926,29 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
 
     /// Whether this list draws as a sidebar's contents.
     private var isSidebarContent = false
+
+    private var keyWindowObservers: [any NSObjectProtocol] = []
+
+    /// Row emphasis reads the window's key state (see `WuiListRowView`), so a
+    /// key-state change must repaint the rows that draw selection.
+    override func viewDidMoveToWindow() {
+      super.viewDidMoveToWindow()
+      for observer in keyWindowObservers {
+        NotificationCenter.default.removeObserver(observer)
+      }
+      keyWindowObservers = []
+      guard let window else { return }
+      let repaint: (Notification) -> Void = { [weak self] _ in
+        self?.tableView.enumerateAvailableRowViews { rowView, _ in
+          rowView.needsDisplay = true
+        }
+      }
+      for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+        keyWindowObservers.append(
+          NotificationCenter.default.addObserver(
+            forName: name, object: window, queue: .main, using: repaint))
+      }
+    }
 
     /// Draws this list as a sidebar's contents.
     ///
@@ -1192,20 +1261,47 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
           with: item.view,
           itemId: itemId,
           deletable: item.deletable,
+          selected: item.selected,
           showsDeleteControl: isInEditMode && onDeletePtr != nil,
           target: self,
-          action: #selector(deleteButtonClicked(_:))
-        ) { [weak self] _ in
-          guard let self else { return }
-          guard let reloadItemIndex = self.itemIds.firstIndex(of: itemId),
-            let reloadFlat = self.flatRow(forItemIndex: reloadItemIndex)
-          else { return }
-          self.tableView.reloadData(
-            forRowIndexes: IndexSet(integer: reloadFlat),
-            columnIndexes: IndexSet(integer: 0)
-          )
+          action: #selector(deleteButtonClicked(_:)),
+          onDeletableChange: { [weak self] _ in
+            guard let self else { return }
+            guard let reloadItemIndex = self.itemIds.firstIndex(of: itemId),
+              let reloadFlat = self.flatRow(forItemIndex: reloadItemIndex)
+            else { return }
+            self.tableView.reloadData(
+              forRowIndexes: IndexSet(integer: reloadFlat),
+              columnIndexes: IndexSet(integer: 0)
+            )
+          },
+          onSelectedChange: { [weak self] value in
+            self?.applyRowSelection(itemId: itemId, selected: value)
+          }
+        )
+        if item.selected?.value == true {
+          // The table is mid-update while this row materializes; the selection
+          // lands once the update completes.
+          DispatchQueue.main.async { [weak self] in
+            self?.applyRowSelection(itemId: itemId, selected: true)
+          }
         }
         return containerView
+      }
+    }
+
+    /// Mirrors a row's `selected` signal into the table's own selection, which
+    /// is what draws the platform's highlight — the rounded inset panel in a
+    /// sidebar. Selection state lives in the app; the pointer only reaches it
+    /// through the row's own tap handling, never through the table.
+    private func applyRowSelection(itemId: Int32, selected: Bool) {
+      guard let itemIndex = itemIds.firstIndex(of: itemId),
+        let flat = flatRow(forItemIndex: itemIndex)
+      else { return }
+      if selected {
+        tableView.selectRowIndexes(IndexSet(integer: flat), byExtendingSelection: false)
+      } else if tableView.selectedRowIndexes.contains(flat) {
+        tableView.deselectRow(flat)
       }
     }
 
@@ -1221,7 +1317,6 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
 
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
       let rowView = WuiListRowView()
-      rowView.isEmphasized = true
       rowView.separatorInset = Self.rowContentInset
       // SwiftUI separates row–row boundaries only; the last row of a
       // section (followed by a footer, header, or nothing) has none. A sidebar
@@ -1256,12 +1351,13 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     /// not the 44pt iOS touch-target floor.
     private static let minimumRowHeight: CGFloat = 24
 
+    /// The pointer never drives the table's selection directly: selection state
+    /// lives in the app, a click reaches it through the row content's own tap
+    /// handling, and the resulting `selected` signal comes back through
+    /// `applyRowSelection`. Letting the table select on click as well would
+    /// paint a highlight the app never agreed to.
     func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
-      guard row >= 0, row < flatLayout.count else { return false }
-      switch flatLayout[row] {
-      case .header, .footer: return false
-      case .row: return true
-      }
+      false
     }
   }
 

@@ -42,6 +42,8 @@
       "dev.waterui.navigation.trailing")
     private static let searchIdentifier = NSToolbarItem.Identifier("dev.waterui.navigation.search")
     private static let tabsIdentifier = NSToolbarItem.Identifier("dev.waterui.tabs")
+    private static let sidebarSeparatorIdentifier = NSToolbarItem.Identifier(
+      "dev.waterui.sidebar.separator")
 
     /// The coordinator attached to a window, created on first use.
     ///
@@ -64,6 +66,9 @@
 
     /// The tab control, when an app-level tab container is showing its tabs here.
     private var tabsView: NSView?
+    /// The split view whose sidebar the toolbar aligns itself with, when the
+    /// pane on screen is a split view.
+    private weak var sidebarSplitView: NSSplitView?
     /// Which navigation stack currently owns the page-level items.
     private weak var contentOwner: AnyObject?
     private var content = Content()
@@ -83,12 +88,29 @@
       // window showing tabs has no separate title, and one without them keeps
       // its title in the toolbar.
       window.toolbarStyle = .unified
+      // Full-size content is what lets a sidebar run the window's full height,
+      // traffic lights inside it. Everything that is not a sidebar places
+      // itself below the toolbar through the safe area instead.
+      window.styleMask.insert(.fullSizeContentView)
     }
 
     /// Offers the app-level tab control, or withdraws it when `view` is nil.
     func setTabs(_ view: NSView?) {
       tabsView = view
       window?.titleVisibility = view == nil ? .visible : .hidden
+      rebuild()
+    }
+
+    /// Aligns the toolbar with a full-height sidebar, or withdraws the
+    /// alignment when `splitView` is nil.
+    ///
+    /// The alignment is two items: the sidebar's collapse control, and a
+    /// separator that tracks the split view's divider so everything after it
+    /// sits over the detail column — which is where the Mac puts a window's
+    /// page chrome when a sidebar runs the window's full height.
+    func setSidebarSplitView(_ splitView: NSSplitView?) {
+      guard sidebarSplitView !== splitView else { return }
+      sidebarSplitView = splitView
       rebuild()
     }
 
@@ -136,6 +158,10 @@
     /// around them.
     private var currentIdentifiers: [NSToolbarItem.Identifier] {
       var identifiers: [NSToolbarItem.Identifier] = []
+      if sidebarSplitView != nil {
+        identifiers.append(.toggleSidebar)
+        identifiers.append(Self.sidebarSeparatorIdentifier)
+      }
       if content.showsBack { identifiers.append(Self.backIdentifier) }
       if content.leading != nil { identifiers.append(Self.leadingIdentifier) }
       if content.titleView != nil { identifiers.append(Self.titleIdentifier) }
@@ -184,6 +210,14 @@
         searchCoordinator = coordinator
         searchField = item.searchField
         return item
+
+      case Self.sidebarSeparatorIdentifier:
+        guard let sidebarSplitView else { return nil }
+        return NSTrackingSeparatorToolbarItem(
+          identifier: identifier,
+          splitView: sidebarSplitView,
+          dividerIndex: 0
+        )
 
       case Self.tabsIdentifier:
         return hostingItem(identifier: identifier, view: tabsView)
@@ -319,6 +353,14 @@
       if let stack = self as? WuiNavigationStack {
         stack.setChromeActive(active)
         return
+      }
+      if let navigationView = self as? WuiNavigationView {
+        navigationView.setChromeActive(active)
+        // Keep descending: a split detail inside carries a bar of its own,
+        // and — claiming last — it is the one that wins the toolbar.
+      }
+      if let splitView = self as? WuiNavigationSplitView {
+        splitView.setChromeActive(active)
       }
       for subview in subviews {
         subview.setNavigationChromeActive(active)

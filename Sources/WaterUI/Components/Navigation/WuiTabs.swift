@@ -265,6 +265,9 @@ final class WuiTabs: PlatformView, WuiComponent {
       let split = NSSplitViewController()
       let sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebarController)
       sidebarItem.minimumThickness = 180
+      // The sidebar runs the whole height of the window, traffic lights inside
+      // it; the scroll view keeps the rows below them through the safe area.
+      sidebarItem.allowsFullHeightLayout = true
       split.addSplitViewItem(sidebarItem)
       split.addSplitViewItem(NSSplitViewItem(viewController: contentController))
       split.view.translatesAutoresizingMaskIntoConstraints = true
@@ -453,6 +456,7 @@ final class WuiTabs: PlatformView, WuiComponent {
 
     override func viewDidMoveToWindow() {
       super.viewDidMoveToWindow()
+      splitController?.joinControllerHierarchy(of: window)
       guard let window, window.hasTitlebar else {
         windowToolbar?.setTabs(nil)
         windowToolbar = nil

@@ -51,6 +51,16 @@ final class WuiNavigationView: PlatformView, WuiComponent {
     private var inlineBackButton: NSButton?
     private var overlayBackButton: NSButton?
     private var searchView: NSView?
+    /// The window toolbar this view's chrome lives in, when the window has one.
+    private weak var windowToolbar: WuiWindowToolbar?
+    /// Whether a container showing one child at a time lets this view publish
+    /// chrome; see `NSView.setNavigationChromeActive(_:)`.
+    private var chromeIsActive = true
+    /// The Mac shows a page's title and actions in the window toolbar; the
+    /// in-content bar exists only for windows without a titlebar.
+    private var presentsChromeInToolbar = false
+    /// Whether the in-content bar's views have been built and attached.
+    private var inContentBarInstalled = false
   #endif
 
   convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
@@ -109,6 +119,7 @@ final class WuiNavigationView: PlatformView, WuiComponent {
     #if canImport(UIKit)
       setNeedsLayout()
     #elseif canImport(AppKit)
+      publishChrome()
       needsLayout = true
     #endif
   }
@@ -148,7 +159,35 @@ final class WuiNavigationView: PlatformView, WuiComponent {
         barItem.rightBarButtonItem = UIBarButtonItem(customView: trailingView)
       }
       rebuildLeadingItems()
-    #elseif canImport(AppKit)
+
+      if let search = barState.search {
+        let (searchView, coordinator) = makeInlineNavigationSearchView(search)
+        searchView.translatesAutoresizingMaskIntoConstraints = true
+        addSubview(searchView)
+        self.searchView = searchView
+        searchCoordinator = coordinator
+      }
+    #endif
+    // On AppKit the bar's home depends on the window — the toolbar when it has
+    // a titlebar, an in-content bar otherwise — so installation waits for
+    // `viewDidMoveToWindow`.
+  }
+
+  #if canImport(AppKit)
+    /// Builds the in-content bar, for a window without a titlebar.
+    private func installInContentBar() {
+      guard !inContentBarInstalled else {
+        // Coming back from a titled window: the toolbar reparented the bar's
+        // views into its items, so they return home with the bar.
+        addSubview(navBarView)
+        navBarView.addSubview(titleView)
+        if let leadingView = barState.leading { navBarView.addSubview(leadingView) }
+        if let trailingView = barState.trailing { navBarView.addSubview(trailingView) }
+        if let searchView { navBarView.addSubview(searchView) }
+        return
+      }
+      inContentBarInstalled = true
+
       navBarView.translatesAutoresizingMaskIntoConstraints = true
       // The header material is the platform's own bar background: a
       // translucent in-window blur that adapts to the appearance.
@@ -184,20 +223,16 @@ final class WuiNavigationView: PlatformView, WuiComponent {
       navBarView.addSubview(borderView)
 
       installInlineBackButton()
-    #endif
 
-    if let search = barState.search {
-      let (searchView, coordinator) = makeInlineNavigationSearchView(search)
-      searchView.translatesAutoresizingMaskIntoConstraints = true
-      #if canImport(UIKit)
-        addSubview(searchView)
-      #elseif canImport(AppKit)
+      if let search = barState.search {
+        let (searchView, coordinator) = makeInlineNavigationSearchView(search)
+        searchView.translatesAutoresizingMaskIntoConstraints = true
         navBarView.addSubview(searchView)
-      #endif
-      self.searchView = searchView
-      searchCoordinator = coordinator
+        self.searchView = searchView
+        searchCoordinator = coordinator
+      }
     }
-  }
+  #endif
 
   /// Whether this view renders its own bar (no native controller hosts it).
   private var barIsInstalled = false
@@ -283,6 +318,7 @@ final class WuiNavigationView: PlatformView, WuiComponent {
       layoutIfNeeded()
     #elseif canImport(AppKit)
       navBarView.isHidden = hidden
+      publishChrome()
       needsLayout = true
     #endif
     updateBackButtonVisibility()
@@ -350,7 +386,8 @@ final class WuiNavigationView: PlatformView, WuiComponent {
         rebuildLeadingItems()
       }
     #elseif canImport(AppKit)
-      inlineBackButton?.isHidden = !(backAction != nil && barVisible)
+      // In toolbar mode the back control is a toolbar item, not this button.
+      inlineBackButton?.isHidden = !(backAction != nil && barVisible && !presentsChromeInToolbar)
     #endif
   }
 
@@ -376,6 +413,75 @@ final class WuiNavigationView: PlatformView, WuiComponent {
     override func viewDidMoveToWindow() {
       super.viewDidMoveToWindow()
       setDestinationActive(window != nil)
+      updateChromePresentation()
+    }
+
+    /// Chooses where the bar lives: the window toolbar when the window has a
+    /// titlebar — where the Mac shows a page's title and actions — or an
+    /// in-content bar when it has none.
+    private func updateChromePresentation() {
+      guard barIsInstalled else { return }
+      guard let window else {
+        // Leaving a window; a hidden tab's page must not keep the toolbar.
+        windowToolbar?.clearContent(owner: self)
+        windowToolbar = nil
+        presentsChromeInToolbar = false
+        return
+      }
+      if window.hasTitlebar {
+        presentsChromeInToolbar = true
+        navBarView.removeFromSuperview()
+        windowToolbar = WuiWindowToolbar.attached(to: window)
+        publishChrome()
+      } else {
+        windowToolbar?.clearContent(owner: self)
+        windowToolbar = nil
+        presentsChromeInToolbar = false
+        installInContentBar()
+      }
+      needsLayout = true
+    }
+
+    /// Whether this container lets the view claim the window toolbar; see
+    /// `NSView.setNavigationChromeActive(_:)`.
+    func setChromeActive(_ active: Bool) {
+      guard chromeIsActive != active else { return }
+      chromeIsActive = active
+      if active {
+        publishChrome()
+      } else {
+        windowToolbar?.clearContent(owner: self)
+      }
+    }
+
+    /// Whether the bar has anything to show. A page with no title, items,
+    /// search, or back action claims nothing, so a deeper page's chrome — a
+    /// split detail's title, say — is not clobbered by an empty ancestor.
+    private var barHasContent: Bool {
+      let titleIsEmpty = barState.title.isPlainText && (barState.title.text ?? "").isEmpty
+      return !titleIsEmpty || barState.leadingItem != nil || barState.trailingItem != nil
+        || barState.search != nil || backAction != nil
+    }
+
+    /// Publishes the bar to the window toolbar, claiming it for this view.
+    private func publishChrome() {
+      guard presentsChromeInToolbar, let windowToolbar else { return }
+      guard chromeIsActive, barState.hidden?.value != true, barHasContent else {
+        windowToolbar.clearContent(owner: self)
+        return
+      }
+      var content = WuiWindowToolbar.Content()
+      content.showsBack = backAction != nil
+      content.onBack = { [weak self] in self?.backButtonTapped() }
+      if barState.title.isPlainText {
+        content.title = barState.title.text ?? ""
+      } else {
+        content.titleView = barState.title.view
+      }
+      content.leading = barState.leadingItem
+      content.trailing = barState.trailingItem
+      content.search = barState.search
+      windowToolbar.setContent(content, owner: self)
     }
 
     override func layout() {
@@ -388,13 +494,19 @@ final class WuiNavigationView: PlatformView, WuiComponent {
   private let horizontalInset: CGFloat = 16
 
   private func performLayout() {
-    guard barIsInstalled, !barIsHidden else {
-      overlayBackButton?.frame = CGRect(x: 8, y: 8, width: 30, height: 30)
-      contentView.frame = bounds
-      return
-    }
-
-    #if canImport(UIKit)
+    #if canImport(AppKit)
+      if presentsChromeInToolbar || !barIsInstalled || barIsHidden {
+        overlayBackButton?.frame = CGRect(x: 8, y: 8, width: 30, height: 30)
+        layoutContentBelowWindowChrome()
+      } else {
+        layoutAppKitBar()
+      }
+    #elseif canImport(UIKit)
+      guard barIsInstalled, !barIsHidden else {
+        overlayBackButton?.frame = CGRect(x: 8, y: 8, width: 30, height: 30)
+        contentView.frame = bounds
+        return
+      }
       sizeBarItemViews()
       let barHeight = navigationBar.sizeThatFits(
         CGSize(width: bounds.width, height: UIView.layoutFittingCompressedSize.height)
@@ -427,8 +539,6 @@ final class WuiNavigationView: PlatformView, WuiComponent {
         width: bounds.width,
         height: bounds.height - contentTop
       )
-    #elseif canImport(AppKit)
-      layoutAppKitBar()
     #endif
   }
 
@@ -451,6 +561,39 @@ final class WuiNavigationView: PlatformView, WuiComponent {
       }
     }
   #elseif canImport(AppKit)
+    /// Places the content below the window's own chrome.
+    ///
+    /// With the bar in the window toolbar there is nothing to draw here; the
+    /// toolbar's height reaches this view as its top safe-area inset when the
+    /// window supplies full-size content, and is zero when the view already
+    /// sits below the titlebar.
+    private func layoutContentBelowWindowChrome() {
+      let topInset = directlyHostsSplitView ? 0 : safeAreaInsets.top
+      contentView.frame = CGRect(
+        x: 0,
+        y: topInset,
+        width: bounds.width,
+        height: bounds.height - topInset
+      )
+    }
+
+    /// Whether the content is the split view itself, reached through
+    /// `WuiAnyView` wrappers only.
+    ///
+    /// The split hands the window's top inset to its own columns — that is what
+    /// lets the sidebar run the window's full height — so this view must not
+    /// consume the inset first. Content that wraps the split in anything else
+    /// (padding, say) has asked for a laid-out box and keeps the inset.
+    private var directlyHostsSplitView: Bool {
+      var node: NSView? = contentView
+      while let current = node {
+        if current is WuiNavigationSplitView { return true }
+        guard current is WuiAnyView else { return false }
+        node = current.subviews.first
+      }
+      return false
+    }
+
     private func layoutAppKitBar() {
       let headerHeight = measuredHeaderHeight()
       let searchHeight = measuredSearchHeight()

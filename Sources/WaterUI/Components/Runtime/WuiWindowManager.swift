@@ -551,11 +551,19 @@ func installWindowManager(env: OpaquePointer, services: WuiNativeServices) {
       }
 
       resources.window = window
-      window.styleMask = windowStyleMask(
+      var mask = windowStyleMask(
         style: declaration.style,
         closable: declaration.closable,
         resizable: declaration.resizable
       )
+      // The toolbar coordinator owns full-size content — a sidebar's full
+      // height depends on it — and it may have attached while the content was
+      // resolving, before this declaration is adopted. Adopting the declared
+      // style must not strip it.
+      if window.styleMask.contains(.fullSizeContentView) {
+        mask.insert(.fullSizeContentView)
+      }
+      window.styleMask = mask
 
       // An empty title is a window with none of its own, and the host has
       // already set the application's name — which is what should be read then,

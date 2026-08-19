@@ -50,6 +50,10 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
     private let supplementaryContainer = WuiSplitColumnContainer()
     private let secondaryContainer = WuiSplitColumnContainer()
     private var hasPlacedSidebar = false
+    /// The window toolbar this split aligns with, when the window has one.
+    private weak var windowToolbar: WuiWindowToolbar?
+    /// Whether the pane containing this split is the one on screen.
+    private var chromeIsActive = true
   #endif
 
   convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
@@ -378,20 +382,27 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
   #elseif canImport(AppKit)
     nonisolated override var isFlipped: Bool { true }
 
-    /// Joins the window's view-controller hierarchy.
-    ///
-    /// A split view controller that belongs to no parent never receives the
-    /// appearance callbacks AppKit drives its columns from, and its sidebar item
-    /// is not treated as a window's sidebar at all. The view stays exactly where
-    /// the layout engine put it; only the controller relationship is added.
     override func viewDidMoveToWindow() {
       super.viewDidMoveToWindow()
-      guard let window, let root = window.contentViewController,
-        splitController.parent !== root
-      else {
+      splitController.joinControllerHierarchy(of: window)
+      guard let window, window.hasTitlebar else {
+        windowToolbar?.setSidebarSplitView(nil)
+        windowToolbar = nil
         return
       }
-      root.addChild(splitController)
+      windowToolbar = WuiWindowToolbar.attached(to: window)
+      if chromeIsActive {
+        windowToolbar?.setSidebarSplitView(splitController.splitView)
+      }
+    }
+
+    /// Whether a container showing one child at a time lets this split align
+    /// the window toolbar with its sidebar; see
+    /// `NSView.setNavigationChromeActive(_:)`.
+    func setChromeActive(_ active: Bool) {
+      guard chromeIsActive != active else { return }
+      chromeIsActive = active
+      windowToolbar?.setSidebarSplitView(active ? splitController.splitView : nil)
     }
 
     override func layout() {
@@ -447,6 +458,22 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
 #endif
 
 #if canImport(AppKit)
+  extension NSSplitViewController {
+    /// Joins the window's view-controller hierarchy.
+    ///
+    /// A split view controller that belongs to no parent never receives the
+    /// appearance callbacks AppKit drives its columns from, and its sidebar
+    /// item is not treated as a window's sidebar at all. The view stays exactly
+    /// where the layout engine put it; only the controller relationship is
+    /// added.
+    func joinControllerHierarchy(of window: NSWindow?) {
+      guard let window, let root = window.contentViewController, parent !== root else {
+        return
+      }
+      root.addChild(self)
+    }
+  }
+
   /// One split-view column, whose contents change while the column does not.
   ///
   /// A split view arranges the view each item's controller had at the moment the
@@ -465,7 +492,7 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
         existing.removeFromSuperview()
       }
       view.removeFromSuperview()
-      view.frame = bounds
+      view.frame = contentFrame
       view.autoresizingMask = [.width, .height]
       addSubview(view)
       needsLayout = true
@@ -474,8 +501,21 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
     override func layout() {
       super.layout()
       for subview in subviews {
-        subview.frame = bounds
+        subview.frame = contentFrame
       }
+    }
+
+    /// The column's bounds less its safe area: with a full-height sidebar the
+    /// window toolbar floats over the non-sidebar columns, and their contents
+    /// belong below it.
+    private var contentFrame: CGRect {
+      let insets = safeAreaInsets
+      return CGRect(
+        x: insets.left,
+        y: insets.top,
+        width: bounds.width - insets.left - insets.right,
+        height: bounds.height - insets.top - insets.bottom
+      )
     }
   }
 #endif

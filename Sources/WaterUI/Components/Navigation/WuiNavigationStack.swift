@@ -952,8 +952,18 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
 
     override func layout() {
       super.layout()
+      // The pages' chrome lives in the window toolbar, whose height reaches
+      // this view as its top safe-area inset when the window supplies
+      // full-size content; the pages themselves sit below it.
+      let topInset = safeAreaInsets.top
+      let pageFrame = CGRect(
+        x: 0,
+        y: topInset,
+        width: bounds.width,
+        height: bounds.height - topInset
+      )
       for entry in viewStack {
-        entry.view.frame = bounds
+        entry.view.frame = pageFrame
       }
     }
   #endif
