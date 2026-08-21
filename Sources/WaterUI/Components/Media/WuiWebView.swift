@@ -28,8 +28,17 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
   private var progressObservation: NSKeyValueObservation?
   private var messageHandlers: [String: CWaterUI.WuiFn_WuiWebViewMessage] = [:]
   private var installedBridge = false
-  /// URI patterns whose documents may reach the bridge, or nil for every origin.
-  private var bridgeOriginPatterns: [String]?
+  /// Origin rule tokens as `OriginPolicy::wire` renders them: `*` for every
+  /// origin, `file:` for any local document, otherwise an exact
+  /// `scheme://host[:port]`. An empty list denies every document — it is what
+  /// the default policy resolves to for a view opened at a URL with no origin,
+  /// and it must stay distinguishable from `*`.
+  private var bridgeOriginRules: [String] = []
+  /// Injected user scripts by key, in injection order. `WKUserContentController`
+  /// has no per-script removal, so a keyed replacement rebuilds the whole list;
+  /// keeping the order stable keeps the transport ahead of the bridge ahead of
+  /// the seeds.
+  private var userScriptsByKey: [(key: String, script: WKUserScript)] = []
 
   override init() {
     let config = WKWebViewConfiguration()
@@ -78,9 +87,14 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
     guard !installedBridge else { return }
     installedBridge = true
     // Transport first: the shared script calls `__wateruiSend`.
-    injectScript(Self.transportScript, time: WuiScriptInjectionTime_DocumentStart)
+    injectScript(
+      Self.transportScript,
+      key: "waterui:wk-transport",
+      time: WuiScriptInjectionTime_DocumentStart
+    )
     injectScript(
       WuiStr(waterui_webview_bridge_script()).toString(),
+      key: "waterui:bridge",
       time: WuiScriptInjectionTime_DocumentStart
     )
     webView.configuration.userContentController.add(self, name: Self.sendFunction)
@@ -114,8 +128,14 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
         fatalError("WebView message reply received null callback data")
       }
       let ctx = Unmanaged<MessageReplyContext>.fromOpaque(data).takeRetainedValue()
+      precondition(Thread.isMainThread, "WebView message replies must run on the UI thread")
       guard let wrapper = ctx.wrapper else {
-        fatalError("WebView message reply outlived its WebView")
+        // The view was torn down while the handler was still running. The page
+        // that asked is gone with it, so there is nowhere to deliver the reply;
+        // taking ownership of the payload is all that is left to do.
+        _ = WuiStr(result)
+        Logger.waterui.debug("a WebView bridge reply arrived after its web view was released")
+        return
       }
 
       // Rust renders the reply so the envelope format is not restated here.
@@ -124,11 +144,14 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
       let js = WuiStr(
         waterui_webview_bridge_reply_script(ctx.requestId, success, kind, result)
       ).toString()
-      precondition(Thread.isMainThread, "WebView message replies must run on the UI thread")
       MainActor.assumeIsolated {
         wrapper.webView.evaluateJavaScript(js) { _, error in
           if let error {
-            fatalError("WebView failed to deliver a JavaScript bridge reply: \(error)")
+            // Page script owns `__wateruiResolve` once it is delivered: a page
+            // that deleted it, or navigated away mid-reply, costs that page its
+            // reply — it must not cost the application its life.
+            Logger.waterui.warning(
+              "WebView could not deliver a JavaScript bridge reply: \(error)")
           }
         }
       }
@@ -149,24 +172,35 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
   /// Restricts which documents may reach the bridge.
   ///
   /// A handler is a capability, so a page the view navigates to is not entitled
-  /// to the handlers the application registered.
-  func setBridgeOrigins(_ patterns: String) {
-    bridgeOriginPatterns = patterns == "*" ? nil : patterns.split(separator: "\n").map(String.init)
+  /// to the handlers the application registered. `rules` is newline-separated
+  /// tokens as `OriginPolicy::wire` renders them; the empty string denies every
+  /// document and must never be read as `*`.
+  func setBridgeOrigins(_ rules: String) {
+    bridgeOriginRules = rules.split(separator: "\n").map(String.init)
   }
 
   /// Whether a message from `frame` may be dispatched.
   ///
   /// WebKit reports the frame, so the origin is authenticated by the engine
-  /// rather than claimed by the page.
+  /// rather than claimed by the page. The comparison is the one
+  /// `OriginPolicy::allows_origin` defines: an exact `scheme://host[:port]`
+  /// match, `file:` for any local document, `*` for every origin. An opaque
+  /// origin — a `data:` document, a sandboxed frame — matches nothing but `*`,
+  /// which is the point: it cannot be authenticated.
   private func frameMayUseBridge(_ frame: WKFrameInfo) -> Bool {
     guard frame.isMainFrame else { return false }
-    guard let patterns = bridgeOriginPatterns else { return true }
     let origin = frame.securityOrigin
     var candidate = "\(origin.protocol)://\(origin.host)"
     if origin.port != 0 {
       candidate += ":\(origin.port)"
     }
-    return patterns.contains { $0 == candidate + "/*" || $0 == candidate }
+    return bridgeOriginRules.contains { rule in
+      switch rule {
+      case "*": return true
+      case "file:": return origin.protocol == "file"
+      default: return rule == candidate
+      }
+    }
   }
 
   /// Removing a name that was never registered is a no-op.
@@ -265,6 +299,7 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
     webView.uiDelegate = nil
 
     controller.removeAllUserScripts()
+    userScriptsByKey.removeAll()
     installedBridge = false
   }
 
@@ -380,7 +415,18 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
     redirectsObservation = observation
   }
 
-  func injectScript(_ script: String, time: CWaterUI.WuiScriptInjectionTime) {
+  /// Injects a script that runs on every page load, replacing whatever was
+  /// injected under `key`.
+  ///
+  /// Replacement is what the mirrored-state seed depends on: its values are
+  /// only correct for the document it was rendered for, so Rust re-renders and
+  /// re-injects it under the same key before every navigation. Adding a second
+  /// copy instead would leave a view that navigated ten times running ten seed
+  /// scripts, each staler than the last. `WKUserContentController` has no
+  /// per-script removal, so a replacement rebuilds the list in place — keeping
+  /// each key's original position, so the transport still runs before the
+  /// bridge and the bridge before the seeds.
+  func injectScript(_ script: String, key: String, time: CWaterUI.WuiScriptInjectionTime) {
     let injectionTime: WKUserScriptInjectionTime =
       time == WuiScriptInjectionTime_DocumentStart
       ? .atDocumentStart
@@ -391,7 +437,18 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
       injectionTime: injectionTime,
       forMainFrameOnly: true
     )
-    webView.configuration.userContentController.addUserScript(userScript)
+
+    if let index = userScriptsByKey.firstIndex(where: { $0.key == key }) {
+      userScriptsByKey[index].script = userScript
+      let controller = webView.configuration.userContentController
+      controller.removeAllUserScripts()
+      for entry in userScriptsByKey {
+        controller.addUserScript(entry.script)
+      }
+    } else {
+      userScriptsByKey.append((key: key, script: userScript))
+      webView.configuration.userContentController.addUserScript(userScript)
+    }
   }
 
   // MARK: - Event Watching
@@ -477,39 +534,60 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
 
   // MARK: - JavaScript
 
-  func runJavaScript(_ script: String, callback: CWaterUI.WuiJsCallback) {
+  /// One `WuiJsCallback` completion, shared by both evaluation entry points.
+  private static func completeJsCallback(
+    _ callback: CWaterUI.WuiJsCallback, result: Any?, error: Error?
+  ) {
     guard let callbackFn = callback.call else {
       fatalError("WebView JavaScript execution requires a completion callback")
     }
-    webView.evaluateJavaScript(script) { result, error in
-      let callbackData = callback.data
-
-      if let error = error {
-        let errorMsg = error.localizedDescription
-        let errorStr = WuiStr(string: errorMsg).intoInner()
-        callbackFn(callbackData, false, errorStr)
-      } else {
-        let resultStr: String
-        if let result = result {
-          // JSONSerialization raises NSException on invalid objects, so validate first.
-          if JSONSerialization.isValidJSONObject(result) {
-            do {
-              let jsonData = try JSONSerialization.data(withJSONObject: result)
-              guard let json = String(data: jsonData, encoding: .utf8) else {
-                fatalError("WebView JavaScript result serialization produced non-UTF-8 data")
-              }
-              resultStr = json
-            } catch {
-              fatalError("WebView failed to serialize a valid JavaScript result: \(error)")
-            }
-          } else {
-            resultStr = String(describing: result)
+    if let error = error {
+      let errorStr = WuiStr(string: error.localizedDescription).intoInner()
+      callbackFn(callback.data, false, errorStr)
+      return
+    }
+    let resultStr: String
+    if let result = result {
+      // JSONSerialization raises NSException on invalid objects, so validate first.
+      if JSONSerialization.isValidJSONObject(result) {
+        do {
+          let jsonData = try JSONSerialization.data(withJSONObject: result)
+          guard let json = String(data: jsonData, encoding: .utf8) else {
+            fatalError("WebView JavaScript result serialization produced non-UTF-8 data")
           }
-        } else {
-          resultStr = "null"
+          resultStr = json
+        } catch {
+          fatalError("WebView failed to serialize a valid JavaScript result: \(error)")
         }
-        let wuiStr = WuiStr(string: resultStr).intoInner()
-        callbackFn(callbackData, true, wuiStr)
+      } else {
+        resultStr = String(describing: result)
+      }
+    } else {
+      resultStr = "null"
+    }
+    callbackFn(callback.data, true, WuiStr(string: resultStr).intoInner())
+  }
+
+  func runJavaScript(_ script: String, callback: CWaterUI.WuiJsCallback) {
+    webView.evaluateJavaScript(script) { result, error in
+      Self.completeJsCallback(callback, result: result, error: error)
+    }
+  }
+
+  /// Runs `body` as an `async` function body and awaits the promise it returns.
+  ///
+  /// Every typed evaluation crosses here because the shared wrapper in
+  /// `js/eval.js` is `async`: `evaluateJavaScript` would hand back the promise
+  /// object instead of the JSON envelope it resolves to, and every
+  /// `eval!`/`exec!` would fail while mirrored state silently stopped reaching
+  /// the page. `callAsyncJavaScript` is WebKit's awaiting entry point.
+  func callAsyncJavaScript(_ body: String, callback: CWaterUI.WuiJsCallback) {
+    webView.callAsyncJavaScript(body, arguments: [:], in: nil, in: .page) { outcome in
+      switch outcome {
+      case .success(let value):
+        Self.completeJsCallback(callback, result: value, error: nil)
+      case .failure(let error):
+        Self.completeJsCallback(callback, result: nil, error: error)
       }
     }
   }
@@ -561,9 +639,10 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
           wrapper.setRedirectsEnabled(WuiComputed<Bool>(enabledPtr))
         }
       },
-      inject_script: { rawPtr, script, time in
+      inject_script: { rawPtr, key, script, time in
         WebViewWrapper.withHandle(rawPtr, operation: "inject_script") { wrapper in
-          wrapper.injectScript(WuiStr(script).toString(), time: time)
+          wrapper.injectScript(
+            WuiStr(script).toString(), key: WuiStr(key).toString(), time: time)
         }
       },
       watch: { rawPtr, callback in
@@ -608,6 +687,11 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
       run_javascript: { rawPtr, script, callback in
         WebViewWrapper.withHandle(rawPtr, operation: "run_javascript") { wrapper in
           wrapper.runJavaScript(WuiStr(script).toString(), callback: callback)
+        }
+      },
+      call_async_javascript: { rawPtr, body, callback in
+        WebViewWrapper.withHandle(rawPtr, operation: "call_async_javascript") { wrapper in
+          wrapper.callAsyncJavaScript(WuiStr(body).toString(), callback: callback)
         }
       },
       drop: { rawPtr in
