@@ -38,6 +38,10 @@ let wuiRedrawDropCallback: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
   _ = Unmanaged<WuiRedrawCallbackBox>.fromOpaque(context).takeRetainedValue()
 }
 
+// Compiled out when the app disables WaterUI's `gpu` feature: the capture
+// fence symbol this half binds does not exist in that build. The redraw box
+// above stays — layout invalidation uses it with no GPU involved.
+#if !WATERUI_NO_GPU
 final class WuiGpuCaptureCompletionBox: @unchecked Sendable {
   private let completion: @MainActor @Sendable () -> Void
 
@@ -83,3 +87,4 @@ func observeGpuCaptureFence(
     wuiGpuCaptureCompletionDrop
   )
 }
+#endif  // !WATERUI_NO_GPU

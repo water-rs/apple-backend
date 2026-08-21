@@ -187,55 +187,71 @@ private func renderViewToRGBA(
   }
 }
 
-@preconcurrency @MainActor
-private func withPreviewGpuSurfaceCaptureMode<T>(
-  in view: PlatformView,
-  _ body: () async -> T
-) async -> T {
-  let surfaces = collectPreviewGpuSurfaces(in: view)
-  for surface in surfaces {
-    surface.beginExternalRendering()
-    surface.beginCaptureSuppression()
+// A build without WaterUI's `gpu` feature has no `WuiGpuSurface` type and no
+// surfaces in any hierarchy, so the capture helpers degrade to their
+// nothing-to-do shapes rather than disappearing from their callers.
+#if WATERUI_NO_GPU
+  @preconcurrency @MainActor
+  private func withPreviewGpuSurfaceCaptureMode<T>(
+    in view: PlatformView,
+    _ body: () async -> T
+  ) async -> T {
+    await body()
   }
-  defer {
-    for surface in surfaces.reversed() {
-      surface.endCaptureSuppression()
-      surface.endExternalRendering(resumingPresentation: false)
+
+  @preconcurrency @MainActor
+  private func renderPreviewGpuSurfaceFirstFrames(in view: PlatformView, scale: CGFloat) async {}
+#else
+  @preconcurrency @MainActor
+  private func withPreviewGpuSurfaceCaptureMode<T>(
+    in view: PlatformView,
+    _ body: () async -> T
+  ) async -> T {
+    let surfaces = collectPreviewGpuSurfaces(in: view)
+    for surface in surfaces {
+      surface.beginExternalRendering()
+      surface.beginCaptureSuppression()
+    }
+    defer {
+      for surface in surfaces.reversed() {
+        surface.endCaptureSuppression()
+        surface.endExternalRendering(resumingPresentation: false)
+      }
+    }
+    return await body()
+  }
+
+  @preconcurrency @MainActor
+  private func collectPreviewGpuSurfaces(in view: PlatformView) -> [WuiGpuSurface] {
+    var surfaces: [WuiGpuSurface] = []
+    collectPreviewGpuSurfaces(in: view, into: &surfaces)
+    return surfaces
+  }
+
+  @preconcurrency @MainActor
+  private func collectPreviewGpuSurfaces(
+    in view: PlatformView,
+    into surfaces: inout [WuiGpuSurface]
+  ) {
+    if let surface = view as? WuiGpuSurface {
+      surfaces.append(surface)
+    }
+    for subview in view.subviews {
+      collectPreviewGpuSurfaces(in: subview, into: &surfaces)
     }
   }
-  return await body()
-}
 
-@preconcurrency @MainActor
-private func collectPreviewGpuSurfaces(in view: PlatformView) -> [WuiGpuSurface] {
-  var surfaces: [WuiGpuSurface] = []
-  collectPreviewGpuSurfaces(in: view, into: &surfaces)
-  return surfaces
-}
-
-@preconcurrency @MainActor
-private func collectPreviewGpuSurfaces(
-  in view: PlatformView,
-  into surfaces: inout [WuiGpuSurface]
-) {
-  if let surface = view as? WuiGpuSurface {
-    surfaces.append(surface)
-  }
-  for subview in view.subviews {
-    collectPreviewGpuSurfaces(in: subview, into: &surfaces)
-  }
-}
-
-@preconcurrency @MainActor
-private func renderPreviewGpuSurfaceFirstFrames(in view: PlatformView, scale: CGFloat) async {
-  for surface in collectPreviewGpuSurfaces(in: view) {
-    let pixelWidth = UInt32(surface.bounds.width * scale)
-    let pixelHeight = UInt32(surface.bounds.height * scale)
-    if pixelWidth > 0, pixelHeight > 0 {
-      _ = await surface.renderExternalTexture(width: pixelWidth, height: pixelHeight)
+  @preconcurrency @MainActor
+  private func renderPreviewGpuSurfaceFirstFrames(in view: PlatformView, scale: CGFloat) async {
+    for surface in collectPreviewGpuSurfaces(in: view) {
+      let pixelWidth = UInt32(surface.bounds.width * scale)
+      let pixelHeight = UInt32(surface.bounds.height * scale)
+      if pixelWidth > 0, pixelHeight > 0 {
+        _ = await surface.renderExternalTexture(width: pixelWidth, height: pixelHeight)
+      }
     }
   }
-}
+#endif  // WATERUI_NO_GPU
 
 /// Renders a view into a template image, for chrome that takes an image, not a view.
 ///
@@ -421,10 +437,12 @@ private func captureViewToRGBA(
       UIGraphicsPopContext()
       context.restoreGState()
 
-      context.saveGState()
-      context.setBlendMode(.destinationOver)
-      await captureGpuSurfaces(in: view, rootView: view, to: context, scale: scale)
-      context.restoreGState()
+      #if !WATERUI_NO_GPU
+        context.saveGState()
+        context.setBlendMode(.destinationOver)
+        await captureGpuSurfaces(in: view, rootView: view, to: context, scale: scale)
+        context.restoreGState()
+      #endif
     }
     tempWindow.isHidden = true
 
@@ -475,10 +493,12 @@ private func captureViewToRGBA(
       }
 
       // Draw GPU surfaces behind AppKit-rendered content
-      context.saveGState()
-      context.setBlendMode(.destinationOver)
-      await captureGpuSurfaces(in: view, to: context, rootBounds: view.bounds, scale: scale)
-      context.restoreGState()
+      #if !WATERUI_NO_GPU
+        context.saveGState()
+        context.setBlendMode(.destinationOver)
+        await captureGpuSurfaces(in: view, to: context, rootBounds: view.bounds, scale: scale)
+        context.restoreGState()
+      #endif
     }
     tempWindow.orderOut(nil)
   #endif
@@ -486,7 +506,7 @@ private func captureViewToRGBA(
   return (pixelData, width, height)
 }
 
-#if canImport(UIKit)
+#if canImport(UIKit) && !WATERUI_NO_GPU
   /// Recursively finds and captures all GPU surfaces in the view hierarchy.
   @preconcurrency @MainActor
   private func captureGpuSurfaces(
@@ -527,7 +547,7 @@ private func captureViewToRGBA(
   }
 #endif
 
-#if canImport(AppKit)
+#if canImport(AppKit) && !WATERUI_NO_GPU
   /// Recursively finds and captures all GPU surfaces in the view hierarchy.
   @preconcurrency @MainActor
   private func captureGpuSurfaces(
@@ -583,6 +603,7 @@ private func captureViewToRGBA(
 #endif
 
 /// Draw a GPU surface into the given context.
+#if !WATERUI_NO_GPU
 @MainActor
 private func drawGpuSurface(
   gpuSurface: WuiGpuSurface,
@@ -665,6 +686,7 @@ private func drawGpuSurface(
   context.draw(cgImage, in: drawRect)
   context.restoreGState()
 }
+#endif  // !WATERUI_NO_GPU
 
 #if canImport(AppKit)
   /// Ensure text fields render their content before capturing.

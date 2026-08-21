@@ -1,3 +1,6 @@
+// Compiled out when the app disables WaterUI's `gpu` feature: the
+// `waterui_*` GPU symbols this file binds do not exist in that build.
+#if !WATERUI_NO_GPU
 // WuiGpuSurface.swift
 // High-performance GPU rendering surface using wgpu
 //
@@ -1564,3 +1567,4 @@ public func makeWaterUIGpuSurface(
     }
   }
 #endif
+#endif  // !WATERUI_NO_GPU

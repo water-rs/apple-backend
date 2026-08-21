@@ -229,10 +229,13 @@ private func registerBuiltinComponentsIfNeeded() {
   registerComponent(WuiNavigationSplitView.self)
   registerComponent(WuiTabs.self)
 
-  // GPU components
-  registerComponent(WuiGpuSurface.self)
-  registerComponent(WuiViewEffect.self)
-  registerMetadataComponent(WuiAppliedFilter.self)
+  // GPU components. Off when the app disabled WaterUI's `gpu` feature, which
+  // is what exports the GPU symbols these components bind to.
+  #if !WATERUI_NO_GPU
+    registerComponent(WuiGpuSurface.self)
+    registerComponent(WuiViewEffect.self)
+    registerMetadataComponent(WuiAppliedFilter.self)
+  #endif
 
   // WebView component
   registerComponent(WuiWebViewComponent.self)

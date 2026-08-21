@@ -940,8 +940,12 @@ public final class WuiRootContext {
     }
     Self.installSystemLocale(into: initEnvPtr)
     let env = WuiEnvironment(initEnvPtr)
-    let gpuRuntime = await createWuiGpuRuntime()
-    waterui_env_install_gpu_runtime(initEnvPtr, gpuRuntime)
+    // A build without WaterUI's `gpu` feature exports no GPU runtime symbols
+    // and has nothing to install one for.
+    #if !WATERUI_NO_GPU
+      let gpuRuntime = await createWuiGpuRuntime()
+      waterui_env_install_gpu_runtime(initEnvPtr, gpuRuntime)
+    #endif
     let nativeServices = WuiNativeServices()
     nativeServices.environment = env
     installWebViewController(env: initEnvPtr)

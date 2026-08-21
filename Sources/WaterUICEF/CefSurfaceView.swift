@@ -1,3 +1,6 @@
+// CEF renders into a GPU surface, so a build without WaterUI's `gpu`
+// feature has no CEF either; compiled out with the same condition.
+#if !WATERUI_NO_GPU
 @preconcurrency import AppKit
 import CWaterUI
 import QuartzCore
@@ -576,3 +579,4 @@ open class CefSurfaceView: NSView, @preconcurrency NSTextInputClient {
     return value
   }
 }
+#endif  // !WATERUI_NO_GPU

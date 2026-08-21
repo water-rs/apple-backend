@@ -1,3 +1,6 @@
+// CEF renders into a GPU surface, so a build without WaterUI's `gpu`
+// feature has no CEF either; compiled out with the same condition.
+#if !WATERUI_NO_GPU
 import CWaterUI
 import Foundation
 import WaterUI
@@ -24,3 +27,4 @@ private final class CefWebViewComponent: CefSurfaceView, WuiComponent {
 public func installWaterUICefWebView() {
   registerComponent(CefWebViewComponent.self)
 }
+#endif  // !WATERUI_NO_GPU

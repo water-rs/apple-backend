@@ -1,3 +1,6 @@
+// Compiled out when the app disables WaterUI's `gpu` feature: the
+// `waterui_*` GPU symbols this file binds do not exist in that build.
+#if !WATERUI_NO_GPU
 import CWaterUI
 import Foundation
 import Metal
@@ -521,3 +524,4 @@ final class WuiViewEffect: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
     renderState.shutdown()
   }
 }
+#endif  // !WATERUI_NO_GPU

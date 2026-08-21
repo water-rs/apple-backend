@@ -1,3 +1,6 @@
+// Compiled out when the app disables WaterUI's `gpu` feature: the
+// `waterui_*` GPU symbols this file binds do not exist in that build.
+#if !WATERUI_NO_GPU
 import Foundation
 import Metal
 import OSLog
@@ -808,3 +811,4 @@ final class WuiMetalViewCapture: @unchecked Sendable {
     }
   }
 }
+#endif  // !WATERUI_NO_GPU

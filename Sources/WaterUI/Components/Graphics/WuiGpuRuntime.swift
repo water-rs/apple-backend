@@ -1,3 +1,6 @@
+// Compiled out when the app disables WaterUI's `gpu` feature: the
+// `waterui_*` GPU symbols this file binds do not exist in that build.
+#if !WATERUI_NO_GPU
 import CWaterUI
 import Metal
 
@@ -57,3 +60,4 @@ func wuiMetalDevice(environment: WuiEnvironment) -> MTLDevice {
   }
   return device
 }
+#endif  // !WATERUI_NO_GPU
