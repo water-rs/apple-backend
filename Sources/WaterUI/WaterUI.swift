@@ -654,6 +654,13 @@ public final class ThemeBridge {
         installColorSignal(env: env, slot: WuiColorSlot_TertiaryContainer) {
           UIColor.systemPurple.withAlphaComponent(0.16)
         },
+        // UIKit has no semantic "selection fill": a selected row is tinted with
+        // the app's accent, and its content is drawn in the same on-accent color
+        // the accent pair uses.
+        installColorSignal(env: env, slot: WuiColorSlot_SelectionContainer) {
+          Self.appAccentColor()
+        },
+        installColorSignal(env: env, slot: WuiColorSlot_SelectionForeground) { UIColor.white },
       ]
     }
 
@@ -709,6 +716,16 @@ public final class ThemeBridge {
         installColorSignal(env: env, slot: WuiColorSlot_Tertiary) { NSColor.systemPurple },
         installColorSignal(env: env, slot: WuiColorSlot_TertiaryContainer) {
           NSColor.systemPurple.withAlphaComponent(0.16)
+        },
+        installColorSignal(env: env, slot: WuiColorSlot_SelectionContainer) {
+          // AppKit's own emphasized selection fill, the color a focused table
+          // paints behind a selected row.
+          NSColor.selectedContentBackgroundColor
+        },
+        installColorSignal(env: env, slot: WuiColorSlot_SelectionForeground) {
+          // The matching content color for that fill — the same semantic color
+          // the accent pair uses, so a selected row's labels are unchanged.
+          NSColor.alternateSelectedControlTextColor
         },
       ]
     }
