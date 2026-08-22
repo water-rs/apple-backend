@@ -31,6 +31,7 @@ final class WuiText: WuiTextBase, WuiComponent {
     let content = WuiComputed<WuiStyledStr>(ffiText.content)
     let paragraphAlignment = WuiComputed<WuiHorizontalAlignment>(ffiText.paragraph_alignment)
     self.init(content: content, paragraphAlignment: paragraphAlignment, env: env)
+    applyLineLimit(Int(ffiText.line_limit))
   }
 
   // MARK: - Designated Init

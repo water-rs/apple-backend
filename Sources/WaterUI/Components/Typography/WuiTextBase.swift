@@ -76,6 +76,26 @@ class WuiTextBase: PlatformView {
     #endif
   }
 
+  // MARK: - Line limit
+
+  /// Maximum laid-out lines; `0` means no limit — `TextConfig::line_limit`'s
+  /// wire convention.
+  private var lineLimit: Int = 0
+
+  /// Applies `TextConfig::line_limit`: caps the platform label at `limit`
+  /// lines with tail truncation, or restores free word-wrapping for `0`.
+  func applyLineLimit(_ limit: Int) {
+    lineLimit = max(0, limit)
+    #if canImport(UIKit)
+      label.numberOfLines = lineLimit
+      label.lineBreakMode = lineLimit == 0 ? .byWordWrapping : .byTruncatingTail
+    #elseif canImport(AppKit)
+      textField.maximumNumberOfLines = lineLimit
+      textField.lineBreakMode = lineLimit == 0 ? .byWordWrapping : .byTruncatingTail
+      textField.cell?.truncatesLastVisibleLine = lineLimit != 0
+    #endif
+  }
+
   // MARK: - Measurement
 
   private func currentAttributedText() -> NSAttributedString {
@@ -133,6 +153,29 @@ class WuiTextBase: PlatformView {
     var origins = Array(repeating: CGPoint.zero, count: lines.count)
     CTFrameGetLineOrigins(frame, CFRange(location: 0, length: 0), &origins)
     let firstBaseline = frameHeight - origins[0].y
+
+    // A line limit caps the measurement at the bottom of the last visible
+    // line; the platform label truncates that line with an ellipsis, so the
+    // hidden remainder must not reserve height.
+    let visibleCount = lineLimit > 0 ? min(lineLimit, lines.count) : lines.count
+    if visibleCount < lines.count {
+      let lastVisible = lines[visibleCount - 1]
+      var descent: CGFloat = 0
+      var leading: CGFloat = 0
+      _ = CTLineGetTypographicBounds(lastVisible, nil, &descent, &leading)
+      let cappedHeight = ceil(frameHeight - origins[visibleCount - 1].y + descent + leading)
+      var cappedWidth: CGFloat = 0
+      for line in lines[0..<visibleCount] {
+        let lineWidth = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+        cappedWidth = max(cappedWidth, ceil(lineWidth))
+      }
+      let cappedSize = CGSize(
+        width: min(max(cappedWidth, 0.0), maxWidth),
+        height: min(cappedHeight, maxHeight)
+      )
+      return (cappedSize, firstBaseline, frameHeight - origins[visibleCount - 1].y)
+    }
+
     let lastBaseline = frameHeight - origins[lines.count - 1].y
     return (size, firstBaseline, lastBaseline)
   }
