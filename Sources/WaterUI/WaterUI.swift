@@ -174,52 +174,73 @@ private func makeReactiveWatcherGuard(
   return guardPtr
 }
 
+/// The watcher bookkeeping every native-controlled signal repeats.
+///
+/// What differs per signal is its value and the three C symbols the ABI needs
+/// as literal `@convention(c)` closures. Registering, notifying and releasing
+/// watchers does not differ, and getting that dance wrong leaks a watcher or
+/// releases one twice, so it lives here once.
+final class ReactiveWatcherList<Value>: @unchecked Sendable {
+  private let call: (OpaquePointer, Value) -> Void
+  private let release: (OpaquePointer) -> Void
+  private var watchers: [OpaquePointer] = []
+
+  /// The value handed to every watcher registered from here on.
+  var value: Value
+
+  init(
+    value: Value,
+    call: @escaping (OpaquePointer, Value) -> Void,
+    release: @escaping (OpaquePointer) -> Void
+  ) {
+    self.value = value
+    self.call = call
+    self.release = release
+  }
+
+  func addWatcher(_ watcher: OpaquePointer) {
+    precondition(!watchers.contains(watcher), "Reactive watcher was registered twice")
+    watchers.append(watcher)
+  }
+
+  func notifyWatchers() {
+    for watcher in watchers {
+      call(watcher, value)
+    }
+  }
+
+  func removeWatcher(_ watcher: OpaquePointer) {
+    guard let index = watchers.firstIndex(of: watcher) else {
+      fatalError("Reactive watcher was released more than once")
+    }
+    watchers.remove(at: index)
+    release(watcher)
+  }
+
+  func cleanup() {
+    for watcher in watchers {
+      release(watcher)
+    }
+    watchers.removeAll()
+  }
+}
+
 /// A native-controlled reactive color signal.
 /// This allows Swift to create and update color signals that notify WaterUI watchers.
 @MainActor
 final class ReactiveColorSignal {
-  /// Boxed state holding the current color and watcher list
-  private final class State: @unchecked Sendable {
-    var color: WuiResolvedColor
-    var watchers: [OpaquePointer] = []  // WuiWatcher_ResolvedColor*
-
-    init(color: WuiResolvedColor) {
-      self.color = color
-    }
-
-    func addWatcher(_ watcher: OpaquePointer) {
-      precondition(!watchers.contains(watcher), "Reactive color watcher was registered twice")
-      watchers.append(watcher)
-    }
-
-    func notifyWatchers() {
-      for watcher in watchers {
-        waterui_call_watcher_resolved_color(watcher, color)
-      }
-    }
-
-    func removeWatcher(_ watcher: OpaquePointer) {
-      guard let index = watchers.firstIndex(of: watcher) else {
-        fatalError("Reactive color watcher was released more than once")
-      }
-      watchers.remove(at: index)
-      waterui_drop_watcher_resolved_color(watcher)
-    }
-
-    func cleanup() {
-      for watcher in watchers {
-        waterui_drop_watcher_resolved_color(watcher)
-      }
-      watchers.removeAll()
-    }
-  }
+  private typealias State = ReactiveWatcherList<WuiResolvedColor>
 
   private let state: State
   private let statePtr: UnsafeMutableRawPointer
   private var computedPtr: OpaquePointer?
 
   init(color: WuiResolvedColor) {
-    self.state = State(color: color)
+    self.state = State(
+      value: color,
+      call: { waterui_call_watcher_resolved_color($0, $1) },
+      release: { waterui_drop_watcher_resolved_color($0) }
+    )
     self.statePtr = Unmanaged.passRetained(state).toOpaque()
   }
 
@@ -237,9 +258,8 @@ final class ReactiveColorSignal {
           guard let ptr else {
             fatalError("ReactiveColorSignal get received a null state pointer")
           }
-          let state = Unmanaged<State>.fromOpaque(UnsafeMutableRawPointer(mutating: ptr))
-            .takeUnretainedValue()
-          return state.color
+          return Unmanaged<State>.fromOpaque(UnsafeMutableRawPointer(mutating: ptr))
+            .takeUnretainedValue().value
         },
         { ptr, watcher -> OpaquePointer? in
           guard let ptr else {
@@ -260,8 +280,7 @@ final class ReactiveColorSignal {
           guard let ptr else {
             fatalError("ReactiveColorSignal drop received a null state pointer")
           }
-          let state = Unmanaged<State>.fromOpaque(ptr).takeRetainedValue()
-          state.cleanup()
+          Unmanaged<State>.fromOpaque(ptr).takeRetainedValue().cleanup()
         }
       )
     else {
@@ -273,12 +292,13 @@ final class ReactiveColorSignal {
 
   /// Updates the color and notifies all watchers.
   func setValue(_ color: WuiResolvedColor) {
+    let current = state.value
     guard
-      state.color.red != color.red || state.color.green != color.green
-        || state.color.blue != color.blue || state.color.opacity != color.opacity
-        || state.color.headroom != color.headroom
+      current.red != color.red || current.green != color.green
+        || current.blue != color.blue || current.opacity != color.opacity
+        || current.headroom != color.headroom
     else { return }
-    state.color = color
+    state.value = color
     state.notifyWatchers()
   }
 
@@ -298,48 +318,18 @@ final class ReactiveColorSignal {
 /// This allows Swift to create and update color scheme signals that notify WaterUI watchers.
 @MainActor
 final class ReactiveColorSchemeSignal {
-  private final class State: @unchecked Sendable {
-    var scheme: WuiColorScheme
-    var watchers: [OpaquePointer] = []  // WuiWatcher_ColorScheme*
-
-    init(scheme: WuiColorScheme) {
-      self.scheme = scheme
-    }
-
-    func addWatcher(_ watcher: OpaquePointer) {
-      precondition(
-        !watchers.contains(watcher), "Reactive color-scheme watcher was registered twice")
-      watchers.append(watcher)
-    }
-
-    func notifyWatchers() {
-      for watcher in watchers {
-        waterui_call_watcher_color_scheme(watcher, scheme)
-      }
-    }
-
-    func removeWatcher(_ watcher: OpaquePointer) {
-      guard let index = watchers.firstIndex(of: watcher) else {
-        fatalError("Reactive color-scheme watcher was released more than once")
-      }
-      watchers.remove(at: index)
-      waterui_drop_watcher_color_scheme(watcher)
-    }
-
-    func cleanup() {
-      for watcher in watchers {
-        waterui_drop_watcher_color_scheme(watcher)
-      }
-      watchers.removeAll()
-    }
-  }
+  private typealias State = ReactiveWatcherList<WuiColorScheme>
 
   private let state: State
   private let statePtr: UnsafeMutableRawPointer
   private var computedPtr: OpaquePointer?
 
   init(scheme: WuiColorScheme) {
-    self.state = State(scheme: scheme)
+    self.state = State(
+      value: scheme,
+      call: { waterui_call_watcher_color_scheme($0, $1) },
+      release: { waterui_drop_watcher_color_scheme($0) }
+    )
     self.statePtr = Unmanaged.passRetained(state).toOpaque()
   }
 
@@ -356,18 +346,15 @@ final class ReactiveColorSchemeSignal {
           guard let ptr else {
             fatalError("ReactiveColorSchemeSignal get received a null state pointer")
           }
-          let state = Unmanaged<State>.fromOpaque(UnsafeMutableRawPointer(mutating: ptr))
-            .takeUnretainedValue()
-          return state.scheme
+          return Unmanaged<State>.fromOpaque(UnsafeMutableRawPointer(mutating: ptr))
+            .takeUnretainedValue().value
         },
         { ptr, watcher -> OpaquePointer? in
           guard let ptr else {
-            fatalError(
-              "ReactiveColorSchemeSignal watch received a null state pointer")
+            fatalError("ReactiveColorSchemeSignal watch received a null state pointer")
           }
           guard let watcher else {
-            fatalError(
-              "ReactiveColorSchemeSignal watch received a null watcher pointer")
+            fatalError("ReactiveColorSchemeSignal watch received a null watcher pointer")
           }
           let state = Unmanaged<State>.fromOpaque(UnsafeMutableRawPointer(mutating: ptr))
             .takeUnretainedValue()
@@ -381,8 +368,7 @@ final class ReactiveColorSchemeSignal {
           guard let ptr else {
             fatalError("ReactiveColorSchemeSignal drop received a null state pointer")
           }
-          let state = Unmanaged<State>.fromOpaque(ptr).takeRetainedValue()
-          state.cleanup()
+          Unmanaged<State>.fromOpaque(ptr).takeRetainedValue().cleanup()
         }
       )
     else {
@@ -393,8 +379,8 @@ final class ReactiveColorSchemeSignal {
   }
 
   func setValue(_ scheme: WuiColorScheme) {
-    guard state.scheme.rawValue != scheme.rawValue else { return }
-    state.scheme = scheme
+    guard state.value.rawValue != scheme.rawValue else { return }
+    state.value = scheme
     state.notifyWatchers()
   }
 }
@@ -402,53 +388,25 @@ final class ReactiveColorSchemeSignal {
 /// A native-controlled reactive font signal.
 @MainActor
 final class ReactiveFontSignal {
-  private final class State: @unchecked Sendable {
+  /// A font is published as size plus weight and resolved at notify time, the
+  /// same way the environment resolves one.
+  struct Spec {
     var size: Float
     var weight: WuiFontWeight
-    var watchers: [OpaquePointer] = []  // WuiWatcher_ResolvedFont*
-
-    init(size: Float, weight: WuiFontWeight) {
-      self.size = size
-      self.weight = weight
-    }
-
-    func resolvedFont() -> WuiResolvedFont {
-      waterui_resolved_font_new(size, weight)
-    }
-
-    func addWatcher(_ watcher: OpaquePointer) {
-      precondition(!watchers.contains(watcher), "Reactive font watcher was registered twice")
-      watchers.append(watcher)
-    }
-
-    func notifyWatchers() {
-      for watcher in watchers {
-        waterui_call_watcher_resolved_font(watcher, resolvedFont())
-      }
-    }
-
-    func removeWatcher(_ watcher: OpaquePointer) {
-      guard let index = watchers.firstIndex(of: watcher) else {
-        fatalError("Reactive font watcher was released more than once")
-      }
-      watchers.remove(at: index)
-      waterui_drop_watcher_resolved_font(watcher)
-    }
-
-    func cleanup() {
-      for watcher in watchers {
-        waterui_drop_watcher_resolved_font(watcher)
-      }
-      watchers.removeAll()
-    }
   }
+
+  private typealias State = ReactiveWatcherList<Spec>
 
   private let state: State
   private let statePtr: UnsafeMutableRawPointer
   private var computedPtr: OpaquePointer?
 
   init(size: Float, weight: WuiFontWeight) {
-    self.state = State(size: size, weight: weight)
+    self.state = State(
+      value: Spec(size: size, weight: weight),
+      call: { waterui_call_watcher_resolved_font($0, waterui_resolved_font_new($1.size, $1.weight)) },
+      release: { waterui_drop_watcher_resolved_font($0) }
+    )
     self.statePtr = Unmanaged.passRetained(state).toOpaque()
   }
 
@@ -462,18 +420,18 @@ final class ReactiveFontSignal {
       let computed = waterui_new_computed_resolved_font(
         statePtr,
         { ptr -> WuiResolvedFont in
-          guard let ptr = ptr else {
+          guard let ptr else {
             fatalError("ReactiveFontSignal get received a null state pointer")
           }
-          let state = Unmanaged<State>.fromOpaque(UnsafeMutableRawPointer(mutating: ptr))
-            .takeUnretainedValue()
-          return state.resolvedFont()
+          let spec = Unmanaged<State>.fromOpaque(UnsafeMutableRawPointer(mutating: ptr))
+            .takeUnretainedValue().value
+          return waterui_resolved_font_new(spec.size, spec.weight)
         },
         { ptr, watcher -> OpaquePointer? in
-          guard let ptr = ptr else {
+          guard let ptr else {
             fatalError("ReactiveFontSignal watch received a null state pointer")
           }
-          guard let watcher = watcher else {
+          guard let watcher else {
             fatalError("ReactiveFontSignal watch received a null watcher pointer")
           }
           let state = Unmanaged<State>.fromOpaque(UnsafeMutableRawPointer(mutating: ptr))
@@ -488,8 +446,7 @@ final class ReactiveFontSignal {
           guard let ptr else {
             fatalError("ReactiveFontSignal drop received a null state pointer")
           }
-          let state = Unmanaged<State>.fromOpaque(ptr).takeRetainedValue()
-          state.cleanup()
+          Unmanaged<State>.fromOpaque(ptr).takeRetainedValue().cleanup()
         }
       )
     else {
@@ -500,9 +457,120 @@ final class ReactiveFontSignal {
   }
 
   func setValue(size: Float, weight: WuiFontWeight) {
-    guard state.size != size || state.weight.rawValue != weight.rawValue else { return }
-    state.size = size
-    state.weight = weight
+    let current = state.value
+    guard current.size != size || current.weight.rawValue != weight.rawValue else { return }
+    state.value = Spec(size: size, weight: weight)
+    state.notifyWatchers()
+  }
+}
+
+extension WuiEdgeInsets {
+  /// No inset on any edge.
+  static let zero = WuiEdgeInsets(top: 0, bottom: 0, leading: 0, trailing: 0)
+
+  /// Maps platform insets, which are physical (left/right), onto WaterUI's
+  /// logical edges.
+  ///
+  /// `PaddingLayout` places `leading` at the low-x edge unconditionally, so
+  /// left maps to leading and right to trailing. Should WaterUI ever resolve
+  /// those against the layout direction, this is the one place that has to
+  /// learn about it too.
+  #if canImport(UIKit)
+    init(_ insets: UIEdgeInsets) {
+      self.init(
+        top: Float(insets.top),
+        bottom: Float(insets.bottom),
+        leading: Float(insets.left),
+        trailing: Float(insets.right)
+      )
+    }
+  #elseif canImport(AppKit)
+    init(_ insets: NSEdgeInsets) {
+      self.init(
+        top: Float(insets.top),
+        bottom: Float(insets.bottom),
+        leading: Float(insets.left),
+        trailing: Float(insets.right)
+      )
+    }
+  #endif
+}
+
+/// A native-controlled reactive safe-area signal.
+///
+/// The window publishes its device insets here so the layers WaterUI lays out
+/// itself — the snackbar and overlay hosts, which arrive as one Rust-laid-out
+/// container this backend cannot frame piecewise — can pad themselves clear of
+/// the notch and the home indicator.
+@MainActor
+final class ReactiveEdgeInsetsSignal {
+  private typealias State = ReactiveWatcherList<WuiEdgeInsets>
+
+  private let state: State
+  private let statePtr: UnsafeMutableRawPointer
+  private var computedPtr: OpaquePointer?
+
+  init(insets: WuiEdgeInsets) {
+    self.state = State(
+      value: insets,
+      call: { waterui_call_watcher_edge_insets($0, $1) },
+      release: { waterui_drop_watcher_edge_insets($0) }
+    )
+    self.statePtr = Unmanaged.passRetained(state).toOpaque()
+  }
+
+  deinit {
+    state.cleanup()
+  }
+
+  func toComputed() -> OpaquePointer {
+    if let computedPtr { return computedPtr }
+    guard
+      let computed = waterui_new_computed_edge_insets(
+        statePtr,
+        { ptr -> WuiEdgeInsets in
+          guard let ptr else {
+            fatalError("ReactiveEdgeInsetsSignal get received a null state pointer")
+          }
+          return Unmanaged<State>.fromOpaque(UnsafeMutableRawPointer(mutating: ptr))
+            .takeUnretainedValue().value
+        },
+        { ptr, watcher -> OpaquePointer? in
+          guard let ptr else {
+            fatalError("ReactiveEdgeInsetsSignal watch received a null state pointer")
+          }
+          guard let watcher else {
+            fatalError("ReactiveEdgeInsetsSignal watch received a null watcher pointer")
+          }
+          let state = Unmanaged<State>.fromOpaque(UnsafeMutableRawPointer(mutating: ptr))
+            .takeUnretainedValue()
+          let watcherPointer = ReactiveWatcherPointer(raw: watcher)
+          state.addWatcher(watcherPointer.raw)
+          return makeReactiveWatcherGuard { [state, watcherPointer] in
+            state.removeWatcher(watcherPointer.raw)
+          }
+        },
+        { ptr in
+          guard let ptr else {
+            fatalError("ReactiveEdgeInsetsSignal drop received a null state pointer")
+          }
+          Unmanaged<State>.fromOpaque(ptr).takeRetainedValue().cleanup()
+        }
+      )
+    else {
+      fatalError("ReactiveEdgeInsetsSignal failed to create its computed signal")
+    }
+    computedPtr = computed
+    return computed
+  }
+
+  func setValue(_ insets: WuiEdgeInsets) {
+    let current = state.value
+    guard
+      current.top != insets.top || current.bottom != insets.bottom
+        || current.leading != insets.leading || current.trailing != insets.trailing
+    else { return }
+    state.value = insets
     state.notifyWatchers()
   }
 }
@@ -817,13 +885,13 @@ public final class ThemeBridge {
       // UIFont.Weight ranges from -1.0 (ultra-light) to 1.0 (black), with 0.0 being regular
       switch weight {
       case ...(-0.8): return WuiFontWeight_Thin
-      case (-0.8)...(-0.6): return WuiFontWeight_UltraLight
-      case (-0.6)...(-0.4): return WuiFontWeight_Light
-      case (-0.4)...(0.0): return WuiFontWeight_Normal
-      case (0.0)...(0.23): return WuiFontWeight_Medium
-      case (0.23)...(0.3): return WuiFontWeight_SemiBold
-      case (0.3)...(0.5): return WuiFontWeight_Bold
-      case (0.5)...(0.8): return WuiFontWeight_UltraBold
+      case (-0.8) ... (-0.6): return WuiFontWeight_UltraLight
+      case (-0.6) ... (-0.4): return WuiFontWeight_Light
+      case (-0.4) ... (0.0): return WuiFontWeight_Normal
+      case (0.0) ... (0.23): return WuiFontWeight_Medium
+      case (0.23) ... (0.3): return WuiFontWeight_SemiBold
+      case (0.3) ... (0.5): return WuiFontWeight_Bold
+      case (0.5) ... (0.8): return WuiFontWeight_UltraBold
       default: return WuiFontWeight_Black
       }
     }
@@ -850,13 +918,13 @@ public final class ThemeBridge {
       // NSFont.Weight ranges from -1.0 to 1.0, similar to UIFont.Weight
       switch weight {
       case ...(-0.8): return WuiFontWeight_Thin
-      case (-0.8)...(-0.6): return WuiFontWeight_UltraLight
-      case (-0.6)...(-0.4): return WuiFontWeight_Light
-      case (-0.4)...(0.0): return WuiFontWeight_Normal
-      case (0.0)...(0.23): return WuiFontWeight_Medium
-      case (0.23)...(0.3): return WuiFontWeight_SemiBold
-      case (0.3)...(0.5): return WuiFontWeight_Bold
-      case (0.5)...(0.8): return WuiFontWeight_UltraBold
+      case (-0.8) ... (-0.6): return WuiFontWeight_UltraLight
+      case (-0.6) ... (-0.4): return WuiFontWeight_Light
+      case (-0.4) ... (0.0): return WuiFontWeight_Normal
+      case (0.0) ... (0.23): return WuiFontWeight_Medium
+      case (0.23) ... (0.3): return WuiFontWeight_SemiBold
+      case (0.3) ... (0.5): return WuiFontWeight_Bold
+      case (0.5) ... (0.8): return WuiFontWeight_UltraBold
       default: return WuiFontWeight_Black
       }
     }
@@ -932,6 +1000,7 @@ public final class WuiRootContext {
   private let app: WuiApp
   private let mainWindow: WuiWindowContext
   private let themeBridge: ThemeBridge
+  private let safeAreaSignal: ReactiveEdgeInsetsSignal
   private var menuBarTree: WuiMenuTree?
   private var localeObserver: NSObjectProtocol?
 
@@ -981,6 +1050,13 @@ public final class WuiRootContext {
 
     let themeBridge = ThemeBridge(env: env, colorScheme: systemScheme)
 
+    // The window's device insets. WaterUI lays the overlay hosts out itself, so
+    // this backend cannot frame them clear of the notch from the outside; it
+    // publishes the insets and they pad themselves. The root view controller
+    // republishes on every layout pass, which is what carries rotation through.
+    let safeAreaSignal = ReactiveEdgeInsetsSignal(insets: WuiEdgeInsets.zero)
+    waterui_env_install_safe_area(initEnvPtr, safeAreaSignal.toComputed())
+
     // 4. Create the app by calling waterui_app(env)
     // The user's app(env) receives the environment with theme installed,
     // creates App::new(content, env), and returns App { windows, env }
@@ -1001,6 +1077,7 @@ public final class WuiRootContext {
     self.app = app
     self.mainWindow = WuiWindowContext(from: windowsPtr.pointee)
     self.themeBridge = themeBridge
+    self.safeAreaSignal = safeAreaSignal
     themeBridge.bindToEnvironmentColorScheme(env: env)
     localeObserver = NotificationCenter.default.addObserver(
       forName: NSLocale.currentLocaleDidChangeNotification,
@@ -1093,6 +1170,11 @@ public final class WuiRootContext {
 
   /// Updates the theme for a new color scheme.
   /// Uses reactive signals so WaterUI views automatically update.
+  /// Publishes the window's device insets to the Rust-laid-out overlay layers.
+  public func updateSafeArea(_ insets: WuiEdgeInsets) {
+    safeAreaSignal.setValue(insets)
+  }
+
   public func updateColorScheme(_ colorScheme: ThemeBridge.ColorScheme) {
     themeBridge.updateColorScheme(colorScheme)
   }
@@ -1226,6 +1308,12 @@ public final class WuiRootContext {
 
       let usesSafeArea = shouldApplySafeArea(to: context.rootView)
       context.rootView.frame = usesSafeArea ? safeFrame : view.bounds
+      // What the root view still has to clear itself. An inset root already
+      // sits inside the safe area, so anything inside it must not inset again;
+      // a full-bounds root spans the hardware and every Rust-laid-out overlay
+      // in it is on its own. Deriving it from the branch just taken keeps the
+      // two answers from disagreeing.
+      context.updateSafeArea(usesSafeArea ? .zero : WuiEdgeInsets(safeInsets))
       context.rootView.setNeedsLayout()
       context.rootView.layoutIfNeeded()
     }
@@ -1334,6 +1422,9 @@ public final class WuiRootContext {
 
       // Manually size root view to fill bounds and trigger layout
       context.rootView.frame = bounds
+      // The root spans the whole view, so whatever the window reserves for its
+      // toolbar chrome is the overlay layers' to clear.
+      context.updateSafeArea(WuiEdgeInsets(safeAreaInsets))
       context.rootView.needsLayout = true
       context.rootView.layoutSubtreeIfNeeded()
     }
