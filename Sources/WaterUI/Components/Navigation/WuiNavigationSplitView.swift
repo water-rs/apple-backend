@@ -6,6 +6,55 @@ import CWaterUI
   import AppKit
 #endif
 
+/// How many split destinations keep their rendered tree.
+///
+/// Caching one is what preserves a page's scroll position and half-typed input
+/// when the user comes back to it, so the cache has to hold more than the
+/// current destination. It must not hold *every* destination ever visited,
+/// though: each is a rendered view tree and its navigation state, retained for
+/// the life of the split — a gallery browsed a thousand deep retains a thousand
+/// of them. Eight covers the back-and-forth people actually do; past that the
+/// least recently shown one is released and rebuilt if it is wanted again,
+/// losing only that page's transient state. The GTK and Android backends use
+/// the same number for the same reason.
+private let splitDestinationCacheCapacity = 8
+
+/// A bounded cache keyed by destination id, evicting the least recently used.
+///
+/// A Swift dictionary has no order, so the order is kept alongside it: reading
+/// or writing a key moves it to the young end, and an insert past capacity
+/// releases the old end. Releasing is the whole teardown — ARC frees the view
+/// tree, and an evicted destination is never the one on screen, because showing
+/// it is what made it the youngest.
+private struct DestinationCache<Value> {
+  private var storage: [Int32: Value] = [:]
+  private var order: [Int32] = []
+
+  mutating func value(for key: Int32) -> Value? {
+    guard let value = storage[key] else { return nil }
+    touch(key)
+    return value
+  }
+
+  mutating func insert(_ value: Value, for key: Int32) {
+    if storage[key] == nil, storage.count >= splitDestinationCacheCapacity,
+      let eldest = order.first
+    {
+      storage.removeValue(forKey: eldest)
+      order.removeFirst()
+    }
+    storage[key] = value
+    touch(key)
+  }
+
+  private mutating func touch(_ key: Int32) {
+    if let index = order.firstIndex(of: key) {
+      order.remove(at: index)
+    }
+    order.append(key)
+  }
+}
+
 @MainActor
 final class WuiNavigationSplitView: PlatformView, WuiComponent {
   static var rawId: CWaterUI.WuiTypeId { waterui_split_navigation_container_id() }
@@ -25,8 +74,8 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
   private let widths: CWaterUI.WuiNavigationColumnWidth
   private let style: WuiNavigationSplitStyle
   #if canImport(AppKit)
-    private var contentViews: [Int32: WuiNavigationView] = [:]
-    private var detailViews: [Int32: WuiNavigationView] = [:]
+    private var contentViews = DestinationCache<WuiNavigationView>()
+    private var detailViews = DestinationCache<WuiNavigationView>()
   #endif
   private var primarySelectionWatcher: WatcherGuard?
   private var secondarySelectionWatcher: WatcherGuard?
@@ -37,8 +86,8 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
     private let primaryController = UIViewController()
     private let supplementaryController = UIViewController()
     private let secondaryController = UIViewController()
-    private var contentControllers: [Int32: WuiContentViewController] = [:]
-    private var detailControllers: [Int32: WuiContentViewController] = [:]
+    private var contentControllers = DestinationCache<WuiContentViewController>()
+    private var detailControllers = DestinationCache<WuiContentViewController>()
   #elseif canImport(AppKit)
     private let splitController = NSSplitViewController()
     private let primaryController = NSViewController()
@@ -314,9 +363,9 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
     private func destinationController(
       for selected: Int32,
       handle: UnsafeMutablePointer<CWaterUI.WuiNavigationSplitDetail>,
-      cache: inout [Int32: WuiContentViewController]
+      cache: inout DestinationCache<WuiContentViewController>
     ) -> WuiContentViewController {
-      if let cached = cache[selected] { return cached }
+      if let cached = cache.value(for: selected) { return cached }
       let navView = waterui_split_navigation_detail_content(
         handle,
         CWaterUI.WuiId(inner: selected),
@@ -331,23 +380,23 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
       )
       controller.navigationItem.largeTitleDisplayMode = wuiLargeTitleDisplayMode(
         navView.bar.display_mode)
-      cache[selected] = controller
+      cache.insert(controller, for: selected)
       return controller
     }
   #elseif canImport(AppKit)
     private func destinationView(
       for selected: Int32,
       handle: UnsafeMutablePointer<CWaterUI.WuiNavigationSplitDetail>,
-      cache: inout [Int32: WuiNavigationView]
+      cache: inout DestinationCache<WuiNavigationView>
     ) -> WuiNavigationView {
-      if let cached = cache[selected] { return cached }
+      if let cached = cache.value(for: selected) { return cached }
       let navigationView = waterui_split_navigation_detail_content(
         handle,
         CWaterUI.WuiId(inner: selected),
         env.inner
       )
       let destination = WuiNavigationView(ffiNav: navigationView, env: env)
-      cache[selected] = destination
+      cache.insert(destination, for: selected)
       return destination
     }
   #endif
