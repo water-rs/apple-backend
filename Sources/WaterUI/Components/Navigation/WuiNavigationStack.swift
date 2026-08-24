@@ -76,6 +76,10 @@ final class WuiNavigationDestinationState {
     /// pop to, must not install one.
     private let isRoot: Bool
     let destinationState: WuiNavigationDestinationState
+    /// The transition this destination arrives and leaves by, already resolved
+    /// against the stack's default. UIKit reads `preferredTransition` off the
+    /// pushed controller for both directions, so the pop needs it too.
+    let transitionKind: WuiNavigationTransitionKind
     private var colorWatcher: WatcherGuard?
     private var hiddenWatcher: WatcherGuard?
     private var titleWatcher: WatcherGuard?
@@ -92,6 +96,7 @@ final class WuiNavigationDestinationState {
       barState: WuiNavigationBarState?,
       destinationState: WuiNavigationDestinationState,
       isRoot: Bool,
+      transitionKind: WuiNavigationTransitionKind,
       env: WuiEnvironment
     ) {
       self.contentView = contentView
@@ -99,6 +104,7 @@ final class WuiNavigationDestinationState {
       self.env = env
       self.destinationState = destinationState
       self.isRoot = isRoot
+      self.transitionKind = transitionKind
       self.usesThemeBarColor = barState?.color == nil
       super.init(nibName: nil, bundle: nil)
 
@@ -428,6 +434,8 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
       let view: NSView
       let barState: WuiNavigationBarState?
       let destinationState: WuiNavigationDestinationState
+      /// This destination's transition, already resolved against the stack's.
+      let transitionKind: WuiNavigationTransitionKind
       var isActive: Bool
     }
 
@@ -542,7 +550,8 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
         barState: barState,
         destinationState: destinationState,
         displayMode: wuiLargeTitleDisplayMode(displayMode),
-        restorationDepth: 0
+        restorationDepth: 0,
+        declared: transition
       )
       navController = UINavigationController(rootViewController: rootVC)
       navController.navigationBar.prefersLargeTitles = true
@@ -562,6 +571,7 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
           view: rootView,
           barState: barState,
           destinationState: destinationState,
+          transitionKind: transition.kind,
           isActive: activateAppKitRoot
         ))
       if activateAppKitRoot {
@@ -606,22 +616,33 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
           barState: barState,
           destinationState: destinationState,
           displayMode: wuiLargeTitleDisplayMode(navView.bar.display_mode),
-          restorationDepth: Int(transaction.retained_prefix) + offset + 1
+          restorationDepth: Int(transaction.retained_prefix) + offset + 1,
+          declared: navView.transition
         )
       }
       let next = retained + insertedControllers
       expectedNativeStack = next
+      let movingKind = movingTransitionKind(inserted: insertedControllers)
       if transaction.removed == 0 && insertedControllers.count == 1 {
-        pushViewController(insertedControllers[0])
+        pushViewController(insertedControllers[0], kind: movingKind)
       } else if transaction.removed == 1 && insertedControllers.isEmpty {
-        popViewController()
+        popViewController(kind: movingKind)
       } else {
-        setViewControllers(next)
+        setViewControllers(next, kind: movingKind)
       }
       viewStack = next
     #elseif canImport(AppKit)
       applyAppKitTransaction(transaction, inserted: inserted)
     #endif
+  }
+
+  /// A destination that declared nothing inherits the stack's transition. The
+  /// two differ only when a destination names a matched pair — a zoom source
+  /// belongs to one push, so the stack cannot name it for every destination.
+  private func resolvedTransition(
+    _ declared: CWaterUI.WuiNavigationTransition
+  ) -> CWaterUI.WuiNavigationTransition {
+    declared.kind == WuiNavigationTransitionKind_Inherit ? transition : declared
   }
 
   private func completeTransaction(_ id: UInt64) {
@@ -631,20 +652,33 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
   }
 
   #if canImport(UIKit)
-    private func pushViewController(_ vc: UIViewController) {
-      navController.pushViewController(vc, animated: nativeTransitionIsAnimated())
+    private func pushViewController(_ vc: UIViewController, kind: WuiNavigationTransitionKind) {
+      navController.pushViewController(vc, animated: nativeTransitionIsAnimated(kind))
     }
 
-    private func popViewController() {
-      navController.popViewController(animated: nativeTransitionIsAnimated())
+    private func popViewController(kind: WuiNavigationTransitionKind) {
+      navController.popViewController(animated: nativeTransitionIsAnimated(kind))
     }
 
-    private func setViewControllers(_ viewControllers: [UIViewController]) {
-      navController.setViewControllers(viewControllers, animated: nativeTransitionIsAnimated())
+    private func setViewControllers(
+      _ viewControllers: [UIViewController],
+      kind: WuiNavigationTransitionKind
+    ) {
+      navController.setViewControllers(viewControllers, animated: nativeTransitionIsAnimated(kind))
     }
 
-    private func nativeTransitionIsAnimated() -> Bool {
-      switch transition.kind {
+    /// A push is animated by the destination arriving, a pop by the one
+    /// leaving; `viewStack` still holds the old top when a transaction is
+    /// applied, so the leaving destination is its last element.
+    private func movingTransitionKind(
+      inserted: [UIViewController]
+    ) -> WuiNavigationTransitionKind {
+      let moving = inserted.last ?? viewStack.last
+      return (moving as? WuiContentViewController)?.transitionKind ?? transition.kind
+    }
+
+    private func nativeTransitionIsAnimated(_ kind: WuiNavigationTransitionKind) -> Bool {
+      switch kind {
       case WuiNavigationTransitionKind_Automatic,
         WuiNavigationTransitionKind_Fade,
         WuiNavigationTransitionKind_Zoom:
@@ -656,7 +690,7 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
           "Custom navigation transition is unavailable on UIKit; applying without animation")
         return false
       default:
-        fatalError("Unsupported WaterUI navigation transition: \(transition.kind.rawValue)")
+        fatalError("Unsupported WaterUI navigation transition: \(kind.rawValue)")
       }
     }
 
@@ -665,13 +699,16 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
       barState: WuiNavigationBarState?,
       destinationState: WuiNavigationDestinationState,
       displayMode: UINavigationItem.LargeTitleDisplayMode = .automatic,
-      restorationDepth: Int
+      restorationDepth: Int,
+      declared: CWaterUI.WuiNavigationTransition
     ) -> UIViewController {
+      let transition = resolvedTransition(declared)
       let vc = WuiContentViewController(
         contentView: view,
         barState: barState,
         destinationState: destinationState,
         isRoot: restorationDepth == 0,
+        transitionKind: transition.kind,
         env: childEnv
       )
       vc.restorationIdentifier = navigationRestorationIdentifier(depth: restorationDepth)
@@ -685,8 +722,14 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
       case WuiNavigationTransitionKind_Zoom:
         let sourceTag = Int(transition.source_id)
         vc.preferredTransition = .zoom { context in
-          guard let source = context.sourceViewController.view.viewWithTag(sourceTag) else {
-            fatalError("Navigation zoom source \(sourceTag) is not present in the source page")
+          // A matched pair only exists when the source page shows the element;
+          // an absent one is an ordinary arrangement, not a broken tree, and
+          // UIKit falls back to the platform default for a nil source.
+          let source = context.sourceViewController.view.viewWithTag(sourceTag)
+          if source == nil {
+            Logger.waterui.warning(
+              "Navigation zoom source \(sourceTag) is not on the source page; using the platform default transition"
+            )
           }
           return source
         }
@@ -863,6 +906,7 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
           view: view,
           barState: makeNavigationBarState(from: navView.bar, env: childEnv),
           destinationState: WuiNavigationDestinationState(navView.state, env: childEnv),
+          transitionKind: resolvedTransition(navView.transition).kind,
           isActive: false
         )
       }
@@ -878,7 +922,10 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
       updateTitlebarState()
 
       newTop.view.isHidden = false
-      let fades = appKitTransitionUsesFade()
+      // A push is animated by the destination arriving, a pop by the one
+      // leaving.
+      let moving = insertedEntries.last ?? removed.last
+      let fades = appKitTransitionUsesFade(moving?.transitionKind ?? transition.kind)
       if fades {
         let transactionId = transaction.id
         oldTop.view.isHidden = false
@@ -937,8 +984,8 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
       }
     }
 
-    private func appKitTransitionUsesFade() -> Bool {
-      switch transition.kind {
+    private func appKitTransitionUsesFade(_ kind: WuiNavigationTransitionKind) -> Bool {
+      switch kind {
       case WuiNavigationTransitionKind_Fade:
         return true
       case WuiNavigationTransitionKind_Automatic,
@@ -953,7 +1000,7 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
           "Custom navigation transition is unavailable on AppKit; applying without animation")
         return false
       default:
-        fatalError("Unsupported WaterUI navigation transition: \(transition.kind.rawValue)")
+        fatalError("Unsupported WaterUI navigation transition: \(kind.rawValue)")
       }
     }
 

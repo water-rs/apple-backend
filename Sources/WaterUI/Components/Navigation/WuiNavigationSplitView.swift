@@ -376,6 +376,10 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
         barState: makeNavigationBarState(from: navView.bar, env: env),
         destinationState: WuiNavigationDestinationState(navView.state, env: env),
         isRoot: true,
+        // A split detail is its own root. Nothing pushes it, so there is no
+        // stack whose transition it could inherit and no motion to run.
+        transitionKind: navView.transition.kind == WuiNavigationTransitionKind_Inherit
+          ? WuiNavigationTransitionKind_Automatic : navView.transition.kind,
         env: env
       )
       controller.navigationItem.largeTitleDisplayMode = wuiLargeTitleDisplayMode(
