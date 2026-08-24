@@ -65,6 +65,12 @@ final class WuiPicker: PlatformView, WuiComponent {
   private var itemWatcher: WatcherGuard?
   private var selectionWatcher: WatcherGuard?
   private var bodyFontObservation: WuiComputedObservation<WuiResolvedFontValue>?
+  /// The picker's own name, which is not the selected option.
+  ///
+  /// A label is required when a `Picker` is constructed so that assistive
+  /// technology has something to announce; without this the control read out
+  /// only its selection, which says what was chosen and never what it chose.
+  private var labelObservation: WuiComputedObservation<WuiStyledStr>?
 
   #if canImport(UIKit)
     private let segmentedControl = UISegmentedControl()
@@ -93,6 +99,7 @@ final class WuiPicker: PlatformView, WuiComponent {
       items: items,
       selection: WuiBinding<WuiId>(selection),
       style: PickerStyle(picker.style),
+      label: picker.label,
       env: env
     )
   }
@@ -101,6 +108,7 @@ final class WuiPicker: PlatformView, WuiComponent {
     items: OpaquePointer,
     selection: WuiBinding<WuiId>,
     style: PickerStyle,
+    label: CWaterUI.WuiLabel,
     env: WuiEnvironment
   ) {
     self.source = WuiAnyViews(items)
@@ -109,6 +117,7 @@ final class WuiPicker: PlatformView, WuiComponent {
     super.init(frame: .zero)
 
     configureSubviews()
+    bindAccessibilityLabel(label)
     bodyFontObservation = .bodyFont(env: env) { [weak self] font in
       self?.applyBodyFont(font)
     }
@@ -130,6 +139,30 @@ final class WuiPicker: PlatformView, WuiComponent {
   @available(*, unavailable)
   required init?(coder: NSCoder) {
     fatalError("init(coder:) has not been implemented")
+  }
+
+  /// Names the control after its own label, on every platform surface.
+  private func bindAccessibilityLabel(_ label: CWaterUI.WuiLabel) {
+    guard let accessibilityLabel = label.accessibility_label else {
+      fatalError("WuiPicker label has no accessibility signal")
+    }
+    labelObservation = WuiComputedObservation(
+      WuiComputed<WuiStyledStr>(accessibilityLabel)
+    ) { [weak self] value, _ in
+      self?.applyAccessibilityLabel(value.toString())
+    }
+    applyAccessibilityLabel(labelObservation?.value.toString() ?? "")
+  }
+
+  private func applyAccessibilityLabel(_ label: String) {
+    #if canImport(UIKit)
+      isAccessibilityElement = true
+      accessibilityLabel = label
+    #elseif canImport(AppKit)
+      setAccessibilityElement(true)
+      setAccessibilityLabel(label)
+      toolTip = label
+    #endif
   }
 
   private func configureSubviews() {
