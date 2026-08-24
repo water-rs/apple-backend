@@ -722,14 +722,8 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
       case WuiNavigationTransitionKind_Zoom:
         let sourceTag = Int(transition.source_id)
         vc.preferredTransition = .zoom { context in
-          // A matched pair only exists when the source page shows the element;
-          // an absent one is an ordinary arrangement, not a broken tree, and
-          // UIKit falls back to the platform default for a nil source.
-          let source = context.sourceViewController.view.viewWithTag(sourceTag)
-          if source == nil {
-            Logger.waterui.warning(
-              "Navigation zoom source \(sourceTag) is not on the source page; using the platform default transition"
-            )
+          guard let source = context.sourceViewController.view.viewWithTag(sourceTag) else {
+            fatalError("Navigation zoom source \(sourceTag) is not present in the source page")
           }
           return source
         }
