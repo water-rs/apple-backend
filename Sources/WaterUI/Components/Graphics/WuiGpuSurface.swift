@@ -69,6 +69,10 @@ private final class WuiGpuSurfaceRenderState {
   private let cachedPriority: Int32
   private var width: UInt32 = 0
   private var height: UInt32 = 0
+  /// Physical pixels per logical point, reported to the renderer with every
+  /// frame. It follows the layer's `contentsScale`, so a window dragged onto a
+  /// display of a different density updates it on the next layout pass.
+  private var scale: CGFloat = 1.0
   var onRedrawRequested: (() -> Void)?
 
   // Pointer/cursor state for GPU renderers
@@ -210,11 +214,12 @@ private final class WuiGpuSurfaceRenderState {
   }
 
   @discardableResult
-  func updateSize(width: UInt32, height: UInt32) -> Bool {
-    guard self.width != width || self.height != height else { return false }
+  func updateSize(width: UInt32, height: UInt32, scale: CGFloat) -> Bool {
+    guard self.width != width || self.height != height || self.scale != scale else { return false }
     needsRender = true
     self.width = width
     self.height = height
+    self.scale = scale
     return true
   }
 
@@ -223,9 +228,10 @@ private final class WuiGpuSurfaceRenderState {
     layerPtr: UnsafeMutableRawPointer,
     width: UInt32,
     height: UInt32,
+    scale: CGFloat,
     prefersHDR: Bool
   ) -> Bool {
-    _ = updateSize(width: width, height: height)
+    _ = updateSize(width: width, height: height, scale: scale)
     guard !isAttached else { return false }
     waterui_gpu_surface_attach(gpuState, layerPtr, width, height, prefersHDR)
     rendererSetupStarted = true
@@ -247,7 +253,7 @@ private final class WuiGpuSurfaceRenderState {
   ) -> Bool? {
     guard !externalRendering else { return nil }
     guard force || needsRender else { return nil }
-    guard isAttached, width > 0, height > 0 else { return nil }
+    guard isAttached, width > 0, height > 0, scale > 0 else { return nil }
     guard isSetupReady else {
       needsRender = true
       return nil
@@ -255,7 +261,7 @@ private final class WuiGpuSurfaceRenderState {
 
     needsRender = false
     syncInputState()
-    if waterui_gpu_surface_render(gpuState, width, height) {
+    if waterui_gpu_surface_render(gpuState, width, height, Double(scale)) {
       needsRender = true
     }
     hasRenderedFrame = true
@@ -280,10 +286,12 @@ private final class WuiGpuSurfaceRenderState {
   func renderPreparedMetalTexture(
     texturePtr: UnsafeMutableRawPointer,
     width: UInt32,
-    height: UInt32
+    height: UInt32,
+    scale: CGFloat
   ) -> OpaquePointer {
     precondition(externalRendering, "External texture rendering requires an active scope")
     precondition(width > 0 && height > 0, "External texture rendering requires non-zero dimensions")
+    precondition(scale > 0, "External texture rendering requires a positive device-pixel ratio")
     precondition(isSetupReady, "External texture rendering requires completed asynchronous setup")
     syncInputState()
     guard
@@ -291,7 +299,8 @@ private final class WuiGpuSurfaceRenderState {
         gpuState,
         texturePtr,
         width,
-        height
+        height,
+        Double(scale)
       )
     else {
       fatalError("waterui_gpu_surface_render_to_metal_texture returned null")
@@ -941,7 +950,8 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
     // render, so writing it here would only race the surface's own idea of the
     // swapchain size. Ask for that render promptly instead, to keep the window
     // between layout and reconfiguration short.
-    let sizeChanged = renderState.updateSize(width: width, height: height)
+    let sizeChanged = renderState.updateSize(
+      width: width, height: height, scale: currentScaleFactor)
     if sizeChanged {
       keepRedrawing = true
     }
@@ -957,6 +967,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
       layerPtr: layerPtr,
       width: width,
       height: height,
+      scale: currentScaleFactor,
       prefersHDR: rendererRange == .high
     ) {
       Logger.graphics.debug(
@@ -1191,7 +1202,8 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
     let fence = renderState.renderPreparedMetalTexture(
       texturePtr: Unmanaged.passUnretained(texture).toOpaque(),
       width: width,
-      height: height
+      height: height,
+      scale: currentScaleFactor
     )
     observeGpuCaptureFence(fence) { [weak self] in
       self?.completeReady(true)
