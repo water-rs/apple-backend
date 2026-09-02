@@ -57,7 +57,6 @@ final class WuiExternalRenderingScopes {
 
 @MainActor
 private final class WuiGpuSurfaceRenderState {
-
   private let gpuState: OpaquePointer
   private var isAttached = false
   private var externalRendering = false
@@ -74,6 +73,8 @@ private final class WuiGpuSurfaceRenderState {
   /// display of a different density updates it on the next layout pass.
   private var scale: CGFloat = 1.0
   var onRedrawRequested: (() -> Void)?
+  /// The input responder's borrow of `gpuState`, invalidated before the drop.
+  private weak var inputCarrier: WuiGpuSurfaceInputCarrier?
 
   // Pointer/cursor state for GPU renderers
   private var pointerState = WuiPointerState(
@@ -125,6 +126,23 @@ private final class WuiGpuSurfaceRenderState {
 
   var isSurfaceAttached: Bool { isAttached }
   var isSetupReady: Bool { waterui_gpu_surface_is_ready(gpuState) }
+
+  /// Whether the semantic GPU view draws interactive content and therefore
+  /// takes the raw input events instead of the per-frame pointer snapshot.
+  var wantsInputEvents: Bool {
+    WuiGpuSurfaceInputCarrier.wantsInputEvents(gpuState: gpuState)
+  }
+
+  /// A borrow of this state for the input responder to forward events through.
+  ///
+  /// The carrier holds no ownership: `shutdown()` invalidates it before the
+  /// state is dropped, so a responder that outlives the surface forwards
+  /// nothing rather than writing through a dangling handle.
+  func makeInputCarrier() -> WuiGpuSurfaceInputCarrier {
+    let carrier = WuiGpuSurfaceInputCarrier(gpuState: gpuState)
+    inputCarrier = carrier
+    return carrier
+  }
 
   func installRedrawCallback() {
     let callback = WuiRedrawCallbackBox { [weak self] in
@@ -340,6 +358,8 @@ private final class WuiGpuSurfaceRenderState {
 
   func shutdown() {
     onRedrawRequested = nil
+    inputCarrier?.invalidate()
+    inputCarrier = nil
     detachIfNeeded()
     waterui_gpu_surface_drop(gpuState)
   }
@@ -387,6 +407,8 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
     frameDriverStorage = driver
     return driver
   }
+  /// The first responder installed for a GPU view that takes its own input.
+  private var inputResponder: WuiGpuSurfaceInputResponder?
   private var captureSuppressionCount = 0
   private var keepRedrawing = false
   private var redrawWakeScheduled = false
@@ -439,6 +461,27 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
     setupMetalLayer(device: metalDevice)
     setupPointerTracking()
     setupLifecycleObservers()
+    installInputResponderIfNeeded()
+  }
+
+  /// Gives an input-taking GPU view the first responder it needs.
+  ///
+  /// A view that only draws never gets one: no focus is claimed, no keystroke
+  /// is intercepted, and the surrounding WaterUI widgets keep every event —
+  /// which is why the responder is a separate view installed on demand rather
+  /// than this surface conforming to the text-input protocols itself.
+  private func installInputResponderIfNeeded() {
+    guard renderState.wantsInputEvents else { return }
+    let responder = WuiGpuSurfaceInputResponder(carrier: renderState.makeInputCarrier())
+    responder.translatesAutoresizingMaskIntoConstraints = false
+    addSubview(responder)
+    NSLayoutConstraint.activate([
+      responder.leadingAnchor.constraint(equalTo: leadingAnchor),
+      responder.trailingAnchor.constraint(equalTo: trailingAnchor),
+      responder.topAnchor.constraint(equalTo: topAnchor),
+      responder.bottomAnchor.constraint(equalTo: bottomAnchor),
+    ])
+    inputResponder = responder
   }
 
   private func setupLifecycleObservers() {
