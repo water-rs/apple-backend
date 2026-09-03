@@ -262,7 +262,7 @@ final class WuiTable: PlatformView, WuiComponent {
 
   private func rowHeights() -> [CGFloat] {
     let count = columns.map { $0.rows.ordered.count }.max() ?? 0
-    return (0..<count).map { rowIndex in
+    return (0 ..< count).map { rowIndex in
       max(
         28,
         (columns.compactMap { column in

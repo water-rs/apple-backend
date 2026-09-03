@@ -220,7 +220,6 @@ final class WuiDatePicker: PlatformView, WuiComponent {
     #endif
 
     NSLayoutConstraint.activate(constraints)
-
   }
 
   #if canImport(UIKit)

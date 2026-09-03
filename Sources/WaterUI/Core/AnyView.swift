@@ -489,7 +489,6 @@ private func registerBuiltinComponentsIfNeeded() {
       // This is critical: WaterUI uses Rust layout engine, not AutoLayout
       inner.translatesAutoresizingMaskIntoConstraints = true
       addSubview(inner)
-
     }
 
     @available(*, unavailable)

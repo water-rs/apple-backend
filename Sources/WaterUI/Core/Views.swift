@@ -37,7 +37,7 @@ final class WuiAnyViews {
   }
 
   func takeRawView(at index: Int) -> OpaquePointer {
-    precondition((0..<count).contains(index), "WuiAnyViews index is out of bounds")
+    precondition((0 ..< count).contains(index), "WuiAnyViews index is out of bounds")
     return waterui_anyviews_get_view(inner, UInt(index))!
   }
 
