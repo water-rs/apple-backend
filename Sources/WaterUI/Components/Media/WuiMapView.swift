@@ -244,7 +244,6 @@ final class WuiMapViewComponent: PlatformView, WuiComponent {
     // Add map view as subview using manual frame layout
     mapView.translatesAutoresizingMaskIntoConstraints = true
     addSubview(mapView)
-
   }
 
   private func applySuppliedLocation(_ location: WuiSuppliedLocation?) {
@@ -290,7 +289,7 @@ final class WuiMapViewComponent: PlatformView, WuiComponent {
 
   private func reconcileAnnotations(_ values: [WuiNativeMapAnnotation]) {
     let reusedCount = min(renderedAnnotations.count, values.count)
-    for index in 0..<reusedCount {
+    for index in 0 ..< reusedCount {
       apply(values[index], to: renderedAnnotations[index])
     }
 

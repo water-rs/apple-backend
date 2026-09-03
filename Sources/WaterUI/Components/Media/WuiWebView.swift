@@ -116,7 +116,6 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
     }
   }
 
-
   private static let messageReplyCallback:
     @convention(c) (
       UnsafeMutableRawPointer?,
@@ -761,7 +760,7 @@ extension WebViewWrapper: WKNavigationDelegate {
       }
 
       let statusCode = response.statusCode
-      guard (300..<400).contains(statusCode) else {
+      guard (300 ..< 400).contains(statusCode) else {
         decisionHandler(.allow)
         return
       }
