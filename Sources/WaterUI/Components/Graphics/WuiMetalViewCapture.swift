@@ -76,6 +76,8 @@ final class WuiMetalViewCapture: @unchecked Sendable {
     let device: MTLDevice
     let targetTexture: MTLTexture
     let overlayTexture: MTLTexture?
+    /// The fence behind the native layer capture, not yet committed: the
+    /// completion handler has to be attached first, so `capture` commits it.
     let nativeCaptureFence: MTLCommandBuffer
     let snapshots: [GpuSurfaceSnapshot]
   }
@@ -372,6 +374,7 @@ final class WuiMetalViewCapture: @unchecked Sendable {
         }
       }
     }
+    preparation.nativeCaptureFence.commit()
   }
 
   @MainActor
@@ -626,10 +629,13 @@ final class WuiMetalViewCapture: @unchecked Sendable {
     // That is load-bearing, and it holds because `nativeCaptureQueue` is created
     // here, handed to nothing but this `CARenderer`, and only ever driven from
     // the main actor — never share this queue with other work.
+    //
+    // It is returned uncommitted. Metal refuses a completed handler on a
+    // committed buffer, so the caller attaches its handler and then commits;
+    // nothing else reaches this queue in between, so the order still holds.
     guard let commandBuffer = queue.makeCommandBuffer() else {
       fatalError("Failed to create the native Metal capture command buffer")
     }
-    commandBuffer.commit()
     return commandBuffer
   }
 
