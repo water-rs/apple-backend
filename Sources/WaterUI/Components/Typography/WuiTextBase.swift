@@ -165,7 +165,7 @@ class WuiTextBase: PlatformView {
       _ = CTLineGetTypographicBounds(lastVisible, nil, &descent, &leading)
       let cappedHeight = ceil(frameHeight - origins[visibleCount - 1].y + descent + leading)
       var cappedWidth: CGFloat = 0
-      for line in lines[0..<visibleCount] {
+      for line in lines[0 ..< visibleCount] {
         let lineWidth = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
         cappedWidth = max(cappedWidth, ceil(lineWidth))
       }

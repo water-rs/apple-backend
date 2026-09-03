@@ -487,7 +487,7 @@ final class WuiProgress: PlatformView, WuiComponent {
   }
 
   private func applyValue(_ value: Double, metadata: WuiWatcherMetadata?) {
-    guard value == .infinity || (value.isFinite && (0...1).contains(value)) else {
+    guard value == .infinity || (value.isFinite && (0 ... 1).contains(value)) else {
       fatalError("Progress value must be finite within 0...1 or positive infinity")
     }
     let isIndeterminate = value == .infinity

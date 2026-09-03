@@ -125,7 +125,7 @@ final class WuiAccessibilityRole: WuiAccessibilityMetadataView, WuiComponent {
       case 22: .menuItem
       case 23: .menuBar
       case 26: .comboBox
-      case 5...10, 12, 15, 20, 27, 28: .group
+      case 5 ... 10, 12, 15, 20, 27, 28: .group
       default: fatalError("unknown WaterUI accessibility role: \(role)")
       }
       accessibilityTarget.setAccessibilityRole(accessibilityRole)

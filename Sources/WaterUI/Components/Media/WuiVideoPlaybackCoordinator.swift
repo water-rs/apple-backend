@@ -1170,7 +1170,7 @@ final class WuiVideoPlaybackCoordinator: WuiMediaSessionHost {
 
   private func updateVolume(_ volume: Float) {
     precondition(
-      volume.isFinite && (0...1).contains(volume),
+      volume.isFinite && (0 ... 1).contains(volume),
       "video volume must be finite and within 0.0...1.0"
     )
     requestedVolume = volume

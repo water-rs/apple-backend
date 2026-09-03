@@ -50,7 +50,7 @@ final class WuiOpacity: PlatformView, WuiComponent {
 
   private func applyOpacity(_ alpha: Float) {
     precondition(
-      (0.0...1.0).contains(alpha),
+      (0.0 ... 1.0).contains(alpha),
       "Metadata<Opacity> value out of range: \(alpha)"
     )
 

@@ -63,7 +63,6 @@ final class WuiFixedContainer: PlatformView, WuiComponent {
 
   // MARK: - WuiComponent
 
-
   // A layout container is not a control: a click none of its children want
   // belongs to whatever is behind it.
   //

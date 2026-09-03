@@ -632,8 +632,8 @@ private func drawGpuSurface(
       from: MTLRegionMake2D(0, 0, Int(pixelWidth), Int(pixelHeight)),
       mipmapLevel: 0
     )
-    for index in 0..<(Int(pixelWidth) * Int(pixelHeight)) {
-      for channel in 0..<4 {
+    for index in 0 ..< (Int(pixelWidth) * Int(pixelHeight)) {
+      for channel in 0 ..< 4 {
         let value = Float(Float16(bitPattern: floatPixels[index * 4 + channel]))
         pixelBytes[index * 4 + channel] = UInt8(clamping: Int(value * 255))
       }
@@ -650,7 +650,7 @@ private func drawGpuSurface(
       from: MTLRegionMake2D(0, 0, Int(pixelWidth), Int(pixelHeight)),
       mipmapLevel: 0
     )
-    for index in 0..<(Int(pixelWidth) * Int(pixelHeight)) {
+    for index in 0 ..< (Int(pixelWidth) * Int(pixelHeight)) {
       pixelBytes[index * 4] = bgraPixels[index * 4 + 2]
       pixelBytes[index * 4 + 1] = bgraPixels[index * 4 + 1]
       pixelBytes[index * 4 + 2] = bgraPixels[index * 4]

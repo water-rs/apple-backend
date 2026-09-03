@@ -162,7 +162,7 @@ private func computeListSectionGroups(
     )
   }
 
-  for i in 0..<count {
+  for i in 0 ..< count {
     if let info = peekListItemSection(from: contents, at: i) {
       flush()
       pendingLabel = info.label
@@ -189,7 +189,7 @@ private func resolveListSectionGroups(
     ListSectionGroup(
       label: nil,
       footer: nil,
-      itemIndices: Array(0..<count)
+      itemIndices: Array(0 ..< count)
     )
   ]
 }
@@ -905,7 +905,6 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
           view.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
       }
-
     }
   }
 
@@ -1048,9 +1047,13 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       }
       keyWindowObservers = []
       guard let window else { return }
-      let repaint: (Notification) -> Void = { [weak self] _ in
-        self?.tableView.enumerateAvailableRowViews { rowView, _ in
-          rowView.needsDisplay = true
+      // Delivered on `.main`, so the hop is a statement of fact the compiler
+      // cannot see through the `@Sendable` requirement on its own.
+      let repaint: @Sendable (Notification) -> Void = { [weak self] _ in
+        MainActor.assumeIsolated {
+          self?.tableView.enumerateAvailableRowViews { rowView, _ in
+            rowView.needsDisplay = true
+          }
         }
       }
       for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
@@ -1278,7 +1281,7 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
         fatalError("WuiList requires one NSTableColumn")
       }
       column.width = width
-      tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<flatLayout.count))
+      tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0 ..< flatLayout.count))
       tableView.reloadData()
     }
 
