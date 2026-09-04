@@ -145,6 +145,7 @@
       for (index, identifier) in currentIdentifiers.enumerated() {
         toolbar.insertItem(withItemIdentifier: identifier, at: index)
       }
+      toolbar.centeredItemIdentifiers = tabsView == nil ? [] : [Self.tabsIdentifier]
       window?.title = content.title ?? window?.title ?? ""
     }
 
@@ -170,10 +171,6 @@
       if content.trailing != nil { identifiers.append(Self.trailingIdentifier) }
       if content.search != nil { identifiers.append(Self.searchIdentifier) }
       return identifiers
-    }
-
-    func toolbarCenteredItemIdentifiers(_ toolbar: NSToolbar) -> Set<NSToolbarItem.Identifier> {
-      tabsView == nil ? [] : [Self.tabsIdentifier]
     }
 
     // MARK: - NSToolbarDelegate
