@@ -35,7 +35,7 @@ final class WuiTextField: PlatformView, WuiComponent {
     private let placeholderLabel = UILabel()
     private lazy var focusTarget = WuiUIKitFocusTarget(control: textView)
   #elseif canImport(AppKit)
-    private let textField = NSTextField()
+    private let textField = WuiSelectionMenuTextField()
     private lazy var focusTarget = WuiAppKitTextFieldFocusTarget(control: textField)
   #endif
 
@@ -539,18 +539,9 @@ final class WuiTextField: PlatformView, WuiComponent {
       focusTarget.emitPlatformFocusChange(false)
     }
 
-    // The field editor forwards NSTextViewDelegate messages to the control's
-    // delegate only when it responds to the AppKit selector. This method satisfies
-    // no NSTextFieldDelegate requirement, so nothing supplies that selector for it:
-    // a bare `@objc` would infer `textView:menu:for:at:` from the Swift labels,
-    // which AppKit never sends.
-    @objc(textView:menu:forEvent:atIndex:)
-    func textView(
-      _ view: NSTextView,
-      menu: NSMenu,
-      for event: NSEvent,
-      at charIndex: Int
-    ) -> NSMenu? {
+    /// Splices the semantic selection items under AppKit's own menu. Reached
+    /// from `WuiSelectionMenuTextField`, never from NSTextFieldDelegate.
+    fileprivate func selectionMenu(extending menu: NSMenu) -> NSMenu {
       guard let selectionMenuTree, !selectionMenuTree.nodes.isEmpty else { return menu }
       if !menu.items.isEmpty {
         menu.addItem(.separator())
@@ -569,6 +560,21 @@ final class WuiTextField: PlatformView, WuiComponent {
         fatalError("WaterUI selection menu item has no semantic action")
       }
       waterui_call_shared_action(action.command.action, env.inner)
+    }
+  }
+
+  /// The field editor asks *its* delegate for the context menu, and that delegate
+  /// is the text field, not the control's delegate: NSTextField does not respond
+  /// to `textView:menu:forEvent:atIndex:` and forwards nothing for it, so a
+  /// method on the WuiTextField delegate can never be reached. The hook has to
+  /// live on the NSTextField subclass itself.
+  private final class WuiSelectionMenuTextField: NSTextField {
+    @objc(textView:menu:forEvent:atIndex:)
+    func textView(_: NSTextView, menu: NSMenu, for _: NSEvent, at _: Int) -> NSMenu? {
+      guard let owner = delegate as? WuiTextField else {
+        fatalError("WuiSelectionMenuTextField must be driven by its WuiTextField")
+      }
+      return owner.selectionMenu(extending: menu)
     }
   }
 #endif
