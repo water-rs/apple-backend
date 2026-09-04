@@ -33,11 +33,6 @@ enum WuiInspector {
     waterui_inspector_open(env.inner)
   }
 
-  /// Reveals one accessibility node in the inspector.
-  static func inspect(node: UInt64, env: WuiEnvironment) {
-    waterui_inspector_inspect_node(env.inner, node)
-  }
-
   /// Whether anything is watching the accessibility tree.
   ///
   /// The walk below is only worth doing when something reads the result, so
@@ -124,20 +119,18 @@ enum WuiInspector {
     }
   }
 
-  /// Installs the gesture that brings the inspector up.
-  ///
-  /// Does nothing unless an endpoint is running, so a release build carries the
-  /// call but never the menu.
-  static func installGesture(on view: PlatformView, env: WuiEnvironment) {
-    guard isAvailable(env: env) else { return }
+  #if canImport(UIKit)
+    /// Installs the gesture that brings the inspector up.
+    ///
+    /// Does nothing unless an endpoint is running, so a release build carries the
+    /// call but never the menu. AppKit installs nothing: it delivers secondary
+    /// clicks through `rightMouseDown`, which the host view overrides and routes
+    /// to `presentMenu(for:in:env:)`; a gesture recognizer there would sit above
+    /// every control and swallow the mouse tracking that sliders and drags
+    /// depend on.
+    static func installGesture(on view: PlatformView, env: WuiEnvironment) {
+      guard isAvailable(env: env) else { return }
 
-    #if canImport(AppKit)
-      // Nothing to install: AppKit delivers secondary clicks through
-      // `rightMouseDown`, which the host view overrides. A gesture recognizer
-      // here would sit above every control and swallow the mouse tracking that
-      // sliders and drags depend on.
-      _ = view
-    #elseif canImport(UIKit)
       // A phone has no secondary click. A two-finger long press is not something
       // an application is likely to have claimed, and is awkward enough not to
       // be triggered by accident.
@@ -149,8 +142,8 @@ enum WuiInspector {
       recognizer.cancelsTouchesInView = false
       WuiInspectorLongPressTarget.shared.register(recognizer: recognizer, env: env)
       view.addGestureRecognizer(recognizer)
-    #endif
-  }
+    }
+  #endif
 }
 
 #if canImport(AppKit)
@@ -188,7 +181,7 @@ enum WuiInspector {
       self.view = view
     }
 
-    @objc func inspect(_ sender: NSMenuItem) {
+    @objc func inspect(_: NSMenuItem) {
       WuiInspector.open(env: env)
       // Publish before asking for a node: the Inspector cannot reveal what it
       // has not been told about, and the tree is only walked when something is

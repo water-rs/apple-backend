@@ -67,6 +67,7 @@ final class WuiNavigationTransitionSourceView: WuiNavigationTransitionTaggedView
     super.init(content: metadata.content, id: metadata.value.inner, env: env)
   }
 
+  // periphery:ignore - required by NSCoding; WaterUI never unarchives views
   @available(*, unavailable)
   required init?(coder: NSCoder) {
     fatalError("init(coder:) has not been implemented")
@@ -86,6 +87,7 @@ final class WuiNavigationTransitionDestinationView: WuiNavigationTransitionTagge
     super.init(content: metadata.content, id: metadata.value.inner, env: env)
   }
 
+  // periphery:ignore - required by NSCoding; WaterUI never unarchives views
   @available(*, unavailable)
   required init?(coder: NSCoder) {
     fatalError("init(coder:) has not been implemented")

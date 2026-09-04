@@ -216,7 +216,7 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
     _ userContentController: WKUserContentController, didReceive message: WKScriptMessage
   ) {
     Task { @MainActor [weak self] in
-      self?.handleScriptMessage(name: message.name, body: message.body, frame: message.frameInfo)
+      self?.handleScriptMessage(body: message.body, frame: message.frameInfo)
     }
   }
 
@@ -225,7 +225,7 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
   /// Page script reaches this transport directly, so a malformed envelope or an
   /// unknown handler name is rejected back to JavaScript rather than being fatal.
   @MainActor
-  private func handleScriptMessage(name: String, body: Any, frame: WKFrameInfo) {
+  private func handleScriptMessage(body: Any, frame: WKFrameInfo) {
     guard frameMayUseBridge(frame) else {
       Logger.waterui.warning(
         "a document outside the bridge origin policy tried to call a WaterUI handler")

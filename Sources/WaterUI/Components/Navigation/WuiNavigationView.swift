@@ -134,11 +134,6 @@ final class WuiNavigationView: PlatformView, WuiComponent {
     }
   }
 
-  func notifyDestinationPopped() {
-    setDestinationActive(false)
-    destinationState.popped()
-  }
-
   private func configureNavBar() {
     if hasNavigationController {
       barIsInstalled = false

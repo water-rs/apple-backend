@@ -12,13 +12,6 @@ import CWaterUI
   import AppKit
 #endif
 
-func wuiLinearToSrgb(_ linear: Float) -> Float {
-  if linear <= 0.003_130_8 {
-    return linear * 12.92
-  }
-  return 1.055 * pow(linear, 1.0 / 2.4) - 0.055
-}
-
 func wuiSrgbToLinear(_ srgb: Float) -> Float {
   if srgb <= 0.040_45 {
     return srgb / 12.92
@@ -76,6 +69,13 @@ class WuiColor {
 }
 
 #if canImport(UIKit)
+  func wuiLinearToSrgb(_ linear: Float) -> Float {
+    if linear <= 0.003_130_8 {
+      return linear * 12.92
+    }
+    return 1.055 * pow(linear, 1.0 / 2.4) - 0.055
+  }
+
   extension WuiResolvedColor {
     func toUIColor(allowHdr: Bool = true) -> UIColor {
       let alpha = wuiClampUnit(self.opacity)

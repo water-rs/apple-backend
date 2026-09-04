@@ -16,6 +16,7 @@ private final class ChromiumComponent: CefSurfaceView, WuiComponent {
     super.init(surface: waterui_force_as_chromium(anyview), env: env)
   }
 
+  // periphery:ignore - required by NSCoding; WaterUI never unarchives views
   @available(*, unavailable)
   required init?(coder: NSCoder) {
     fatalError("ChromiumComponent does not support NSCoder initialization")

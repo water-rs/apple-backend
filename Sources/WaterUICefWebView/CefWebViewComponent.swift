@@ -16,6 +16,7 @@ private final class CefWebViewComponent: CefSurfaceView, WuiComponent {
     super.init(surface: waterui_force_as_cef_webview(anyview), env: env)
   }
 
+  // periphery:ignore - required by NSCoding; WaterUI never unarchives views
   @available(*, unavailable)
   required init?(coder: NSCoder) {
     fatalError("CefWebViewComponent does not support NSCoder initialization")

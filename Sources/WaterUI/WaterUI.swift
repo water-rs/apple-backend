@@ -456,12 +456,14 @@ final class ReactiveFontSignal {
     return computed
   }
 
-  func setValue(size: Float, weight: WuiFontWeight) {
-    let current = state.value
-    guard current.size != size || current.weight.rawValue != weight.rawValue else { return }
-    state.value = Spec(size: size, weight: weight)
-    state.notifyWatchers()
-  }
+  #if canImport(UIKit)
+    func setValue(size: Float, weight: WuiFontWeight) {
+      let current = state.value
+      guard current.size != size || current.weight.rawValue != weight.rawValue else { return }
+      state.value = Spec(size: size, weight: weight)
+      state.notifyWatchers()
+    }
+  #endif
 }
 
 extension WuiEdgeInsets {

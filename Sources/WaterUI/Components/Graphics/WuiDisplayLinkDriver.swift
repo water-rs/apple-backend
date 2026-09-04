@@ -55,8 +55,6 @@ final class WuiDisplayLinkDriver {
     self.target = Target(onFrame: onFrame)
   }
 
-  var isRunning: Bool { clock != nil }
-
   func start(for view: PlatformView) {
     guard let window = view.window else {
       Logger.graphics.debug("Display link not started: the view has no window")

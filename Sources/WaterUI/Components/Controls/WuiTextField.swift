@@ -44,8 +44,10 @@ final class WuiTextField: PlatformView, WuiComponent {
   private var isSyncingFromBinding = false
   private var bindingRenderer: WuiStyledStrRenderer?
   private var promptRenderer: WuiStyledStrRenderer?
-  private var borderColorObservation: WuiComputedObservation<WuiResolvedColor>?
-  private var fillColorObservation: WuiComputedObservation<WuiResolvedColor>?
+  #if canImport(UIKit)
+    private var borderColorObservation: WuiComputedObservation<WuiResolvedColor>?
+    private var fillColorObservation: WuiComputedObservation<WuiResolvedColor>?
+  #endif
   private var promptAlignmentObservation: WuiComputedObservation<WuiHorizontalAlignment>?
   private var bodyFontObservation: WuiComputedObservation<WuiResolvedFontValue>?
   private var accessibility: WuiControlAccessibility?

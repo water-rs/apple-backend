@@ -71,6 +71,7 @@ final class WuiColorView: WuiColorViewBase, WuiComponent {
     apply(observation.value)
   }
 
+  // periphery:ignore - required by NSCoding; WaterUI never unarchives views
   @available(*, unavailable)
   required init?(coder: NSCoder) {
     fatalError("init(coder:) has not been implemented")
@@ -91,6 +92,7 @@ final class WuiResolvedColorView: WuiColorViewBase, WuiComponent {
     apply(color)
   }
 
+  // periphery:ignore - required by NSCoding; WaterUI never unarchives views
   @available(*, unavailable)
   required init?(coder: NSCoder) {
     fatalError("init(coder:) has not been implemented")
