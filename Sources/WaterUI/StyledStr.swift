@@ -15,32 +15,6 @@ struct WuiStyledStr {
     self.chunks = WuiArray(inner.chunks).map(WuiStyledChunk.init)
   }
 
-  init(chunks: [WuiStyledChunk]) {
-    self.chunks = chunks
-  }
-
-  static func fromAttributedString(_ attributed: NSAttributedString) -> WuiStyledStr {
-    let nsText = attributed.string as NSString
-    if attributed.length == 0 {
-      return WuiStyledStr(chunks: [WuiStyledChunk(text: "", style: WuiTextStyle.defaultStyle())])
-    }
-
-    var chunks: [WuiStyledChunk] = []
-    let fullRange = NSRange(location: 0, length: attributed.length)
-    attributed.enumerateAttributes(in: fullRange, options: []) { attributes, range, _ in
-      guard range.length > 0 else { return }
-      let text = nsText.substring(with: range)
-      let style = WuiTextStyle.fromAttributes(attributes)
-      chunks.append(WuiStyledChunk(text: text, style: style))
-    }
-
-    if chunks.isEmpty {
-      chunks.append(WuiStyledChunk(text: attributed.string, style: WuiTextStyle.defaultStyle()))
-    }
-
-    return WuiStyledStr(chunks: chunks)
-  }
-
   func toString() -> String {
     chunks.map { $0.text.toString() }.joined()
   }
@@ -154,11 +128,6 @@ struct WuiStyledChunk {
     self.style = WuiTextStyle(inner.style)
   }
 
-  init(text: String, style: WuiTextStyle) {
-    self.text = WuiStr(string: text)
-    self.style = style
-  }
-
   func toAttributedString(
     font resolvedFont: WuiResolvedFontValue,
     foreground: WuiResolvedColor?,
@@ -237,70 +206,6 @@ struct WuiTextStyle {
     self.underline = inner.underline
     self.strikethrough = inner.strikethrough
     self.italic = inner.italic
-  }
-
-  init(
-    font: WuiFont,
-    foreground: WuiColor?,
-    background: WuiColor?,
-    underline: Bool,
-    strikethrough: Bool,
-    italic: Bool
-  ) {
-    self.font = font
-    self.foreground = foreground
-    self.background = background
-    self.underline = underline
-    self.strikethrough = strikethrough
-    self.italic = italic
-  }
-
-  static func defaultStyle() -> WuiTextStyle {
-    #if canImport(UIKit)
-      let platformFont = UIFont.systemFont(ofSize: UIFont.systemFontSize)
-    #elseif canImport(AppKit)
-      let platformFont = NSFont.systemFont(ofSize: NSFont.systemFontSize)
-    #endif
-    return WuiTextStyle(
-      font: wuiFont(from: platformFont),
-      foreground: nil,
-      background: nil,
-      underline: false,
-      strikethrough: false,
-      italic: false
-    )
-  }
-
-  static func fromAttributes(_ attributes: [NSAttributedString.Key: Any]) -> WuiTextStyle {
-    #if canImport(UIKit)
-      let platformFont =
-        (attributes[.font] as? UIFont) ?? UIFont.systemFont(ofSize: UIFont.systemFontSize)
-    #elseif canImport(AppKit)
-      let platformFont =
-        (attributes[.font] as? NSFont) ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
-    #endif
-
-    let underlineValue = (attributes[.underlineStyle] as? NSNumber)?.intValue ?? 0
-    let strikethroughValue = (attributes[.strikethroughStyle] as? NSNumber)?.intValue ?? 0
-
-    #if canImport(UIKit)
-      let italic = platformFont.fontDescriptor.symbolicTraits.contains(.traitItalic)
-      let foreground = wuiColor(from: attributes[.foregroundColor] as? UIColor)
-      let background = wuiColor(from: attributes[.backgroundColor] as? UIColor)
-    #elseif canImport(AppKit)
-      let italic = platformFont.fontDescriptor.symbolicTraits.contains(.italic)
-      let foreground = wuiColor(from: attributes[.foregroundColor] as? NSColor)
-      let background = wuiColor(from: attributes[.backgroundColor] as? NSColor)
-    #endif
-
-    return WuiTextStyle(
-      font: wuiFont(from: platformFont),
-      foreground: foreground,
-      background: background,
-      underline: underlineValue != 0,
-      strikethrough: strikethroughValue != 0,
-      italic: italic
-    )
   }
 
   mutating func intoInner() -> CWaterUI.WuiTextStyle {
@@ -473,99 +378,3 @@ class WuiFont {
     }
   }
 }
-
-#if canImport(UIKit)
-  @MainActor
-  private func wuiColor(from color: UIColor?) -> WuiColor? {
-    guard let color else { return nil }
-
-    var red: CGFloat = 0
-    var green: CGFloat = 0
-    var blue: CGFloat = 0
-    var alpha: CGFloat = 0
-    guard color.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
-      return nil
-    }
-
-    guard
-      let pointer = waterui_color_from_srgba(Float(red), Float(green), Float(blue), Float(alpha))
-    else {
-      return nil
-    }
-    return WuiColor(pointer)
-  }
-
-  @MainActor
-  private func wuiFont(from font: UIFont) -> WuiFont {
-    let weight = wuiFontWeight(from: font)
-    let family = WuiStr(string: font.fontName)
-    guard
-      let pointer = waterui_font_from_resolved(Float(font.pointSize), weight, family.intoInner())
-    else {
-      fatalError("Failed to create WuiFont from UIFont")
-    }
-    return WuiFont(pointer)
-  }
-
-  private func wuiFontWeight(from font: UIFont) -> CWaterUI.WuiFontWeight {
-    let traits = font.fontDescriptor.object(forKey: .traits) as? [UIFontDescriptor.TraitKey: Any]
-    let raw = (traits?[.weight] as? CGFloat) ?? 0
-
-    switch raw {
-    case ...(-0.8): return WuiFontWeight_Thin
-    case (-0.8) ... (-0.6): return WuiFontWeight_UltraLight
-    case (-0.6) ... (-0.4): return WuiFontWeight_Light
-    case (-0.4) ... (0.0): return WuiFontWeight_Normal
-    case (0.0) ... (0.23): return WuiFontWeight_Medium
-    case (0.23) ... (0.3): return WuiFontWeight_SemiBold
-    case (0.3) ... (0.5): return WuiFontWeight_Bold
-    case (0.5) ... (0.8): return WuiFontWeight_UltraBold
-    default: return WuiFontWeight_Black
-    }
-  }
-#elseif canImport(AppKit)
-  @MainActor
-  private func wuiColor(from color: NSColor?) -> WuiColor? {
-    guard let color else { return nil }
-    guard let srgb = color.usingColorSpace(.sRGB) else { return nil }
-
-    let red = Float(srgb.redComponent)
-    let green = Float(srgb.greenComponent)
-    let blue = Float(srgb.blueComponent)
-    let alpha = Float(srgb.alphaComponent)
-
-    guard let pointer = waterui_color_from_srgba(red, green, blue, alpha) else {
-      return nil
-    }
-    return WuiColor(pointer)
-  }
-
-  @MainActor
-  private func wuiFont(from font: NSFont) -> WuiFont {
-    let weight = wuiFontWeight(from: font)
-    let family = WuiStr(string: font.fontName)
-    guard
-      let pointer = waterui_font_from_resolved(Float(font.pointSize), weight, family.intoInner())
-    else {
-      fatalError("Failed to create WuiFont from NSFont")
-    }
-    return WuiFont(pointer)
-  }
-
-  private func wuiFontWeight(from font: NSFont) -> CWaterUI.WuiFontWeight {
-    let traits = font.fontDescriptor.object(forKey: .traits) as? [NSFontDescriptor.TraitKey: Any]
-    let raw = (traits?[.weight] as? NSNumber)?.doubleValue ?? 0
-
-    switch raw {
-    case ...(-0.8): return WuiFontWeight_Thin
-    case (-0.8) ... (-0.6): return WuiFontWeight_UltraLight
-    case (-0.6) ... (-0.4): return WuiFontWeight_Light
-    case (-0.4) ... (0.0): return WuiFontWeight_Normal
-    case (0.0) ... (0.23): return WuiFontWeight_Medium
-    case (0.23) ... (0.3): return WuiFontWeight_SemiBold
-    case (0.3) ... (0.5): return WuiFontWeight_Bold
-    case (0.5) ... (0.8): return WuiFontWeight_UltraBold
-    default: return WuiFontWeight_Black
-    }
-  }
-#endif

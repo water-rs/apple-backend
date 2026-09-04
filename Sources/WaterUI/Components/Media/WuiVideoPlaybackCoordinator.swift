@@ -20,10 +20,6 @@ extension AVLayerVideoGravity {
   }
 }
 
-private func opaquePointer<T>(_ pointer: UnsafeMutablePointer<T>?) -> OpaquePointer? {
-  pointer.map { OpaquePointer(UnsafeMutableRawPointer($0)) }
-}
-
 private func opaquePointer(_ pointer: OpaquePointer?) -> OpaquePointer? {
   pointer
 }

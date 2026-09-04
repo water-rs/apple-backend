@@ -634,25 +634,6 @@ final class WuiContainer: PlatformView, WuiComponent {
     invalidateLayoutHierarchy()
   }
 
-  private func setChildren(_ newChildren: [WuiAnyView]) {
-    for child in childViews {
-      child.removeFromSuperview()
-    }
-
-    childViews = newChildren
-    cachedSubViews = nil
-    for child in newChildren {
-      child.translatesAutoresizingMaskIntoConstraints = true
-      addSubview(child)
-    }
-
-    #if canImport(UIKit)
-      setNeedsLayout()
-    #elseif canImport(AppKit)
-      needsLayout = true
-    #endif
-  }
-
   private func subViewCache() -> CachedSubViewArray {
     if let cachedSubViews {
       return cachedSubViews

@@ -15,30 +15,15 @@ import AppKit
 class Action {
     // `nonisolated(unsafe)`: only ever touched on the main actor, plus by the
     // deinit below, which cannot be isolated.
-    private nonisolated(unsafe) var inner: OpaquePointer?
-    private var env: WuiEnvironment?
-    private let callback: (() -> Void)?
+    private nonisolated(unsafe) let inner: OpaquePointer
+    private let env: WuiEnvironment
 
     init(inner: OpaquePointer, env: WuiEnvironment) {
         self.inner = inner
         self.env = env
-        self.callback = nil
-    }
-
-    init(callback: @escaping () -> Void) {
-        self.inner = nil
-        self.env = nil
-        self.callback = callback
     }
 
     func call() {
-        if let callback {
-            callback()
-            return
-        }
-        guard let inner, let env else {
-            fatalError("Action requires either a local callback or valid FFI action pointer")
-        }
         waterui_call_action(inner, env.inner)
     }
 
@@ -47,8 +32,6 @@ class Action {
     // releases the owner from an autorelease-pool drain inside `NSView.dealloc`.
     // The body only hands a pointer back to Rust.
     nonisolated deinit {
-        if let inner {
-            waterui_drop_action(inner)
-        }
+        waterui_drop_action(inner)
     }
 }
