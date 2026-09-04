@@ -537,7 +537,10 @@ final class WuiTextField: PlatformView, WuiComponent {
       focusTarget.emitPlatformFocusChange(false)
     }
 
-    func textView(
+    // The field editor forwards NSTextViewDelegate messages to the control's
+    // delegate only when the selector exists at runtime; this method satisfies no
+    // NSTextFieldDelegate requirement, so `@objc` is what makes AppKit find it.
+    @objc func textView(
       _ view: NSTextView,
       menu: NSMenu,
       for event: NSEvent,
