@@ -538,9 +538,12 @@ final class WuiTextField: PlatformView, WuiComponent {
     }
 
     // The field editor forwards NSTextViewDelegate messages to the control's
-    // delegate only when the selector exists at runtime; this method satisfies no
-    // NSTextFieldDelegate requirement, so `@objc` is what makes AppKit find it.
-    @objc func textView(
+    // delegate only when it responds to the AppKit selector. This method satisfies
+    // no NSTextFieldDelegate requirement, so nothing supplies that selector for it:
+    // a bare `@objc` would infer `textView:menu:for:at:` from the Swift labels,
+    // which AppKit never sends.
+    @objc(textView:menu:forEvent:atIndex:)
+    func textView(
       _ view: NSTextView,
       menu: NSMenu,
       for event: NSEvent,
