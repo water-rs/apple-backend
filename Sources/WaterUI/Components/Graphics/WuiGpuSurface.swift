@@ -1114,7 +1114,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
       // window from rendering frames nobody sees.
       guard window.screen != nil else { return false }
       if window.isMiniaturized { return false }
-      if !window.occlusionState.contains(.visible) { return false }
+      if isPresentationOccluded { return false }
       return true
     #else
       return true
