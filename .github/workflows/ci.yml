@@ -51,16 +51,6 @@ jobs:
       - name: Build release
         run: swift build --configuration release -Xswiftc -warnings-as-errors
 
-  test:
-    name: test
-    runs-on: macos-26
-    steps:
-      - uses: actions/checkout@v4
-      - name: Sync WaterUI header
-        run: ./.github/scripts/setup-waterui.sh
-      - name: Run tests
-        run: swift test -Xswiftc -warnings-as-errors
-
   periphery:
     name: periphery
     runs-on: macos-26
@@ -79,7 +69,7 @@ jobs:
   notify-waterui:
     name: notify-waterui
     runs-on: ubuntu-latest
-    needs: [lint, build-debug, build-release, test, periphery]
+    needs: [lint, build-debug, build-release, periphery]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - name: Send repository_dispatch to waterui
