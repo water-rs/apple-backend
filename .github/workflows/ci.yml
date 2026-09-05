@@ -31,31 +31,40 @@ jobs:
       - name: ast-grep
         run: sg scan Sources Tests --inline-rules "$(cat .ci/sg/swift.yml)" --report-style short
 
+  # Every Swift compilation condition the water CLI can hand this package
+  # (`apple_swift_conditions` in waterui's cli/src/apple/platform.rs) is built:
+  # `WATERUI_MAP` adds the map component; `WATERUI_NO_GPU` removes the GPU
+  # surface. Neither is compiled by the default shape, and a symbol used only
+  # behind one of them once shipped deleted (waterui#343).
+  #
+  # The three shapes are steps of one job per configuration, not a matrix
+  # axis: they share the checkout, the header sync and the build directory,
+  # and macOS runners are what the org's concurrent-job cap runs out of, so
+  # one job that builds three shapes in a row gets through the queue where
+  # three jobs wait on three runners.
   build:
-    name: build (${{ matrix.configuration }}, ${{ matrix.shape.name }})
+    name: build (${{ matrix.configuration }})
     runs-on: macos-26
     strategy:
       fail-fast: false
       matrix:
         configuration: [debug, release]
-        # Every Swift compilation condition the water CLI can hand this
-        # package (`apple_swift_conditions` in waterui's cli/src/apple/platform.rs)
-        # is a shape of its own. `WATERUI_MAP` adds the map component;
-        # `WATERUI_NO_GPU` removes the GPU surface. Neither is compiled by the
-        # default shape, and a symbol used only behind one of them once shipped
-        # deleted (waterui#343).
-        shape:
-          - { name: default, flags: "" }
-          - { name: map, flags: "-Xswiftc -DWATERUI_MAP" }
-          - { name: no-gpu, flags: "-Xswiftc -DWATERUI_NO_GPU" }
     steps:
       - uses: actions/checkout@v4
       - name: Sync WaterUI header
         run: ./.github/scripts/setup-waterui.sh
-      - name: Build
+      - name: Build (default)
         run: >-
           swift build --configuration ${{ matrix.configuration }}
-          -Xswiftc -warnings-as-errors ${{ matrix.shape.flags }}
+          -Xswiftc -warnings-as-errors
+      - name: Build (map)
+        run: >-
+          swift build --configuration ${{ matrix.configuration }}
+          -Xswiftc -warnings-as-errors -Xswiftc -DWATERUI_MAP
+      - name: Build (no-gpu)
+        run: >-
+          swift build --configuration ${{ matrix.configuration }}
+          -Xswiftc -warnings-as-errors -Xswiftc -DWATERUI_NO_GPU
 
   # Scans the largest shape (`.periphery.yml` passes `-DWATERUI_MAP`), so code
   # that only the map component reaches counts as used. `WATERUI_NO_GPU` only
