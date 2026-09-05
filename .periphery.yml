@@ -13,3 +13,8 @@ index_exclude:
   - .build/**
   - Tests/**
   - waterui/**
+# The largest shape: the map component only exists behind this condition, and
+# without it every symbol it alone reaches is reported unused (waterui#343).
+build_arguments:
+  - -Xswiftc
+  - -DWATERUI_MAP

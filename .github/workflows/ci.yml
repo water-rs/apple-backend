@@ -31,26 +31,36 @@ jobs:
       - name: ast-grep
         run: sg scan Sources Tests --inline-rules "$(cat .ci/sg/swift.yml)" --report-style short
 
-  build-debug:
-    name: build-debug
+  build:
+    name: build (${{ matrix.configuration }}, ${{ matrix.shape.name }})
     runs-on: macos-26
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [debug, release]
+        # Every Swift compilation condition the water CLI can hand this
+        # package (`apple_swift_conditions` in waterui's cli/src/apple/platform.rs)
+        # is a shape of its own. `WATERUI_MAP` adds the map component;
+        # `WATERUI_NO_GPU` removes the GPU surface. Neither is compiled by the
+        # default shape, and a symbol used only behind one of them once shipped
+        # deleted (waterui#343).
+        shape:
+          - { name: default, flags: "" }
+          - { name: map, flags: "-Xswiftc -DWATERUI_MAP" }
+          - { name: no-gpu, flags: "-Xswiftc -DWATERUI_NO_GPU" }
     steps:
       - uses: actions/checkout@v4
       - name: Sync WaterUI header
         run: ./.github/scripts/setup-waterui.sh
-      - name: Build debug
-        run: swift build --configuration debug -Xswiftc -warnings-as-errors
+      - name: Build
+        run: >-
+          swift build --configuration ${{ matrix.configuration }}
+          -Xswiftc -warnings-as-errors ${{ matrix.shape.flags }}
 
-  build-release:
-    name: build-release
-    runs-on: macos-26
-    steps:
-      - uses: actions/checkout@v4
-      - name: Sync WaterUI header
-        run: ./.github/scripts/setup-waterui.sh
-      - name: Build release
-        run: swift build --configuration release -Xswiftc -warnings-as-errors
-
+  # Scans the largest shape (`.periphery.yml` passes `-DWATERUI_MAP`), so code
+  # that only the map component reaches counts as used. `WATERUI_NO_GPU` only
+  # swaps implementations and adds no symbols of its own, so the default shape
+  # plus the map shape is the whole package.
   periphery:
     name: periphery
     runs-on: macos-26
@@ -69,7 +79,7 @@ jobs:
   notify-waterui:
     name: notify-waterui
     runs-on: ubuntu-latest
-    needs: [lint, build-debug, build-release, periphery]
+    needs: [lint, build, periphery]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - name: Send repository_dispatch to waterui
