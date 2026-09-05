@@ -165,6 +165,24 @@ func makeDoubleWatcher(_ f: @escaping (Double, WuiWatcherMetadata) -> Void) -> O
   return watcher
 }
 
+/// Region watcher for the map component. Its only caller is compiled under
+/// `WATERUI_MAP`, so it is unused in the default shape by construction.
+@MainActor
+func makeRegionWatcher(_ f: @escaping (WuiRegion, WuiWatcherMetadata) -> Void) -> OpaquePointer {
+  let data = wrap(f)
+  let call: @convention(c) (UnsafeMutableRawPointer?, WuiRegion, OpaquePointer?) -> Void = {
+    data, value, metadata in
+    callWrapper(data, value, metadata)
+  }
+  let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
+    dropWrapper($0, WuiRegion.self)
+  }
+  guard let watcher = waterui_new_watcher_region(data, call, drop) else {
+    fatalError("Failed to create region watcher")
+  }
+  return watcher
+}
+
 @MainActor
 func makeFloatWatcher(_ f: @escaping (Float, WuiWatcherMetadata) -> Void) -> OpaquePointer {
   let data = wrap(f)
