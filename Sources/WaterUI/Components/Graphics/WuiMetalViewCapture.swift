@@ -610,6 +610,24 @@ final class WuiMetalViewCapture: @unchecked Sendable {
       captureRenderer = renderer
     }
 
+    // `CARenderer` draws over whatever the destination already holds and never
+    // clears it, so a private texture — fresh or reused — carries uninitialised
+    // memory under the layer tree, which the composite then treats as opaque
+    // content. One empty pass on the same queue clears it ahead of the render;
+    // command buffers on one queue execute in commit order.
+    let clearDescriptor = MTLRenderPassDescriptor()
+    clearDescriptor.colorAttachments[0].texture = texture
+    clearDescriptor.colorAttachments[0].loadAction = .clear
+    clearDescriptor.colorAttachments[0].storeAction = .store
+    clearDescriptor.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 0)
+    guard let clearBuffer = queue.makeCommandBuffer(),
+      let clearEncoder = clearBuffer.makeRenderCommandEncoder(descriptor: clearDescriptor)
+    else {
+      fatalError("Failed to encode the native capture clear pass")
+    }
+    clearEncoder.endEncoding()
+    clearBuffer.commit()
+
     renderer.layer = layer
     // The destination rectangle is in pixels; `withCaptureTransform` brings the
     // point-space layer tree into that same space.

@@ -241,7 +241,10 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiFirstPaintReadyPart
   }
 
   private func initializeGpuIfNeeded() {
-    guard bounds.width > 0, bounds.height > 0 else { return }
+    guard bounds.width > 0, bounds.height > 0 else {
+      releasePresentation()
+      return
+    }
     #if canImport(UIKit)
       guard window != nil else { return }
     #elseif canImport(AppKit)
@@ -466,19 +469,32 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiFirstPaintReadyPart
 
   private func handleWindowChange() {
     if window == nil {
-      stopDisplayLink()
-      pendingDynamicRangeMode = nil
-      completeReady(false)
-      if renderInFlight {
-        detachAfterCapture = true
-      } else {
-        renderState.detachIfNeeded()
-      }
+      releasePresentation()
       return
     }
     detachAfterCapture = false
     initializeGpuIfNeeded()
     requestRenderIfNeeded()
+  }
+
+  /// Drops the attached output once the view can no longer present: it left
+  /// the window, or layout gave it zero bounds. The capture pipeline requires
+  /// non-zero content bounds, and a filter whose content measures empty (a
+  /// photo that has not decoded yet) is laid out at zero after being attached
+  /// at the size its host first offered, so an attached output over an empty
+  /// layout would capture nothing and trap. A capture in flight finishes and
+  /// detaches on completion; a later layout to a real size attaches again
+  /// through `initializeGpuIfNeeded`.
+  private func releasePresentation() {
+    stopDisplayLink()
+    needsRender = false
+    pendingDynamicRangeMode = nil
+    completeReady(false)
+    if renderInFlight {
+      detachAfterCapture = true
+    } else {
+      renderState.detachIfNeeded()
+    }
   }
 
   /// Positions the presentation layer. Its drawable size belongs to wgpu, which

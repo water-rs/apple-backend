@@ -64,6 +64,7 @@ private final class WuiGpuSurfaceRenderState {
   private var needsRender = true
   private(set) var hasRenderedFrame = false
   private var lastResolvedMeasurement: WuiViewDimensions
+  private var lastProposal: WuiProposalSize?
   private var deferredMeasurementInvalidation = false
   private let cachedPriority: Int32
   private var width: UInt32 = 0
@@ -328,6 +329,7 @@ private final class WuiGpuSurfaceRenderState {
   }
 
   func measure(_ proposal: WuiProposalSize) -> WuiViewDimensions {
+    lastProposal = proposal
     if !rendererSetupStarted || isSetupReady {
       let dimensions = WuiViewDimensions(
         waterui_gpu_surface_measure(gpuState, proposal.toCStruct()))
@@ -341,9 +343,32 @@ private final class WuiGpuSurfaceRenderState {
     return lastResolvedMeasurement
   }
 
+  /// Whether the host laid this surface out with a measurement the renderer
+  /// no longer gives.
+  ///
+  /// A `GpuView` whose content changes size — a photo whose first frame just
+  /// decoded — requests a redraw, which is the only signal it has; native
+  /// layout is on demand, so the surface asks the renderer again with the
+  /// proposal it was last measured with and reports a stale box to the host.
+  ///
+  /// Asked whenever the renderer can answer — before setup starts as well as
+  /// after it completes — and not only once the surface is attached: a
+  /// content-sized view that first measured empty was never given the bounds
+  /// that attaching requires, so gating this on setup would leave it empty
+  /// for good.
   func takeMeasurementInvalidation() -> Bool {
-    guard deferredMeasurementInvalidation else { return false }
-    deferredMeasurementInvalidation = false
+    if deferredMeasurementInvalidation {
+      guard isSetupReady else { return false }
+      deferredMeasurementInvalidation = false
+      return true
+    }
+    guard !rendererSetupStarted || isSetupReady, let proposal = lastProposal else {
+      return false
+    }
+    let dimensions = WuiViewDimensions(
+      waterui_gpu_surface_measure(gpuState, proposal.toCStruct()))
+    guard dimensions.cgSize != lastResolvedMeasurement.cgSize else { return false }
+    lastResolvedMeasurement = dimensions
     return true
   }
 
@@ -1149,15 +1174,11 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
 
   private func handleRedrawRequest() {
     completeSetupIfReady()
-    if renderState.isSetupReady && renderState.takeMeasurementInvalidation() {
-      invalidateIntrinsicContentSize()
-      #if canImport(UIKit)
-        setNeedsLayout()
-        superview?.setNeedsLayout()
-      #elseif canImport(AppKit)
-        needsLayout = true
-        superview?.needsLayout = true
-      #endif
+    if renderState.takeMeasurementInvalidation() {
+      // The whole ancestor chain, not just the parent: a stack that grew
+      // re-lays its own children inside the box its parent gave it, so only a
+      // root-to-leaf pass moves the siblings that follow this surface.
+      invalidateLayoutHierarchy()
     }
     if externalRenderingScopes.isActive {
       externalRenderingScopes.notifyRedraw()
