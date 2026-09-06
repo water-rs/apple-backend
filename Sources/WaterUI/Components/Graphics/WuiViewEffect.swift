@@ -106,6 +106,9 @@ final class WuiViewEffect: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
   private var outputLayer: CAMetalLayer!
   private var captureTexture: MTLTexture?
   private var frameDriver: WuiDisplayLinkDriver!
+  #if canImport(AppKit)
+    private var occlusionObserver: WuiWindowOcclusionObserver!
+  #endif
   private var currentScaleFactor: CGFloat = 1
   private var configuredDynamicRangeMode: WuiDynamicRangeMode?
   private var needsRender = false
@@ -143,6 +146,9 @@ final class WuiViewEffect: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
 
     #if canImport(AppKit)
       wantsLayer = true
+      occlusionObserver = WuiWindowOcclusionObserver { [weak self] in
+        self?.scheduleFrameIfNeeded()
+      }
     #endif
     setupOutputLayer()
     setupChildView()
@@ -299,10 +305,14 @@ final class WuiViewEffect: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
   /// window, or a window between displays — from the main run loop instead of a
   /// display link, so gating on `window.screen` here would strand those
   /// captures waiting for a frame that never comes.
+  ///
+  /// An occluded window is a different matter: wgpu skips its frames and
+  /// reports them pending, so the clock stays stopped until the occlusion
+  /// observer re-arms it (#353).
   private func scheduleFrameIfNeeded() {
     guard
       renderState.isAttached, window != nil, needsRender, !renderInFlight,
-      pendingSetupFrame == nil
+      pendingSetupFrame == nil, !isPresentationOccluded
     else {
       stopDisplayLink()
       return
@@ -481,6 +491,7 @@ final class WuiViewEffect: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
 
     override func viewDidMoveToWindow() {
       super.viewDidMoveToWindow()
+      occlusionObserver.observe(window: window)
       handleWindowChange()
     }
 
