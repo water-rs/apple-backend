@@ -47,15 +47,26 @@ enum WuiInspector {
   /// reader would be told is what the Inspector shows, so the two cannot drift
   /// apart. Identifiers are the views' own addresses, which are stable for as
   /// long as the views are.
+  /// The inspector's id for a view: its address, stable for as long as the
+  /// view is. `publishTree` keys the tree by it and `inspect(view:)` reveals
+  /// by it, so the two must never compute it differently.
+  static func identifier(_ view: PlatformView) -> UInt64 {
+    UInt64(UInt(bitPattern: ObjectIdentifier(view).hashValue))
+  }
+
+  /// Reveals `view` in the inspector, publishing the tree it belongs to first
+  /// when one is being read: the inspector cannot reveal what it has not been
+  /// told about, and a selection made before it attaches waits for it.
+  static func inspect(view: PlatformView, under root: PlatformView, env: WuiEnvironment) {
+    publishTree(root: root, env: env)
+    waterui_inspector_inspect_node(env.inner, identifier(view))
+  }
+
   static func publishTree(root: PlatformView, env: WuiEnvironment) {
     guard wantsTree(env: env) else { return }
 
     var nodes: [WuiInspectorNode] = []
     var childStorage: [[UInt64]] = []
-
-    func identifier(_ view: PlatformView) -> UInt64 {
-      UInt64(UInt(bitPattern: ObjectIdentifier(view).hashValue))
-    }
 
     func store(_ text: String) -> CWaterUI.WuiStr {
       WuiStr(string: text).intoInner()
@@ -162,7 +173,7 @@ enum WuiInspector {
         action: #selector(WuiInspectorMenuTarget.inspect(_:)),
         keyEquivalent: ""
       )
-      let target = WuiInspectorMenuTarget(env: env, view: view)
+      let target = WuiInspectorMenuTarget(env: env, view: view, locationInWindow: event.locationInWindow)
       item.target = target
       item.representedObject = target  // the menu item is the only owner
       menu.addItem(item)
@@ -170,25 +181,28 @@ enum WuiInspector {
     }
   }
 
-  /// Carries the environment from the menu item to the action.
+  /// Carries the environment and the clicked point from the menu item to the
+  /// action.
   @MainActor
   private final class WuiInspectorMenuTarget: NSObject {
     private let env: WuiEnvironment
     private weak var view: NSView?
+    private let locationInWindow: NSPoint
 
-    init(env: WuiEnvironment, view: NSView?) {
+    init(env: WuiEnvironment, view: NSView?, locationInWindow: NSPoint) {
       self.env = env
       self.view = view
+      self.locationInWindow = locationInWindow
     }
 
     @objc func inspect(_: NSMenuItem) {
-      WuiInspector.open(env: env)
-      // Publish before asking for a node: the Inspector cannot reveal what it
-      // has not been told about, and the tree is only walked when something is
-      // attached to read it.
-      if let root = view?.window?.contentView {
-        WuiInspector.publishTree(root: root, env: env)
-      }
+      // The element under the secondary click, found the way AppKit itself
+      // routes the event: `hitTest` takes the point in the receiver's
+      // superview's coordinates, so the window point is converted there.
+      guard let root = view?.window?.contentView else { return }
+      let point = root.superview?.convert(locationInWindow, from: nil) ?? locationInWindow
+      let hit = root.hitTest(point) ?? root
+      WuiInspector.inspect(view: hit, under: root, env: env)
     }
   }
 #endif
@@ -210,9 +224,14 @@ enum WuiInspector {
 
     @objc func handle(_ sender: UILongPressGestureRecognizer) {
       guard sender.state == .began,
-        let env = environments[ObjectIdentifier(sender)]
+        let env = environments[ObjectIdentifier(sender)],
+        let root = sender.view
       else { return }
-      WuiInspector.open(env: env)
+      // The element under the press, found the way UIKit routes touches. The
+      // recognizer sits on the host view, which is the tree `publishTree`
+      // walks, so the hit is always one of the published nodes.
+      let hit = root.hitTest(sender.location(in: root), with: nil) ?? root
+      WuiInspector.inspect(view: hit, under: root, env: env)
     }
   }
 #endif
