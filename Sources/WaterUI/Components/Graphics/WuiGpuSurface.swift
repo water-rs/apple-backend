@@ -63,6 +63,13 @@ private final class WuiGpuSurfaceRenderState {
   private var rendererSetupStarted = false
   private var needsRender = true
   private(set) var hasRenderedFrame = false
+  /// True while a Rust render call is on the stack. The renderer holds its
+  /// semantic view mutably for that whole call, so a redraw wake that arrives
+  /// in the middle of it (a `GpuView` whose render pumps an engine that paints
+  /// synchronously, as CEF does) must not lay out or measure until the call
+  /// returns; `handleExternalRedrawRequest` parks it in `wakeDeferredByRender`.
+  private var isRendering = false
+  private var wakeDeferredByRender = false
   private var lastResolvedMeasurement: WuiViewDimensions
   private var lastProposal: WuiProposalSize?
   private var deferredMeasurementInvalidation = false
@@ -280,11 +287,28 @@ private final class WuiGpuSurfaceRenderState {
 
     needsRender = false
     syncInputState()
-    if waterui_gpu_surface_render(gpuState, width, height, Double(scale)) {
+    let requestedRedraw = withRenderInProgress {
+      waterui_gpu_surface_render(gpuState, width, height, Double(scale))
+    }
+    if requestedRedraw {
       needsRender = true
     }
     hasRenderedFrame = true
     return needsRender
+  }
+
+  /// Runs one Rust render call, replaying any redraw wake that arrived while
+  /// it was on the stack once the renderer has released its view again.
+  private func withRenderInProgress<T>(_ render: () -> T) -> T {
+    precondition(!isRendering, "GpuSurface render re-entered while a render call was in progress")
+    isRendering = true
+    let result = render()
+    isRendering = false
+    if wakeDeferredByRender {
+      wakeDeferredByRender = false
+      onRedrawRequested?()
+    }
+    return result
   }
 
   func setExternalRendering(_ enabled: Bool) {
@@ -313,15 +337,16 @@ private final class WuiGpuSurfaceRenderState {
     precondition(scale > 0, "External texture rendering requires a positive device-pixel ratio")
     precondition(isSetupReady, "External texture rendering requires completed asynchronous setup")
     syncInputState()
-    guard
-      let fence = waterui_gpu_surface_render_to_metal_texture(
+    let fence = withRenderInProgress {
+      waterui_gpu_surface_render_to_metal_texture(
         gpuState,
         texturePtr,
         width,
         height,
         Double(scale)
       )
-    else {
+    }
+    guard let fence else {
       fatalError("waterui_gpu_surface_render_to_metal_texture returned null")
     }
     hasRenderedFrame = true
@@ -378,6 +403,10 @@ private final class WuiGpuSurfaceRenderState {
 
   private func handleExternalRedrawRequest() {
     needsRender = true
+    if isRendering {
+      wakeDeferredByRender = true
+      return
+    }
     onRedrawRequested?()
   }
 
