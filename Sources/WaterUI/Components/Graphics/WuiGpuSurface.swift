@@ -63,6 +63,13 @@ private final class WuiGpuSurfaceRenderState {
   private var rendererSetupStarted = false
   private var needsRender = true
   private(set) var hasRenderedFrame = false
+  /// True while a Rust render call is on the stack. The renderer holds its
+  /// semantic view mutably for that whole call, so a redraw wake that arrives
+  /// in the middle of it (a `GpuView` whose render pumps an engine that paints
+  /// synchronously, as CEF does) must not lay out or measure until the call
+  /// returns; `handleExternalRedrawRequest` parks it in `wakeDeferredByRender`.
+  private var isRendering = false
+  private var wakeDeferredByRender = false
   private var lastResolvedMeasurement: WuiViewDimensions
   private var lastProposal: WuiProposalSize?
   private var deferredMeasurementInvalidation = false
@@ -127,6 +134,14 @@ private final class WuiGpuSurfaceRenderState {
 
   var isSurfaceAttached: Bool { isAttached }
   var isSetupReady: Bool { waterui_gpu_surface_is_ready(gpuState) }
+
+  /// What the semantic GPU view says about itself, for a screen reader.
+  ///
+  /// Empty until asynchronous renderer setup finishes, and for every view that
+  /// draws nothing a reader needs told about.
+  var accessibilityLabelFromContent: String {
+    WuiStr(waterui_gpu_surface_accessibility_label(gpuState)).toString()
+  }
 
   /// Whether the semantic GPU view draws interactive content and therefore
   /// takes the raw input events instead of the per-frame pointer snapshot.
@@ -280,11 +295,28 @@ private final class WuiGpuSurfaceRenderState {
 
     needsRender = false
     syncInputState()
-    if waterui_gpu_surface_render(gpuState, width, height, Double(scale)) {
+    let requestedRedraw = withRenderInProgress {
+      waterui_gpu_surface_render(gpuState, width, height, Double(scale))
+    }
+    if requestedRedraw {
       needsRender = true
     }
     hasRenderedFrame = true
     return needsRender
+  }
+
+  /// Runs one Rust render call, replaying any redraw wake that arrived while
+  /// it was on the stack once the renderer has released its view again.
+  private func withRenderInProgress<T>(_ render: () -> T) -> T {
+    precondition(!isRendering, "GpuSurface render re-entered while a render call was in progress")
+    isRendering = true
+    let result = render()
+    isRendering = false
+    if wakeDeferredByRender {
+      wakeDeferredByRender = false
+      onRedrawRequested?()
+    }
+    return result
   }
 
   func setExternalRendering(_ enabled: Bool) {
@@ -313,15 +345,16 @@ private final class WuiGpuSurfaceRenderState {
     precondition(scale > 0, "External texture rendering requires a positive device-pixel ratio")
     precondition(isSetupReady, "External texture rendering requires completed asynchronous setup")
     syncInputState()
-    guard
-      let fence = waterui_gpu_surface_render_to_metal_texture(
+    let fence = withRenderInProgress {
+      waterui_gpu_surface_render_to_metal_texture(
         gpuState,
         texturePtr,
         width,
         height,
         Double(scale)
       )
-    else {
+    }
+    guard let fence else {
       fatalError("waterui_gpu_surface_render_to_metal_texture returned null")
     }
     hasRenderedFrame = true
@@ -378,6 +411,10 @@ private final class WuiGpuSurfaceRenderState {
 
   private func handleExternalRedrawRequest() {
     needsRender = true
+    if isRendering {
+      wakeDeferredByRender = true
+      return
+    }
     onRedrawRequested?()
   }
 
@@ -436,6 +473,12 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
   private var inputResponder: WuiGpuSurfaceInputResponder?
   private var captureSuppressionCount = 0
   private var keepRedrawing = false
+  /// The label this surface itself last published, so an application label put
+  /// on top of it is never overwritten by the next frame.
+  private var publishedAccessibilityLabel: String?
+  /// Whether the content has changed since the label was last asked for. Starts
+  /// true so the first drawn frame publishes one.
+  private var needsAccessibilityLabelRefresh = true
   private var redrawWakeScheduled = false
   private var readyCompletions: [WuiGpuSurfaceReadyCompletion] = []
   private var setupCompletions: [WuiGpuSurfaceSetupCompletion] = []
@@ -1076,8 +1119,53 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
       return
     }
     completeReady(true)
+    publishContentAccessibilityLabel()
     keepRedrawing = needsRedraw
     updateDisplayLinkState()
+  }
+
+  /// Names this surface's element with whatever its content says it draws.
+  ///
+  /// A `CAMetalLayer` is opaque to VoiceOver: a formula, chart or diagram
+  /// rendered into it is announced as an unlabelled element unless the content
+  /// states its own meaning. The content is what knows, so the answer comes
+  /// from it rather than from anything the host could infer.
+  ///
+  /// Asked after a frame rather than once at creation, because the label is
+  /// empty until asynchronous renderer setup finishes — and only when the
+  /// content actually invalidated, because deriving the label can be real work
+  /// (a formula runs its source through speech rules) and a display link that
+  /// drives an animation must not pay it sixty times a second.
+  ///
+  /// An application label always wins. `WuiAccessibilityLabel` applies the
+  /// app's own label to this very view, so anything on it that this surface did
+  /// not put there belongs to someone else and is left alone.
+  private func publishContentAccessibilityLabel() {
+    guard needsAccessibilityLabelRefresh else { return }
+    needsAccessibilityLabelRefresh = false
+
+    #if canImport(UIKit)
+      let existing = accessibilityLabel
+    #elseif canImport(AppKit)
+      let existing = accessibilityLabel()
+    #endif
+    // An empty label is no label: AppKit hands back `""` for a view nobody has
+    // named, and the two mean the same thing to a reader.
+    let current = (existing?.isEmpty == false) ? existing : nil
+    guard current == nil || current == publishedAccessibilityLabel else { return }
+
+    let content = renderState.accessibilityLabelFromContent
+    let label = content.isEmpty ? nil : content
+    guard label != publishedAccessibilityLabel else { return }
+    publishedAccessibilityLabel = label
+
+    #if canImport(UIKit)
+      isAccessibilityElement = label != nil
+      accessibilityLabel = label
+    #elseif canImport(AppKit)
+      setAccessibilityElement(label != nil)
+      setAccessibilityLabel(label)
+    #endif
   }
 
   /// Publishes input state and lets the display link drive the actual frame.
@@ -1174,6 +1262,9 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
 
   private func handleRedrawRequest() {
     completeSetupIfReady()
+    // The content invalidated, which is the one moment its description can have
+    // changed; the next drawn frame republishes it.
+    needsAccessibilityLabelRefresh = true
     if renderState.takeMeasurementInvalidation() {
       // The whole ancestor chain, not just the parent: a stack that grew
       // re-lays its own children inside the box its parent gave it, so only a

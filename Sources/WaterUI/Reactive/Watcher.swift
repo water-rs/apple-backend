@@ -451,6 +451,24 @@ func makeResolvedColorWatcher(_ f: @escaping (WuiResolvedColor, WuiWatcherMetada
 }
 
 @MainActor
+func makeBitmapWatcher(_ f: @escaping (WuiBitmap, WuiWatcherMetadata) -> Void)
+  -> OpaquePointer
+{
+  let data = wrap(f)
+  let call: @convention(c) (UnsafeMutableRawPointer?, WuiBitmap, OpaquePointer?) -> Void = {
+    data, value, metadata in
+    callWrapper(data, value, metadata)
+  }
+  let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
+    dropWrapper($0, WuiBitmap.self)
+  }
+  guard let watcher = waterui_new_watcher_bitmap(data, call, drop) else {
+    fatalError("Failed to create bitmap watcher")
+  }
+  return watcher
+}
+
+@MainActor
 func makeColorSchemeWatcher(_ f: @escaping (WuiColorScheme, WuiWatcherMetadata) -> Void)
   -> OpaquePointer
 {

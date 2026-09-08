@@ -155,6 +155,7 @@ private func registerBuiltinComponentsIfNeeded() {
   registerComponent(WuiResolvedGradientView.self)
   registerComponent(WuiResolvedShape.self)
   registerComponent(WuiSystemIcon.self)
+  registerComponent(WuiPictureView.self)
 
   // Interactive components
   registerComponent(WuiButton.self)

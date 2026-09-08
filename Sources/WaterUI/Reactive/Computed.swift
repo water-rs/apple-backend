@@ -264,6 +264,22 @@ extension WuiComputed where T == WuiResolvedColor {
   }
 }
 
+extension WuiComputed where T == WuiBitmap {
+  convenience init(_ inner: OpaquePointer) {
+    self.init(
+      inner: inner,
+      read: { inner in
+        return waterui_read_computed_bitmap(inner)
+      },
+      watch: { inner, f in
+        let g = waterui_watch_computed_bitmap(inner, makeBitmapWatcher(f))
+        return WatcherGuard(g!)
+      },
+      drop: waterui_drop_computed_bitmap
+    )
+  }
+}
+
 extension WuiComputed where T == WuiStyledStr {
   convenience init(_ inner: OpaquePointer) {
     self.init(
