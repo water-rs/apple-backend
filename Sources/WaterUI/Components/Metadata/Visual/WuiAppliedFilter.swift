@@ -148,20 +148,6 @@ private final class WuiAppliedFilterRenderState {
   }
 }
 
-/// The view whose backing layer shows the filtered frames.
-///
-/// A view of its own, not a bare sublayer of the host: `cacheDisplay(in:to:)`
-/// draws a view's whole layer tree before any of its subviews, so a bare
-/// sublayer lands underneath the content whatever its `zPosition` — which Core
-/// Animation honours and the snapshot ignores. As the last subview it is drawn
-/// last by both.
-@MainActor
-final class WuiFilterOutputView: PlatformView {
-  #if canImport(AppKit)
-    nonisolated override var isFlipped: Bool { true }
-  #endif
-}
-
 @MainActor
 final class WuiAppliedFilter: PlatformView, WuiComponent, WuiPresentsOwnContent, WuiFirstPaintReadyParticipant,
   WuiRenderedContentInvalidationSink
@@ -257,7 +243,7 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiPresentsOwnContent,
   /// content no matter its `zPosition`, which Core Animation honours and the
   /// snapshot ignores. As the last subview it is drawn last in both.
   private func setupOutputView(device: MTLDevice) {
-    let outputView = WuiFilterOutputView(frame: .zero)
+    let outputView = WuiSurfacePresentationView(frame: .zero)
     #if canImport(AppKit)
       outputView.wantsLayer = true
     #endif

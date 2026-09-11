@@ -242,17 +242,20 @@ private final class WuiGpuSurfaceRenderState {
     return true
   }
 
+  /// Starts the renderer against the format the host will present in.
+  ///
+  /// There is no surface to attach: the host owns the textures and hands one in
+  /// with every frame, so all the renderer needs is the format it must produce.
   @discardableResult
   func attachIfNeeded(
-    layerPtr: UnsafeMutableRawPointer,
+    texturePtr: UnsafeMutableRawPointer,
     width: UInt32,
     height: UInt32,
-    scale: CGFloat,
-    prefersHDR: Bool
+    scale: CGFloat
   ) -> Bool {
     _ = updateSize(width: width, height: height, scale: scale)
     guard !isAttached else { return false }
-    waterui_gpu_surface_attach(gpuState, layerPtr, width, height, prefersHDR)
+    waterui_gpu_surface_prepare_metal_texture(gpuState, texturePtr)
     rendererSetupStarted = true
     isAttached = true
     needsRender = true
@@ -261,15 +264,20 @@ private final class WuiGpuSurfaceRenderState {
 
   func detachIfNeeded() {
     guard isAttached else { return }
-    waterui_gpu_surface_detach(gpuState)
     isAttached = false
     hasRenderedFrame = false
   }
 
-  @discardableResult
-  func requestRender(
+  /// Renders one frame into a texture the host presents, or answers why it
+  /// could not.
+  ///
+  /// There is no "needs another frame" answer to carry back: a renderer that
+  /// wants one asks for it through the redraw callback, which arms the clock
+  /// on its own.
+  func renderIntoPresentedTexture(
+    _ texture: MTLTexture,
     force: Bool = false
-  ) -> Bool? {
+  ) -> OpaquePointer? {
     guard !externalRendering else { return nil }
     guard force || needsRender else { return nil }
     guard isAttached, width > 0, height > 0, scale > 0 else { return nil }
@@ -279,12 +287,12 @@ private final class WuiGpuSurfaceRenderState {
     }
 
     needsRender = false
-    syncInputState()
-    if waterui_gpu_surface_render(gpuState, width, height, Double(scale)) {
-      needsRender = true
-    }
-    hasRenderedFrame = true
-    return needsRender
+    return renderPreparedMetalTexture(
+      texturePtr: Unmanaged.passUnretained(texture).toOpaque(),
+      width: width,
+      height: height,
+      scale: scale
+    )
   }
 
   func setExternalRendering(_ enabled: Bool) {
@@ -296,7 +304,6 @@ private final class WuiGpuSurfaceRenderState {
   }
 
   func prepareMetalTexture(_ texturePtr: UnsafeMutableRawPointer) -> Bool {
-    precondition(externalRendering, "External texture rendering requires an active scope")
     waterui_gpu_surface_prepare_metal_texture(gpuState, texturePtr)
     rendererSetupStarted = true
     return isSetupReady
@@ -308,7 +315,6 @@ private final class WuiGpuSurfaceRenderState {
     height: UInt32,
     scale: CGFloat
   ) -> OpaquePointer {
-    precondition(externalRendering, "External texture rendering requires an active scope")
     precondition(width > 0 && height > 0, "External texture rendering requires non-zero dimensions")
     precondition(scale > 0, "External texture rendering requires a positive device-pixel ratio")
     precondition(isSetupReady, "External texture rendering requires completed asynchronous setup")
@@ -400,8 +406,19 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
 
   private let renderState: WuiGpuSurfaceRenderState
 
-  /// The CAMetalLayer for GPU rendering
-  private let metalLayer = CAMetalLayer()
+  /// The view whose layer shows the rendered frames.
+  ///
+  /// Frames arrive as an `IOSurface` pair on a plain layer's `contents` rather
+  /// than through a `CAMetalLayer` swapchain: Core Animation composites them in
+  /// place with no drawable pool and no `present`, a frame that did not change
+  /// costs nothing, and — unlike a drawable — every capture path can read one
+  /// (waterui#519).
+  private let presentationLayer = CALayer()
+  private var presenter: WuiSurfacePresenter!
+  /// The format the presented surfaces carry, settled with the dynamic range.
+  private var presentationPixelFormat: MTLPixelFormat = .invalid
+  /// Whether a frame is between its render and its fence.
+  private var framePresentationInFlight = false
 
   #if canImport(AppKit)
     private var trackingArea: NSTrackingArea?
@@ -483,7 +500,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
       self?.handleRedrawRequest()
     }
     renderState.installRedrawCallback()
-    setupMetalLayer(device: metalDevice)
+    setupPresentation(device: metalDevice)
     setupPointerTracking()
     setupLifecycleObservers()
     installInputResponderIfNeeded()
@@ -737,22 +754,6 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
       addTrackingArea(area)
     }
 
-    override func viewWillStartLiveResize() {
-      super.viewWillStartLiveResize()
-      // During a live resize the drawable has to be presented inside the same
-      // Core Animation transaction that commits the new layer geometry, or
-      // presented frames trail the window edge. wgpu reads this flag when it
-      // acquires the drawable and switches to the wait-then-present path.
-      // It stays off in steady state, where it would only make presentation
-      // block until the command buffer is scheduled.
-      metalLayer.presentsWithTransaction = true
-    }
-
-    override func viewDidEndLiveResize() {
-      super.viewDidEndLiveResize()
-      metalLayer.presentsWithTransaction = false
-    }
-
     override func mouseEntered(with event: NSEvent) {
       super.mouseEntered(with: event)
       let location = convert(event.locationInWindow, from: nil)
@@ -916,27 +917,25 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
 
   // MARK: - Metal Layer Setup
 
-  private func setupMetalLayer(device: MTLDevice) {
-    // Only properties wgpu does not own belong here: configuring the surface
-    // overwrites `pixelFormat`, `colorspace`, `framebufferOnly`, `drawableSize`,
-    // `maximumDrawableCount`, and `wantsExtendedDynamicRangeContent`.
-    metalLayer.device = device
-    metalLayer.isOpaque = false  // Allow transparency for compositing with background
+  private func setupPresentation(device: MTLDevice) {
+    presentationLayer.isOpaque = false
+    // The frames are rendered at device-pixel size, so the layer must not
+    // rescale them; `contentsScale` is what tells Core Animation that.
+    presentationLayer.contentsGravity = .resize
     #if canImport(UIKit)
-      metalLayer.backgroundColor = UIColor.clear.cgColor  // Ensure no black background
+      presentationLayer.backgroundColor = UIColor.clear.cgColor
+      layer.addSublayer(presentationLayer)
     #elseif canImport(AppKit)
-      metalLayer.backgroundColor = NSColor.clear.cgColor  // Ensure no black background
-    #endif
-
-    #if canImport(UIKit)
-      // iOS/tvOS: Add metal layer as sublayer
-      layer.addSublayer(metalLayer)
-    #elseif canImport(AppKit)
+      presentationLayer.backgroundColor = NSColor.clear.cgColor
+      // Layer-hosting, as this view was when it hosted a `CAMetalLayer`: it has
+      // no subviews of its own, and an assigned layer is the one way to be sure
+      // one exists before the first layout pass asks for it.
       let hostLayer = CALayer()
       hostLayer.backgroundColor = NSColor.clear.cgColor
-      hostLayer.addSublayer(metalLayer)
+      hostLayer.addSublayer(presentationLayer)
       layer = hostLayer
     #endif
+    presenter = WuiSurfacePresenter(device: device, layer: presentationLayer)
   }
 
   /// Resolves the renderer's target dynamic range for a requested presentation.
@@ -972,12 +971,18 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
   ) {
     guard configuredDynamicRangeMode != presentation else { return }
     precondition(!isSurfaceAttached, "GpuSurface dynamic range cannot change while attached")
-    applyDynamicRange(presentation, to: self)
-    configureMetalLayerDynamicRange(
-      metalLayer,
-      presentationMode: presentation,
-      rendererMode: renderer
+    precondition(
+      presentation == .standard || renderer == .high,
+      "An HDR presentation requires an HDR-capable renderer target"
     )
+    applyDynamicRange(presentation, to: self)
+    // The presented `IOSurface` carries both halves of what a `CAMetalLayer`
+    // was told separately: its Metal format, and the colour space Core
+    // Animation composites it in. A plain layer has no
+    // `wantsExtendedDynamicRangeContent` to set — the extended-range colour
+    // space on the surface is what asks for EDR.
+    presentationPixelFormat = renderer == .high ? .rgba16Float : .bgra8Unorm_srgb
+    presenter.release()
     configuredDynamicRangeMode = presentation
   }
 
@@ -1024,19 +1029,20 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
       keepRedrawing = true
     }
 
-    metalLayer.frame = bounds
-    metalLayer.contentsScale = currentScaleFactor
+    updatePresentationFrame()
 
-    // Get pointer to metal layer for wgpu surface creation
-    let layerPtr = Unmanaged.passUnretained(metalLayer).toOpaque()
+    presenter.configure(
+      width: Int(width), height: Int(height), pixelFormat: presentationPixelFormat)
 
     guard !isSurfaceAttached else { return }
+    guard let first = presenter.nextTexture() else {
+      fatalError("GpuSurface presenter has no texture to prepare the renderer with")
+    }
     if renderState.attachIfNeeded(
-      layerPtr: layerPtr,
+      texturePtr: Unmanaged.passUnretained(first).toOpaque(),
       width: width,
       height: height,
-      scale: currentScaleFactor,
-      prefersHDR: rendererRange == .high
+      scale: currentScaleFactor
     ) {
       Logger.graphics.debug(
         """
@@ -1065,19 +1071,35 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
       externalRenderingScopes.notifyRedraw()
       return
     }
+    // One frame at a time: the surface it renders into is the one not being
+    // shown, and starting a second before the first is presented would render
+    // over the frame on screen.
+    guard !framePresentationInFlight else { return }
 
-    guard let needsRedraw = renderState.requestRender(force: force) else {
-      // Nothing was rendered: either there is nothing to draw, the surface is
-      // not presentable yet, or asynchronous setup is still running. None of
+    guard let texture = presenter.nextTexture(),
+      let fence = renderState.renderIntoPresentedTexture(texture, force: force)
+    else {
+      // Nothing was rendered: either there is nothing to draw, the surfaces are
+      // not allocated yet, or asynchronous setup is still running. None of
       // those clear by spinning the display link — the renderer's redraw
       // callback wakes us when the situation changes — so let it stop.
       keepRedrawing = false
       updateDisplayLinkState()
       return
     }
-    completeReady(true)
-    keepRedrawing = needsRedraw
+
+    framePresentationInFlight = true
+    keepRedrawing = false
     updateDisplayLinkState()
+    // Shown only once the GPU has finished writing it: a surface handed to
+    // Core Animation mid-write composites a half-drawn frame.
+    observeGpuCaptureFence(fence) { [weak self] in
+      guard let self else { return }
+      self.framePresentationInFlight = false
+      self.presenter.presentRenderedTexture()
+      self.completeReady(true)
+      self.updateDisplayLinkState()
+    }
   }
 
   /// Publishes input state and lets the display link drive the actual frame.
@@ -1221,11 +1243,21 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
     }
   }
 
-  private func setMetalLayerHidden(_ hidden: Bool) {
-    guard metalLayer.isHidden != hidden else { return }
+  private func setPresentationHidden(_ hidden: Bool) {
+    guard presentationLayer.isHidden != hidden else { return }
     CATransaction.begin()
     CATransaction.setDisableActions(true)
-    metalLayer.isHidden = hidden
+    presentationLayer.isHidden = hidden
+    CATransaction.commit()
+  }
+
+  /// Positions the presentation view and tells Core Animation the frames are
+  /// already at device-pixel size.
+  private func updatePresentationFrame() {
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    presentationLayer.frame = bounds
+    presentationLayer.contentsScale = currentScaleFactor
     CATransaction.commit()
   }
 
@@ -1233,7 +1265,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
     captureSuppressionCount += 1
     let shouldHide = captureSuppressionCount == 1
     if shouldHide {
-      setMetalLayerHidden(true)
+      setPresentationHidden(true)
     }
   }
 
@@ -1243,7 +1275,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
     captureSuppressionCount -= 1
     let shouldShow = captureSuppressionCount == 0
     if shouldShow {
-      setMetalLayerHidden(false)
+      setPresentationHidden(false)
     }
   }
 
@@ -1306,10 +1338,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
   }
 
   var captureDevice: MTLDevice {
-    guard let device = metalLayer.device else {
-      fatalError("GpuSurface Metal layer has no device")
-    }
-    return device
+    presenter.presentationDevice
   }
 
   /// The pixel format an external capture texture must use.
@@ -1322,7 +1351,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
       configuredDynamicRangeMode != nil,
       "GpuSurface must have a configured dynamic range before external capture"
     )
-    return metalLayer.pixelFormat
+    return presentationPixelFormat
   }
 
   func prepareForReady() {
@@ -1483,8 +1512,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
     CATransaction.begin()
     CATransaction.setDisableActions(true)
 
-    metalLayer.frame = bounds
-    metalLayer.contentsScale = currentScaleFactor
+    updatePresentationFrame()
 
     CATransaction.commit()
   }

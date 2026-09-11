@@ -13,6 +13,20 @@
     import AppKit
   #endif
 
+  /// The view whose backing layer shows a presenter's frames.
+  ///
+  /// A view of its own, not a bare sublayer of the host: `cacheDisplay(in:to:)`
+  /// draws a view's whole layer tree before any of its subviews, so a bare
+  /// sublayer lands underneath the host's content whatever its `zPosition` —
+  /// which Core Animation honours and the snapshot ignores. As the last subview
+  /// it is drawn last by both.
+  @MainActor
+  final class WuiSurfacePresentationView: PlatformView {
+    #if canImport(AppKit)
+      nonisolated override var isFlipped: Bool { true }
+    #endif
+  }
+
   /// Presents rendered frames through `IOSurface`-backed textures on a plain
   /// `CALayer`, instead of a `CAMetalLayer` swapchain.
   ///
@@ -63,6 +77,9 @@
       self.device = device
       self.layer = layer
     }
+
+    /// The device the presented textures belong to.
+    var presentationDevice: MTLDevice { device }
 
     /// The format the current buffers carry, or `.invalid` before the first size.
     var currentPixelFormat: MTLPixelFormat { pixelFormat }
