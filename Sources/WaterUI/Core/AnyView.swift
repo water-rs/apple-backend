@@ -73,6 +73,18 @@ func isMetadataComponent(_ component: any WuiComponent) -> Bool {
   metadataComponentIds.contains(type(of: component).viewId)
 }
 
+/// A metadata component that draws something of its own in place of the content
+/// it wraps: a filter host showing its filtered output.
+///
+/// A capture descends through metadata wrappers to reach the content underneath
+/// them, which is right for every wrapper that only decorates its child and
+/// wrong for these: their content is deliberately hidden and their own
+/// presentation is the thing an enclosing capture has to read. Descending past
+/// one captures its hidden, unfiltered child instead — which is why a filter
+/// inside a filter captured nothing (waterui#521).
+@MainActor
+protocol WuiPresentsOwnContent: AnyObject {}
+
 // MARK: - Root Theme Controller
 
 /// Controls the window's appearance based on the root component's environment theme.

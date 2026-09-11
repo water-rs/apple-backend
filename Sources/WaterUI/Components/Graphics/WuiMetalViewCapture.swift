@@ -97,8 +97,6 @@ final class WuiMetalViewCapture: @unchecked Sendable {
   private struct CaptureGeometry {
     let scaleX: CGFloat
     let scaleY: CGFloat
-    /// Destination height in pixels; the mirror axis of the capture transform.
-    let targetHeight: CGFloat
   }
 
   /// GPU composition state, confined to `queue`.
@@ -403,6 +401,14 @@ final class WuiMetalViewCapture: @unchecked Sendable {
 
   @MainActor
   private func prepareCapture(into targetTexture: MTLTexture) -> Preparation {
+    // The content is hidden for the whole of its life — its host shows the
+    // filtered output in its place — and a hidden view is never asked to draw,
+    // so it has to be visible *before* the display pass below, not merely
+    // before the `CARenderer` frame.
+    let wasHidden = contentView.isHidden
+    setContentHidden(false)
+    defer { setContentHidden(wasHidden) }
+
     prepareCaptureView(contentView)
     let layer = resolveCaptureLayer(from: contentView)
     let geometry = captureGeometry(for: targetTexture)
@@ -423,10 +429,6 @@ final class WuiMetalViewCapture: @unchecked Sendable {
         height: targetTexture.height
       )
     }
-
-    let wasHidden = layer.isHidden
-    setLayer(layer, hidden: false)
-    defer { setLayer(layer, hidden: wasHidden) }
 
     let nativeCaptureFence: MTLCommandBuffer
     if snapshots.isEmpty {
@@ -460,8 +462,7 @@ final class WuiMetalViewCapture: @unchecked Sendable {
     )
     return CaptureGeometry(
       scaleX: CGFloat(targetTexture.width) / contentView.bounds.width,
-      scaleY: CGFloat(targetTexture.height) / contentView.bounds.height,
-      targetHeight: CGFloat(targetTexture.height)
+      scaleY: CGFloat(targetTexture.height) / contentView.bounds.height
     )
   }
 
@@ -497,6 +498,7 @@ final class WuiMetalViewCapture: @unchecked Sendable {
   private func resolveCaptureLayer(from view: PlatformView) -> CALayer {
     if let component = view as? WuiComponent,
       isMetadataComponent(component),
+      !(component is any WuiPresentsOwnContent),
       let contentSubview = view.subviews.first(where: { $0 is WuiComponent })
     {
       return resolveCaptureLayer(from: contentSubview)
@@ -515,22 +517,35 @@ final class WuiMetalViewCapture: @unchecked Sendable {
     #endif
   }
 
+  /// Shows or re-hides the captured content without letting anything else see
+  /// it: actions are disabled and the state is restored before this frame ends,
+  /// so no presented frame ever carries the content visible.
+  ///
+  /// Flushed on both edges because `CARenderer` renders the *committed* tree,
+  /// not the model this code has just mutated.
   @MainActor
-  private func setLayer(_ layer: CALayer, hidden: Bool) {
-    guard layer.isHidden != hidden else { return }
+  private func setContentHidden(_ hidden: Bool) {
+    guard contentView.isHidden != hidden else { return }
     CATransaction.begin()
     CATransaction.setDisableActions(true)
-    layer.isHidden = hidden
+    contentView.isHidden = hidden
     CATransaction.commit()
+    CATransaction.flush()
   }
 
   /// Runs `body` with `layer` mapped onto the pixel-sized capture destination.
   ///
   /// `CARenderer` takes its destination rectangle in pixels but reads the layer
-  /// tree in points, and its destination row index grows with layer-space y —
-  /// the opposite of every other texture in this pipeline. One transform fixes
-  /// both: scale by the backing factor, mirror vertically, and translate the
-  /// mirrored tree back down onto the destination.
+  /// tree in points, so the tree is scaled by the backing factor onto the
+  /// destination.
+  ///
+  /// It is *not* mirrored. `CARenderer`'s destination row index grows with
+  /// layer-space y, which is upside down against every other texture here —
+  /// except that WaterUI's AppKit views are `isFlipped`, so their backing
+  /// layers already carry that inversion and the two cancel. Mirroring here as
+  /// well counted the flip twice and captured the content upside down; it went
+  /// unnoticed for as long as no capture path could see a filter's output at
+  /// all (waterui#519).
   ///
   /// Deriving the position from the layer's own position keeps the mapping
   /// independent of its anchor point (AppKit uses `(0, 0)`, UIKit `(0.5, 0.5)`),
@@ -553,13 +568,14 @@ final class WuiMetalViewCapture: @unchecked Sendable {
     CATransaction.setDisableActions(true)
     layer.transform = CATransform3DConcat(
       savedTransform,
-      CATransform3DMakeScale(geometry.scaleX, -geometry.scaleY, 1)
+      CATransform3DMakeScale(geometry.scaleX, geometry.scaleY, 1)
     )
     layer.position = CGPoint(
       x: savedPosition.x * geometry.scaleX,
-      y: geometry.targetHeight - savedPosition.y * geometry.scaleY
+      y: savedPosition.y * geometry.scaleY
     )
     CATransaction.commit()
+    CATransaction.flush()
 
     defer {
       CATransaction.begin()
@@ -567,6 +583,7 @@ final class WuiMetalViewCapture: @unchecked Sendable {
       layer.transform = savedTransform
       layer.position = savedPosition
       CATransaction.commit()
+      CATransaction.flush()
     }
 
     return body()
