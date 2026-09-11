@@ -1106,24 +1106,6 @@ typedef enum WuiTabStyle {
 } WuiTabStyle;
 
 /**
- * Pointer buttons supported by CEF windowless rendering.
- */
-typedef enum WuiCefPointerButton {
-  /**
-   * Primary pointer button.
-   */
-  WuiCefPointerButton_Primary,
-  /**
-   * Middle pointer button.
-   */
-  WuiCefPointerButton_Middle,
-  /**
-   * Secondary pointer button.
-   */
-  WuiCefPointerButton_Secondary,
-} WuiCefPointerButton;
-
-/**
  * Editing operations forwarded to Chromium's focused frame.
  */
 typedef enum WuiCefEditCommand {
@@ -1218,6 +1200,37 @@ typedef enum WuiWebViewEventType {
    */
   WuiWebViewEventType_StateChanged = 7,
 } WuiWebViewEventType;
+
+/**
+ * The pixel layout an Android capture buffer must be allocated with.
+ *
+ * The backend allocates its `ImageReader` from this after attaching, so the
+ * buffer it hands back is copy-compatible with the capture texture the filter
+ * samples. The discriminants are the values the JNI binding returns as an
+ * `Int`, and are part of the Kotlin contract.
+ */
+enum WuiCaptureFormat
+#if __STDC_VERSION__ >= 202311L
+  : uint32_t
+#endif // __STDC_VERSION__ >= 202311L
+ {
+  /**
+   * Four 8-bit unsigned channels: `AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM`,
+   * which is `android.graphics.PixelFormat.RGBA_8888`.
+   */
+  WuiCaptureFormat_Rgba8Unorm = 0,
+  /**
+   * Four 16-bit half-float channels:
+   * `AHARDWAREBUFFER_FORMAT_R16G16B16A16_FLOAT`, which is
+   * `android.graphics.PixelFormat.RGBA_FP16`.
+   */
+  WuiCaptureFormat_Rgba16Float = 1,
+};
+#if __STDC_VERSION__ >= 202311L
+typedef enum WuiCaptureFormat WuiCaptureFormat;
+#else
+typedef uint32_t WuiCaptureFormat;
+#endif // __STDC_VERSION__ >= 202311L
 
 /**
  * Which event a [`WuiSurfaceInputEvent`] carries.
@@ -6407,40 +6420,6 @@ typedef struct WuiCefSurface {
 } WuiCefSurface;
 
 /**
- * Modifier snapshot for CEF pointer and keyboard input.
- */
-typedef struct WuiCefInputModifiers {
-  /**
-   * Shift key.
-   */
-  bool shift;
-  /**
-   * Control key.
-   */
-  bool control;
-  /**
-   * Alt or Option key.
-   */
-  bool alt;
-  /**
-   * Command key.
-   */
-  bool command;
-  /**
-   * Primary pointer button.
-   */
-  bool primary_button;
-  /**
-   * Middle pointer button.
-   */
-  bool middle_button;
-  /**
-   * Secondary pointer button.
-   */
-  bool secondary_button;
-} WuiCefInputModifiers;
-
-/**
  * One parsed `waterui.invoke(...)` request.
  */
 typedef struct WuiBridgeRequest {
@@ -6963,6 +6942,11 @@ typedef struct WuiPicture {
    * Height in points.
    */
   float height;
+  /**
+   * The name the drawing offers a screen reader; empty when it offers none.
+   * An application's own label on the view or an ancestor still wins.
+   */
+  struct WuiStr label;
 } WuiPicture;
 
 /**
@@ -10489,41 +10473,6 @@ struct WuiTypeId waterui_chromium_id(void);
 struct WuiCefSurface waterui_force_as_cef_webview(struct WuiAnyView *view);
 
 /**
- * Updates focus for a CEF surface.
- *
- * # Safety
- *
- * `state` must be a live state returned by a CEF force-as function.
- */
-void waterui_cef_surface_set_focus(const struct WuiCefSurfaceState *state, bool focused);
-
-/**
- * Requests one compositor frame for a visible CEF surface.
- *
- * # Safety
- *
- * `state` must be a live state returned by a CEF force-as function.
- */
-void waterui_cef_surface_request_frame(const struct WuiCefSurfaceState *state);
-
-/**
- * Updates the logical browser viewport and device scale.
- *
- * # Safety
- *
- * `state` must be a live state returned by a CEF force-as function.
- *
- * # Panics
- *
- * Panics when `scale` is not a positive, finite device-pixel ratio that `f32`
- * can represent, and when `width` or `height` is zero.
- */
-void waterui_cef_surface_set_viewport(const struct WuiCefSurfaceState *state,
-                                      uint32_t width,
-                                      uint32_t height,
-                                      double scale);
-
-/**
  * Navigates the CEF surface backward.
  *
  * # Safety
@@ -10540,111 +10489,6 @@ void waterui_cef_surface_go_back(const struct WuiCefSurfaceState *state);
  * `state` must be a live state returned by a CEF force-as function.
  */
 void waterui_cef_surface_go_forward(const struct WuiCefSurfaceState *state);
-
-/**
- * Sends pointer movement in surface-local logical coordinates.
- *
- * # Safety
- *
- * `state` must be a live state returned by a CEF force-as function.
- */
-void waterui_cef_surface_pointer_move(const struct WuiCefSurfaceState *state,
-                                      double x,
-                                      double y,
-                                      struct WuiCefInputModifiers modifiers);
-
-/**
- * Sends one pointer button transition.
- *
- * # Safety
- *
- * `state` must be a live state returned by a CEF force-as function.
- */
-void waterui_cef_surface_pointer_button(const struct WuiCefSurfaceState *state,
-                                        bool pressed,
-                                        enum WuiCefPointerButton button,
-                                        double x,
-                                        double y,
-                                        struct WuiCefInputModifiers modifiers);
-
-/**
- * Sends a CEF wheel event.
- *
- * # Safety
- *
- * `state` must be a live state returned by a CEF force-as function.
- */
-void waterui_cef_surface_scroll(const struct WuiCefSurfaceState *state,
-                                double x,
-                                double y,
-                                double delta_x,
-                                double delta_y,
-                                struct WuiCefInputModifiers modifiers);
-
-/**
- * Sends one native key transition.
- *
- * `character` is a Unicode scalar value, or zero when the key has no text.
- *
- * # Safety
- *
- * `state` must be a live state returned by a CEF force-as function.
- *
- * # Panics
- *
- * Panics when `character` is non-zero but not a Unicode scalar value.
- */
-void waterui_cef_surface_key(const struct WuiCefSurfaceState *state,
-                             bool pressed,
-                             uint32_t native_keycode,
-                             uint32_t keyval,
-                             uint32_t character,
-                             struct WuiCefInputModifiers modifiers);
-
-/**
- * Commits text to the focused Chromium editor.
- *
- * # Safety
- *
- * `state` and `text` must be valid owning FFI values.
- */
-void waterui_cef_surface_commit_text(const struct WuiCefSurfaceState *state,
-                                     struct WuiStr text,
-                                     uint32_t replacement_start,
-                                     uint32_t replacement_end);
-
-/**
- * Updates active IME composition text and its UTF-16 selection.
- *
- * # Safety
- *
- * `state` and `text` must be valid owning FFI values.
- */
-void waterui_cef_surface_set_composition(const struct WuiCefSurfaceState *state,
-                                         struct WuiStr text,
-                                         uint32_t selection_start,
-                                         uint32_t selection_end,
-                                         uint32_t replacement_start,
-                                         uint32_t replacement_end);
-
-/**
- * Finishes active IME composition.
- *
- * # Safety
- *
- * `state` must be a live state returned by a CEF force-as function.
- */
-void waterui_cef_surface_finish_composition(const struct WuiCefSurfaceState *state,
-                                            bool keep_selection);
-
-/**
- * Cancels active IME composition.
- *
- * # Safety
- *
- * `state` must be a live state returned by a CEF force-as function.
- */
-void waterui_cef_surface_cancel_composition(const struct WuiCefSurfaceState *state);
 
 /**
  * Executes an editing command in Chromium's focused frame.
@@ -11022,24 +10866,68 @@ struct WuiAppliedFilterState *waterui_applied_filter_create(struct WuiAppliedFil
                                                             const struct WuiEnv *env);
 
 /**
- * Attaches a native presentation target while preserving the semantic filter.
+ * Attaches a presentation surface (non-Apple only).
+ *
+ * # Safety
+ *
+ * `state` must come from [`waterui_applied_filter_create`].
+ *
+ * # Panics
+ *
+ * Always panics: Apple hosts own their presentation memory and attach with
+ * [`waterui_applied_filter_attach_host_textures`].
+ */
+void waterui_applied_filter_attach(struct WuiAppliedFilterState *_state,
+                                   void *_output_layer,
+                                   uint32_t _input_width,
+                                   uint32_t _input_height,
+                                   bool _prefers_hdr);
+
+/**
+ * The `MTLPixelFormat` an attached filter renders its output in (Apple only).
+ *
+ * The host allocates its `IOSurface` pair from this. It is the raw Metal enum
+ * value rather than a `WuiCaptureFormat` because the two are not the same
+ * alphabet: `WuiCaptureFormat` names `AHardwareBuffer` layouts, and the
+ * presentation format here is `BGRA8Unorm_sRGB`, which has no name there.
+ *
+ * # Safety
+ *
+ * `state` must be a valid pointer from [`waterui_applied_filter_create`] with a
+ * presentation target attached.
+ *
+ * # Panics
+ *
+ * Panics if the filter is detached, or if its output format has no Metal
+ * equivalent.
+ */
+uint32_t waterui_applied_filter_output_metal_pixel_format(const struct WuiAppliedFilterState *state);
+
+/**
+ * Attaches host-owned presentation on Apple, where frames arrive per texture.
+ *
+ * No layer is named because none is configured: the host keeps a pair of
+ * `IOSurface`-backed textures, hands one to
+ * [`waterui_applied_filter_render_to_metal_texture`] per frame, and shows it
+ * on `CALayer.contents` once that frame's fence completes. The texture format
+ * is this call's answer, read back with
+ * [`waterui_applied_filter_output_metal_pixel_format`].
  *
  * # Safety
  *
  * - `state` must come from [`waterui_applied_filter_create`].
- * - `output_layer` must remain valid until [`waterui_applied_filter_detach`].
  * - The state must currently be detached.
  *
  * # Panics
  *
- * Panics if `state` already has an output surface attached, or if
- * `input_width`/`input_height` is zero.
+ * Panics if `state` already has a presentation target attached, if
+ * `input_width`/`input_height` is zero, or if the chosen format cannot carry
+ * the subtree capture.
  */
-void waterui_applied_filter_attach(struct WuiAppliedFilterState *state,
-                                   void *output_layer,
-                                   uint32_t input_width,
-                                   uint32_t input_height,
-                                   bool prefers_hdr);
+void waterui_applied_filter_attach_host_textures(struct WuiAppliedFilterState *state,
+                                                 uint32_t input_width,
+                                                 uint32_t input_height,
+                                                 bool prefers_hdr);
 
 /**
  * Detaches the presentation target without destroying the semantic filter.
@@ -11097,36 +10985,50 @@ void waterui_applied_filter_setup(struct WuiAppliedFilterState *state);
 bool waterui_applied_filter_is_ready(const struct WuiAppliedFilterState *state);
 
 /**
- * Render the filter.
+ * Render the filter into a host-owned Metal texture (Apple only).
  *
- * This function applies the filter to the captured input and renders to the output.
- * Pass current width/height - resources are recreated if size changed.
+ * The host keeps a pair of `IOSurface`-backed textures and hands in the one it
+ * is not currently showing. The returned fence is that frame's: the host shows
+ * the texture on `CALayer.contents` when it completes, never before, so a
+ * half-drawn frame is never composited.
  *
- * # Arguments
- *
- * * `state` - Pointer to attached persistent state
- * * `width` - Current width in pixels
- * * `height` - Current height in pixels
- *
- * # Returns
- *
- * Whether another frame is needed for animation or an effect callback that
- * arrived while this frame was rendering.
+ * `needs_redraw` is reported through `out_needs_redraw` because the return
+ * value carries the fence.
  *
  * # Safety
  *
- * - `state` must be a valid pointer from `waterui_applied_filter_create`
- * - A presentation target must be attached
- * - `waterui_applied_filter_setup` must have completed
+ * - `state` must be a valid pointer from `waterui_applied_filter_create` with
+ *   a presentation target attached.
+ * - `texture` must point to a live `MTLTexture` of the attached format, at
+ *   least `width` by `height`.
+ * - `out_needs_redraw` must be writable.
  *
  * # Panics
  *
- * Panics if the asynchronous setup started by `waterui_applied_filter_setup`
- * has not completed yet.
+ * Panics if `texture` is null, if its format is not the one established at
+ * attach, or if setup has not completed.
  */
-bool waterui_applied_filter_render(struct WuiAppliedFilterState *state,
-                                   uint32_t width,
-                                   uint32_t height);
+struct WuiGpuCaptureFence *waterui_applied_filter_render_to_metal_texture(struct WuiAppliedFilterState *state,
+                                                                          void *texture,
+                                                                          uint32_t width,
+                                                                          uint32_t height,
+                                                                          bool *out_needs_redraw);
+
+/**
+ * Render the filter, presenting into the attached surface (non-Apple only).
+ *
+ * # Safety
+ *
+ * `state` must come from [`waterui_applied_filter_create`].
+ *
+ * # Panics
+ *
+ * Always panics: Apple hosts render with
+ * [`waterui_applied_filter_render_to_metal_texture`].
+ */
+bool waterui_applied_filter_render(struct WuiAppliedFilterState *_state,
+                                   uint32_t _width,
+                                   uint32_t _height);
 
 /**
  * Resolve the current output size from the latest observed filter state.
@@ -11155,6 +11057,56 @@ struct WuiAppliedFilterOutputSize waterui_applied_filter_resolve_output_size(str
 void waterui_applied_filter_prepare_capture(struct WuiAppliedFilterState *state,
                                             uint32_t width,
                                             uint32_t height);
+
+/**
+ * The pixel layout this filter's capture buffers must be allocated with (Android only).
+ *
+ * # Safety
+ *
+ * `state` must be a valid pointer from `waterui_applied_filter_create` with an
+ * attached target.
+ *
+ * # Panics
+ *
+ * Always panics: `AHardwareBuffer` capture only exists on Android.
+ */
+WuiCaptureFormat waterui_applied_filter_capture_format(const struct WuiAppliedFilterState *_state);
+
+/**
+ * Copies a captured `AHardwareBuffer` into the capture texture (Android only).
+ *
+ * # Safety
+ *
+ * `state` must be a valid pointer from `waterui_applied_filter_create` with an
+ * attached target, and `buffer` a live `AHardwareBuffer`.
+ *
+ * # Panics
+ *
+ * Always panics: `AHardwareBuffer` capture only exists on Android.
+ */
+struct WuiGpuCaptureFence *waterui_applied_filter_set_capture_hardware_buffer(struct WuiAppliedFilterState *_state,
+                                                                              void *_buffer);
+
+/**
+ * Draws a `GpuSurface` nested in the captured subtree into the capture (Android only).
+ *
+ * # Safety
+ *
+ * `filter` and `surface` must be valid state pointers from their matching
+ * constructors.
+ *
+ * # Panics
+ *
+ * Always panics: nested-surface compositing only exists on Android, because
+ * only there does the capture arrive with the surface missing from it.
+ */
+void waterui_applied_filter_composite_gpu_surface(struct WuiAppliedFilterState *_filter,
+                                                  struct WuiGpuSurfaceState *_surface,
+                                                  int32_t _x,
+                                                  int32_t _y,
+                                                  uint32_t _width,
+                                                  uint32_t _height,
+                                                  double _scale);
 
 /**
  * Get a pointer to the Metal texture backing the capture texture (Apple only).
@@ -11239,6 +11191,34 @@ struct WuiGpuSurface waterui_force_as_gpu_surface(struct WuiAnyView *view);
 struct WuiTypeId waterui_gpu_surface_id(void);
 
 /**
+ * What this surface's content says about itself, for a screen reader.
+ *
+ * A surface is an opaque rectangle to the platform's accessibility layer:
+ * whatever the formula, chart or diagram inside it means, nothing outside the
+ * content can read it back off the pixels. A host names the surface's element
+ * with this when the application named it nothing, so an explicit label from
+ * the application always wins.
+ *
+ * Ask again after each frame. A view whose content follows a signal re-draws
+ * and re-describes itself at the same moment, and the answer is empty until
+ * asynchronous renderer setup finishes, which is before the first frame.
+ *
+ * # Returns
+ *
+ * An owning [`WuiStr`], empty when this surface has nothing to say — which a
+ * host treats the same way it treats a view that never had a label. There is
+ * deliberately no third state: "no label" and "the empty label" are the same
+ * instruction to a screen reader, so the ABI does not carry a distinction
+ * nothing acts on.
+ *
+ * # Safety
+ *
+ * `state` must be a valid pointer returned by
+ * [`waterui_gpu_surface_create`], on the thread that created it.
+ */
+struct WuiStr waterui_gpu_surface_accessibility_label(const struct WuiGpuSurfaceState *state);
+
+/**
  * Returns the renderer-driven HDR preference for a `WuiGpuSurface`.
  *
  * This must be called before `waterui_gpu_surface_create` consumes the surface.
@@ -11293,41 +11273,36 @@ struct WuiViewDimensions waterui_gpu_surface_measure(const struct WuiGpuSurfaceS
 int32_t waterui_gpu_surface_priority(const struct WuiGpuSurfaceState *state);
 
 /**
- * Replaces the native presentation surface while preserving the semantic
- * `GpuView` and its persistent renderer resources.
- *
- * Android calls this when `SurfaceView` receives a replacement `Surface`.
+ * Attaches a native presentation surface (non-Apple only).
  *
  * # Safety
  *
- * - `state` must be a valid pointer returned by [`waterui_gpu_surface_create`].
- * - `layer` must remain valid until [`waterui_gpu_surface_detach`] is called.
- * - The state must currently be detached.
+ * `state` must come from [`waterui_gpu_surface_create`].
  *
  * # Panics
  *
- * Panics if `state` already has a native surface attached, or if `width` or
- * `height` is zero.
+ * Always panics: Apple hosts own their presentation memory and start the
+ * renderer with [`waterui_gpu_surface_prepare_metal_texture`].
  */
-void waterui_gpu_surface_attach(struct WuiGpuSurfaceState *state,
-                                void *layer,
-                                uint32_t width,
-                                uint32_t height,
-                                bool prefers_hdr);
+void waterui_gpu_surface_attach(struct WuiGpuSurfaceState *_state,
+                                void *_layer,
+                                uint32_t _width,
+                                uint32_t _height,
+                                bool _prefers_hdr);
 
 /**
- * Detaches the current native presentation surface without destroying the
- * semantic `GpuView` or its persistent renderer resources.
+ * Detaches the native presentation surface (non-Apple only).
  *
  * # Safety
  *
- * `state` must be valid and currently have an attached native surface.
+ * `state` must come from [`waterui_gpu_surface_create`].
  *
  * # Panics
  *
- * Panics if `state` does not currently have a native surface attached.
+ * Always panics: an Apple host releases its own textures and has no swapchain
+ * to detach.
  */
-void waterui_gpu_surface_detach(struct WuiGpuSurfaceState *state);
+void waterui_gpu_surface_detach(struct WuiGpuSurfaceState *_state);
 
 /**
  * Installs the native wake target for renderer-driven redraw requests.
@@ -11359,36 +11334,21 @@ void waterui_gpu_surface_set_redraw_callback(struct WuiGpuSurfaceState *state,
 bool waterui_gpu_surface_is_ready(const struct WuiGpuSurfaceState *state);
 
 /**
- * Render a single frame.
- *
- * This function should be called when the surface is dirty (size/input/state changed)
- * and backend should schedule another frame when `needs_redraw` is true.
- *
- * # Arguments
- *
- * * `state` - Pointer to the persistent state from `waterui_gpu_surface_create`
- * * `width` - Current surface width in physical pixels (from layout)
- * * `height` - Current surface height in physical pixels (from layout)
- * * `scale` - Physical pixels per logical unit for this frame (2.0 on a
- *   Retina display). It is passed per frame rather than at attach time
- *   because it changes when the window moves between displays.
- *
- * # Returns
- *
- * Whether another frame should be scheduled immediately.
+ * Renders one frame into the attached swapchain (non-Apple only).
  *
  * # Safety
  *
- * `state` must be valid and have an attached native surface.
+ * `state` must come from [`waterui_gpu_surface_create`].
  *
  * # Panics
  *
- * Panics if `width` or `height` is zero, or if `scale` is not positive and finite.
+ * Always panics: Apple hosts render with
+ * [`waterui_gpu_surface_render_to_metal_texture`].
  */
-bool waterui_gpu_surface_render(struct WuiGpuSurfaceState *state,
-                                uint32_t width,
-                                uint32_t height,
-                                double scale);
+bool waterui_gpu_surface_render(struct WuiGpuSurfaceState *_state,
+                                uint32_t _width,
+                                uint32_t _height,
+                                double _scale);
 
 /**
  * Starts asynchronous renderer setup for an external Metal render target.
@@ -11432,8 +11392,11 @@ struct WuiGpuCaptureFence *waterui_gpu_surface_render_to_metal_texture(struct Wu
  *
  * # Safety
  *
- * `fence` must be a valid owning pointer returned by
- * [`waterui_gpu_surface_render_to_metal_texture`] and must be consumed once.
+ * `fence` must be a valid owning pointer returned by an external capture entry
+ * point — `waterui_gpu_surface_render_to_metal_texture` on Apple,
+ * `waterui_applied_filter_set_capture_hardware_buffer` or
+ * `waterui_view_effect_set_input_hardware_buffer` on Android — and must be
+ * consumed once.
  * `context`, `callback`, and `drop` must remain valid until completion; Rust
  * consumes the context and releases it through `drop`.
  */
@@ -11721,6 +11684,42 @@ void waterui_view_effect_set_input_metal_texture(struct WuiViewEffectState *stat
                                                  void *texture,
                                                  uint32_t width,
                                                  uint32_t height);
+
+/**
+ * Copies a captured `AHardwareBuffer` into the effect's input (Android only).
+ *
+ * # Safety
+ *
+ * `state` must be a valid pointer from `waterui_view_effect_create` with an
+ * attached target, and `buffer` a live `AHardwareBuffer`.
+ *
+ * # Panics
+ *
+ * Always panics: `AHardwareBuffer` capture only exists on Android.
+ */
+struct WuiGpuCaptureFence *waterui_view_effect_set_input_hardware_buffer(struct WuiViewEffectState *_state,
+                                                                         void *_buffer);
+
+/**
+ * Draws a `GpuSurface` nested in the captured subtree into the input (Android only).
+ *
+ * # Safety
+ *
+ * `effect` and `surface` must be valid state pointers from their matching
+ * constructors.
+ *
+ * # Panics
+ *
+ * Always panics: nested-surface compositing only exists on Android, because
+ * only there does the capture arrive with the surface missing from it.
+ */
+void waterui_view_effect_composite_gpu_surface(struct WuiViewEffectState *_effect,
+                                               struct WuiGpuSurfaceState *_surface,
+                                               int32_t _x,
+                                               int32_t _y,
+                                               uint32_t _width,
+                                               uint32_t _height,
+                                               double _scale);
 
 /**
  * Returns whether asynchronous effect setup has completed.
