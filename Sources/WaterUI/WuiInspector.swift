@@ -28,11 +28,6 @@ enum WuiInspector {
     waterui_inspector_is_available(env.inner)
   }
 
-  /// Opens the inspector on this application.
-  static func open(env: WuiEnvironment) {
-    waterui_inspector_open(env.inner)
-  }
-
   /// Whether anything is watching the accessibility tree.
   ///
   /// The walk below is only worth doing when something reads the result, so

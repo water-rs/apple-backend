@@ -33,15 +33,30 @@ final class WuiPictureView: PlatformView, WuiComponent {
     }
     self.init(
       picture: handle,
-      pointSize: CGSize(width: CGFloat(ffi.width), height: CGFloat(ffi.height))
+      pointSize: CGSize(width: CGFloat(ffi.width), height: CGFloat(ffi.height)),
+      label: WuiStr(ffi.label).toString()
     )
   }
 
-  init(picture: OpaquePointer, pointSize: CGSize) {
+  /// `label` is the name the drawing offers a screen reader, empty when it
+  /// offers none; an application's own label is applied by the metadata view
+  /// above this one and replaces it.
+  init(picture: OpaquePointer, pointSize: CGSize, label: String) {
     self.picture = picture
     self.pointSize = pointSize
     super.init(frame: .zero)
     configureImageView()
+    if !label.isEmpty {
+      #if canImport(UIKit)
+        isAccessibilityElement = true
+        accessibilityLabel = label
+        accessibilityTraits.insert(.image)
+      #elseif canImport(AppKit)
+        setAccessibilityElement(true)
+        setAccessibilityLabel(label)
+        setAccessibilityRole(.image)
+      #endif
+    }
   }
 
   @available(*, unavailable)
