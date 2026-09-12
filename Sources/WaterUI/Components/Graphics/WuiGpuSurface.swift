@@ -1076,6 +1076,20 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
 
     updatePresentationFrame()
 
+    // Everything above is geometry, which layout is the only place to learn.
+    // The allocation waits: a window that is covered, miniaturized or behind
+    // another app draws nothing — every frame path below already refuses — and
+    // the `CAMetalLayer` this presenter replaced spent nothing until it
+    // presented either, because Core Animation makes a swapchain's drawables on
+    // the first `nextDrawable` rather than at configure. Laying out 144 surfaces
+    // in a window nobody can see bought 144 surface pairs and 144 renderer
+    // attachments for frames that never came (#576).
+    //
+    // The condition is `canPresentNow`'s deliberately narrow one: those are the
+    // states that announce when they clear, so `updateDisplayLinkState` picks
+    // the initialization back up on the same edges that replay an owed frame.
+    guard canPresentNow() else { return }
+
     presenter.configure(
       width: Int(width), height: Int(height), pixelFormat: presentationPixelFormat)
 
@@ -1273,8 +1287,21 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
   }
 
   private func updateDisplayLinkState() {
+    resumePresentationIfNeeded()
     syncDisplayLink()
     replayOwedFrame()
+  }
+
+  /// Allocates what `initializeGpuIfNeeded` deferred, once a frame could be
+  /// shown again.
+  ///
+  /// A surface whose window could not present was laid out without allocating
+  /// anything, so the edges that announce a window becoming presentable have to
+  /// run that initialization again. They are the same edges that replay an owed
+  /// frame, and initializing draws the first frame itself, so this comes first.
+  private func resumePresentationIfNeeded() {
+    guard !isSurfaceAttached, canPresentNow() else { return }
+    initializeGpuIfNeeded()
   }
 
   private func syncDisplayLink() {
@@ -1487,6 +1514,11 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
     }
     readyCompletions.append(completion)
     prepareForReady()
+    // Somebody is waiting on this surface's first frame, so this is a moment to
+    // take up an initialization that was deferred for a window that could not
+    // present: `prepareForReady` only runs layout when the geometry needs it,
+    // and becoming presentable changes no geometry.
+    resumePresentationIfNeeded()
     guard renderState.isSurfaceAttached else {
       completeReady(false)
       return
@@ -1504,17 +1536,24 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
     }
   }
 
+  /// Whether the first paint should wait for this surface.
+  ///
+  /// A surface whose window cannot present has no first frame to wait for, and
+  /// saying otherwise is not a delay but a crash: the waiter treats a
+  /// participant that answers "not ready" as a failure to render. Since
+  /// `initializeGpuIfNeeded` allocates nothing for such a surface, the two have
+  /// to agree on the same condition.
   func participatesInFirstPaintReady() -> Bool {
     #if canImport(UIKit)
       guard window != nil else { return false }
       guard !isHidden, alpha > 0.01 else { return false }
       guard bounds.width > 0.5, bounds.height > 0.5 else { return false }
-      return true
+      return canPresentNow()
     #elseif canImport(AppKit)
       guard window != nil else { return false }
       guard !isHidden, alphaValue > 0.01 else { return false }
       guard bounds.width > 0.5, bounds.height > 0.5 else { return false }
-      return true
+      return canPresentNow()
     #else
       return true
     #endif
