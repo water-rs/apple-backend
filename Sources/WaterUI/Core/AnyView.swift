@@ -73,6 +73,33 @@ func isMetadataComponent(_ component: any WuiComponent) -> Bool {
   metadataComponentIds.contains(type(of: component).viewId)
 }
 
+/// Advances an erased view to the first one a component factory claims.
+///
+/// This is the walk `WuiAnyView.resolve` runs — the view's id against the
+/// component registry, `waterui_view_body` when the id is not registered —
+/// stopped one step short of building anything. That makes it an exact answer
+/// to "what will this view become", and reaching a registered id is the proof
+/// that nothing realizable sits in between: any view that could draw is a
+/// registered component that would have stopped the walk first.
+///
+/// The walk consumes the views it steps through, as `resolve` does; the pointer
+/// it returns is the live handle and the caller owns it.
+@MainActor
+func wuiResolvedViewPointer(_ anyview: OpaquePointer, env: WuiEnvironment) -> OpaquePointer {
+  registerBuiltinComponentsIfNeeded()
+  var current = anyview
+  while true {
+    let viewId = WuiViewId(waterui_view_id(current))
+    if componentRegistry[viewId] != nil {
+      return current
+    }
+    guard let next = waterui_view_body(current, env.inner) else {
+      fatalError("Unsupported component type: \(viewId.toString())")
+    }
+    current = next
+  }
+}
+
 /// A metadata component that draws something of its own in place of the content
 /// it wraps: a filter host showing its filtered output.
 ///

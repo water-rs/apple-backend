@@ -194,9 +194,7 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiPresentsOwnContent,
 
   required init(anyview: OpaquePointer, env: WuiEnvironment) {
     var metadata = waterui_force_as_metadata_applied_filter(anyview)
-    guard let content = metadata.content else {
-      fatalError("AppliedFilter requires a child view")
-    }
+    let content = Self.fuseEnclosedFilters(into: &metadata, env: env)
     let contentView = WuiAnyView.resolve(anyview: content, env: env)
     let metalDevice = wuiMetalDevice(environment: env)
     self.contentView = contentView
@@ -228,6 +226,40 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiPresentsOwnContent,
   @available(*, unavailable)
   required init?(coder: NSCoder) {
     fatalError("init(coder:) has not been implemented")
+  }
+
+  /// Folds the filters this one directly encloses into `metadata`, and returns
+  /// the view the fused filter captures.
+  ///
+  /// A component that filters its own body, filtered again by its caller, is
+  /// two filters over one subtree with an `impl View` boundary between them, so
+  /// nothing at the authoring layer fuses them the way a chain written in one
+  /// expression is fused. Hosted as written they cost a capture, a presentation
+  /// target and a full-size intermediate each, and the inner host has to finish
+  /// a frame before the outer can capture one (#521).
+  ///
+  /// Whether there is anything to fuse is answered by the resolve walk each
+  /// backend already runs, and the combining is Rust's, which is where the
+  /// filters live: `waterui_applied_filter_chain` returns one descriptor that
+  /// captures what the inner filter captured and runs both filters over it.
+  private static func fuseEnclosedFilters(
+    into metadata: inout CWaterUI.WuiAppliedFilter,
+    env: WuiEnvironment
+  ) -> OpaquePointer {
+    while true {
+      guard let content = metadata.content else {
+        fatalError("AppliedFilter requires a child view")
+      }
+      // The walk consumes what it steps through, this descriptor's content
+      // among it, so the descriptor stops claiming it before the walk starts.
+      metadata.content = nil
+      let resolved = wuiResolvedViewPointer(content, env: env)
+      guard WuiViewId(waterui_view_id(resolved)) == Self.viewId else {
+        return resolved
+      }
+      var inner = waterui_force_as_metadata_applied_filter(resolved)
+      metadata = waterui_applied_filter_chain(&inner, &metadata)
+    }
   }
 
   /// Builds the view the filtered frames are shown on.
