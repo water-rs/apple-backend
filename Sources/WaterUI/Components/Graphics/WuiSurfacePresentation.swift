@@ -100,9 +100,6 @@
     /// The device the presented textures belong to.
     var presentationDevice: MTLDevice { device }
 
-    /// The format the current buffers carry, or `.invalid` before the first size.
-    var currentPixelFormat: MTLPixelFormat { pixelFormat }
-
     /// Whether buffers exist for exactly this size and format.
     func matches(width: Int, height: Int, pixelFormat: MTLPixelFormat) -> Bool {
       !buffers.isEmpty && self.width == width && self.height == height
