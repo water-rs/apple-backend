@@ -210,7 +210,11 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiPresentsOwnContent,
     #if canImport(AppKit)
       wantsLayer = true
       occlusionObserver = WuiWindowOcclusionObserver { [weak self] in
-        self?.scheduleFrameIfNeeded()
+        guard let self else { return }
+        // Attaching waits for a window that can present, so an uncovered window
+        // is where the deferred attach happens as well as the deferred frame.
+        self.initializeGpuIfNeeded()
+        self.scheduleFrameIfNeeded()
       }
     #endif
     setupOutputView(device: metalDevice)
@@ -382,6 +386,16 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiPresentsOwnContent,
     let height = UInt32(bounds.height * currentScaleFactor)
     renderState.updateSize(width: width, height: height)
     updateOutputLayerFrame()
+
+    // Everything above is geometry, which layout is the only place to learn.
+    // Attaching is not: it allocates a full-size capture texture and clears it
+    // through a render pass, and a filter in a covered window never captures
+    // anything — `scheduleFrameIfNeeded` refuses the frame on the same
+    // condition. Laying out 144 filters in a window nobody could see bought 144
+    // capture textures and 144 clearing passes for frames that never came
+    // (#576). The occlusion observer runs this again when the window comes
+    // back.
+    guard canAttachNow() else { return }
     // Always the half-float target, as the `CAMetalLayer` path was: it set
     // `rendererMode: .high` unconditionally, so the filter has always rendered
     // in extended-range linear and only the *presentation* followed the
@@ -425,6 +439,16 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiPresentsOwnContent,
     contentChangedSinceCapture = true
     requestRenderIfNeeded()
     invalidateCapturedRendering()
+  }
+
+  /// Whether this filter's window could show a frame it captured.
+  ///
+  /// The same condition `scheduleFrameIfNeeded` puts on the frame clock, so what
+  /// a capture needs is allocated exactly when a capture could happen. It is
+  /// narrow on purpose: being covered is a state a window leaves and announces
+  /// leaving, which is what makes deferring on it safe.
+  private func canAttachNow() -> Bool {
+    window != nil && !isPresentationOccluded
   }
 
   /// Arms the frame clock when there is work for it.

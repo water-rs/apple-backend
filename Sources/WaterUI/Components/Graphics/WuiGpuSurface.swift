@@ -1076,6 +1076,20 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
 
     updatePresentationFrame()
 
+    // Everything above is geometry, which layout is the only place to learn.
+    // The allocation waits: a window that is covered, miniaturized or behind
+    // another app draws nothing — every frame path below already refuses — and
+    // the `CAMetalLayer` this presenter replaced spent nothing until it
+    // presented either, because Core Animation makes a swapchain's drawables on
+    // the first `nextDrawable` rather than at configure. Laying out 144 surfaces
+    // in a window nobody can see bought 144 surface pairs and 144 renderer
+    // attachments for frames that never came (#576).
+    //
+    // The condition is `canPresentNow`'s deliberately narrow one: those are the
+    // states that announce when they clear, so `updateDisplayLinkState` picks
+    // the initialization back up on the same edges that replay an owed frame.
+    guard canPresentNow() else { return }
+
     presenter.configure(
       width: Int(width), height: Int(height), pixelFormat: presentationPixelFormat)
 
@@ -1273,8 +1287,21 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
   }
 
   private func updateDisplayLinkState() {
+    resumePresentationIfNeeded()
     syncDisplayLink()
     replayOwedFrame()
+  }
+
+  /// Allocates what `initializeGpuIfNeeded` deferred, once a frame could be
+  /// shown again.
+  ///
+  /// A surface whose window could not present was laid out without allocating
+  /// anything, so the edges that announce a window becoming presentable have to
+  /// run that initialization again. They are the same edges that replay an owed
+  /// frame, and initializing draws the first frame itself, so this comes first.
+  private func resumePresentationIfNeeded() {
+    guard !isSurfaceAttached, canPresentNow() else { return }
+    initializeGpuIfNeeded()
   }
 
   private func syncDisplayLink() {
