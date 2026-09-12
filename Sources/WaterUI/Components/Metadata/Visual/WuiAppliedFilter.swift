@@ -585,6 +585,11 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiPresentsOwnContent,
     }
     readyCompletions.append(completion)
     prepareForReady()
+    // Somebody is waiting on this filter's first frame, so this is a moment to
+    // take up an attach that was deferred for a window that could not present:
+    // `prepareForReady` only runs layout when the geometry needs it, and
+    // becoming presentable changes no geometry.
+    initializeGpuIfNeeded()
     guard renderState.isAttached else {
       completeReady(false)
       return
@@ -632,11 +637,20 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiPresentsOwnContent,
     }
   }
 
+  /// Whether the first paint should wait for this filter.
+  ///
+  /// A filter whose window cannot present has no first frame to wait for, and
+  /// saying otherwise is not a delay but a crash: the waiter treats a
+  /// participant that answers "not ready" as a failure to render. Since
+  /// `initializeGpuIfNeeded` attaches nothing for such a filter, the two have to
+  /// agree on the same condition.
   func participatesInFirstPaintReady() -> Bool {
     #if canImport(UIKit)
       window != nil && !isHidden && alpha > 0.01 && bounds.width > 0.5 && bounds.height > 0.5
+        && canAttachNow()
     #elseif canImport(AppKit)
       window != nil && !isHidden && alphaValue > 0.01 && bounds.width > 0.5 && bounds.height > 0.5
+        && canAttachNow()
     #endif
   }
 
