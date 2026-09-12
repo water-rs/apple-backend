@@ -41,7 +41,7 @@ private final class WuiMetalFenceBatch {
 ///
 /// The destination texture is *top-down* (texel row 0 is the visually topmost
 /// row) and sized in device pixels, so it can be handed straight to wgpu and
-/// presented by a `CAMetalLayer` without any further flip or rescale. Neither
+/// composited from an `IOSurface` without any further flip or rescale. Neither
 /// property comes for free:
 ///
 /// - `CARenderer` renders a layer tree bottom-up: layer-space y grows with the
@@ -174,7 +174,7 @@ final class WuiMetalViewCapture: @unchecked Sendable {
       )
       encoder.setFragmentSamplerState(compositeSampler(device: device), index: 0)
       // GpuSurface contents first, then the native overlay blended on top: the
-      // overlay is transparent wherever a surface's Metal layer was suppressed.
+      // overlay is transparent wherever a surface's presentation was suppressed.
       // Viewport origins are top-down, which matches both the snapshot rects
       // (taken in flipped view coordinates) and the capture texture itself.
       for surface in surfaces {

@@ -377,9 +377,11 @@ func installWindowManager(env: OpaquePointer, services: WuiNativeServices) {
       contentView.refreshWindowMinSize(force: true)
 
       // IMPORTANT (GpuSurface first frame on macOS):
-      // CAMetalLayer-backed swapchains often can't produce a drawable until the window is
-      // actually on-screen. To keep native/GPU content appearing consistently, keep the window
-      // transparent while warm-up runs, then reveal once ready() completes.
+      // A GPU surface has nothing on it until its first frame has been rendered
+      // and composited, and that cannot start until the window exists. Keep the
+      // window transparent while the warm-up runs and reveal it once ready()
+      // reports the first frame presented, so the window never appears with a
+      // hole where its GPU content belongs.
       window.alphaValue = 0.0
       window.makeKeyAndOrderFront(nil)
       resources.applyState(stateBinding.value)

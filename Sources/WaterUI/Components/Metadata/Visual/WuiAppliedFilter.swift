@@ -465,10 +465,10 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiPresentsOwnContent,
       height: Int(frame.outputHeight),
       pixelFormat: renderState.outputPixelFormat
     )
-    guard let texture = presenter.nextTexture() else {
+    guard let pending = presenter.nextFrame() else {
       fatalError("AppliedFilter presenter has no texture to render into")
     }
-    let rendered = renderState.renderCapturedFrame(frame, into: texture)
+    let rendered = renderState.renderCapturedFrame(frame, into: pending.texture)
 
     // The frame stays in flight until its fence: showing the surface before the
     // GPU has finished writing it composites a half-drawn frame, and starting
@@ -476,7 +476,20 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiPresentsOwnContent,
     observeGpuCaptureFence(rendered.fence) { [weak self] in
       guard let self else { return }
       self.renderInFlight = false
-      self.presenter.presentRenderedTexture()
+      // The view stopped being able to present while this frame was between
+      // its render and its fence — it left the window, or layout gave it zero
+      // bounds. `releasePresentation` deferred the teardown to whichever half
+      // of the frame was still in flight, and this is that half: showing the
+      // frame now would reveal output on a view that is gone and leave the
+      // Rust filter attached with its surfaces allocated.
+      if self.detachAfterCapture {
+        self.detachAfterCapture = false
+        self.renderState.detachIfNeeded()
+        self.presenter.release()
+        self.completeReady(false)
+        return
+      }
+      self.presenter.present(pending)
       self.revealFilteredOutput()
       // Only now has this host's presentation changed, so only now may an
       // enclosing filter be told to capture again. Signalling it before the

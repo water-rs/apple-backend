@@ -9,11 +9,14 @@
 // Users can control size using the `.frame()` modifier externally.
 //
 // # Rendering
-// Uses CAMetalLayer for zero-copy rendering at the display's highest refresh rate.
-// The Rust side owns wgpu Device/Queue/Surface and calls user's GpuRenderer callbacks.
+// Frames are rendered into a pair of IOSurface-backed textures this view owns
+// and shown as a plain layer's `contents`, at the display's highest refresh
+// rate. The Rust side owns the wgpu Device and Queue and calls the user's
+// GpuRenderer callbacks.
 //
 // # HDR Support
-// Configures CAMetalLayer for HDR when available using extended sRGB color space.
+// An HDR surface is allocated half-float in an extended-range colour space,
+// which is what asks Core Animation to composite it as EDR.
 
 import CWaterUI
 import Foundation
@@ -62,7 +65,6 @@ private final class WuiGpuSurfaceRenderState {
   private var externalRendering = false
   private var rendererSetupStarted = false
   private var needsRender = true
-  private(set) var hasRenderedFrame = false
   /// True while a Rust render call is on the stack. The renderer holds its
   /// semantic view mutably for that whole call, so a redraw wake that arrives
   /// in the middle of it (a `GpuView` whose render pumps an engine that paints
@@ -280,7 +282,6 @@ private final class WuiGpuSurfaceRenderState {
   func detachIfNeeded() {
     guard isAttached else { return }
     isAttached = false
-    hasRenderedFrame = false
   }
 
   /// Renders one frame into a texture the host presents, or answers why it
@@ -360,7 +361,6 @@ private final class WuiGpuSurfaceRenderState {
     guard let fence else {
       fatalError("waterui_gpu_surface_render_to_metal_texture returned null")
     }
-    hasRenderedFrame = true
     return fence
   }
 
@@ -431,7 +431,8 @@ private final class WuiGpuSurfaceRenderState {
 }
 
 /// High-performance GPU rendering surface using wgpu.
-/// Uses CAMetalLayer with a display link configured for the display's maximum refresh rate.
+/// Presents IOSurface-backed frames, driven by a display link configured for
+/// the display's maximum refresh rate.
 @MainActor
 final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyParticipant {
   static var rawId: CWaterUI.WuiTypeId { waterui_gpu_surface_id() }
@@ -453,6 +454,13 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
   private var presentationPixelFormat: MTLPixelFormat = .invalid
   /// Whether a frame is between its render and its fence.
   private var framePresentationInFlight = false
+  /// Whether a frame was asked for at a moment one could not be drawn.
+  ///
+  /// The renderer asks for its next frame exactly once, through the redraw
+  /// callback, so a request that arrives while a presentation is in flight or
+  /// while nothing can be seen has to be kept: dropping it stops a
+  /// self-animating surface after a single frame.
+  private var frameOwed = false
 
   #if canImport(AppKit)
     private var trackingArea: NSTrackingArea?
@@ -1004,7 +1012,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
     return mode
   }
 
-  /// Configure the metal layer for dynamic range rendering.
+  /// Settles the format the frames are rendered and composited in.
   private func configureDynamicRange(
     presentation: WuiDynamicRangeMode,
     renderer: WuiDynamicRangeMode
@@ -1059,10 +1067,9 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
     let width = UInt32(bounds.width * currentScaleFactor)
     let height = UInt32(bounds.height * currentScaleFactor)
 
-    // wgpu owns `drawableSize`: it sets it from the configuration on the next
-    // render, so writing it here would only race the surface's own idea of the
-    // swapchain size. Ask for that render promptly instead, to keep the window
-    // between layout and reconfiguration short.
+    // The presented surfaces are allocated at this size by the next render,
+    // so ask for that render promptly: until it arrives the layer shows the
+    // previous frame scaled to the new bounds.
     let sizeChanged = renderState.updateSize(
       width: width, height: height, scale: currentScaleFactor)
     if sizeChanged {
@@ -1075,11 +1082,11 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
       width: Int(width), height: Int(height), pixelFormat: presentationPixelFormat)
 
     guard !isSurfaceAttached else { return }
-    guard let first = presenter.nextTexture() else {
+    guard let first = presenter.nextFrame() else {
       fatalError("GpuSurface presenter has no texture to prepare the renderer with")
     }
     if renderState.attachIfNeeded(
-      texturePtr: Unmanaged.passUnretained(first).toOpaque(),
+      texturePtr: Unmanaged.passUnretained(first.texture).toOpaque(),
       width: width,
       height: height,
       scale: currentScaleFactor
@@ -1113,11 +1120,24 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
     }
     // One frame at a time: the surface it renders into is the one not being
     // shown, and starting a second before the first is presented would render
-    // over the frame on screen.
-    guard !framePresentationInFlight else { return }
+    // over the frame on screen. The request is owed, not dropped — a renderer
+    // asks for its next frame exactly once, so swallowing one stops the
+    // animation for good.
+    guard !framePresentationInFlight else {
+      frameOwed = true
+      return
+    }
+    // A frame nobody can see is not worth drawing, and the occlusion machinery
+    // exists to not draw it — but it is still owed, for the same reason. The
+    // first frame is forced past this, because the window's reveal waits on it
+    // and the window is not visible until it arrives.
+    guard force || isEffectivelyVisible() else {
+      frameOwed = true
+      return
+    }
 
-    guard let texture = presenter.nextTexture(),
-      let fence = renderState.renderIntoPresentedTexture(texture, force: force)
+    guard let pending = presenter.nextFrame(),
+      let fence = renderState.renderIntoPresentedTexture(pending.texture, force: force)
     else {
       // Nothing was rendered: either there is nothing to draw, the surfaces are
       // not allocated yet, or asynchronous setup is still running. None of
@@ -1140,7 +1160,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
     observeGpuCaptureFence(fence) { [weak self] in
       guard let self else { return }
       self.framePresentationInFlight = false
-      self.presenter.presentRenderedTexture()
+      self.presenter.present(pending)
       self.completeReady(true)
       self.updateDisplayLinkState()
     }
@@ -1148,8 +1168,8 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
 
   /// Names this surface's element with whatever its content says it draws.
   ///
-  /// A `CAMetalLayer` is opaque to VoiceOver: a formula, chart or diagram
-  /// rendered into it is announced as an unlabelled element unless the content
+  /// Rendered pixels are opaque to VoiceOver: a formula, chart or diagram drawn
+  /// into a surface is announced as an unlabelled element unless the content
   /// states its own meaning. The content is what knows, so the answer comes
   /// from it rather than from anything the host could infer.
   ///
@@ -1192,9 +1212,9 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
 
   /// Publishes input state and lets the display link drive the actual frame.
   ///
-  /// Input events arrive faster than the display refreshes, and presenting
-  /// inline would block the main thread inside `nextDrawable` as soon as the
-  /// drawable pool is exhausted. The event handlers therefore only update
+  /// Input events arrive faster than the display refreshes, and rendering
+  /// inline would draw frames that are replaced before they are ever
+  /// composited. The event handlers therefore only update
   /// `renderState` (which marks it as needing a render) and arm the frame
   /// clock, which coalesces a burst of events into one frame per refresh.
   private func scheduleInputRender() {
@@ -1249,6 +1269,11 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
   }
 
   private func updateDisplayLinkState() {
+    syncDisplayLink()
+    replayOwedFrame()
+  }
+
+  private func syncDisplayLink() {
     let shouldTick = keepRedrawing
     guard shouldTick else {
       stopDisplayLink()
@@ -1259,6 +1284,21 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
       return
     }
     startDisplayLink()
+  }
+
+  /// Draws the frame a redraw request asked for while one could not be drawn.
+  ///
+  /// Every reason a frame is deferred — a presentation in flight, an occluded
+  /// or miniaturized window, a view out of its window — ends at a call to
+  /// `updateDisplayLinkState`, so this is where the deferred frame is picked
+  /// back up. It goes through the on-demand wake rather than rendering here,
+  /// so that `renderFrame` never re-enters itself through its own call to
+  /// `updateDisplayLinkState`.
+  private func replayOwedFrame() {
+    guard frameOwed, !framePresentationInFlight, !externalRenderingScopes.isActive else { return }
+    guard isSurfaceAttached, isEffectivelyVisible() else { return }
+    frameOwed = false
+    scheduleOnDemandRender()
   }
 
   func beginExternalRendering(onRedraw: (() -> Void)? = nil) {
@@ -1468,7 +1508,10 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
   }
 
   private func requestReadyFrame(_ completion: @escaping WuiGpuSurfaceReadyCompletion) {
-    if renderState.hasRenderedFrame {
+    // Whether a frame has been *presented*, not whether one has been
+    // submitted: the two are a GPU frame apart, and this is what the window's
+    // reveal waits on so it does not race the first frame onto the screen.
+    if presenter.hasPresentedFrame {
       completion(true)
       return
     }
@@ -1526,7 +1569,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
   #if canImport(UIKit)
     override func layoutSubviews() {
       super.layoutSubviews()
-      updateMetalLayerFrame()
+      updatePresentationLayerFrame()
       initializeGpuIfNeeded()
       updateDisplayLinkState()
     }
@@ -1542,14 +1585,14 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
       }
       // Update scale factor when added to window
       currentScaleFactor = contentScaleFactor
-      updateMetalLayerFrame()
+      updatePresentationLayerFrame()
       initializeGpuIfNeeded()
       updateDisplayLinkState()
     }
   #elseif canImport(AppKit)
     override func layout() {
       super.layout()
-      updateMetalLayerFrame()
+      updatePresentationLayerFrame()
       initializeGpuIfNeeded()
       updateDisplayLinkState()
     }
@@ -1573,7 +1616,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
       }
       // Update scale factor when added to window
       currentScaleFactor = window.backingScaleFactor
-      updateMetalLayerFrame()
+      updatePresentationLayerFrame()
       initializeGpuIfNeeded()
       updateWindowObservers()
       updateDisplayLinkState()
@@ -1583,7 +1626,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
       super.viewDidChangeBackingProperties()
       guard let window else { return }
       currentScaleFactor = window.backingScaleFactor
-      updateMetalLayerFrame()
+      updatePresentationLayerFrame()
       initializeGpuIfNeeded()
       updateDisplayLinkState()
     }
@@ -1599,7 +1642,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
     }
   #endif
 
-  private func updateMetalLayerFrame() {
+  private func updatePresentationLayerFrame() {
     CATransaction.begin()
     CATransaction.setDisableActions(true)
 

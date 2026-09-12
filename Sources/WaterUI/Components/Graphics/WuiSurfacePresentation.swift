@@ -61,10 +61,29 @@
       let texture: MTLTexture
     }
 
+    /// A buffer handed out to render into, and the pair it came from.
+    ///
+    /// The generation is what ties a frame to the buffers that existed when it
+    /// started. A frame's fence can land after a resize replaced the pair, and
+    /// presenting "the current back buffer" at that point would show an
+    /// `IOSurface` nothing has ever drawn into.
+    struct PendingFrame {
+      let texture: MTLTexture
+      fileprivate let index: Int
+      fileprivate let generation: Int
+    }
+
     private let device: MTLDevice
     private let layer: CALayer
     private var buffers: [Buffer] = []
     private var nextIndex = 0
+    private var generation = 0
+    /// Whether a rendered frame is on the layer right now.
+    ///
+    /// A resize keeps it: the previous frame stays on `contents`, scaled, until
+    /// one at the new size arrives. Only `release` takes it back down, because
+    /// only `release` takes the frame off the layer.
+    private(set) var hasPresentedFrame = false
     private var pixelFormat: MTLPixelFormat = .invalid
     private var width = 0
     private var height = 0
@@ -93,8 +112,11 @@
     /// Makes the buffer pair for a size and format, replacing any earlier pair.
     ///
     /// Nothing is reused across a resize: an `IOSurface` is fixed at its
-    /// creation size, and a half-sized frame shown scaled is worse than a frame
-    /// not shown at all.
+    /// creation size, so a new size means a new pair. Whatever the layer is
+    /// showing stays on it, scaled by `contentsGravity`, until a frame at the
+    /// new size is ready — the last good frame stretched for a moment is what
+    /// a resizing view should show, where clearing `contents` would punch a
+    /// hole through the window for that same moment.
     func configure(width: Int, height: Int, pixelFormat: MTLPixelFormat) {
       precondition(width > 0 && height > 0, "A presented surface must have a non-zero size")
       if matches(width: width, height: height, pixelFormat: pixelFormat) { return }
@@ -106,6 +128,7 @@
       self.height = height
       self.pixelFormat = pixelFormat
       nextIndex = 0
+      generation &+= 1
       Logger.graphics.debug(
         "Surface presenter configured \(width, privacy: .public)x\(height, privacy: .public)"
       )
@@ -118,23 +141,35 @@
       height = 0
       pixelFormat = .invalid
       nextIndex = 0
+      generation &+= 1
+      hasPresentedFrame = false
       setContents(nil)
     }
 
-    /// The texture the next frame renders into: the one not being shown.
-    func nextTexture() -> MTLTexture? {
+    /// The buffer the next frame renders into: the one not being shown.
+    func nextFrame() -> PendingFrame? {
       guard !buffers.isEmpty else { return nil }
-      return buffers[nextIndex].texture
+      return PendingFrame(
+        texture: buffers[nextIndex].texture,
+        index: nextIndex,
+        generation: generation
+      )
     }
 
-    /// Shows the frame just rendered into `nextTexture()` and rotates the pair.
+    /// Shows a frame once its fence says the GPU has finished writing it.
     ///
-    /// Call this only from the completion of that frame's fence. Showing a
-    /// surface the GPU is still writing composites a half-drawn frame.
-    func presentRenderedTexture() {
-      guard !buffers.isEmpty else { return }
-      setContents(buffers[nextIndex].surface)
-      nextIndex = (nextIndex + 1) % buffers.count
+    /// Call this only from the completion of that frame's fence: showing a
+    /// surface the GPU is still writing composites a half-drawn frame. A frame
+    /// whose buffers have since been replaced is dropped rather than shown —
+    /// its `IOSurface` is gone, and the buffer now in its place holds nothing.
+    func present(_ frame: PendingFrame) {
+      guard frame.generation == generation, frame.index < buffers.count else {
+        Logger.graphics.debug("Surface presenter dropped a frame from a replaced buffer pair")
+        return
+      }
+      setContents(buffers[frame.index].surface)
+      hasPresentedFrame = true
+      nextIndex = (frame.index + 1) % buffers.count
     }
 
     private func setContents(_ contents: IOSurfaceRef?) {
