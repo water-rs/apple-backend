@@ -1131,7 +1131,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
     // exists to not draw it — but it is still owed, for the same reason. The
     // first frame is forced past this, because the window's reveal waits on it
     // and the window is not visible until it arrives.
-    guard force || isEffectivelyVisible() else {
+    guard force || canPresentNow() else {
       frameOwed = true
       return
     }
@@ -1160,8 +1160,14 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
     observeGpuCaptureFence(fence) { [weak self] in
       guard let self else { return }
       self.framePresentationInFlight = false
-      self.presenter.present(pending)
-      self.completeReady(true)
+      if self.presenter.present(pending) {
+        self.completeReady(true)
+      } else {
+        // The buffers were replaced while this frame was in flight, so nothing
+        // reached the layer. Readiness means a frame is on screen, and this is
+        // not one: owe it again rather than reveal a window with a hole in it.
+        self.frameOwed = true
+      }
       self.updateDisplayLinkState()
     }
   }
@@ -1296,9 +1302,32 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
   /// `updateDisplayLinkState`.
   private func replayOwedFrame() {
     guard frameOwed, !framePresentationInFlight, !externalRenderingScopes.isActive else { return }
-    guard isSurfaceAttached, isEffectivelyVisible() else { return }
+    guard isSurfaceAttached, canPresentNow() else { return }
     frameOwed = false
     scheduleOnDemandRender()
+  }
+
+  /// Whether this surface's window can put a frame in front of someone.
+  ///
+  /// Deliberately narrower than `isEffectivelyVisible`, which decides whether
+  /// the frame clock ticks. A deferred frame has to be woken again, so the only
+  /// conditions worth deferring on are the ones that announce when they clear:
+  /// occlusion, miniaturization and app activation all post a notification this
+  /// view observes. An ancestor's `alpha` posts nothing, and a window that has
+  /// no screen may never say that it got one — deferring on those would park a
+  /// frame with nothing to bring it back, which is the stall this whole
+  /// mechanism exists to prevent.
+  private func canPresentNow() -> Bool {
+    #if canImport(UIKit)
+      guard window != nil else { return false }
+      return UIApplication.shared.applicationState == .active
+    #elseif canImport(AppKit)
+      guard let window else { return false }
+      if window.isMiniaturized { return false }
+      return !isPresentationOccluded
+    #else
+      return true
+    #endif
   }
 
   func beginExternalRendering(onRedraw: (() -> Void)? = nil) {

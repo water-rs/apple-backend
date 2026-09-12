@@ -156,20 +156,25 @@
       )
     }
 
-    /// Shows a frame once its fence says the GPU has finished writing it.
+    /// Shows a frame once its fence says the GPU has finished writing it, and
+    /// reports whether it reached the layer.
     ///
     /// Call this only from the completion of that frame's fence: showing a
     /// surface the GPU is still writing composites a half-drawn frame. A frame
     /// whose buffers have since been replaced is dropped rather than shown —
     /// its `IOSurface` is gone, and the buffer now in its place holds nothing.
-    func present(_ frame: PendingFrame) {
+    /// The caller is told, because a dropped frame is one the surface still
+    /// owes and nothing else will ask for it again.
+    @discardableResult
+    func present(_ frame: PendingFrame) -> Bool {
       guard frame.generation == generation, frame.index < buffers.count else {
         Logger.graphics.debug("Surface presenter dropped a frame from a replaced buffer pair")
-        return
+        return false
       }
       setContents(buffers[frame.index].surface)
       hasPresentedFrame = true
       nextIndex = (frame.index + 1) % buffers.count
+      return true
     }
 
     private func setContents(_ contents: IOSurfaceRef?) {

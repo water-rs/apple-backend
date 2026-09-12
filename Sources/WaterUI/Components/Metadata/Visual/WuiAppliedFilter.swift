@@ -489,6 +489,19 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiPresentsOwnContent,
         self.completeReady(false)
         return
       }
+      // A dynamic-range change asked for while this frame was in flight was
+      // parked rather than applied, because reconfiguring under a running
+      // render would pull the target out from under it. This is where the
+      // frame ends, so this is where it is taken up — without it the surface
+      // keeps rendering in the old range until some unrelated layout happens
+      // to ask again.
+      if self.pendingDynamicRangeMode != nil {
+        self.pendingDynamicRangeMode = nil
+        self.renderState.detachIfNeeded()
+        self.initializeGpuIfNeeded()
+        self.requestRenderIfNeeded()
+        return
+      }
       self.presenter.present(pending)
       self.revealFilteredOutput()
       // Only now has this host's presentation changed, so only now may an
@@ -650,8 +663,9 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiPresentsOwnContent,
     }
   }
 
-  /// Positions the presentation layer. Its drawable size belongs to wgpu, which
-  /// sets it from the filter's resolved output size on every reconfiguration.
+  /// Positions the presentation view and its layer. The presented surfaces are
+  /// allocated at the filter's resolved output size by the next rendered frame,
+  /// so nothing here decides how large they are.
   private func updateOutputLayerFrame() {
     CATransaction.begin()
     CATransaction.setDisableActions(true)
