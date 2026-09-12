@@ -17,6 +17,10 @@ private struct WuiAppliedFilterCaptureFrame: @unchecked Sendable {
   let texture: MTLTexture
   let width: UInt32
   let height: UInt32
+  /// Where the filtered result goes, which a filter may size differently from
+  /// what it captured — a blur grows its output to hold the spread.
+  let outputWidth: UInt32
+  let outputHeight: UInt32
 }
 
 private typealias WuiAppliedFilterReadyCompletion = @MainActor @Sendable (Bool) -> Void
@@ -52,25 +56,32 @@ private final class WuiAppliedFilterRenderState {
   }
 
   func attachIfNeeded(
-    outputLayer: CAMetalLayer,
     width: UInt32,
     height: UInt32,
     prefersHDR: Bool
   ) {
     updateSize(width: width, height: height)
     guard !isAttached else { return }
-    waterui_applied_filter_attach(
-      filterState,
-      Unmanaged.passUnretained(outputLayer).toOpaque(),
-      width,
-      height,
-      prefersHDR
-    )
+    waterui_applied_filter_attach_host_textures(filterState, width, height, prefersHDR)
     waterui_applied_filter_setup(filterState)
     isAttached = true
     Logger.graphics.debug(
       "AppliedFilter attached: \(width, privacy: .public)x\(height, privacy: .public)"
     )
+  }
+
+  /// The Metal format the attached filter renders its output in.
+  ///
+  /// The host creates its `IOSurface` pair in this format: the filter decided it
+  /// at attach from the dynamic-range preference, and a surface in any other
+  /// format would be a silent mismatch between what wgpu writes and what Core
+  /// Animation samples.
+  var outputPixelFormat: MTLPixelFormat {
+    let raw = UInt(waterui_applied_filter_output_metal_pixel_format(filterState))
+    guard let format = MTLPixelFormat(rawValue: raw) else {
+      fatalError("AppliedFilter reported an output format Metal does not know")
+    }
+    return format
   }
 
   func detachIfNeeded() {
@@ -83,13 +94,13 @@ private final class WuiAppliedFilterRenderState {
   /// Prepares the capture texture for one frame.
   ///
   /// Resolving the output size is what tells the filter state how large its
-  /// presentation surface must be; `prepare_capture` then reconfigures the
-  /// output surface (and with it the layer's drawable size) from that answer,
-  /// so the resolved size stays entirely on the Rust side.
+  /// output must be, and the answer comes back with the frame: the host
+  /// allocates the surfaces it presents from, so unlike the swapchain path the
+  /// size cannot stay entirely on the Rust side.
   func prepareCapture() -> WuiAppliedFilterCaptureFrame? {
     guard isAttached, width > 0, height > 0 else { return nil }
     precondition(isReady, "AppliedFilter capture requires completed asynchronous setup")
-    waterui_applied_filter_resolve_output_size(filterState, width, height)
+    let outputSize = waterui_applied_filter_resolve_output_size(filterState, width, height)
     waterui_applied_filter_prepare_capture(filterState, width, height)
     guard let rawTexture = waterui_applied_filter_get_capture_metal_texture(filterState) else {
       fatalError("AppliedFilter capture texture is unavailable")
@@ -98,12 +109,37 @@ private final class WuiAppliedFilterRenderState {
     guard let texture = object as? MTLTexture else {
       fatalError("AppliedFilter capture texture is not an MTLTexture")
     }
-    return WuiAppliedFilterCaptureFrame(texture: texture, width: width, height: height)
+    return WuiAppliedFilterCaptureFrame(
+      texture: texture,
+      width: width,
+      height: height,
+      outputWidth: outputSize.width,
+      outputHeight: outputSize.height
+    )
   }
 
-  func renderCapturedFrame(_ frame: WuiAppliedFilterCaptureFrame) -> Bool {
+  /// Filters one captured frame into a host-owned texture.
+  ///
+  /// The fence is that frame's: the texture is only safe to show once it
+  /// completes, so it is handed back rather than consumed here.
+  func renderCapturedFrame(
+    _ frame: WuiAppliedFilterCaptureFrame,
+    into texture: MTLTexture
+  ) -> (fence: OpaquePointer, needsRedraw: Bool) {
     precondition(isReady, "AppliedFilter render requires completed asynchronous setup")
-    return waterui_applied_filter_render(filterState, frame.width, frame.height)
+    var needsRedraw = false
+    guard
+      let fence = waterui_applied_filter_render_to_metal_texture(
+        filterState,
+        Unmanaged.passUnretained(texture).toOpaque(),
+        frame.width,
+        frame.height,
+        &needsRedraw
+      )
+    else {
+      fatalError("waterui_applied_filter_render_to_metal_texture returned no fence")
+    }
+    return (fence, needsRedraw)
   }
 
   func shutdown() {
@@ -113,7 +149,7 @@ private final class WuiAppliedFilterRenderState {
 }
 
 @MainActor
-final class WuiAppliedFilter: PlatformView, WuiComponent, WuiFirstPaintReadyParticipant,
+final class WuiAppliedFilter: PlatformView, WuiComponent, WuiPresentsOwnContent, WuiFirstPaintReadyParticipant,
   WuiRenderedContentInvalidationSink
 {
   static var rawId: CWaterUI.WuiTypeId { waterui_metadata_applied_filter_id() }
@@ -121,7 +157,9 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiFirstPaintReadyPart
   private let contentView: any WuiComponent
   private let renderState: WuiAppliedFilterRenderState
   private let capturePipeline: WuiMetalViewCapture
-  private var outputLayer: CAMetalLayer!
+  private var outputView: PlatformView!
+  private var outputLayer: CALayer!
+  private var presenter: WuiSurfacePresenter!
   private var frameDriver: WuiDisplayLinkDriver!
   #if canImport(AppKit)
     private var occlusionObserver: WuiWindowOcclusionObserver!
@@ -133,6 +171,23 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiFirstPaintReadyPart
   private var detachAfterCapture = false
   private var pendingDynamicRangeMode: WuiDynamicRangeMode?
   private var filteredOutputRevealed = false
+  /// Whether the content changed after the frame in flight captured it.
+  ///
+  /// A filter is only ready once it has shown a frame of the content as it
+  /// actually stands. Nested, the inner host presents after the outer has
+  /// already captured it, so the outer's first frame is of an empty
+  /// presentation; completing readiness on that frame is what let the preview
+  /// snapshot be taken before the real one arrived (waterui#521).
+  private var contentChangedSinceCapture = false
+  /// The geometry the last layout pass settled on.
+  ///
+  /// A layout pass is not by itself a reason to render: an enclosing capture
+  /// lays this subtree out on every one of its own frames, so requesting a
+  /// frame from every `layout()` made two nested filters drive each other at
+  /// full speed forever — thousands of captures a second over a static view.
+  /// Content changes arrive through `renderedContentDidInvalidate` instead, so
+  /// layout only has to speak up when the geometry it produced is new.
+  private var laidOutGeometry: CGRect?
   private var readyCompletions: [WuiAppliedFilterReadyCompletion] = []
 
   var stretchAxis: WuiStretchAxis { contentView.stretchAxis }
@@ -160,7 +215,7 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiFirstPaintReadyPart
         self?.scheduleFrameIfNeeded()
       }
     #endif
-    setupOutputLayer(device: metalDevice)
+    setupOutputView(device: metalDevice)
     setupContentView()
     capturePipeline.onRedraw = { [weak self] in
       self?.requestRenderIfNeeded()
@@ -175,59 +230,85 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiFirstPaintReadyPart
     fatalError("init(coder:) has not been implemented")
   }
 
-  private func setupOutputLayer(device: MTLDevice) {
-    // Only properties wgpu does not own belong here: configuring the surface
-    // overwrites `pixelFormat`, `colorspace`, `framebufferOnly`, `drawableSize`,
-    // `maximumDrawableCount`, and `wantsExtendedDynamicRangeContent`.
-    let outputLayer = CAMetalLayer()
-    outputLayer.device = device
+  /// Builds the view the filtered frames are shown on.
+  ///
+  /// A plain `CALayer`, not a `CAMetalLayer`: the frames arrive as `IOSurface`
+  /// contents, which Core Animation composites in place and — unlike a Metal
+  /// drawable — every capture path can read, so a filtered subtree is finally
+  /// visible to the preview snapshot and to an enclosing filter (#519).
+  ///
+  /// It is the backing layer of a *view* of its own rather than a bare sublayer
+  /// of this host, because `cacheDisplay(in:to:)` draws a view's whole layer
+  /// tree before any of its subviews: a bare sublayer lands underneath the
+  /// content no matter its `zPosition`, which Core Animation honours and the
+  /// snapshot ignores. As the last subview it is drawn last in both.
+  private func setupOutputView(device: MTLDevice) {
+    let outputView = WuiSurfacePresentationView(frame: .zero)
+    #if canImport(AppKit)
+      outputView.wantsLayer = true
+    #endif
+    guard let outputLayer = outputView.layer else {
+      fatalError("AppliedFilter output view must be layer-backed")
+    }
+    outputView.isHidden = true
     outputLayer.isOpaque = false
-    outputLayer.isHidden = true
+    // The frames are rendered at device-pixel size, so the layer must not
+    // rescale them; `contentsScale` is what tells Core Animation that.
+    outputLayer.contentsGravity = .resize
     #if canImport(UIKit)
       outputLayer.backgroundColor = UIColor.clear.cgColor
-      layer.addSublayer(outputLayer)
     #elseif canImport(AppKit)
       outputLayer.backgroundColor = NSColor.clear.cgColor
       guard let layer else {
         fatalError("AppliedFilter host view must be layer-backed")
       }
       layer.backgroundColor = NSColor.clear.cgColor
-      layer.addSublayer(outputLayer)
     #endif
+    self.outputView = outputView
     self.outputLayer = outputLayer
+    self.presenter = WuiSurfacePresenter(device: device, layer: outputLayer)
   }
 
   private func setupContentView() {
     contentView.translatesAutoresizingMaskIntoConstraints = true
     addSubview(contentView)
-    setCaptureContentLayerHidden(true)
-    outputLayer.zPosition = 1
+    hideUnfilteredContent()
+    outputView.translatesAutoresizingMaskIntoConstraints = true
+    addSubview(outputView)
   }
 
-  private func setCaptureContentLayerHidden(_ hidden: Bool) {
-    #if canImport(UIKit)
-      let layer = contentView.layer
-    #elseif canImport(AppKit)
+  /// Takes the unfiltered content out of every drawing path, leaving the
+  /// filtered output as the only thing this host shows.
+  ///
+  /// The content is hidden as a *view*, not as a layer, and the difference is
+  /// the whole reason a preview snapshot used to come back unfiltered. Measured
+  /// on an `NSView` whose red subview was hidden and read back at its centre:
+  /// with `subview.layer.isHidden = true`, `cacheDisplay(in:to:)` returned red —
+  /// it walks the view tree and asks each view to draw, so a view's own backing
+  /// layer being hidden means nothing to it. With `subview.isHidden = true` it
+  /// returned the white background. `isHidden` on the standalone output layer
+  /// *is* honoured (measured the same way), because that layer belongs to no
+  /// view and is only ever reached through the layer tree.
+  ///
+  /// `WuiMetalViewCapture` still un-hides the backing layer for the duration of
+  /// its `CARenderer` frame, so the content is captured exactly as before.
+  private func hideUnfilteredContent() {
+    #if canImport(AppKit)
       contentView.wantsLayer = true
-      guard let layer = contentView.layer else {
-        fatalError("AppliedFilter child view must be layer-backed")
-      }
     #endif
-    CATransaction.begin()
-    CATransaction.setDisableActions(true)
-    layer.isHidden = hidden
-    CATransaction.commit()
+    contentView.isHidden = true
   }
 
+  /// Records the dynamic range this filter presents in.
+  ///
+  /// Nothing is configured on the layer: an `IOSurface` carries its own pixel
+  /// format and colour space, so the presenter applies both when it allocates
+  /// the pair for the format the filter chose at attach.
   private func configureDynamicRange(_ mode: WuiDynamicRangeMode) {
     precondition(
       !renderState.isAttached, "AppliedFilter dynamic range cannot change while attached")
     applyDynamicRange(mode, to: self)
-    configureMetalLayerDynamicRange(
-      outputLayer,
-      presentationMode: mode,
-      rendererMode: .high
-    )
+    presenter.release()
     hideFilteredOutput()
     configuredDynamicRangeMode = mode
   }
@@ -269,8 +350,12 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiFirstPaintReadyPart
     let height = UInt32(bounds.height * currentScaleFactor)
     renderState.updateSize(width: width, height: height)
     updateOutputLayerFrame()
+    // Always the half-float target, as the `CAMetalLayer` path was: it set
+    // `rendererMode: .high` unconditionally, so the filter has always rendered
+    // in extended-range linear and only the *presentation* followed the
+    // inherited mode. Narrowing that here would quietly cost filtered content
+    // its precision on every standard-range display.
     renderState.attachIfNeeded(
-      outputLayer: outputLayer,
       width: width,
       height: height,
       prefersHDR: true
@@ -290,7 +375,22 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiFirstPaintReadyPart
     scheduleFrameIfNeeded()
   }
 
+  /// Asks for a frame only when this layout pass produced new geometry.
+  ///
+  /// See `laidOutGeometry`: a pass that changed nothing must not arm the frame
+  /// clock, because captures provoke layout passes of their own.
+  private func requestRenderIfGeometryChanged() {
+    let geometry = bounds
+    guard laidOutGeometry != geometry else {
+      scheduleFrameIfNeeded()
+      return
+    }
+    laidOutGeometry = geometry
+    requestRenderIfNeeded()
+  }
+
   func renderedContentDidInvalidate() {
+    contentChangedSinceCapture = true
     requestRenderIfNeeded()
     invalidateCapturedRendering()
   }
@@ -326,6 +426,7 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiFirstPaintReadyPart
     guard let frame = renderState.prepareCapture() else {
       return
     }
+    contentChangedSinceCapture = false
     renderInFlight = true
     stopDisplayLink()
 
@@ -337,14 +438,16 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiFirstPaintReadyPart
   }
 
   private func finishCapturedFrame(_ frame: WuiAppliedFilterCaptureFrame, captured: Bool) {
-    renderInFlight = false
     if detachAfterCapture {
+      renderInFlight = false
       detachAfterCapture = false
       renderState.detachIfNeeded()
+      presenter.release()
       completeReady(false)
       return
     }
     if pendingDynamicRangeMode != nil {
+      renderInFlight = false
       pendingDynamicRangeMode = nil
       renderState.detachIfNeeded()
       initializeGpuIfNeeded()
@@ -352,15 +455,71 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiFirstPaintReadyPart
       return
     }
     guard captured else {
+      renderInFlight = false
       scheduleFrameIfNeeded()
       return
     }
-    let needsAnotherFrame = renderState.renderCapturedFrame(frame)
-    revealFilteredOutput()
-    invalidateCapturedRendering()
-    needsRender = needsRender || needsAnotherFrame
-    completeReady(true)
-    scheduleFrameIfNeeded()
+
+    presenter.configure(
+      width: Int(frame.outputWidth),
+      height: Int(frame.outputHeight),
+      pixelFormat: renderState.outputPixelFormat
+    )
+    guard let pending = presenter.nextFrame() else {
+      fatalError("AppliedFilter presenter has no texture to render into")
+    }
+    let rendered = renderState.renderCapturedFrame(frame, into: pending.texture)
+
+    // The frame stays in flight until its fence: showing the surface before the
+    // GPU has finished writing it composites a half-drawn frame, and starting
+    // the next frame before then would render into the surface being shown.
+    observeGpuCaptureFence(rendered.fence) { [weak self] in
+      guard let self else { return }
+      self.renderInFlight = false
+      // The view stopped being able to present while this frame was between
+      // its render and its fence — it left the window, or layout gave it zero
+      // bounds. `releasePresentation` deferred the teardown to whichever half
+      // of the frame was still in flight, and this is that half: showing the
+      // frame now would reveal output on a view that is gone and leave the
+      // Rust filter attached with its surfaces allocated.
+      if self.detachAfterCapture {
+        self.detachAfterCapture = false
+        self.renderState.detachIfNeeded()
+        self.presenter.release()
+        self.completeReady(false)
+        return
+      }
+      // A dynamic-range change asked for while this frame was in flight was
+      // parked rather than applied, because reconfiguring under a running
+      // render would pull the target out from under it. This is where the
+      // frame ends, so this is where it is taken up — without it the surface
+      // keeps rendering in the old range until some unrelated layout happens
+      // to ask again.
+      if self.pendingDynamicRangeMode != nil {
+        self.pendingDynamicRangeMode = nil
+        self.renderState.detachIfNeeded()
+        self.initializeGpuIfNeeded()
+        self.requestRenderIfNeeded()
+        return
+      }
+      self.presenter.present(pending)
+      self.revealFilteredOutput()
+      // Only now has this host's presentation changed, so only now may an
+      // enclosing filter be told to capture again. Signalling it before the
+      // fence — as this did — made a filter inside a filter capture the outer
+      // host's empty presentation and never hear about the real one, which is
+      // the whole of waterui#521.
+      self.invalidateCapturedRendering()
+      self.needsRender = self.needsRender || rendered.needsRedraw
+      if self.contentChangedSinceCapture {
+        // What this frame shows is already out of date; readiness waits for the
+        // one that captures the change.
+        self.needsRender = true
+      } else {
+        self.completeReady(true)
+      }
+      self.scheduleFrameIfNeeded()
+    }
   }
 
   private func requestReadyFrame(_ completion: @escaping WuiAppliedFilterReadyCompletion) {
@@ -389,18 +548,12 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiFirstPaintReadyPart
     guard !filteredOutputRevealed else { return }
     filteredOutputRevealed = true
     Logger.graphics.debug("AppliedFilter first filtered frame presented")
-    CATransaction.begin()
-    CATransaction.setDisableActions(true)
-    outputLayer.isHidden = false
-    CATransaction.commit()
+    outputView.isHidden = false
   }
 
   private func hideFilteredOutput() {
     filteredOutputRevealed = false
-    CATransaction.begin()
-    CATransaction.setDisableActions(true)
-    outputLayer.isHidden = true
-    CATransaction.commit()
+    outputView.isHidden = true
   }
 
   func prepareForReady() {
@@ -445,7 +598,7 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiFirstPaintReadyPart
       contentView.layoutIfNeeded()
       updateOutputLayerFrame()
       initializeGpuIfNeeded()
-      requestRenderIfNeeded()
+      requestRenderIfGeometryChanged()
     }
 
     override func didMoveToWindow() {
@@ -462,7 +615,7 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiFirstPaintReadyPart
       contentView.layoutSubtreeIfNeeded()
       updateOutputLayerFrame()
       initializeGpuIfNeeded()
-      requestRenderIfNeeded()
+      requestRenderIfGeometryChanged()
     }
 
     override func viewDidMoveToWindow() {
@@ -506,14 +659,17 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiFirstPaintReadyPart
       detachAfterCapture = true
     } else {
       renderState.detachIfNeeded()
+      presenter.release()
     }
   }
 
-  /// Positions the presentation layer. Its drawable size belongs to wgpu, which
-  /// sets it from the filter's resolved output size on every reconfiguration.
+  /// Positions the presentation view and its layer. The presented surfaces are
+  /// allocated at the filter's resolved output size by the next rendered frame,
+  /// so nothing here decides how large they are.
   private func updateOutputLayerFrame() {
     CATransaction.begin()
     CATransaction.setDisableActions(true)
+    outputView.frame = bounds
     outputLayer.frame = bounds
     outputLayer.contentsScale = currentScaleFactor
     CATransaction.commit()

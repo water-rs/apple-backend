@@ -93,7 +93,7 @@ private final class WuiViewEffectRenderState {
 }
 
 @MainActor
-final class WuiViewEffect: PlatformView, WuiComponent, WuiFirstPaintReadyParticipant,
+final class WuiViewEffect: PlatformView, WuiComponent, WuiPresentsOwnContent, WuiFirstPaintReadyParticipant,
   WuiRenderedContentInvalidationSink
 {
   static var rawId: CWaterUI.WuiTypeId { waterui_view_effect_id() }
@@ -187,18 +187,22 @@ final class WuiViewEffect: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
     self.outputLayer = outputLayer
   }
 
+  /// Adds the unfiltered child and takes it out of every drawing path.
+  ///
+  /// Hidden as a *view*, not as a layer: `cacheDisplay(in:to:)` walks the view
+  /// tree and asks each view to draw, so a view's own backing layer being
+  /// hidden means nothing to it and the unfiltered child came back in every
+  /// preview snapshot (waterui#519). `WuiMetalViewCapture` un-hides the backing
+  /// layer for the duration of its `CARenderer` frame, so the child is captured
+  /// exactly as before.
   private func setupChildView() {
     #if canImport(UIKit)
       insertSubview(childView, at: 0)
-      childView.layer.isHidden = true
     #elseif canImport(AppKit)
       addSubview(childView, positioned: .below, relativeTo: nil)
       childView.wantsLayer = true
-      guard let layer = childView.layer else {
-        fatalError("ViewEffect child view must be layer-backed")
-      }
-      layer.isHidden = true
     #endif
+    childView.isHidden = true
   }
 
   private func configureDynamicRange(_ mode: WuiDynamicRangeMode) {
