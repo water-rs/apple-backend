@@ -97,9 +97,6 @@
       self.layer = layer
     }
 
-    /// The device the presented textures belong to.
-    var presentationDevice: MTLDevice { device }
-
     /// Whether buffers exist for exactly this size and format.
     func matches(width: Int, height: Int, pixelFormat: MTLPixelFormat) -> Bool {
       !buffers.isEmpty && self.width == width && self.height == height
