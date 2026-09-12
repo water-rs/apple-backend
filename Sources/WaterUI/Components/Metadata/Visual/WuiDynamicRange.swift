@@ -1,5 +1,4 @@
 import CWaterUI
-import Metal
 import QuartzCore
 
 #if canImport(UIKit)
@@ -131,34 +130,6 @@ func requireInheritedDynamicRange(for view: PlatformView) -> WuiDynamicRangeMode
 func applyResolvedDynamicRange(to layer: CALayer?, for view: PlatformView) {
   guard let mode = resolveDynamicRange(for: view) else { return }
   applyDynamicRange(mode, to: layer)
-}
-
-@MainActor
-func configureMetalLayerDynamicRange(
-  _ layer: CAMetalLayer,
-  presentationMode: WuiDynamicRangeMode,
-  rendererMode: WuiDynamicRangeMode
-) {
-  precondition(
-    presentationMode == .standard || rendererMode == .high,
-    "An HDR presentation requires an HDR-capable renderer target"
-  )
-  objc_setAssociatedObject(
-    layer,
-    dynamicRangeAssociationKey(),
-    presentationMode,
-    .OBJC_ASSOCIATION_RETAIN_NONATOMIC
-  )
-  layer.preferredDynamicRange = presentationMode == .high ? .high : .standard
-  switch rendererMode {
-  case .high:
-    layer.pixelFormat = .rgba16Float
-    layer.colorspace = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)
-  case .standard:
-    layer.pixelFormat = .bgra8Unorm_srgb
-    layer.colorspace = CGColorSpace(name: CGColorSpace.sRGB)
-  }
-  layer.wantsExtendedDynamicRangeContent = presentationMode == .high
 }
 
 /// Component for Metadata<StandardDynamicRange>.
