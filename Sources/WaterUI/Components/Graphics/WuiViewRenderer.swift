@@ -187,7 +187,6 @@ private func renderViewToRGBA(
   }
 }
 
-
 /// Renders a view into a template image, for chrome that takes an image, not a view.
 ///
 /// A tab bar item is an image beside a title, so an icon that is a view has to
@@ -427,9 +426,6 @@ private func captureViewToRGBA(
 
   return (pixelData, width, height)
 }
-
-
-
 
 #if canImport(AppKit)
   /// Ensure text fields render their content before capturing.
