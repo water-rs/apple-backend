@@ -231,6 +231,7 @@ private func registerBuiltinComponentsIfNeeded() {
   registerMetadataComponent(WuiCursor.self)
   registerMetadataComponent(WuiAccessibilityIdentifier.self)
   registerMetadataComponent(WuiAccessibilityLabel.self)
+  registerMetadataComponent(WuiAccessibilityValue.self)
   registerMetadataComponent(WuiAccessibilityRole.self)
   registerMetadataComponent(WuiAccessibilityHidden.self)
   registerMetadataComponent(WuiAccessibilityChildren.self)
