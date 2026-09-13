@@ -178,7 +178,7 @@ class WuiTextBase: PlatformView {
     // platform's default leading — identical to what NSTextField/UILabel
     // report for the same attributed string.
     let bounding = measuredText.boundingRect(
-      with: constraintSize, options: [.usesLineFragmentOrigin])
+      with: constraintSize, options: [.usesLineFragmentOrigin], context: nil)
     let width = ceil(min(bounding.width, maxWidth))
     let height = ceil(min(bounding.height, maxHeight))
     let size = CGSize(width: max(width, 0.0), height: max(height, 0.0))
