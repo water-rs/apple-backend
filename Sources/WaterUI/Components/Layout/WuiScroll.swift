@@ -338,16 +338,19 @@ private func scrollMinSize(
       let finalWidth: CGFloat
       let finalHeight: CGFloat
 
+      // The document takes the measured content size, matching the UIKit
+      // path and SwiftUI's ScrollView: content smaller than the viewport
+      // stays compact instead of being stretched so spacers can expand.
       switch axis {
       case WuiAxis_Vertical:
         finalWidth = visibleWidth
-        finalHeight = max(measuredSize.height, visibleHeight)
+        finalHeight = measuredSize.height
       case WuiAxis_Horizontal:
-        finalWidth = max(measuredSize.width, visibleWidth)
+        finalWidth = measuredSize.width
         finalHeight = visibleHeight
       case WuiAxis_All:
-        finalWidth = max(measuredSize.width, visibleWidth)
-        finalHeight = max(measuredSize.height, visibleHeight)
+        finalWidth = measuredSize.width
+        finalHeight = measuredSize.height
       default:
         fatalError("Unsupported WaterUI scroll axis: \(axis.rawValue)")
       }
