@@ -77,6 +77,33 @@ final class WuiAccessibilityLabel: WuiAccessibilityMetadataView, WuiComponent {
 }
 
 @MainActor
+final class WuiAccessibilityValue: WuiAccessibilityMetadataView, WuiComponent {
+  static var rawId: WuiTypeId { waterui_ignorable_metadata_accessibility_value_id() }
+  private var observation: WuiComputedObservation<WuiStyledStr>?
+
+  required init(anyview: OpaquePointer, env: WuiEnvironment) {
+    let metadata = waterui_force_as_ignorable_metadata_accessibility_value(anyview)
+    super.init(contentView: WuiAnyView.resolve(anyview: metadata.content, env: env))
+    guard let value = metadata.value else { fatalError("accessibility value signal is null") }
+    let observation = WuiComputedObservation(WuiComputed<WuiStyledStr>(value)) {
+      [weak self] value, _ in self?.apply(value: value.toString())
+    }
+    self.observation = observation
+    apply(value: observation.value.toString())
+  }
+
+  private func apply(value: String) {
+    #if canImport(UIKit)
+      accessibilityTarget.isAccessibilityElement = true
+      accessibilityTarget.accessibilityValue = value
+    #elseif canImport(AppKit)
+      accessibilityTarget.setAccessibilityElement(true)
+      accessibilityTarget.setAccessibilityValue(value)
+    #endif
+  }
+}
+
+@MainActor
 final class WuiAccessibilityRole: WuiAccessibilityMetadataView, WuiComponent {
   static var rawId: WuiTypeId { waterui_ignorable_metadata_accessibility_role_id() }
 
@@ -175,6 +202,11 @@ class WuiAccessibilityStateView: WuiAccessibilityMetadataView {
   private var expanded: Int32 = -1
   private var busy = false
   #if canImport(UIKit)
+    /// Whether the checked state has ever written `accessibilityValue`. Until
+    /// it has, the value channel is untouched, so an `.a11y_value` an
+    /// application set survives unrelated state changes instead of being
+    /// restored to nil.
+    private var wroteCheckedValue = false
     private lazy var originalAccessibilityValue = accessibilityTarget.accessibilityValue
     private lazy var originalAccessibilityHint = accessibilityTarget.accessibilityHint
     private lazy var originalAccessibilityElementsHidden = accessibilityTarget.accessibilityElementsHidden
@@ -218,12 +250,16 @@ class WuiAccessibilityStateView: WuiAccessibilityMetadataView {
       accessibilityTarget.isAccessibilityElement = true
       accessibilityTarget.accessibilityTraits.setValue(disabled, for: .notEnabled)
       accessibilityTarget.accessibilityTraits.setValue(selected, for: .selected)
-      accessibilityTarget.accessibilityValue = switch checked {
-      case 0: NSLocalizedString("Unchecked", comment: "Accessibility unchecked state")
-      case 1: NSLocalizedString("Checked", comment: "Accessibility checked state")
-      case 2: NSLocalizedString("Mixed", comment: "Accessibility mixed state")
-      case -1: originalAccessibilityValue
-      default: fatalError("unknown WaterUI accessibility checked state: \(checked)")
+      if checked != -1 {
+        wroteCheckedValue = true
+        accessibilityTarget.accessibilityValue = switch checked {
+        case 0: NSLocalizedString("Unchecked", comment: "Accessibility unchecked state")
+        case 1: NSLocalizedString("Checked", comment: "Accessibility checked state")
+        case 2: NSLocalizedString("Mixed", comment: "Accessibility mixed state")
+        default: fatalError("unknown WaterUI accessibility checked state: \(checked)")
+        }
+      } else if wroteCheckedValue {
+        accessibilityTarget.accessibilityValue = originalAccessibilityValue
       }
       accessibilityTarget.accessibilityHint = busy
         ? NSLocalizedString("Busy", comment: "Accessibility busy state")
