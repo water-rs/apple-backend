@@ -83,6 +83,7 @@ func wuiLayoutTransformedContent(
         y: containerBounds.minY + containerBounds.height * anchor.y
     )
     let needsUpdate = lastBoundsSize != containerBounds.size
+        || contentView.frame != containerBounds
         || contentView.bounds != contentBounds
         || layer.bounds != contentBounds
         || layer.anchorPoint != anchor
@@ -92,7 +93,11 @@ func wuiLayoutTransformedContent(
 
     CATransaction.begin()
     CATransaction.setDisableActions(true)
+    // The view's frame drives where the subtree is laid out; writing only
+    // bounds leaves the frame at its stale (often zero) rect, so children
+    // center on the container's origin instead of filling it.
     contentView.bounds = contentBounds
+    contentView.frame = containerBounds
     layer.bounds = contentBounds
     layer.anchorPoint = anchor
     layer.position = expectedPosition
