@@ -838,17 +838,20 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     }
 
     /// SwiftUI lands the separator on the row's leading *alignment guide* —
-    /// the leftmost edge of the row's laid-out content — so leading padding
-    /// inside the row pushes the rule right along with the content. The padding
-    /// is a layout modifier rather than a view, so its effect shows up as the
-    /// leftmost descendant's `minX` inside the row container. Measured:
-    /// `Text().padding(h: 16)` rules start at 32pt (16 margin + 16 guide
-    /// offset); a bare `Text` at 16pt.
+    /// the leading edge of the row's first text-bearing leaf. Non-text
+    /// accessories before the text (a status dot, an avatar) do not move the
+    /// rule: measured against a plain SwiftUI `List`, `HStack { dot; Text }`
+    /// rules start at the text's leading edge, `Text().padding(h: 16)` rules
+    /// start at 32pt (16 margin + 16 guide offset), and a bare `Text` at 16pt.
     private func resolvedSeparatorLeading() -> CGFloat {
       guard let cellView = subviews.first(where: { $0 is WuiListRowContainerView })
       else { return Self.listContentMargin }
       let base = cellView.frame.minX + WuiList.rowContentInset
-      let guide = cellView.frame.minX + leftmostContentX(of: cellView)
+      let textLeaf = leftmostTextX(of: cellView)
+      let leaf = textLeaf == .greatestFiniteMagnitude
+        ? leftmostContentX(of: cellView)
+        : textLeaf
+      let guide = cellView.frame.minX + leaf
       return Self.listContentMargin + max(guide - base, 0)
     }
 
@@ -864,6 +867,23 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
         best = min(best, sub.frame.minX + leftmostContentX(of: sub))
       }
       return best == .greatestFiniteMagnitude ? 0 : best
+    }
+
+    /// The leftmost text-bearing `minX` among `view`'s descendants, in
+    /// `view`'s coordinate space — `greatestFiniteMagnitude` when the row has
+    /// no text. The walk crosses non-WaterUI wrappers (`NavigationLink` rows
+    /// sit inside an `NSButton`), but stops at the text component's own frame
+    /// rather than its AppKit innards.
+    private func leftmostTextX(of view: NSView) -> CGFloat {
+      var best = CGFloat.greatestFiniteMagnitude
+      for sub in view.subviews {
+        if sub is WuiText || sub is WuiTextField || sub is WuiSecureField {
+          best = min(best, sub.frame.minX)
+        } else {
+          best = min(best, sub.frame.minX + leftmostTextX(of: sub))
+        }
+      }
+      return best
     }
   }
 
