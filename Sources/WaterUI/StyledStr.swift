@@ -240,11 +240,14 @@ struct WuiResolvedFontValue {
   let size: Float
   let weight: CWaterUI.WuiFontWeight
   let familyName: String
+  /// Which of the system's own faces to use when no family is named.
+  let design: CWaterUI.WuiFontDesign
 
   init(consuming resolved: CWaterUI.WuiResolvedFont) {
     size = resolved.size
     weight = resolved.weight
     familyName = WuiStr(resolved.family).toString()
+    design = resolved.design
   }
 
   #if canImport(UIKit)
@@ -265,7 +268,14 @@ struct WuiResolvedFontValue {
         )
       }
 
-      return UIFont.systemFont(ofSize: size, weight: weight)
+      switch design {
+      case WuiFontDesign_Default:
+        return UIFont.systemFont(ofSize: size, weight: weight)
+      case WuiFontDesign_Monospaced:
+        return UIFont.monospacedSystemFont(ofSize: size, weight: weight)
+      default:
+        fatalError("Unsupported WaterUI font design: \(design.rawValue)")
+      }
     }
   #elseif canImport(AppKit)
     func toPlatformFont() -> NSFont {
@@ -285,7 +295,14 @@ struct WuiResolvedFontValue {
         )
       }
 
-      return NSFont.systemFont(ofSize: size, weight: weight)
+      switch design {
+      case WuiFontDesign_Default:
+        return NSFont.systemFont(ofSize: size, weight: weight)
+      case WuiFontDesign_Monospaced:
+        return NSFont.monospacedSystemFont(ofSize: size, weight: weight)
+      default:
+        fatalError("Unsupported WaterUI font design: \(design.rawValue)")
+      }
     }
   #endif
 }
@@ -293,8 +310,6 @@ struct WuiResolvedFontValue {
 #if canImport(UIKit)
   private func genericUIFont(familyName: String, size: CGFloat, weight: UIFont.Weight) -> UIFont? {
     switch familyName {
-    case "monospace":
-      return UIFont.monospacedSystemFont(ofSize: size, weight: weight)
     case "system", "sans-serif":
       return UIFont.systemFont(ofSize: size, weight: weight)
     default:
@@ -321,8 +336,6 @@ struct WuiResolvedFontValue {
 #elseif canImport(AppKit)
   private func genericNSFont(familyName: String, size: CGFloat, weight: NSFont.Weight) -> NSFont? {
     switch familyName {
-    case "monospace":
-      return NSFont.monospacedSystemFont(ofSize: size, weight: weight)
     case "system", "sans-serif":
       return NSFont.systemFont(ofSize: size, weight: weight)
     default:
