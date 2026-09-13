@@ -20,7 +20,6 @@ import Testing
 /// up to the trap.
 @MainActor
 struct FocusTargetTests {
-
   /// A focus target that records requests and emits focus changes itself.
   private final class FakeFocusTarget: WuiFocusTargetBase, WuiFocusTarget {
     let view: PlatformView
@@ -120,7 +119,7 @@ struct FocusTargetTests {
 
   @Test func twoAnchorsCountTwo() {
     let container = PlatformView(frame: .zero)
-    for _ in 0..<2 {
+    for _ in 0 ..< 2 {
       let anchor = PlatformView(frame: .zero)
       anchor.installWuiFocusTarget(FakeFocusTarget(view: anchor))
       container.addSubview(anchor)
