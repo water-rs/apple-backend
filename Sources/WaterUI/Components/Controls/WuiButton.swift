@@ -175,7 +175,7 @@ final class WuiButton: PlatformView, WuiComponent {
   private var contentPadding: (horizontal: CGFloat, vertical: CGFloat) {
     #if canImport(UIKit)
       switch style {
-      case WuiButtonStyle_Link:
+      case WuiButtonStyle_Link, WuiButtonStyle_Plain:
         (0, 0)
       case WuiButtonStyle_Bordered, WuiButtonStyle_BorderedProminent:
         (14, 7)
@@ -184,7 +184,7 @@ final class WuiButton: PlatformView, WuiComponent {
       }
     #elseif canImport(AppKit)
       switch style {
-      case WuiButtonStyle_Link:
+      case WuiButtonStyle_Link, WuiButtonStyle_Plain:
         (0, 0)
       case WuiButtonStyle_Automatic, WuiButtonStyle_Bordered, WuiButtonStyle_BorderedProminent:
         (16, 5)
