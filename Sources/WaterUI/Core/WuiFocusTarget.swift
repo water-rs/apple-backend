@@ -149,9 +149,19 @@ extension PlatformView {
     )
   }
 
-  func requireSingleWuiFocusTarget() -> any WuiFocusTarget {
+  /// Every focus anchor installed in the subtree, in traversal order.
+  ///
+  /// `requireSingleWuiFocusTarget` traps on any count other than one; the count
+  /// itself is exposed so tests can cover the counting contract, which a
+  /// `fatalError` cannot be.
+  func wuiFocusTargets() -> [any WuiFocusTarget] {
     var targets: [any WuiFocusTarget] = []
     collectWuiFocusTargets(into: &targets)
+    return targets
+  }
+
+  func requireSingleWuiFocusTarget() -> any WuiFocusTarget {
+    let targets = wuiFocusTargets()
 
     switch targets.count {
     case 1:
