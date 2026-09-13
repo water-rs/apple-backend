@@ -105,6 +105,9 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
     private weak var windowToolbar: WuiWindowToolbar?
     /// Whether the pane containing this split is the one on screen.
     private var chromeIsActive = true
+    /// The sidebar's own collapse state, kept while chrome is inactive so
+    /// hiding the split does not erase a collapse the user made.
+    private var sidebarCollapsedByChrome = false
   #endif
 
   convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
@@ -466,6 +469,8 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
       windowToolbar = WuiWindowToolbar.attached(to: window)
       if chromeIsActive {
         windowToolbar?.setSidebarSplitView(splitController.splitView)
+      } else {
+        applySidebarCollapse()
       }
     }
 
@@ -475,7 +480,30 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
     func setChromeActive(_ active: Bool) {
       guard chromeIsActive != active else { return }
       chromeIsActive = active
+      applySidebarCollapse()
       windowToolbar?.setSidebarSplitView(active ? splitController.splitView : nil)
+    }
+
+    /// Collapses the sidebar while this split's pane is off screen and puts it
+    /// back the way it was when the pane returns.
+    ///
+    /// A split view controller joined to the window's controller hierarchy
+    /// claims toolbar space for its sidebar's divider — even while the view is
+    /// hidden inside an unselected tab — which pushes every toolbar item right
+    /// and keeps the tab picker off the window's midpoint. Collapsing the item
+    /// is what hands the space back; hiding or detaching the view alone does
+    /// not.
+    private func applySidebarCollapse() {
+      guard let sidebar = splitController.splitViewItems.first(where: {
+        $0.behavior == .sidebar
+      })
+      else { return }
+      if chromeIsActive {
+        sidebar.isCollapsed = sidebarCollapsedByChrome
+      } else {
+        sidebarCollapsedByChrome = sidebar.isCollapsed
+        sidebar.isCollapsed = true
+      }
     }
 
     override func layout() {
