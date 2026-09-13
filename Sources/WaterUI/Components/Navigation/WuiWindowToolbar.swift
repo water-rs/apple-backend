@@ -166,7 +166,13 @@
       if content.showsBack { identifiers.append(Self.backIdentifier) }
       if content.leading != nil { identifiers.append(Self.leadingIdentifier) }
       if content.titleView != nil { identifiers.append(Self.titleIdentifier) }
-      if tabsView != nil { identifiers.append(Self.tabsIdentifier) }
+      // SwiftUI puts the toolbar tab picker in the principal slot, centered
+      // between the leading and trailing groups; a flexible space on each
+      // side of the segmented control reproduces that placement.
+      if tabsView != nil {
+        identifiers.append(.flexibleSpace)
+        identifiers.append(Self.tabsIdentifier)
+      }
       identifiers.append(.flexibleSpace)
       if content.trailing != nil { identifiers.append(Self.trailingIdentifier) }
       if content.search != nil { identifiers.append(Self.searchIdentifier) }
