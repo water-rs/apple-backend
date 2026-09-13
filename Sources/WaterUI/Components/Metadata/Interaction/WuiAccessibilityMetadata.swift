@@ -125,7 +125,7 @@ final class WuiAccessibilityRole: WuiAccessibilityMetadataView, WuiComponent {
       case 8: .searchField
       case 16: .adjustable
       case 17: .updatesFrequently
-      case 6, 7, 10, 11, 19, 20, 21, 23, 27, 28: []
+      case 6, 7, 10, 11, 19, 20, 21, 23, 27, 28, 29: []
       default: fatalError("unknown WaterUI accessibility role: \(role)")
       }
       var traits = accessibilityTarget.accessibilityTraits
@@ -152,7 +152,7 @@ final class WuiAccessibilityRole: WuiAccessibilityMetadataView, WuiComponent {
       case 22: .menuItem
       case 23: .menuBar
       case 26: .comboBox
-      case 5 ... 10, 12, 15, 20, 27, 28: .group
+      case 5 ... 10, 12, 15, 20, 27, 28, 29: .group
       default: fatalError("unknown WaterUI accessibility role: \(role)")
       }
       accessibilityTarget.setAccessibilityRole(accessibilityRole)
