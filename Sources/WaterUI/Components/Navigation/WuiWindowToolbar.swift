@@ -160,6 +160,10 @@
     private var currentIdentifiers: [NSToolbarItem.Identifier] {
       var identifiers: [NSToolbarItem.Identifier] = []
       if sidebarSplitView != nil {
+        // The toggle hugs the divider, not the toolbar's leading edge: SwiftUI
+        // parks it against the tracking separator at the sidebar's trailing
+        // edge, so a flexible space does the pushing.
+        identifiers.append(.flexibleSpace)
         identifiers.append(.toggleSidebar)
         identifiers.append(Self.sidebarSeparatorIdentifier)
       }
