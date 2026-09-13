@@ -29,6 +29,12 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
   private var progressObservation: NSKeyValueObservation?
   private var messageHandlers: [String: CWaterUI.WuiFn_WuiWebViewMessage] = [:]
   private var installedBridge = false
+  /// The `WuiAssetServer` Rust handed this view at creation, when it was opened
+  /// with one. The wrapper owns it and frees it in `cleanupForDrop`.
+  private let assetServer: OpaquePointer?
+  /// Strong reference so the scheme handler outlives the configuration that
+  /// only weakly holds it.
+  private var assetSchemeHandler: AssetSchemeHandler?
   /// Origin rule tokens as `OriginPolicy::wire` renders them: `*` for every
   /// origin, `file:` for any local document, otherwise an exact
   /// `scheme://host[:port]`. An empty list denies every document — it is what
@@ -41,8 +47,18 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
   /// the seeds.
   private var userScriptsByKey: [(key: String, script: WKUserScript)] = []
 
-  override init() {
+  /// `assetServer` is the boxed `WuiAssetServer` `WuiWebViewConfig` carried, or
+  /// nil when the view serves no bundled assets. A scheme handler can only be
+  /// registered while the `WKWebViewConfiguration` is being assembled — before
+  /// the view exists — which is why the server arrives at creation.
+  init(assetServer: OpaquePointer?) {
+    self.assetServer = assetServer
     let config = WKWebViewConfiguration()
+    if let assetServer {
+      let handler = AssetSchemeHandler(server: assetServer)
+      assetSchemeHandler = handler
+      config.setURLSchemeHandler(handler, forURLScheme: Self.assetScheme)
+    }
     #if canImport(UIKit)
       config.allowsInlineMediaPlayback = true
       config.mediaTypesRequiringUserActionForPlayback = []
@@ -100,6 +116,13 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
     )
     webView.configuration.userContentController.add(self, name: Self.sendFunction)
   }
+
+  /// The names the asset origin is spelled with — the same constants
+  /// `waterui_webview::assets` defines, duplicated here only until the header
+  /// export names them.
+  static let assetScheme = "waterui"
+  static let assetHost = "localhost"
+  static let assetOrigin = "waterui://localhost"
 
   private static let sendFunction = "__wateruiSend"
   private static let transportScript = """
@@ -301,6 +324,13 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
     controller.removeAllUserScripts()
     userScriptsByKey.removeAll()
     installedBridge = false
+
+    // The view is dead, so no intercepted request can still be in flight; the
+    // server it answered through is ours to release.
+    if let assetServer {
+      waterui_webview_asset_server_free(assetServer)
+    }
+    assetSchemeHandler = nil
   }
 
   func setCookie(_ setCookieHeaderValue: String) {
@@ -694,6 +724,13 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
           wrapper.callAsyncJavaScript(WuiStr(body).toString(), callback: callback)
         }
       },
+      asset_origin: { rawPtr in
+        // The empty string is the contract's `None`.
+        let origin = WebViewWrapper.withHandle(rawPtr, operation: "asset_origin") { wrapper in
+          wrapper.assetServer == nil ? "" : WebViewWrapper.assetOrigin
+        }
+        return WuiStr(string: origin).intoInner()
+      },
       drop: { rawPtr in
         precondition(Thread.isMainThread, "WebView drop must run on its owning UI thread")
         guard let rawPtr else {
@@ -712,6 +749,105 @@ final class WebViewWrapper: NSObject, WKScriptMessageHandler {
       messageHandlers.isEmpty && eventCallback == nil,
       "WebView was deinitialized before its FFI handle was dropped"
     )
+  }
+}
+
+// MARK: - Asset origin
+
+/// Answers `waterui://localhost` requests through the `WuiAssetServer` the view
+/// was created with.
+///
+/// `WKURLSchemeHandler` callbacks run on WebKit's own queue, not the main
+/// actor — the server is `Send + Sync` precisely so they can be answered from
+/// whichever thread arrives. Method enforcement (GET/HEAD, `405` otherwise) and
+/// traversal refusal (`404`) happen inside `waterui_webview_asset_server_respond`,
+/// the same dispatcher every engine routes through.
+private final class AssetSchemeHandler: NSObject, WKURLSchemeHandler {
+  let server: OpaquePointer
+
+  init(server: OpaquePointer) {
+    self.server = server
+  }
+
+  func webView(_ webView: WKWebView, start urlSchemeTask: any WKURLSchemeTask) {
+    let request = urlSchemeTask.request
+    guard let url = request.url, let responseUrl = request.url else {
+      urlSchemeTask.didFailWithError(
+        NSError(domain: NSURLErrorDomain, code: NSURLErrorBadURL))
+      return
+    }
+
+    // The handler is registered for the `waterui` scheme as a whole, so the
+    // host check — `localhost` and nothing else — is this layer's to make; the
+    // dispatcher below sees only method, path and query.
+    let status: Int
+    let headerFields: [String: String]
+    let body: Data
+    if url.host() == WebViewWrapper.assetHost {
+      let path = url.path(percentEncoded: true)
+      let query = url.query(percentEncoded: true) ?? ""
+      let response = waterui_webview_asset_server_respond(
+        server,
+        WuiStr(string: request.httpMethod ?? "GET").intoInner(),
+        WuiStr(string: path.isEmpty ? "/" : path).intoInner(),
+        WuiStr(string: query).intoInner()
+      )
+      // Every field is read — copying what it names — before the response is
+      // freed: `headers` and `body` borrow storage the free reclaims. The
+      // bytes are read through the array's `slice` entry rather than the
+      // `WuiStr` wrapper, whose deinit would free the same storage the
+      // response free below already does.
+      status = Int(response.status)
+      headerFields = Self.headerFields(
+        String(decoding: Self.bytes(response.headers._0), as: UTF8.self))
+      body = Self.bytes(response.body)
+      waterui_webview_asset_response_free(response)
+    } else {
+      status = 404
+      headerFields = [:]
+      body = Data()
+    }
+
+    guard
+      let httpResponse = HTTPURLResponse(
+        url: responseUrl, statusCode: status, httpVersion: "HTTP/1.1",
+        headerFields: headerFields)
+    else {
+      urlSchemeTask.didFailWithError(
+        NSError(domain: NSURLErrorDomain, code: NSURLErrorBadServerResponse))
+      return
+    }
+    urlSchemeTask.didReceive(httpResponse)
+    if !body.isEmpty {
+      urlSchemeTask.didReceive(body)
+    }
+    urlSchemeTask.didFinish()
+  }
+
+  func webView(_ webView: WKWebView, stop urlSchemeTask: any WKURLSchemeTask) {
+    // Serving is synchronous inside `start`, so a stopped task is already
+    // answered; WebKit only asks us to stop listening.
+  }
+
+  /// `"Name: value"` lines — the `WuiAssetResponse` wire form — as a header map.
+  private static func headerFields(_ lines: String) -> [String: String] {
+    var fields: [String: String] = [:]
+    for line in lines.split(separator: "\n") {
+      guard let colon = line.firstIndex(of: ":"), colon > line.startIndex else {
+        continue
+      }
+      let name = line[..<colon].trimmingCharacters(in: .whitespaces)
+      let value = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+      fields[name] = value
+    }
+    return fields
+  }
+
+  /// Copies the bytes a `WuiArray<u8>` names.
+  private static func bytes(_ array: CWaterUI.WuiArray_u8) -> Data {
+    let slice = array.vtable.slice(array.data)
+    guard let head = slice.head, slice.len > 0 else { return Data() }
+    return Data(bytes: head, count: Int(slice.len))
   }
 }
 
@@ -954,10 +1090,10 @@ public func installWebViewController(env: OpaquePointer?) {
   struct HandleTransfer: @unchecked Sendable {
     let value: CWaterUI.WuiWebViewHandle
   }
-  let createFn: @convention(c) () -> CWaterUI.WuiWebViewHandle = {
+  let createFn: CWaterUI.WuiCreateWebViewFn = { config in
     precondition(Thread.isMainThread, "WebView controller must be created on the UI thread")
     return MainActor.assumeIsolated {
-      HandleTransfer(value: WebViewWrapper().toFFIHandle())
+      HandleTransfer(value: WebViewWrapper(assetServer: config.asset_server).toFFIHandle())
     }.value
   }
   waterui_env_install_webview_controller(env, createFn)
