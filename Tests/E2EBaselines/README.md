@@ -11,6 +11,20 @@ platform (`ios/`, `macos/`).
 - `<example>.skip` — an empty marker that skips pixel comparison for an
   example whose first screen cannot be made deterministic (continuous
   animation, live media). The launch and non-blank checks still apply.
+- `<example>.parity-skip` — an empty marker that skips the SwiftUI parity
+  comparison for an example with a registered twin while a known divergence
+  is worked down.
+
+## SwiftUI parity
+
+Examples with a twin registered in `Tests/E2EReference` are additionally
+compared against the twin rendered live by the reference host on the same
+runner — the backend must stay pixel-faithful to what SwiftUI produces for the
+same layout, not only to its own recorded baseline. `parity-budgets.json`
+holds the allowed diff fraction per platform per twin; twins absent from the
+file are held to the strict default (2%). Recorded budgets are the measured
+divergence plus headroom — raise them only alongside a filed issue for the
+divergence they bless.
 
 ## Recording
 

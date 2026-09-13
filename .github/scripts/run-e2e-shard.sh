@@ -20,6 +20,8 @@ shots_dir="${SHOTS_DIR:-${workspace}/e2e-shots}"
 baselines_dir="${BASELINES_DIR:-${workspace}/Tests/E2EBaselines}"
 record_dir="${RECORD_DIR:-${workspace}/e2e-baselines}"
 record="${RECORD:-0}"
+parity_budgets="${PARITY_BUDGETS:-${baselines_dir}/parity-budgets.json}"
+reference_dir="${workspace}/Tests/E2EReference"
 
 if [[ "${platform}" != "ios" && "${platform}" != "macos" ]]; then
   echo "::error::Unsupported platform '${platform}'. Expected ios or macos."
@@ -69,14 +71,17 @@ fi
 
 echo "Running ${#shard_examples[@]} examples on ${platform}: ${shard_examples[*]}"
 
-# One frame from the current platform target.
+# One frame from the current platform target. macOS captures need the pid that
+# owns the window; the running example is the default, the SwiftUI reference
+# host passes its own.
 capture_frame() {
   local target="$1"
+  local pid="${2:-${app_pid}}"
   if [[ "${platform}" == "ios" ]]; then
     xcrun simctl io "${SIMULATOR_UDID}" screenshot "${target}" >/dev/null
   else
     local window_id
-    window_id="$(swift "${workspace}/.github/scripts/window-id.swift" "${app_pid}")"
+    window_id="$(swift "${workspace}/.github/scripts/window-id.swift" "${pid}")"
     screencapture -x -o -l"${window_id}" "${target}"
   fi
 }
@@ -86,10 +91,11 @@ capture_frame() {
 # which case the last frame is kept. Fails when no frame could be captured.
 capture_settled() {
   local target="$1"
+  local pid="${2:-}"
   local previous=""
   local deadline=$((SECONDS + 90))
   while (( SECONDS < deadline )); do
-    if capture_frame "${target}" && [[ -f "${target}" ]]; then
+    if capture_frame "${target}" ${pid:+"${pid}"} && [[ -f "${target}" ]]; then
       if [[ -n "${previous}" ]] && \
          DIFF_BUDGET=0.01 swift "${workspace}/.github/scripts/compare-screenshots.swift" \
            compare "${previous}" "${target}" "${shots_dir}/.settle-diff.png" >/dev/null 2>&1; then
@@ -106,6 +112,89 @@ capture_settled() {
     return 1
   fi
   echo "::warning::${example} never settled to a stable frame; using the last capture."
+}
+
+# ── SwiftUI parity ──────────────────────────────────────────────────────────
+# Examples with a registered twin in Tests/E2EReference are also compared
+# against the twin rendered live by the reference host on the same runner —
+# the backend must stay pixel-faithful to what SwiftUI produces for the same
+# layout, not only to its own recorded baseline. The twin registry is read
+# from Twins.swift so a new twin joins the sweep automatically.
+twin_names=()
+if [[ -f "${reference_dir}/Sources/Twins.swift" ]]; then
+  while IFS= read -r twin; do
+    twin_names+=("${twin}")
+  done < <(sed -n 's/.*case "\([^"]*\)":.*/\1/p' "${reference_dir}/Sources/Twins.swift" | sort -u)
+fi
+
+has_twin() {
+  local t
+  for t in ${twin_names[@]+"${twin_names[@]}"}; do
+    [[ "${t}" == "$1" ]] && return 0
+  done
+  return 1
+}
+
+# Built lazily on the first twinned example in the shard; a shard with no
+# twins never pays for it.
+reference_app=""
+build_reference_host() {
+  [[ -n "${reference_app}" ]] && return 0
+  local out_dir="${shots_dir}/.reference-host"
+  if "${reference_dir}/build-reference-host.sh" "${platform}" "${out_dir}" \
+      >"${logs_dir}/${platform}-reference-build.log" 2>&1; then
+    reference_app="${out_dir}/E2EReference.app"
+  else
+    echo "::error::Failed to build the SwiftUI reference host."
+    tail -n 60 "${logs_dir}/${platform}-reference-build.log" || true
+    return 1
+  fi
+}
+
+# Launches the reference host for `example`, settles, captures to $1, and
+# shuts it down again. The reference never runs concurrently with the example
+# under test, so the runner's single screen needs no window choreography.
+capture_reference() {
+  local target="$1" example="$2" title="$3"
+  build_reference_host || return 1
+  if [[ "${platform}" == "ios" ]]; then
+    xcrun simctl install "${SIMULATOR_UDID}" "${reference_app}" >/dev/null
+    xcrun simctl launch "${SIMULATOR_UDID}" dev.waterui.E2EReference \
+      -E2EExample "${example}" -E2ETitle "${title}" >/dev/null
+    sleep 2
+    capture_settled "${target}"
+    local rc=$?
+    xcrun simctl terminate "${SIMULATOR_UDID}" dev.waterui.E2EReference >/dev/null 2>&1 || true
+    return ${rc}
+  else
+    "${reference_app}/Contents/MacOS/E2EReference" \
+      -E2EExample "${example}" -E2ETitle "${title}" \
+      >>"${logs_dir}/${platform}-${example}-ref.log" 2>&1 &
+    local ref_pid=$!
+    capture_settled "${target}" "${ref_pid}"
+    local rc=$?
+    kill "${ref_pid}" 2>/dev/null || true
+    wait "${ref_pid}" 2>/dev/null || true
+    return ${rc}
+  fi
+}
+
+# The allowed diff fraction for this twin on this platform: the recorded
+# budget when the twin is known-divergent, the strict default otherwise.
+parity_budget() {
+  local budget=""
+  if [[ -f "${parity_budgets}" ]]; then
+    budget="$(python3 -c '
+import json, sys
+try:
+  budgets = json.load(open(sys.argv[1]))
+  value = budgets.get(sys.argv[2], {}).get(sys.argv[3], "")
+  print(value)
+except Exception:
+  print("")
+' "${parity_budgets}" "${platform}" "$1")"
+  fi
+  echo "${budget:-${DIFF_BUDGET:-0.02}}"
 }
 
 declare -a failures=()
@@ -227,6 +316,46 @@ for example in ${shard_examples[@]+"${shard_examples[@]}"}; do
       echo "::error::Screenshot regression for ${example}: ${compare_out}"
       failures+=("${example}: regression")
       report+=("| \`${example}\` | regression | ${compare_out#compare: } |")
+    fi
+  fi
+
+  # SwiftUI parity: render the twin in the reference host and compare it
+  # against the example capture taken above. A `.parity-skip` marker next to
+  # the baselines opts a twin out while a known divergence is worked down.
+  if has_twin "${example}" && \
+     [[ ! -f "${baselines_dir}/${platform}/${example}.parity-skip" ]]; then
+    ref_shot="${shots_dir}/${platform}-${example}-ref.png"
+    parity_diff="${shots_dir}/${platform}-${example}-parity-diff.png"
+    budget="$(parity_budget "${example}")"
+    # Record runs measure rather than gate: an unbounded budget keeps the
+    # compare green so the true fraction lands in the report and the artifact.
+    [[ "${record}" == "1" ]] && budget="1.0"
+    if ! capture_reference "${ref_shot}" "${example}" "${product}"; then
+      echo "::error::Could not capture the SwiftUI reference for ${example}."
+      failures+=("${example}: reference capture")
+      report+=("| \`${example}\` (parity) | reference failed | — |")
+    elif ! swift "${workspace}/.github/scripts/compare-screenshots.swift" \
+        content "${ref_shot}" >/dev/null 2>&1; then
+      echo "::error::SwiftUI reference for ${example} captured blank."
+      failures+=("${example}: reference blank")
+      report+=("| \`${example}\` (parity) | reference blank | — |")
+    elif parity_out="$(DIFF_BUDGET="${budget}" \
+        swift "${workspace}/.github/scripts/compare-screenshots.swift" \
+        compare "${ref_shot}" "${shot}" "${parity_diff}" 2>&1)"; then
+      parity_fraction="${parity_out#compare: }"
+      parity_fraction="${parity_fraction%% *}"
+      if [[ "${record}" == "1" ]]; then
+        mkdir -p "${record_dir}/parity"
+        printf '%s\n' "${parity_fraction}" \
+          > "${record_dir}/parity/${platform}-${example}.txt"
+        report+=("| \`${example}\` (parity) | recorded ${parity_fraction} | — |")
+      else
+        report+=("| \`${example}\` (parity) | within budget ${budget} | ${parity_out#compare: } |")
+      fi
+    else
+      echo "::error::SwiftUI parity regression for ${example}: ${parity_out} (budget ${budget})"
+      failures+=("${example}: parity regression")
+      report+=("| \`${example}\` (parity) | drift over budget ${budget} | ${parity_out#compare: } |")
     fi
   fi
 
