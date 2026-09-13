@@ -1,0 +1,260 @@
+name: Nightly E2E
+
+# The heavy end-to-end suite, once a day against `dev` and on demand: every
+# runnable example in the waterui repository is built and launched on an iOS
+# simulator and on macOS, its first settled screen is captured, and the capture
+# is verified — non-blank always, pixel-compared where a recorded baseline
+# exists under Tests/E2EBaselines. `ci.yml` is the per-change gate; this suite
+# is far too heavy for one. Building each example for the simulator also
+# compiles the UIKit half of the backend daily (#4). A red run opens one
+# tracking issue and keeps it current. Dispatching with `record_baselines`
+# captures fresh baselines and opens a PR containing them.
+
+on:
+  # Off-peak UTC, staggered against the waterui nightly (03:17) so the two
+  # suites do not compete for the org's macOS job cap.
+  schedule:
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+    inputs:
+      record_baselines:
+        description: Capture fresh screenshot baselines and open a PR
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  # The failure report opens or updates an issue.
+  issues: write
+  # The baseline-publish job opens a pull request.
+  pull-requests: write
+
+# One nightly at a time, and a running one is never cancelled: its value is
+# the complete report.
+concurrency:
+  group: nightly-e2e
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  SHARD_TOTAL: 4
+
+jobs:
+  e2e-ios:
+    name: e2e-ios-${{ matrix.shard }}
+    runs-on: macos-26
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare waterui with this backend
+        run: ./.github/scripts/setup-e2e.sh
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: nightly-e2e-ios
+
+      - name: Install water CLI
+        run: cargo install --path waterui/cli --locked
+
+      - name: Boot iOS simulator
+        run: |
+          set -euo pipefail
+          simulator_udid="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ {print $2; exit}')"
+          if [[ -z "${simulator_udid}" ]]; then
+            echo "::error::No available iPhone simulator found."
+            exit 1
+          fi
+          echo "SIMULATOR_UDID=${simulator_udid}" >> "${GITHUB_ENV}"
+          xcrun simctl boot "${simulator_udid}" || true
+          xcrun simctl bootstatus "${simulator_udid}" -b
+          # The capture is compared pixel-by-pixel; pin the status bar so the
+          # clock and battery do not diff against the baseline.
+          xcrun simctl status_bar "${simulator_udid}" override \
+            --time "9:41" \
+            --batteryState charged \
+            --batteryLevel 100 \
+            --cellularMode active \
+            --cellularBars 4 \
+            --wifiBars 3
+
+      - name: Run iOS e2e shard
+        env:
+          PLATFORM: ios
+          SHARD_INDEX: ${{ matrix.shard }}
+          SHARD_TOTAL: ${{ env.SHARD_TOTAL }}
+          WATERUI_DIR: ${{ github.workspace }}/waterui
+          EXAMPLE_LOG_DIR: ${{ github.workspace }}/e2e-logs
+          SHOTS_DIR: ${{ github.workspace }}/e2e-shots
+          RECORD_DIR: ${{ github.workspace }}/e2e-baselines
+          RECORD: ${{ inputs.record_baselines == true && '1' || '0' }}
+        run: ./.github/scripts/run-e2e-shard.sh
+
+      - name: Upload iOS shard captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-shots-ios-${{ matrix.shard }}
+          path: e2e-shots/
+          retention-days: 14
+
+      - name: Upload iOS shard logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-logs-ios-${{ matrix.shard }}
+          path: e2e-logs/
+          retention-days: 14
+
+      - name: Upload recorded iOS baselines
+        if: inputs.record_baselines == true
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-baselines-ios-${{ matrix.shard }}
+          path: e2e-baselines/
+          retention-days: 7
+
+  e2e-macos:
+    name: e2e-macos-${{ matrix.shard }}
+    runs-on: macos-26
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare waterui with this backend
+        run: ./.github/scripts/setup-e2e.sh
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: nightly-e2e-macos
+
+      - name: Install water CLI
+        run: cargo install --path waterui/cli --locked
+
+      - name: Run macOS e2e shard
+        env:
+          PLATFORM: macos
+          SHARD_INDEX: ${{ matrix.shard }}
+          SHARD_TOTAL: ${{ env.SHARD_TOTAL }}
+          WATERUI_DIR: ${{ github.workspace }}/waterui
+          EXAMPLE_LOG_DIR: ${{ github.workspace }}/e2e-logs
+          SHOTS_DIR: ${{ github.workspace }}/e2e-shots
+          RECORD_DIR: ${{ github.workspace }}/e2e-baselines
+          RECORD: ${{ inputs.record_baselines == true && '1' || '0' }}
+        run: ./.github/scripts/run-e2e-shard.sh
+
+      - name: Upload macOS shard captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-shots-macos-${{ matrix.shard }}
+          path: e2e-shots/
+          retention-days: 14
+
+      - name: Upload macOS shard logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-logs-macos-${{ matrix.shard }}
+          path: e2e-logs/
+          retention-days: 14
+
+      - name: Upload recorded macOS baselines
+        if: inputs.record_baselines == true
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-baselines-macos-${{ matrix.shard }}
+          path: e2e-baselines/
+          retention-days: 7
+
+  # Baselines are recorded on CI, not locally: window metrics, scale factors,
+  # and OS rendering all differ across machines. A record run uploads its
+  # captures; this job files them under Tests/E2EBaselines and opens a PR so a
+  # human reviews every changed pixel.
+  publish-baselines:
+    name: publish-baselines
+    if: inputs.record_baselines == true
+    needs: [e2e-ios, e2e-macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download recorded baselines
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: e2e-baselines-*
+          path: recorded/
+
+      - name: Merge recorded baselines
+        run: |
+          set -euo pipefail
+          for artifact_dir in recorded/*/; do
+            for platform_dir in "${artifact_dir}"*/; do
+              [[ -d "${platform_dir}" ]] || continue
+              platform="$(basename "${platform_dir}")"
+              mkdir -p "Tests/E2EBaselines/${platform}"
+              for shot in "${platform_dir}"*.png; do
+                [[ -f "${shot}" ]] || continue
+                cp "${shot}" "Tests/E2EBaselines/${platform}/"
+              done
+            done
+          done
+
+      - name: Open baseline pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git add -A Tests/E2EBaselines
+          if git diff --cached --quiet; then
+            echo "No baseline changes to publish."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          branch="e2e/baselines-${GITHUB_RUN_ID}"
+          git checkout -b "${branch}"
+          git commit -m "test: refresh e2e screenshot baselines"
+          git push -u origin "${branch}"
+          gh pr create --base dev \
+            --title "test: refresh e2e screenshot baselines" \
+            --body "Baselines recorded by nightly run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}. Review the changed images — an unexpected visual change here is a regression report, not a rubber stamp."
+
+  # One issue per broken nightly, updated in place while it stays red, so a
+  # failure that nobody was watching is on the board by morning. Record runs
+  # are expected to capture a partially broken suite — they do not report.
+  report:
+    name: Report failure
+    needs: [e2e-ios, e2e-macos]
+    if: failure() && inputs.record_baselines != true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: JasonEtco/create-an-issue@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        with:
+          filename: .github/NIGHTLY_FAILURE.md
+          update_existing: true
+          search_existing: open

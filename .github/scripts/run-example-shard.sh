@@ -40,7 +40,9 @@ while IFS= read -r example; do
 done < <("${GITHUB_WORKSPACE:-$(pwd)}/.github/scripts/discover-examples.sh" "${waterui_dir}")
 declare -a shard_examples=()
 
-for example in "${all_examples[@]}"; do
+# The `${arr[@]+...}` form: under the system bash 3.2 an empty array expands to
+# an unbound-variable error, and shards legitimately assign no examples.
+for example in ${all_examples[@]+"${all_examples[@]}"}; do
   checksum=$(printf '%s' "${example}" | cksum | awk '{print $1}')
   if (( checksum % shard_total == shard_index )); then
     shard_examples+=("${example}")
@@ -54,14 +56,14 @@ fi
 
 echo "Running ${#shard_examples[@]} examples on ${platform}: ${shard_examples[*]}"
 
-for example in "${shard_examples[@]}"; do
+for example in ${shard_examples[@]+"${shard_examples[@]}"}; do
   example_path="${waterui_dir}/examples/${example}"
   run_log="${logs_dir}/${platform}-${example}.log"
 
   echo "::group::${platform} example ${example}"
 
-  water build --platform "${platform}" --path "${example_path}"
-
+  # Examples are playground projects: `water build` rejects them and `water
+  # run` performs the build itself before launching.
   : > "${run_log}"
   if [[ "${platform}" == "ios" ]]; then
     water run --platform ios --path "${example_path}" --device "${SIMULATOR_UDID}" > "${run_log}" 2>&1 &

@@ -35,5 +35,9 @@ let package = Package(
       name: "WaterUICefWebView",
       dependencies: ["CWaterUI", "WaterUI", "WaterUICEF"]
     ),
+    .testTarget(
+      name: "WaterUITests",
+      dependencies: ["WaterUI"]
+    ),
   ]
 )
