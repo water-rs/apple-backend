@@ -44,6 +44,7 @@ struct TwinRoot: View {
     case "hover": HoverTwin()
     case "list": ListTwin()
     case "multi_window": MultiWindowTwin()
+    case "navigation": NavigationTwin()
     case "snackbar": SnackbarTwin()
     case "typography-rtl": TypographyRtlTwin()
     default:
