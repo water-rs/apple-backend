@@ -403,9 +403,10 @@ final class WuiTabs: PlatformView, WuiComponent {
     #if canImport(UIKit)
       tabController.viewControllers?[index].tabBarItem.badgeValue = count > 0 ? String(count) : nil
     #elseif canImport(AppKit)
-      tabControl?.setLabel(tabs[index].displayTitle(badge: count), forSegment: index)
-      tabControl?.sizeToFit()
-      offerTabsToToolbar()
+      // SwiftUI draws no badge on macOS toolbar tab segments; folding the
+      // count into the label only widens the segment and pushes the toolbar
+      // into overflow. The segment keeps its plain title.
+      tabControl?.setLabel(tabs[index].title, forSegment: index)
     #endif
   }
 
