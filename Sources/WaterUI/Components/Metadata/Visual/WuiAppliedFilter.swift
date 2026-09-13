@@ -280,12 +280,14 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiPresentsOwnContent,
   /// snapshot ignores. As the last subview it is drawn last in both.
   private func setupOutputView(device: MTLDevice) {
     let outputView = WuiSurfacePresentationView(frame: .zero)
-    #if canImport(AppKit)
+    #if canImport(UIKit)
+      let outputLayer = outputView.layer
+    #elseif canImport(AppKit)
       outputView.wantsLayer = true
+      guard let outputLayer = outputView.layer else {
+        fatalError("AppliedFilter output view must be layer-backed")
+      }
     #endif
-    guard let outputLayer = outputView.layer else {
-      fatalError("AppliedFilter output view must be layer-backed")
-    }
     outputView.isHidden = true
     outputLayer.isOpaque = false
     // The frames are rendered at device-pixel size, so the layer must not
@@ -369,7 +371,7 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiPresentsOwnContent,
       return
     }
     #if canImport(UIKit)
-      guard window != nil else { return }
+      guard let window else { return }
     #elseif canImport(AppKit)
       guard let window else { return }
     #endif
@@ -377,7 +379,7 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiPresentsOwnContent,
     guard prepareDynamicRange(dynamicRange) else { return }
 
     #if canImport(UIKit)
-      currentScaleFactor = contentScaleFactor
+      currentScaleFactor = window.screen.scale
     #elseif canImport(AppKit)
       currentScaleFactor = window.backingScaleFactor
     #endif
@@ -674,6 +676,15 @@ final class WuiAppliedFilter: PlatformView, WuiComponent, WuiPresentsOwnContent,
     override func didMoveToWindow() {
       super.didMoveToWindow()
       handleWindowChange()
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+      super.traitCollectionDidChange(previousTraitCollection)
+      guard traitCollection.displayScale != previousTraitCollection?.displayScale else {
+        return
+      }
+      initializeGpuIfNeeded()
+      requestRenderIfNeeded()
     }
   #elseif canImport(AppKit)
     nonisolated override var isFlipped: Bool { true }

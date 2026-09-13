@@ -1037,7 +1037,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
   private func initializeGpuIfNeeded() {
     guard bounds.width > 0 && bounds.height > 0 else { return }
     #if canImport(UIKit)
-      guard window != nil else { return }
+      guard let window else { return }
     #elseif canImport(AppKit)
       guard let window else { return }
     #endif
@@ -1057,7 +1057,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
     }
 
     #if canImport(UIKit)
-      currentScaleFactor = contentScaleFactor
+      currentScaleFactor = window.screen.scale
     #elseif canImport(AppKit)
       currentScaleFactor = window.backingScaleFactor
     #endif
@@ -1593,7 +1593,20 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
         return
       }
       // Update scale factor when added to window
-      currentScaleFactor = contentScaleFactor
+      currentScaleFactor = window?.screen.scale ?? traitCollection.displayScale
+      updatePresentationLayerFrame()
+      initializeGpuIfNeeded()
+      updateDisplayLinkState()
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+      super.traitCollectionDidChange(previousTraitCollection)
+      // `contentScaleFactor` is unreliable here: UIKit only syncs it for views
+      // that implement `drawRect:`, so the screen's scale comes from the window.
+      guard traitCollection.displayScale != previousTraitCollection?.displayScale else {
+        return
+      }
+      currentScaleFactor = window?.screen.scale ?? traitCollection.displayScale
       updatePresentationLayerFrame()
       initializeGpuIfNeeded()
       updateDisplayLinkState()
