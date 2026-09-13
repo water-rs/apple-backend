@@ -42,6 +42,10 @@
       "dev.waterui.navigation.trailing")
     private static let searchIdentifier = NSToolbarItem.Identifier("dev.waterui.navigation.search")
     private static let tabsIdentifier = NSToolbarItem.Identifier("dev.waterui.tabs")
+    private static let tabsBalanceLeadingIdentifier = NSToolbarItem.Identifier(
+      "dev.waterui.tabs.balance.leading")
+    private static let tabsBalanceTrailingIdentifier = NSToolbarItem.Identifier(
+      "dev.waterui.tabs.balance.trailing")
     private static let sidebarSeparatorIdentifier = NSToolbarItem.Identifier(
       "dev.waterui.sidebar.separator")
 
@@ -74,6 +78,12 @@
     private var content = Content()
     private var searchCoordinator: WuiNavigationSearchCoordinator?
     private var searchField: NSSearchField?
+    /// Width constraints of the invisible spacers flanking the tab control.
+    private var tabsBalanceLeading: NSLayoutConstraint?
+    private var tabsBalanceTrailing: NSLayoutConstraint?
+    /// Written and cleared on the main actor; `deinit` needs the token to
+    /// unregister the observer, which is why it escapes actor checking.
+    private nonisolated(unsafe) var tabsFrameObserver: NSObjectProtocol?
     /// What each action item runs, keyed by the item it belongs to.
     private var itemActions: [NSToolbarItem.Identifier: () -> Void] = [:]
 
@@ -94,10 +104,35 @@
       window.styleMask.insert(.fullSizeContentView)
     }
 
+    deinit {
+      if let tabsFrameObserver {
+        NotificationCenter.default.removeObserver(tabsFrameObserver)
+      }
+    }
+
     /// Offers the app-level tab control, or withdraws it when `view` is nil.
     func setTabs(_ view: NSView?) {
       tabsView = view
       window?.titleVisibility = view == nil ? .visible : .hidden
+      if let tabsFrameObserver {
+        NotificationCenter.default.removeObserver(tabsFrameObserver)
+        self.tabsFrameObserver = nil
+      }
+      if let view {
+        // The control's frame moves every time the toolbar relays out — a
+        // rebuild, a resize, an item appearing. Each move is a chance to
+        // re-check the balance, which converges once the groups match.
+        view.postsFrameChangedNotifications = true
+        tabsFrameObserver = NotificationCenter.default.addObserver(
+          forName: NSView.frameDidChangeNotification,
+          object: view,
+          queue: .main
+        ) { [weak self] _ in
+          Task { @MainActor [weak self] in
+            self?.rebalanceTabs()
+          }
+        }
+      }
       rebuild()
     }
 
@@ -149,6 +184,33 @@
       window?.title = content.title ?? window?.title ?? ""
     }
 
+    /// Widens the spacer on the tab control's narrower side until the groups
+    /// flanking it have equal extents.
+    ///
+    /// `centeredItemIdentifiers` centres the control in the space the other
+    /// items leave, so when the leading and trailing groups differ in width
+    /// the centred position itself sits off the window's midpoint. SwiftUI's
+    /// principal placement centres on the window instead: growing the spacer
+    /// on the narrower side by the difference makes the centred slot and the
+    /// window's midpoint coincide.
+    private func rebalanceTabs() {
+      guard let window, tabsView != nil,
+        let leadingView = tabsBalanceLeading?.firstItem as? NSView,
+        let trailingView = tabsBalanceTrailing?.firstItem as? NSView,
+        trailingView.frame.maxX > leadingView.frame.minX
+      else { return }
+      // Each group's own extent is measured without its spacer: the leading
+      // spacer ends the leading group, the trailing spacer starts the
+      // trailing one. The narrower side's spacer then makes up exactly the
+      // difference, so the centred slot lands on the window's midpoint.
+      let leadingBase = leadingView.frame.minX
+      let trailingBase = window.frame.width - trailingView.frame.maxX
+      let delta = trailingBase - leadingBase
+      guard abs(delta) > 0.5 else { return }
+      tabsBalanceLeading?.constant = max(0, delta)
+      tabsBalanceTrailing?.constant = max(0, -delta)
+    }
+
     /// The toolbar's items, in order.
     ///
     /// The tab control is anchored to the toolbar's centre slot rather than
@@ -156,7 +218,8 @@
     /// position depend on how many items sit either side of it, so it shifts
     /// whenever the page on screen contributes a different number of actions —
     /// which is not what a Mac does: the tabs stay put and the actions move
-    /// around them.
+    /// around them. The balance spacers flanking it keep that centre slot on
+    /// the window's midpoint, where SwiftUI puts it.
     private var currentIdentifiers: [NSToolbarItem.Identifier] {
       var identifiers: [NSToolbarItem.Identifier] = []
       if sidebarSplitView != nil {
@@ -166,14 +229,12 @@
       if content.showsBack { identifiers.append(Self.backIdentifier) }
       if content.leading != nil { identifiers.append(Self.leadingIdentifier) }
       if content.titleView != nil { identifiers.append(Self.titleIdentifier) }
-      // SwiftUI puts the toolbar tab picker in the principal slot, centered
-      // between the leading and trailing groups; a flexible space on each
-      // side of the segmented control reproduces that placement.
       if tabsView != nil {
-        identifiers.append(.flexibleSpace)
+        identifiers.append(Self.tabsBalanceLeadingIdentifier)
         identifiers.append(Self.tabsIdentifier)
       }
       identifiers.append(.flexibleSpace)
+      if tabsView != nil { identifiers.append(Self.tabsBalanceTrailingIdentifier) }
       if content.trailing != nil { identifiers.append(Self.trailingIdentifier) }
       if content.search != nil { identifiers.append(Self.searchIdentifier) }
       return identifiers
@@ -224,6 +285,20 @@
 
       case Self.tabsIdentifier:
         return hostingItem(identifier: identifier, view: tabsView)
+
+      case Self.tabsBalanceLeadingIdentifier, Self.tabsBalanceTrailingIdentifier:
+        let view = NSView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        let width = view.widthAnchor.constraint(equalToConstant: 0)
+        width.isActive = true
+        if identifier == Self.tabsBalanceLeadingIdentifier {
+          tabsBalanceLeading = width
+        } else {
+          tabsBalanceTrailing = width
+        }
+        let item = NSToolbarItem(itemIdentifier: identifier)
+        item.view = view
+        return item
 
       case Self.titleIdentifier:
         return hostingItem(identifier: identifier, view: content.titleView)
