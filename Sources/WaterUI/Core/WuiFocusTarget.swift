@@ -138,12 +138,20 @@ private final class WuiFocusTargetBox: NSObject {
   }
 }
 
+/// Associated-object key for the installed focus target. Selectors are
+/// interned by the Objective-C runtime, so the same name always produces the
+/// same pointer — a Swift string literal is not guaranteed a stable address.
+private func focusTargetAssociationKey() -> UnsafeRawPointer {
+  let selector = NSSelectorFromString("dev.waterui.focusTarget")
+  return unsafeBitCast(selector, to: UnsafeRawPointer.self)
+}
+
 @MainActor
 extension PlatformView {
   func installWuiFocusTarget(_ target: any WuiFocusTarget) {
     objc_setAssociatedObject(
       self,
-      "dev.waterui.focusTarget",
+      focusTargetAssociationKey(),
       WuiFocusTargetBox(target),
       .OBJC_ASSOCIATION_RETAIN_NONATOMIC
     )
@@ -178,7 +186,7 @@ extension PlatformView {
   }
 
   private func collectWuiFocusTargets(into targets: inout [any WuiFocusTarget]) {
-    if let box = objc_getAssociatedObject(self, "dev.waterui.focusTarget") as? WuiFocusTargetBox {
+    if let box = objc_getAssociatedObject(self, focusTargetAssociationKey()) as? WuiFocusTargetBox {
       targets.append(box.target)
     }
 

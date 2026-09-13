@@ -69,51 +69,22 @@ class WuiColor {
 }
 
 #if canImport(UIKit)
-  func wuiLinearToSrgb(_ linear: Float) -> Float {
-    if linear <= 0.003_130_8 {
-      return linear * 12.92
-    }
-    return 1.055 * pow(linear, 1.0 / 2.4) - 0.055
-  }
-
   extension WuiResolvedColor {
     func toUIColor(allowHdr: Bool = true) -> UIColor {
-      let alpha = wuiClampUnit(self.opacity)
-
       if allowHdr {
-        let exposure = CGFloat(wuiHeadroomScale(self.headroom))
-
-        // UIColor's HDR initializer expects SDR (nominal [0..1]) components. Our resolved color is stored
-        // in linear space, so convert to sRGB before constructing the base SDR color.
-        var r = wuiLinearToSrgb(self.red)
-        var g = wuiLinearToSrgb(self.green)
-        var b = wuiLinearToSrgb(self.blue)
-
-        // If upstream provides linear components outside [0..1], normalize into the exposure to keep
-        // the base SDR color in-range while preserving the intended output.
-        let maxLinear = max(self.red, self.green, self.blue)
-        if maxLinear > 1.0 {
-          let mergedExposure = max(exposure, CGFloat(maxLinear))
-          let inv = 1.0 / Float(mergedExposure)
-          r = wuiLinearToSrgb(self.red * inv)
-          g = wuiLinearToSrgb(self.green * inv)
-          b = wuiLinearToSrgb(self.blue * inv)
-          return UIColor(
-            red: CGFloat(wuiClampUnit(r)),
-            green: CGFloat(wuiClampUnit(g)),
-            blue: CGFloat(wuiClampUnit(b)),
-            alpha: CGFloat(alpha),
-            linearExposure: mergedExposure
+        // UIColor carries an extended-range CGColor verbatim: unclamped
+        // components preserve both the wide gamut and, through the headroom
+        // scale, HDR range — matching the AppKit path below.
+        let (r, g, b, a) = wuiLinearComponents(self)
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.extendedLinearSRGB),
+          let cgColor = CGColor(
+            colorSpace: colorSpace,
+            components: [CGFloat(r), CGFloat(g), CGFloat(b), CGFloat(a)]
           )
+        else {
+          fatalError("Core Graphics could not create an extended-linear sRGB color")
         }
-
-        return UIColor(
-          red: CGFloat(wuiClampUnit(r)),
-          green: CGFloat(wuiClampUnit(g)),
-          blue: CGFloat(wuiClampUnit(b)),
-          alpha: CGFloat(alpha),
-          linearExposure: exposure
-        )
+        return UIColor(cgColor: cgColor)
       }
 
       let (r, g, b, a) = wuiLinearComponents(self)

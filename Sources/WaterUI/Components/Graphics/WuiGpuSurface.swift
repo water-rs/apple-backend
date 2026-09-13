@@ -144,6 +144,16 @@ private final class WuiGpuSurfaceRenderState {
     WuiStr(waterui_gpu_surface_accessibility_label(gpuState)).toString()
   }
 
+  /// The semantic value the GPU view carries, for a screen reader.
+  ///
+  /// The value channel's counterpart to `accessibilityLabelFromContent`: what
+  /// the drawing *says* — a formula's spoken mathematics — beside the name it
+  /// is given. Empty until asynchronous renderer setup finishes, and for every
+  /// view that publishes no semantic value.
+  var accessibilityValueFromContent: String {
+    WuiStr(waterui_gpu_surface_accessibility_value(gpuState)).toString()
+  }
+
   /// Whether the semantic GPU view draws interactive content and therefore
   /// takes the raw input events instead of the per-frame pointer snapshot.
   var wantsInputEvents: Bool {
@@ -497,8 +507,11 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
   /// The label this surface itself last published, so an application label put
   /// on top of it is never overwritten by the next frame.
   private var publishedAccessibilityLabel: String?
-  /// Whether the content has changed since the label was last asked for. Starts
-  /// true so the first drawn frame publishes one.
+  /// The value this surface itself last published, so an application value put
+  /// on top of it is never overwritten by the next frame.
+  private var publishedAccessibilityValue: String?
+  /// Whether the content has changed since the semantics were last asked for.
+  /// Starts true so the first drawn frame publishes them.
   private var needsAccessibilityLabelRefresh = true
   private var redrawWakeScheduled = false
   private var readyCompletions: [WuiGpuSurfaceReadyCompletion] = []
@@ -1165,7 +1178,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
     // which arms the clock itself; the presented frame does not carry the
     // answer back the way the swapchain's render call did.
     keepRedrawing = false
-    publishContentAccessibilityLabel()
+    publishContentAccessibility()
     updateDisplayLinkState()
     // Shown only once the GPU has finished writing it: a surface handed to
     // Core Animation mid-write composites a half-drawn frame.
@@ -1184,26 +1197,26 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
     }
   }
 
-  /// Names this surface's element with whatever its content says it draws.
+  /// Names and describes this surface's element with whatever its content says.
   ///
   /// Rendered pixels are opaque to VoiceOver: a formula, chart or diagram drawn
   /// into a surface is announced as an unlabelled element unless the content
   /// states its own meaning. The content is what knows, so the answer comes
   /// from it rather than from anything the host could infer.
   ///
-  /// Asked after a frame rather than once at creation, because the label is
-  /// empty until asynchronous renderer setup finishes — and only when the
-  /// content actually invalidated, because deriving the label can be real work
-  /// (a formula runs its source through speech rules) and a display link that
-  /// drives an animation must not pay it sixty times a second.
-  ///
+  /// Publishes both semantic channels the content offers: the name and the
+  /// value.
+  private func publishContentAccessibility() {
+    guard needsAccessibilityLabelRefresh else { return }
+    needsAccessibilityLabelRefresh = false
+    publishContentAccessibilityLabel()
+    publishContentAccessibilityValue()
+  }
+
   /// An application label always wins. `WuiAccessibilityLabel` applies the
   /// app's own label to this very view, so anything on it that this surface did
   /// not put there belongs to someone else and is left alone.
   private func publishContentAccessibilityLabel() {
-    guard needsAccessibilityLabelRefresh else { return }
-    needsAccessibilityLabelRefresh = false
-
     #if canImport(UIKit)
       let existing = accessibilityLabel
     #elseif canImport(AppKit)
@@ -1225,6 +1238,35 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
     #elseif canImport(AppKit)
       setAccessibilityElement(label != nil)
       setAccessibilityLabel(label)
+    #endif
+  }
+
+  /// An application value always wins, exactly like the label:
+  /// `WuiAccessibilityValue` applies the app's own value to this very view, so
+  /// anything on it that this surface did not put there belongs to someone else
+  /// and is left alone.
+  private func publishContentAccessibilityValue() {
+    #if canImport(UIKit)
+      let existing = accessibilityValue as? String
+    #elseif canImport(AppKit)
+      let existing = accessibilityValue() as? String
+    #endif
+    let current = (existing?.isEmpty == false) ? existing : nil
+    guard current == nil || current == publishedAccessibilityValue else { return }
+
+    let content = renderState.accessibilityValueFromContent
+    let value = content.isEmpty ? nil : content
+    guard value != publishedAccessibilityValue else { return }
+    publishedAccessibilityValue = value
+
+    #if canImport(UIKit)
+      // The value channel never un-marks the element: whether the surface is
+      // exposed at all stays the label channel's call.
+      if value != nil { isAccessibilityElement = true }
+      accessibilityValue = value
+    #elseif canImport(AppKit)
+      if value != nil { setAccessibilityElement(true) }
+      setAccessibilityValue(value)
     #endif
   }
 

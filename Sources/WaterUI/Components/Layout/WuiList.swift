@@ -817,20 +817,53 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       set { _ = newValue }
     }
 
-    /// Where the separator starts, measured from the row's leading edge.
-    ///
-    /// A Mac list insets it to the row content's own left edge rather than
-    /// running it wall to wall, so the rule lines up with the text above and
-    /// below it. Measured against a plain SwiftUI `List`.
-    var separatorInset: CGFloat = 0
+    /// The list's own content margin — what SwiftUI insets separators by when
+    /// the row carries no leading offset of its own, and what it always insets
+    /// the separator's trailing edge by. Measured against a plain SwiftUI
+    /// `List` in an 800pt window: a bare `Text` row's rule starts at 16pt and
+    /// every rule ends 16pt short of the trailing edge.
+    private static let listContentMargin: CGFloat = 16
 
     override func draw(_ dirtyRect: NSRect) {
       super.draw(dirtyRect)
       guard showsSeparator else { return }
       NSColor.separatorColor.setFill()
       let hairline = 1 / (window?.backingScaleFactor ?? 1)
-      let inset = min(separatorInset, bounds.width)
-      NSRect(x: inset, y: 0, width: bounds.width - inset, height: hairline).fill()
+      let inset = min(resolvedSeparatorLeading(), bounds.width)
+      let width = max(bounds.width - inset - Self.listContentMargin, 0)
+      // NSTableRowView is flipped: maxY is the row's bottom edge, which is
+      // where a boundary separator belongs — a rule at y=0 would paint above
+      // the row, leaving a stray line at the list's top edge.
+      NSRect(x: inset, y: bounds.maxY - hairline, width: width, height: hairline).fill()
+    }
+
+    /// SwiftUI lands the separator on the row's leading *alignment guide* —
+    /// the leftmost edge of the row's laid-out content — so leading padding
+    /// inside the row pushes the rule right along with the content. The padding
+    /// is a layout modifier rather than a view, so its effect shows up as the
+    /// leftmost descendant's `minX` inside the row container. Measured:
+    /// `Text().padding(h: 16)` rules start at 32pt (16 margin + 16 guide
+    /// offset); a bare `Text` at 16pt.
+    private func resolvedSeparatorLeading() -> CGFloat {
+      guard let cellView = subviews.first(where: { $0 is WuiListRowContainerView })
+      else { return Self.listContentMargin }
+      let base = cellView.frame.minX + WuiList.rowContentInset
+      let guide = cellView.frame.minX + leftmostContentX(of: cellView)
+      return Self.listContentMargin + max(guide - base, 0)
+    }
+
+    /// The leftmost content `minX` among `view`'s descendants, in `view`'s
+    /// coordinate space — the x a SwiftUI leading alignment guide would
+    /// resolve to. Only WaterUI-module views count: a leaf control's AppKit
+    /// innards (e.g. an `NSTextField` sitting at −2 inside its `WuiText`) are
+    /// implementation detail, not alignment guides.
+    private func leftmostContentX(of view: NSView) -> CGFloat {
+      var best = CGFloat.greatestFiniteMagnitude
+      for sub in view.subviews
+      where NSStringFromClass(type(of: sub)).hasPrefix("WaterUI.") {
+        best = min(best, sub.frame.minX + leftmostContentX(of: sub))
+      }
+      return best == .greatestFiniteMagnitude ? 0 : best
     }
   }
 
@@ -884,8 +917,10 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
         NSLayoutConstraint.activate([
           view.leadingAnchor.constraint(
             equalTo: leadingAnchor, constant: WuiList.rowContentInset),
-          view.topAnchor.constraint(equalTo: topAnchor),
-          view.bottomAnchor.constraint(equalTo: bottomAnchor),
+          view.topAnchor.constraint(
+            equalTo: topAnchor, constant: WuiList.rowVerticalInset),
+          view.bottomAnchor.constraint(
+            equalTo: bottomAnchor, constant: -WuiList.rowVerticalInset),
 
           button.leadingAnchor.constraint(equalTo: view.trailingAnchor, constant: 8),
           button.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
@@ -896,13 +931,18 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
         // content, the rule under it and the name of its section all start at
         // one edge. Without it the text sat flush against the window while the
         // header appeared indented, which is what made the two look reversed.
+        // Vertically the content keeps the ~4pt breathing room a SwiftUI row
+        // adds beyond its content (`rowVerticalInset` is part of heightOfRow,
+        // so the row is already taller by that amount on both sides).
         NSLayoutConstraint.activate([
           view.leadingAnchor.constraint(
             equalTo: leadingAnchor, constant: WuiList.rowContentInset),
           view.trailingAnchor.constraint(
             equalTo: trailingAnchor, constant: -WuiList.rowContentInset),
-          view.topAnchor.constraint(equalTo: topAnchor),
-          view.bottomAnchor.constraint(equalTo: bottomAnchor),
+          view.topAnchor.constraint(
+            equalTo: topAnchor, constant: WuiList.rowVerticalInset),
+          view.bottomAnchor.constraint(
+            equalTo: bottomAnchor, constant: -WuiList.rowVerticalInset),
         ])
       }
     }
@@ -941,11 +981,13 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     // Pasteboard type for drag-and-drop
     private static let dragType = NSPasteboard.PasteboardType("dev.waterui.listitem")
 
-    /// How far a row's content sits in from the list's leading edge.
+    /// How far a row's content sits in from the *cell's* leading edge.
     ///
-    /// The separator is inset to match, so the rule lines up with the text above
-    /// and below it rather than running wall to wall.
-    static let rowContentInset: CGFloat = 20
+    /// `.fullWidth` table style already insets the cell view by 6pt, so the
+    /// content lands at 6 + 11 = 17pt from the list's leading edge — matching
+    /// the content inset a plain SwiftUI `List` row carries (measured: a bare
+    /// `Text` row's glyphs start at 17pt).
+    static let rowContentInset: CGFloat = 11
 
     private enum TableLayoutEntry {
       case header(label: WuiComputed<WuiStyledStr>, sectionIndex: Int)
@@ -1014,6 +1056,13 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       hasVerticalScroller = true
       autohidesScrollers = true
       drawsBackground = false
+      // A SwiftUI List parks its first row ~10pt below the scroll area's top
+      // edge (measured: AXScrollArea top vs first AXRow top in a plain
+      // `List`). The gap belongs to the content, so it scrolls away.
+      // `automaticallyAdjustsContentInsets` would rewrite this from the safe
+      // area on every layout pass, so it must be disabled before assigning.
+      automaticallyAdjustsContentInsets = false
+      contentInsets = NSEdgeInsets(top: 10, left: 0, bottom: 0, right: 0)
 
       // Setup editing state if provided
       if let editingPtr = ffiList.editing {
@@ -1430,7 +1479,6 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
 
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
       let rowView = WuiListRowView()
-      rowView.separatorInset = Self.rowContentInset
       // SwiftUI separates row–row boundaries only; the last row of a
       // section (followed by a footer, header, or nothing) has none. A sidebar
       // has none at all: its rows are told apart by the selection's rounded
@@ -1456,13 +1504,20 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
         let item = resolveListItem(from: contents, at: itemIndex, env: env)
         let size = item.view.sizeThatFits(
           WuiProposalSize(width: Float(tableView.bounds.width), height: nil))
-        return max(size.height, Self.minimumRowHeight)
+        return max(size.height + Self.rowVerticalInset * 2, Self.minimumRowHeight)
       }
     }
 
     /// macOS list rows follow the pointer metric (~24pt like SwiftUI's List),
     /// not the 44pt iOS touch-target floor.
     private static let minimumRowHeight: CGFloat = 24
+
+    /// Vertical breathing room a SwiftUI `List` row adds beyond its content —
+    /// ~4pt above and below, measured against a plain SwiftUI `List` (row
+    /// pitch runs ~8pt past the content's own height). The row is made taller
+    /// by twice this in `heightOfRow`, and the content constraints inset the
+    /// laid-out content by it on both sides.
+    static let rowVerticalInset: CGFloat = 4
 
     /// The pointer never drives the table's selection directly: selection state
     /// lives in the app, a click reaches it through the row content's own tap

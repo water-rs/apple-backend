@@ -1,0 +1,14 @@
+{
+  "macos": {
+    "animation": 0.03,
+    "drag_drop": 0.15,
+    "form": 0.02,
+    "gesture": 0.02,
+    "hover": 0.02,
+    "list": 0.1,
+    "multi_window": 0.04,
+    "snackbar": 0.035,
+    "typography-rtl": 0.015
+  },
+  "ios": {}
+}

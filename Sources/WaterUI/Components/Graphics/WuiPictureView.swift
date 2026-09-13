@@ -34,27 +34,39 @@ final class WuiPictureView: PlatformView, WuiComponent {
     self.init(
       picture: handle,
       pointSize: CGSize(width: CGFloat(ffi.width), height: CGFloat(ffi.height)),
-      label: WuiStr(ffi.label).toString()
+      label: WuiStr(ffi.label).toString(),
+      value: WuiStr(ffi.value).toString()
     )
   }
 
-  /// `label` is the name the drawing offers a screen reader, empty when it
-  /// offers none; an application's own label is applied by the metadata view
+  /// `label` is the name the drawing offers a screen reader and `value` the
+  /// semantic content it offers beside the name, each empty when it offers
+  /// none; an application's own label or value is applied by the metadata view
   /// above this one and replaces it.
-  init(picture: OpaquePointer, pointSize: CGSize, label: String) {
+  init(picture: OpaquePointer, pointSize: CGSize, label: String, value: String) {
     self.picture = picture
     self.pointSize = pointSize
     super.init(frame: .zero)
     configureImageView()
-    if !label.isEmpty {
+    if !label.isEmpty || !value.isEmpty {
       #if canImport(UIKit)
         isAccessibilityElement = true
-        accessibilityLabel = label
-        accessibilityTraits.insert(.image)
+        if !label.isEmpty {
+          accessibilityLabel = label
+          accessibilityTraits.insert(.image)
+        }
+        if !value.isEmpty {
+          accessibilityValue = value
+        }
       #elseif canImport(AppKit)
         setAccessibilityElement(true)
-        setAccessibilityLabel(label)
-        setAccessibilityRole(.image)
+        if !label.isEmpty {
+          setAccessibilityLabel(label)
+          setAccessibilityRole(.image)
+        }
+        if !value.isEmpty {
+          setAccessibilityValue(value)
+        }
       #endif
     }
   }

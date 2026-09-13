@@ -7,7 +7,6 @@
 // Does not expand to fill available space.
 
 import CWaterUI
-import CoreText
 
 #if canImport(UIKit)
   import UIKit
@@ -120,63 +119,71 @@ class WuiTextBase: PlatformView {
     let proposedHeight = proposal.height.map(CGFloat.init)
     let maxWidth = proposedWidth ?? CGFloat.greatestFiniteMagnitude
     let maxHeight = proposedHeight ?? CGFloat.greatestFiniteMagnitude
-    let constraintWidth = proposedWidth ?? CGFloat.greatestFiniteMagnitude
-    let constraintHeight = proposedHeight ?? CGFloat.greatestFiniteMagnitude
-    let framesetter = CTFramesetterCreateWithAttributedString(attributedText as CFAttributedString)
-    var fitRange = CFRange()
-    let suggested = CTFramesetterSuggestFrameSizeWithConstraints(
-      framesetter,
-      CFRange(location: 0, length: 0),
-      nil,
-      CGSize(width: constraintWidth, height: constraintHeight),
-      &fitRange
+    let constraintSize = CGSize(
+      width: proposedWidth ?? CGFloat.greatestFiniteMagnitude,
+      height: proposedHeight ?? CGFloat.greatestFiniteMagnitude
     )
-    let width = ceil(min(suggested.width, maxWidth))
-    let height = ceil(min(suggested.height, maxHeight))
-    let size = CGSize(width: max(width, 0.0), height: max(height, 0.0))
-    let frameWidth = max(size.width, 1.0)
-    let frameHeight = max(size.height, 1.0)
-    let path = CGPath(
-      rect: CGRect(x: 0.0, y: 0.0, width: frameWidth, height: frameHeight), transform: nil)
-    let frame = CTFramesetterCreateFrame(
-      framesetter,
-      CFRange(location: 0, length: fitRange.length),
-      path,
-      nil
-    )
-    guard let lines = CTFrameGetLines(frame) as? [CTLine] else {
-      fatalError("CoreText returned a CTFrame line array with non-CTLine elements.")
-    }
-    guard !lines.isEmpty else {
-      return (size, nil, nil)
-    }
-    var origins = Array(repeating: CGPoint.zero, count: lines.count)
-    CTFrameGetLineOrigins(frame, CFRange(location: 0, length: 0), &origins)
-    let firstBaseline = frameHeight - origins[0].y
 
-    // A line limit caps the measurement at the bottom of the last visible
-    // line; the platform label truncates that line with an ellipsis, so the
-    // hidden remainder must not reserve height.
-    let visibleCount = lineLimit > 0 ? min(lineLimit, lines.count) : lines.count
-    if visibleCount < lines.count {
-      let lastVisible = lines[visibleCount - 1]
-      var descent: CGFloat = 0
-      var leading: CGFloat = 0
-      _ = CTLineGetTypographicBounds(lastVisible, nil, &descent, &leading)
-      let cappedHeight = ceil(frameHeight - origins[visibleCount - 1].y + descent + leading)
-      var cappedWidth: CGFloat = 0
-      for line in lines[0 ..< visibleCount] {
-        let lineWidth = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
-        cappedWidth = max(cappedWidth, ceil(lineWidth))
+    // Line layout through TextKit — the engine NSTextField/UILabel (and
+    // SwiftUI Text) use — not CTFramesetter. CoreText sizes a line to the
+    // largest font metric it contains, so one CJK/Arabic fallback glyph
+    // inflates the whole line by ~1pt and the extra height accumulates down
+    // a stack.
+    let textStorage = NSTextStorage(attributedString: attributedText)
+    let layoutManager = NSLayoutManager()
+    let container = NSTextContainer(size: constraintSize)
+    container.lineFragmentPadding = 0
+    textStorage.addLayoutManager(layoutManager)
+    layoutManager.addTextContainer(container)
+    layoutManager.ensureLayout(for: container)
+    let glyphCount = layoutManager.numberOfGlyphs
+    guard glyphCount > 0 else {
+      return (.zero, nil, nil)
+    }
+
+    func baselineOfLine(containingGlyph glyphIndex: Int) -> CGFloat {
+      var lineRange = NSRange()
+      let lineRect = layoutManager.lineFragmentRect(
+        forGlyphAt: glyphIndex, effectiveRange: &lineRange)
+      let glyphLocation = layoutManager.location(forGlyphAt: lineRange.location)
+      return lineRect.origin.y + glyphLocation.y
+    }
+    let firstBaseline = baselineOfLine(containingGlyph: 0)
+
+    // A line limit caps the measurement at the last visible line; the
+    // platform label truncates that line with an ellipsis, so the hidden
+    // remainder must not reserve height.
+    var measuredText = attributedText
+    var lastBaselineGlyph = glyphCount - 1
+    if lineLimit > 0 {
+      var lineCount = 0
+      var glyphIndex = 0
+      while glyphIndex < glyphCount {
+        var lineRange = NSRange()
+        layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: &lineRange)
+        lineCount += 1
+        if lineCount == lineLimit, NSMaxRange(lineRange) < glyphCount {
+          let charRange = layoutManager.characterRange(
+            forGlyphRange: NSRange(location: 0, length: NSMaxRange(lineRange)),
+            actualGlyphRange: nil)
+          measuredText = attributedText.attributedSubstring(from: charRange)
+          lastBaselineGlyph = lineRange.location
+          break
+        }
+        glyphIndex = NSMaxRange(lineRange)
       }
-      let cappedSize = CGSize(
-        width: min(max(cappedWidth, 0.0), maxWidth),
-        height: min(cappedHeight, maxHeight)
-      )
-      return (cappedSize, firstBaseline, frameHeight - origins[visibleCount - 1].y)
     }
 
-    let lastBaseline = frameHeight - origins[lines.count - 1].y
+    // `boundingRect(with:options:)` without `.usesFontLeading` applies the
+    // platform's default leading — identical to what NSTextField/UILabel
+    // report for the same attributed string.
+    let bounding = measuredText.boundingRect(
+      with: constraintSize, options: [.usesLineFragmentOrigin], context: nil)
+    let width = ceil(min(bounding.width, maxWidth))
+    let height = ceil(min(bounding.height, maxHeight))
+    let size = CGSize(width: max(width, 0.0), height: max(height, 0.0))
+
+    let lastBaseline = baselineOfLine(containingGlyph: lastBaselineGlyph)
     return (size, firstBaseline, lastBaseline)
   }
 
