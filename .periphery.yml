@@ -15,6 +15,12 @@ index_exclude:
   - waterui/**
 # The largest shape: the map component only exists behind this condition, and
 # without it every symbol it alone reaches is reported unused (waterui#343).
+# The test bundle must also link: `waterui_*` symbols only exist once an app
+# links the Rust library, so tests are bound lazily via dynamic lookup.
 build_arguments:
   - -Xswiftc
   - -DWATERUI_MAP
+  - -Xlinker
+  - -undefined
+  - -Xlinker
+  - dynamic_lookup

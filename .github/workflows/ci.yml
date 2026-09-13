@@ -65,6 +65,19 @@ jobs:
         run: >-
           swift build --configuration ${{ matrix.configuration }}
           -Xswiftc -warnings-as-errors -Xswiftc -DWATERUI_NO_GPU
+      # The unit suite exercises the closure-based machinery around the FFI
+      # surface — signal subscriptions, watcher plumbing, the layout bridge's
+      # SubView vtable — with the Rust library absent: `waterui_*` symbols only
+      # arrive when an app links the Rust library, so the test bundle is built
+      # with dynamic lookup and binds lazily what it never calls. A test that
+      # needs the real FFI belongs to the nightly e2e, not here. Debug only:
+      # the release shape adds nothing the suite can observe.
+      - name: Test
+        if: matrix.configuration == 'debug'
+        run: >-
+          swift test
+          -Xswiftc -warnings-as-errors
+          -Xlinker -undefined -Xlinker dynamic_lookup
 
   # Scans the largest shape (`.periphery.yml` passes `-DWATERUI_MAP`), so code
   # that only the map component reaches counts as used. `WATERUI_NO_GPU` only

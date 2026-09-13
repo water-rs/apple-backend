@@ -201,11 +201,12 @@ class WuiAccessibilityStateView: WuiAccessibilityMetadataView {
   private var checked: Int32 = -1
   private var expanded: Int32 = -1
   private var busy = false
-  /// Whether the checked state has ever written `accessibilityValue`. Until it
-  /// has, the value channel is untouched, so an `.a11y_value` an application
-  /// set survives unrelated state changes instead of being restored to nil.
-  private var wroteCheckedValue = false
   #if canImport(UIKit)
+    /// Whether the checked state has ever written `accessibilityValue`. Until
+    /// it has, the value channel is untouched, so an `.a11y_value` an
+    /// application set survives unrelated state changes instead of being
+    /// restored to nil.
+    private var wroteCheckedValue = false
     private lazy var originalAccessibilityValue = accessibilityTarget.accessibilityValue
     private lazy var originalAccessibilityHint = accessibilityTarget.accessibilityHint
     private lazy var originalAccessibilityElementsHidden = accessibilityTarget.accessibilityElementsHidden
