@@ -1350,6 +1350,17 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
         fatalError("WuiList requires one NSTableColumn")
       }
       column.width = width
+      // `.fullWidth` rows reserve a margin on both sides of the column, so a
+      // tiled table ends up ~12pt wider than the column it wraps — overflow
+      // that lets content scroll horizontally where SwiftUI clips. Pull the
+      // column back by whatever the tile overshot so the document matches the
+      // visible width.
+      tableView.tile()
+      let overshoot = tableView.frame.width - width
+      if overshoot > 0.5 {
+        column.width = max(width - overshoot, 0)
+        tableView.tile()
+      }
       tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0 ..< flatLayout.count))
       tableView.reloadData()
     }
