@@ -26,12 +26,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Checkout WaterUI main
-        uses: actions/checkout@v4
-        with:
-          repository: water-rs/waterui
-          path: waterui
-          ref: main
+      - name: Prepare waterui with this backend
+        run: ./.github/scripts/setup-e2e.sh
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@nightly
@@ -83,12 +79,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Checkout WaterUI main
-        uses: actions/checkout@v4
-        with:
-          repository: water-rs/waterui
-          path: waterui
-          ref: main
+      - name: Prepare waterui with this backend
+        run: ./.github/scripts/setup-e2e.sh
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@nightly
