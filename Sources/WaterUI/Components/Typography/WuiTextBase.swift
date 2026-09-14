@@ -17,6 +17,30 @@ import CWaterUI
 /// Base class providing shared text rendering functionality for WuiText and WuiPlain.
 @MainActor
 class WuiTextBase: PlatformView {
+  private struct MeasurementKey: Hashable {
+    private static let unspecified = UInt32.max
+
+    let width: UInt32
+    let height: UInt32
+
+    init(_ proposal: WuiProposalSize) {
+      width = proposal.width?.bitPattern ?? Self.unspecified
+      height = proposal.height?.bitPattern ?? Self.unspecified
+    }
+  }
+
+  private struct TextMeasurement {
+    let size: CGSize
+    let firstBaseline: CGFloat?
+    let lastBaseline: CGFloat?
+  }
+
+  /// Stack layouts commonly ask a label for the same handful of proposals
+  /// several times while measuring and placing their ancestors. TextKit layout
+  /// is comparatively expensive, so retain those answers until the text or
+  /// font changes instead of rebuilding the layout objects each time.
+  private var measurementCache: [MeasurementKey: TextMeasurement] = [:]
+
   #if canImport(UIKit)
     let label = UILabel()
   #elseif canImport(AppKit)
@@ -85,6 +109,7 @@ class WuiTextBase: PlatformView {
   /// lines with tail truncation, or restores free word-wrapping for `0`.
   func applyLineLimit(_ limit: Int) {
     lineLimit = max(0, limit)
+    measurementCache.removeAll(keepingCapacity: true)
     #if canImport(UIKit)
       label.numberOfLines = lineLimit
       label.lineBreakMode = lineLimit == 0 ? .byWordWrapping : .byTruncatingTail
@@ -105,14 +130,23 @@ class WuiTextBase: PlatformView {
     #endif
   }
 
-  private func textMeasurement(_ proposal: WuiProposalSize) -> (
-    size: CGSize,
-    firstBaseline: CGFloat?,
-    lastBaseline: CGFloat?
-  ) {
+  private func textMeasurement(_ proposal: WuiProposalSize) -> TextMeasurement {
+    let cacheKey = MeasurementKey(proposal)
+    if let cached = measurementCache[cacheKey] {
+      return cached
+    }
+    // Interactive window resizing can produce a long sequence of distinct
+    // fractional proposals. Bound the cache while retaining the normal stack
+    // layout win, which uses only a small number of proposal variants.
+    if measurementCache.count >= 32 {
+      measurementCache.removeAll(keepingCapacity: true)
+    }
+
     let attributedText = currentAttributedText()
     guard attributedText.length > 0 else {
-      return (.zero, nil, nil)
+      let empty = TextMeasurement(size: .zero, firstBaseline: nil, lastBaseline: nil)
+      measurementCache[cacheKey] = empty
+      return empty
     }
 
     let proposedWidth = proposal.width.map(CGFloat.init)
@@ -138,7 +172,9 @@ class WuiTextBase: PlatformView {
     layoutManager.ensureLayout(for: container)
     let glyphCount = layoutManager.numberOfGlyphs
     guard glyphCount > 0 else {
-      return (.zero, nil, nil)
+      let empty = TextMeasurement(size: .zero, firstBaseline: nil, lastBaseline: nil)
+      measurementCache[cacheKey] = empty
+      return empty
     }
 
     func baselineOfLine(containingGlyph glyphIndex: Int) -> CGFloat {
@@ -184,7 +220,13 @@ class WuiTextBase: PlatformView {
     let size = CGSize(width: max(width, 0.0), height: max(height, 0.0))
 
     let lastBaseline = baselineOfLine(containingGlyph: lastBaselineGlyph)
-    return (size, firstBaseline, lastBaseline)
+    let measurement = TextMeasurement(
+      size: size,
+      firstBaseline: firstBaseline,
+      lastBaseline: lastBaseline
+    )
+    measurementCache[cacheKey] = measurement
+    return measurement
   }
 
   func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
@@ -287,6 +329,7 @@ class WuiTextBase: PlatformView {
   }
 
   func invalidateLayout() {
+    measurementCache.removeAll(keepingCapacity: true)
     #if canImport(UIKit)
       label.invalidateIntrinsicContentSize()
     #elseif canImport(AppKit)
