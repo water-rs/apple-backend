@@ -69,18 +69,32 @@ pub fn main() -> impl View {
 }
 
 /// A now-playing bar for the tab bar's bottom accessory slot.
+///
+/// The slot is one bar tall, so the content is a single row: the title and
+/// its subtitle stacked at the sizes a now-playing bar uses.
 fn now_playing() -> impl View {
     hstack((
         label("Play").icon(SystemIcon::new("play.fill")),
-        vstack((text("Now Playing").bold(), caption("Liquid Glass — Surfaces"))).spacing(2.0),
+        vstack((
+            text("Now Playing").bold().size(15.0),
+            text("Liquid Glass — Surfaces").size(12.0),
+        ))
+        .spacing(1.0),
     ))
     .spacing(12.0)
-    .padding()
+    .padding_with(EdgeInsets::symmetric(6.0, 16.0))
 }
 
 /// Glass surfaces over a colorful backdrop: the four parameters glass has —
 /// style, interactivity, tint, and outline — each shown on its own.
+///
+/// Each tab's root is a navigation stack, so the page has a bar for its
+/// title and the scrolling content has chrome to run under.
 fn surfaces_page() -> impl View {
+    NavigationStack::new(surfaces_root())
+}
+
+fn surfaces_root() -> NavigationView {
     zstack((
         backdrop(),
         scroll(
@@ -100,6 +114,18 @@ fn surfaces_page() -> impl View {
                 pill("Tomato", Glass::clear().tint(Color::srgb(255, 99, 71))),
                 caption("The outline belongs to the glass, not to an outer clip."),
                 card(),
+                caption("The capsule follows the size of what it wraps."),
+                text("Small")
+                    .bold()
+                    .size(13.0)
+                    .padding_with(EdgeInsets::all(8.0))
+                    .background(Glass::regular()),
+                pill("Medium", Glass::regular()),
+                text("Large")
+                    .bold()
+                    .size(24.0)
+                    .padding_with(EdgeInsets::all(20.0))
+                    .background(Glass::regular()),
             ))
             .spacing(12.0)
             .padding(),
@@ -112,6 +138,10 @@ fn surfaces_page() -> impl View {
 /// Glass button styles beside the bordered ones they correspond to on
 /// platforms without glass.
 fn controls_page() -> impl View {
+    NavigationStack::new(controls_root())
+}
+
+fn controls_root() -> NavigationView {
     zstack((
         backdrop(),
         scroll(
@@ -146,13 +176,15 @@ fn controls_page() -> impl View {
 }
 
 fn about_page() -> impl View {
-    vstack((
-        text("Liquid Glass").size(24.0),
-        "Glass is the chrome-layer surface of iOS 26 and macOS 26. This app declares it; the Apple backend projects it.",
-    ))
-    .spacing(12.0)
-    .padding()
-    .title("About")
+    NavigationStack::new(
+        vstack((
+            text("Liquid Glass").size(24.0),
+            "Glass is the chrome-layer surface of iOS 26 and macOS 26. This app declares it; the Apple backend projects it.",
+        ))
+        .spacing(12.0)
+        .padding()
+        .title("About"),
+    )
 }
 
 /// The search tab's root: a stack whose bar carries the search field, so the

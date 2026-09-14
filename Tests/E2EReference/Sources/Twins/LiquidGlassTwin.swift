@@ -41,12 +41,13 @@ struct LiquidGlassTwin: View {
     .tabViewBottomAccessory {
       HStack(spacing: 12) {
         Label("Play", systemImage: "play.fill")
-        VStack(spacing: 2) {
-          Text("Now Playing").bold()
-          caption("Liquid Glass — Surfaces")
+        VStack(spacing: 1) {
+          Text("Now Playing").bold().font(.system(size: 15))
+          Text("Liquid Glass — Surfaces").font(.system(size: 12))
         }
       }
-      .padding(14)
+      .padding(.vertical, 6)
+      .padding(.horizontal, 16)
     }
   }
 
@@ -68,6 +69,10 @@ struct LiquidGlassTwin: View {
               .glassEffect(.clear.tint(Color(.sRGB, red: 255 / 255, green: 99 / 255, blue: 71 / 255)))
             caption("The outline belongs to the glass, not to an outer clip.")
             card
+            caption("The capsule follows the size of what it wraps.")
+            Text("Small").bold().font(.system(size: 13)).padding(8).glassEffect()
+            pill("Medium").glassEffect()
+            Text("Large").bold().font(.system(size: 24)).padding(20).glassEffect()
           }
           .padding(14)
         }
