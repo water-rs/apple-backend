@@ -466,81 +466,6 @@ final class ReactiveFontSignal {
   #endif
 }
 
-extension WuiEdgeInsets {
-  /// No inset on any edge.
-  static let zero = WuiEdgeInsets(top: 0, bottom: 0, leading: 0, trailing: 0)
-}
-
-/// The safe-area signal this backend installs in the environment.
-///
-/// It stays at zero: the roots lay their content out against the window's
-/// safe area (`wuiContentFrame`), and every stack below them insets its own
-/// content and extends the scroll surfaces and chrome that touch its edges,
-/// so the insets are applied natively and the layers WaterUI lays out itself
-/// — the snackbar and overlay hosts — must not pad themselves again.
-@MainActor
-final class ReactiveEdgeInsetsSignal {
-  private typealias State = ReactiveWatcherList<WuiEdgeInsets>
-
-  private let state: State
-  private let statePtr: UnsafeMutableRawPointer
-  private var computedPtr: OpaquePointer?
-
-  init(insets: WuiEdgeInsets) {
-    self.state = State(
-      value: insets,
-      call: { waterui_call_watcher_edge_insets($0, $1) },
-      release: { waterui_drop_watcher_edge_insets($0) }
-    )
-    self.statePtr = Unmanaged.passRetained(state).toOpaque()
-  }
-
-  deinit {
-    state.cleanup()
-  }
-
-  func toComputed() -> OpaquePointer {
-    if let computedPtr { return computedPtr }
-    guard
-      let computed = waterui_new_computed_edge_insets(
-        statePtr,
-        { ptr -> WuiEdgeInsets in
-          guard let ptr else {
-            fatalError("ReactiveEdgeInsetsSignal get received a null state pointer")
-          }
-          return Unmanaged<State>.fromOpaque(UnsafeMutableRawPointer(mutating: ptr))
-            .takeUnretainedValue().value
-        },
-        { ptr, watcher -> OpaquePointer? in
-          guard let ptr else {
-            fatalError("ReactiveEdgeInsetsSignal watch received a null state pointer")
-          }
-          guard let watcher else {
-            fatalError("ReactiveEdgeInsetsSignal watch received a null watcher pointer")
-          }
-          let state = Unmanaged<State>.fromOpaque(UnsafeMutableRawPointer(mutating: ptr))
-            .takeUnretainedValue()
-          let watcherPointer = ReactiveWatcherPointer(raw: watcher)
-          state.addWatcher(watcherPointer.raw)
-          return makeReactiveWatcherGuard { [state, watcherPointer] in
-            state.removeWatcher(watcherPointer.raw)
-          }
-        },
-        { ptr in
-          guard let ptr else {
-            fatalError("ReactiveEdgeInsetsSignal drop received a null state pointer")
-          }
-          Unmanaged<State>.fromOpaque(ptr).takeRetainedValue().cleanup()
-        }
-      )
-    else {
-      fatalError("ReactiveEdgeInsetsSignal failed to create its computed signal")
-    }
-    computedPtr = computed
-    return computed
-  }
-}
-
 // MARK: - Theme Bridge
 
 /// Observes system appearance changes and updates theme reactively.
@@ -966,7 +891,6 @@ public final class WuiRootContext {
   private let app: WuiApp
   private let mainWindow: WuiWindowContext
   private let themeBridge: ThemeBridge
-  private let safeAreaSignal: ReactiveEdgeInsetsSignal
   private var menuBarTree: WuiMenuTree?
   private var localeObserver: NSObjectProtocol?
 
@@ -1018,13 +942,6 @@ public final class WuiRootContext {
 
     let themeBridge = ThemeBridge(env: env, colorScheme: systemScheme)
 
-    // The window's device insets. WaterUI lays the overlay hosts out itself, so
-    // this backend cannot frame them clear of the notch from the outside; it
-    // publishes the insets and they pad themselves. The root view controller
-    // republishes on every layout pass, which is what carries rotation through.
-    let safeAreaSignal = ReactiveEdgeInsetsSignal(insets: WuiEdgeInsets.zero)
-    waterui_env_install_safe_area(initEnvPtr, safeAreaSignal.toComputed())
-
     // 4. Create the app by calling waterui_app(env)
     // The user's app(env) receives the environment with theme installed,
     // creates App::new(content, env), and returns App { windows, env }
@@ -1045,7 +962,6 @@ public final class WuiRootContext {
     self.app = app
     self.mainWindow = WuiWindowContext(from: windowsPtr.pointee)
     self.themeBridge = themeBridge
-    self.safeAreaSignal = safeAreaSignal
     themeBridge.bindToEnvironmentColorScheme(env: env)
     localeObserver = NotificationCenter.default.addObserver(
       forName: NSLocale.currentLocaleDidChangeNotification,
@@ -1264,9 +1180,8 @@ public final class WuiRootContext {
       // The root lays itself out against the window's safe area
       // (`wuiContentFrame`): the window's overlay stack and every stack
       // below it place their content inside it and extend the scroll
-      // surfaces and chrome containers that touch its edges. The insets are
-      // therefore applied natively, and the safe-area signal the environment
-      // carries stays at zero.
+      // surfaces and chrome containers that touch its edges, so the insets
+      // are applied natively and no layer pads itself again.
       context.rootView.frame = wuiContentFrame(of: context.rootView, in: view)
       context.rootView.setNeedsLayout()
       context.rootView.layoutIfNeeded()
@@ -1368,9 +1283,8 @@ public final class WuiRootContext {
       // itself out against it (`wuiContentFrame`): a leaf is placed below the
       // toolbar, and a stack or chrome container takes the whole view and
       // insets its own content, extending the scroll surfaces and chrome
-      // that touch its edges. The insets are applied natively and the
-      // safe-area signal the environment carries stays at zero — the same
-      // rule the iOS root applies.
+      // that touch its edges, so the insets are applied natively and no
+      // layer pads itself again — the same rule the iOS root applies.
       context.rootView.frame = wuiContentFrame(of: context.rootView, in: self)
       context.rootView.needsLayout = true
       context.rootView.layoutSubtreeIfNeeded()

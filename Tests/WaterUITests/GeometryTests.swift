@@ -62,11 +62,4 @@ struct GeometryTests {
       #expect(WaterUI.WuiStretchAxis(axis.ffiValue) == axis)
     }
   }
-
-  @Test func edgeInsetsZero() {
-    #expect(WuiEdgeInsets.zero.top == 0)
-    #expect(WuiEdgeInsets.zero.bottom == 0)
-    #expect(WuiEdgeInsets.zero.leading == 0)
-    #expect(WuiEdgeInsets.zero.trailing == 0)
-  }
 }
