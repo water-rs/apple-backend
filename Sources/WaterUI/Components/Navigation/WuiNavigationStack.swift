@@ -126,8 +126,9 @@ final class WuiNavigationDestinationState {
       view.addSubview(contentView)
       // The bar's scroll-coupled behavior — large-title expansion, scroll-edge
       // appearance, bottom-bar effects — is driven by the content scroll view,
-      // which UIKit cannot find on its own behind the WaterUI wrapper views.
-      if let scrollView = wuiResolvedPrimaryContent(of: contentView) as? UIScrollView {
+      // which UIKit cannot find on its own behind the WaterUI wrapper views,
+      // and which may sit beside a backdrop in a stack rather than at the root.
+      if let scrollView = wuiScrollSurface(of: contentView) {
         setContentScrollView(scrollView, for: [.top, .bottom])
       }
       applyNavigationChrome()

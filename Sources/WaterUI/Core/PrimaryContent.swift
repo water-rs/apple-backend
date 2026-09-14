@@ -38,3 +38,48 @@ func wuiResolvedPrimaryContent(of view: PlatformView) -> PlatformView {
   }
   return current
 }
+
+// The bars that follow a scroll surface — large title, tab bar minimize,
+// scroll-edge effects — are UIKit's; AppKit couples nothing to a scroll view.
+#if canImport(UIKit)
+  /// A view that arranges several children, any of which may be the scroll
+  /// surface the surrounding bars follow.
+  ///
+  /// The primary-content chain stops at a stack's base layer because that layer
+  /// decides how the window insets the stack; the bars instead follow whichever
+  /// child scrolls, so a stack lists every child here, in stacking order.
+  @MainActor
+  protocol WuiScrollSurfaceProviding {
+    var wuiScrollSurfaceCandidates: [PlatformView] { get }
+  }
+
+  /// The scroll surface that drives the bars around `view` — large-title
+  /// collapse, the tab bar's minimize behavior, the bars' scroll-edge effects.
+  ///
+  /// A page composed as a stack of a backdrop and a scroll view scrolls the
+  /// scroll view, so the search descends through wrappers by their primary
+  /// content and through stacks by every child, and the first scroll surface
+  /// found answers. A container that answers for itself, such as a nested
+  /// navigation view with its own bar, ends the descent the way it does for
+  /// the primary-content chain.
+  @MainActor
+  func wuiScrollSurface(of view: PlatformView) -> PlatformScrollView? {
+    if view is WuiSafeAreaManaging {
+      return view as? PlatformScrollView
+    }
+    let candidates: [PlatformView]
+    if let stack = view as? WuiScrollSurfaceProviding {
+      candidates = stack.wuiScrollSurfaceCandidates
+    } else if let wrapper = view as? WuiPrimaryContentProviding {
+      candidates = wrapper.wuiPrimaryContent.map { [$0] } ?? []
+    } else {
+      candidates = []
+    }
+    for candidate in candidates {
+      if let surface = wuiScrollSurface(of: candidate) {
+        return surface
+      }
+    }
+    return nil
+  }
+#endif

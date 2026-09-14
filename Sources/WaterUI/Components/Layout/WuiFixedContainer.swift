@@ -200,3 +200,10 @@ final class WuiFixedContainer: PlatformView, WuiComponent {
 extension WuiFixedContainer: WuiPrimaryContentProviding {
   var wuiPrimaryContent: PlatformView? { childViews.first }
 }
+
+#if canImport(UIKit)
+  /// The bars follow whichever child scrolls, not the base layer.
+  extension WuiFixedContainer: WuiScrollSurfaceProviding {
+    var wuiScrollSurfaceCandidates: [PlatformView] { childViews }
+  }
+#endif
