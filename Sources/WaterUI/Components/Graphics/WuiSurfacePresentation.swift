@@ -237,25 +237,26 @@
       }
     }
 
-    /// The colour space the compositor must read the surface in.
+    /// The colour space the compositor must read the surface in, serialized
+    /// for `IOSurfaceSetValue`.
     ///
     /// Core Animation has no other way to learn it: a plain `CALayer` carries no
     /// colour space of its own, so an extended-range surface left unlabelled is
     /// composited as if its values were display-referred sRGB and an HDR frame
-    /// comes out clipped and dark.
-    private func colorSpace(for pixelFormat: MTLPixelFormat) -> CGColorSpace {
-      switch pixelFormat {
-      case .rgba16Float:
-        guard let space = CGColorSpace(name: CGColorSpace.extendedLinearSRGB) else {
-          fatalError("Surface presenter could not create the extended linear sRGB color space")
-        }
-        return space
-      default:
-        guard let space = CGColorSpace(name: CGColorSpace.sRGB) else {
-          fatalError("Surface presenter could not create the sRGB color space")
-        }
-        return space
+    /// comes out clipped and dark. `kIOSurfaceColorSpace` requires the
+    /// serialized form — `CGColorSpaceCopyPropertyList`, per IOSurfaceRef.h —
+    /// because every value attached to a surface must be plist-serializable;
+    /// handing over the `CGColorSpace` object itself fails every frame with
+    /// `typeID 0x49 not serializable` and leaves the surface unlabelled.
+    private func colorSpace(for pixelFormat: MTLPixelFormat) -> CFPropertyList {
+      let name = pixelFormat == .rgba16Float
+        ? CGColorSpace.extendedLinearSRGB : CGColorSpace.sRGB
+      guard let space = CGColorSpace(name: name),
+        let serialized = space.copyPropertyList()
+      else {
+        fatalError("Surface presenter could not serialize the surface color space")
       }
+      return serialized
     }
   }
 #endif
