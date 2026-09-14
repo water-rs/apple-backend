@@ -21,6 +21,7 @@ use waterui::shape::{Circle, RoundedRectangle, ShapeExt};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Pane {
     Surfaces,
+    Controls,
     About,
 }
 
@@ -35,6 +36,11 @@ pub fn main() -> impl View {
                 Pane::Surfaces,
                 label("Surfaces").icon(SystemIcon::new("square.on.square")),
                 surfaces_page,
+            ),
+            Tab::container(
+                Pane::Controls,
+                label("Controls").icon(SystemIcon::new("button.horizontal")),
+                controls_page,
             ),
             Tab::container(
                 Pane::About,
@@ -74,6 +80,42 @@ fn surfaces_page() -> impl View {
         ),
     ))
     .title("Surfaces")
+    .large_title()
+}
+
+/// Glass button styles beside the bordered ones they correspond to on
+/// platforms without glass.
+fn controls_page() -> impl View {
+    zstack((
+        backdrop(),
+        scroll(
+            vstack((
+                caption("Glass: the capsule is the emphasis, the label keeps the primary color."),
+                hstack((
+                    button("Glass").style(ButtonStyle::Glass),
+                    button("Bordered").style(ButtonStyle::Bordered),
+                ))
+                .spacing(12.0),
+                caption("Prominent glass: the accent fills the capsule, for the primary action."),
+                hstack((
+                    button("Glass Prominent").style(ButtonStyle::GlassProminent),
+                    button("Bordered Prominent").style(ButtonStyle::BorderedProminent),
+                ))
+                .spacing(12.0),
+                caption("Labels with symbols get the same capsule."),
+                hstack((
+                    button(label("Share").icon(SystemIcon::new("square.and.arrow.up")))
+                        .style(ButtonStyle::Glass),
+                    button(label("Play").icon(SystemIcon::new("play.fill")))
+                        .style(ButtonStyle::GlassProminent),
+                ))
+                .spacing(12.0),
+            ))
+            .spacing(12.0)
+            .padding(),
+        ),
+    ))
+    .title("Controls")
     .large_title()
 }
 
