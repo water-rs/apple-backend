@@ -39,12 +39,17 @@ struct TwinRoot: View {
     switch example {
     case "animation": AnimationTwin()
     case "drag_drop": DragDropTwin()
+    case "edge_layout": EdgeLayoutTwin()
+    case "edge_list": EdgeListTwin()
+    case "edge_text": EdgeTextTwin()
     case "form": FormTwin()
     case "gesture": GestureTwin()
     case "hover": HoverTwin()
     case "list": ListTwin()
+    case "menu": MenuTwin()
     case "multi_window": MultiWindowTwin()
     case "navigation": NavigationTwin()
+    case "shape": ShapeTwin()
     case "snackbar": SnackbarTwin()
     case "typography-rtl": TypographyRtlTwin()
     default:
