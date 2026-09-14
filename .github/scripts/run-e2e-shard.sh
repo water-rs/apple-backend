@@ -46,7 +46,9 @@ fi
 
 mkdir -p "${logs_dir}" "${shots_dir}"
 startup_entries="${logs_dir}/.startup-${platform}-${shard_index}.entries"
+memory_entries="${logs_dir}/.memory-${platform}-${shard_index}.entries"
 : > "${startup_entries}"
+: > "${memory_entries}"
 if [[ "${record}" == "1" ]]; then
   mkdir -p "${record_dir}/${platform}"
 fi
@@ -69,6 +71,7 @@ done
 if (( ${#shard_examples[@]} == 0 )); then
   echo "Shard ${shard_index}/${shard_total} has no examples for ${platform}."
   echo "{}" > "${logs_dir}/startup-times-${platform}-${shard_index}.json"
+  echo "{}" > "${logs_dir}/memory-${platform}-${shard_index}.json"
   exit 0
 fi
 
@@ -204,6 +207,7 @@ declare -a failures=()
 declare -a report=()
 
 for example in ${shard_examples[@]+"${shard_examples[@]}"}; do
+  mem_cell="—"
   example_path="${waterui_dir}/examples/${example}"
   run_log="${logs_dir}/${platform}-${example}.log"
   shot="${shots_dir}/${platform}-${example}.png"
@@ -243,12 +247,12 @@ for example in ${shard_examples[@]+"${shard_examples[@]}"}; do
       echo "::error::Timed out waiting for readiness for ${example} (${platform})."
       kill "${runner_pid}" 2>/dev/null || true
       failures+=("${example}: launch timeout")
-      report+=("| \`${example}\` | launch timeout | — | — |")
+      report+=("| \`${example}\` | launch timeout | — | — | ${mem_cell} |")
       printf '  "%s": null,\n' "${example}" >> "${startup_entries}"
     else
       echo "::error::water run failed for ${example} (${platform})."
       failures+=("${example}: build/launch")
-      report+=("| \`${example}\` | build/launch failed | — | — |")
+      report+=("| \`${example}\` | build/launch failed | — | — | ${mem_cell} |")
       printf '  "%s": null,\n' "${example}" >> "${startup_entries}"
     fi
     tail -n 120 "${run_log}" || true
@@ -291,7 +295,7 @@ for example in ${shard_examples[@]+"${shard_examples[@]}"}; do
       kill "${runner_pid}" 2>/dev/null || true
       wait "${runner_pid}" || true
       failures+=("${example}: no process")
-      report+=("| \`${example}\` | no process | — | ${fp_cell} |")
+      report+=("| \`${example}\` | no process | — | ${fp_cell} | ${mem_cell} |")
       echo "::endgroup::"
       continue
     fi
@@ -302,9 +306,33 @@ for example in ${shard_examples[@]+"${shard_examples[@]}"}; do
     kill "${runner_pid}" 2>/dev/null || true
     wait "${runner_pid}" || true
     failures+=("${example}: capture")
-    report+=("| \`${example}\` | capture failed | — | ${fp_cell} |")
+    report+=("| \`${example}\` | capture failed | — | ${fp_cell} | ${mem_cell} |")
     echo "::endgroup::"
     continue
+  fi
+
+  # Post-launch memory footprint: peak resident set sampled over a short idle
+  # window while the app is still up. Simulator apps are host processes, so
+  # `ps` covers both platforms; the iOS pid is recovered from the bundle path
+  # under the booted device's data directory.
+  mem_pid="${app_pid}"
+  if [[ "${platform}" == "ios" ]]; then
+    mem_pid="$(pgrep -f "CoreSimulator/Devices/${SIMULATOR_UDID}/.*${product}\.app/" | head -1 || true)"
+  fi
+  peak_rss=0
+  if [[ -n "${mem_pid}" ]]; then
+    for _ in $(seq 1 4); do
+      rss="$(ps -o rss= -p "${mem_pid}" 2>/dev/null | tr -d ' ' || true)"
+      if [[ -n "${rss}" ]] && (( rss > peak_rss )); then peak_rss="${rss}"; fi
+      sleep 0.5
+    done
+  fi
+  if (( peak_rss > 0 )); then
+    printf '  "%s": %s,\n' "${example}" "$(( peak_rss * 1024 ))" >> "${memory_entries}"
+    mem_cell="$(awk -v b="${peak_rss}" 'BEGIN{printf "%.0f MB", b/1024}')"
+  else
+    printf '  "%s": null,\n' "${example}" >> "${memory_entries}"
+    mem_cell="—"
   fi
 
   kill "${runner_pid}" 2>/dev/null || true
@@ -321,7 +349,7 @@ for example in ${shard_examples[@]+"${shard_examples[@]}"}; do
   if ! swift "${workspace}/.github/scripts/compare-screenshots.swift" content "${shot}"; then
     echo "::error::Captured screenshot for ${example} is blank."
     failures+=("${example}: blank")
-    report+=("| \`${example}\` | blank capture | — | ${fp_cell} |")
+    report+=("| \`${example}\` | blank capture | — | ${fp_cell} | ${mem_cell} |")
     echo "::endgroup::"
     continue
   fi
@@ -329,20 +357,20 @@ for example in ${shard_examples[@]+"${shard_examples[@]}"}; do
   baseline="${baselines_dir}/${platform}/${example}.png"
   if [[ "${record}" == "1" ]]; then
     cp "${shot}" "${record_dir}/${platform}/${example}.png"
-    report+=("| \`${example}\` | recorded | — | ${fp_cell} |")
+    report+=("| \`${example}\` | recorded | — | ${fp_cell} | ${mem_cell} |")
   elif [[ -f "${baselines_dir}/${platform}/${example}.skip" ]]; then
-    report+=("| \`${example}\` | launched (compare skipped) | — | ${fp_cell} |")
+    report+=("| \`${example}\` | launched (compare skipped) | — | ${fp_cell} | ${mem_cell} |")
   elif [[ ! -f "${baseline}" ]]; then
-    report+=("| \`${example}\` | launched (no baseline yet) | — | ${fp_cell} |")
+    report+=("| \`${example}\` | launched (no baseline yet) | — | ${fp_cell} | ${mem_cell} |")
   else
     diff_image="${shots_dir}/${platform}-${example}-diff.png"
     if compare_out="$(swift "${workspace}/.github/scripts/compare-screenshots.swift" \
         compare "${baseline}" "${shot}" "${diff_image}")"; then
-      report+=("| \`${example}\` | baseline match | ${compare_out#compare: } | ${fp_cell} |")
+      report+=("| \`${example}\` | baseline match | ${compare_out#compare: } | ${fp_cell} | ${mem_cell} |")
     else
       echo "::error::Screenshot regression for ${example}: ${compare_out}"
       failures+=("${example}: regression")
-      report+=("| \`${example}\` | regression | ${compare_out#compare: } | ${fp_cell} |")
+      report+=("| \`${example}\` | regression | ${compare_out#compare: } | ${fp_cell} | ${mem_cell} |")
     fi
   fi
 
@@ -360,12 +388,12 @@ for example in ${shard_examples[@]+"${shard_examples[@]}"}; do
     if ! capture_reference "${ref_shot}" "${example}" "${product}"; then
       echo "::error::Could not capture the SwiftUI reference for ${example}."
       failures+=("${example}: reference capture")
-      report+=("| \`${example}\` (parity) | reference failed | — | ${fp_cell} |")
+      report+=("| \`${example}\` (parity) | reference failed | — | ${fp_cell} | ${mem_cell} |")
     elif ! swift "${workspace}/.github/scripts/compare-screenshots.swift" \
         content "${ref_shot}" >/dev/null 2>&1; then
       echo "::error::SwiftUI reference for ${example} captured blank."
       failures+=("${example}: reference blank")
-      report+=("| \`${example}\` (parity) | reference blank | — | ${fp_cell} |")
+      report+=("| \`${example}\` (parity) | reference blank | — | ${fp_cell} | ${mem_cell} |")
     elif parity_out="$(DIFF_BUDGET="${budget}" \
         swift "${workspace}/.github/scripts/compare-screenshots.swift" \
         compare "${ref_shot}" "${shot}" "${parity_diff}" 2>&1)"; then
@@ -375,14 +403,14 @@ for example in ${shard_examples[@]+"${shard_examples[@]}"}; do
         mkdir -p "${record_dir}/parity"
         printf '%s\n' "${parity_fraction}" \
           > "${record_dir}/parity/${platform}-${example}.txt"
-        report+=("| \`${example}\` (parity) | recorded ${parity_fraction} | — | ${fp_cell} |")
+        report+=("| \`${example}\` (parity) | recorded ${parity_fraction} | — | ${fp_cell} | ${mem_cell} |")
       else
-        report+=("| \`${example}\` (parity) | within budget ${budget} | ${parity_out#compare: } | ${fp_cell} |")
+        report+=("| \`${example}\` (parity) | within budget ${budget} | ${parity_out#compare: } | ${fp_cell} | ${mem_cell} |")
       fi
     else
       echo "::error::SwiftUI parity regression for ${example}: ${parity_out} (budget ${budget})"
       failures+=("${example}: parity regression")
-      report+=("| \`${example}\` (parity) | drift over budget ${budget} | ${parity_out#compare: } | ${fp_cell} |")
+      report+=("| \`${example}\` (parity) | drift over budget ${budget} | ${parity_out#compare: } | ${fp_cell} | ${mem_cell} |")
     fi
   fi
 
@@ -398,10 +426,17 @@ done
 rm -f "${startup_entries}"
 
 {
+  echo "{"
+  sed '$ s/,$//' "${memory_entries}"
+  echo "}"
+} > "${logs_dir}/memory-${platform}-${shard_index}.json"
+rm -f "${memory_entries}"
+
+{
   echo "## E2E ${platform} — shard ${shard_index}/${shard_total}"
   echo ""
-  echo "| Example | Result | Diff | First paint |"
-  echo "| --- | --- | --- | --- |"
+  echo "| Example | Result | Diff | First paint | Peak RSS |"
+  echo "| --- | --- | --- | --- | --- |"
   for row in ${report[@]+"${report[@]}"}; do
     echo "${row}"
   done

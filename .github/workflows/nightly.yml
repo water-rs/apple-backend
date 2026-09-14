@@ -123,7 +123,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: startup-times-ios-${{ matrix.shard }}
-          path: e2e-logs/startup-times-*.json
+          path: |
+            e2e-logs/startup-times-*.json
+            e2e-logs/memory-*.json
           retention-days: 90
 
       - name: Upload iOS shard logs
@@ -192,7 +194,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: startup-times-macos-${{ matrix.shard }}
-          path: e2e-logs/startup-times-*.json
+          path: |
+            e2e-logs/startup-times-*.json
+            e2e-logs/memory-*.json
           retention-days: 90
 
       - name: Upload macOS shard logs
@@ -211,9 +215,10 @@ jobs:
           path: e2e-baselines/
           retention-days: 7
 
-  # Every shard uploads one startup-times JSON; this job merges them into a
-  # single launch-timing artifact and a step-summary table so a slow example
-  # is visible without digging through eight archives.
+  # Every shard uploads one startup-times JSON and one memory JSON; this job
+  # merges them into launch-timing + footprint artifacts and a step-summary
+  # table so a slow or bloated example is visible without digging through
+  # eight archives.
   startup-report:
     name: startup-report
     if: always()
@@ -233,6 +238,7 @@ jobs:
           python3 - <<'PY'
           import glob, json, os, re
           merged = {"ios": {}, "macos": {}}
+          memory = {"ios": {}, "macos": {}}
           for path in sorted(glob.glob("startup/*/startup-times-*.json")):
               m = re.search(r"startup-times-(ios|macos)-\d+\.json$", path)
               if not m:
@@ -242,20 +248,36 @@ jobs:
                       merged[m.group(1)].update(json.load(f))
               except Exception:
                   pass
+          for path in sorted(glob.glob("startup/*/memory-*.json")):
+              m = re.search(r"memory-(ios|macos)-\d+\.json$", path)
+              if not m:
+                  continue
+              try:
+                  with open(path) as f:
+                      memory[m.group(1)].update(json.load(f))
+              except Exception:
+                  pass
           with open("startup-times.json", "w") as f:
               json.dump(merged, f, indent=2, sort_keys=True)
               f.write("\n")
+          with open("memory-footprints.json", "w") as f:
+              json.dump(memory, f, indent=2, sort_keys=True)
+              f.write("\n")
           examples = sorted(set(merged["ios"]) | set(merged["macos"]))
-          rows = ["| Example | iOS | macOS |", "| --- | --- | --- |"]
+          rows = ["| Example | iOS paint | macOS paint | iOS peak RSS | macOS peak RSS |",
+                  "| --- | --- | --- | --- | --- |"]
           for name in examples:
               cells = []
               for plat in ("ios", "macos"):
                   ms = merged[plat].get(name)
                   cells.append(f"{ms} ms" if isinstance(ms, (int, float))
                                else "—" if name in merged[plat] else "not run")
-              rows.append(f"| `{name}` | {cells[0]} | {cells[1]} |")
+                  rss = memory[plat].get(name)
+                  cells.append(f"{rss / 1048576:.1f} MB" if isinstance(rss, (int, float))
+                               else "—" if name in memory[plat] else "not run")
+              rows.append(f"| `{name}` | {cells[0]} | {cells[2]} | {cells[1]} | {cells[3]} |")
           with open("startup-summary.md", "w") as f:
-              f.write("## Launch to first paint\n\n" + "\n".join(rows) + "\n")
+              f.write("## Launch to first paint / peak RSS\n\n" + "\n".join(rows) + "\n")
           PY
           cat startup-summary.md >> "${GITHUB_STEP_SUMMARY}"
 
@@ -263,16 +285,19 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: startup-times
-          path: startup-times.json
+          path: |
+            startup-times.json
+            memory-footprints.json
           retention-days: 90
 
   # A minimal hello-world app is almost all framework: its release .app size
   # moves only when the backend or the shared dependency tree grows. Package
-  # it on both Apple platforms and gate the byte counts against
+  # it on both Apple platforms, gate the byte counts against
   # Tests/E2EBaselines/package-size.json so size regressions land on the
-  # nightly report instead of shipping silently.
+  # nightly report instead of shipping silently, then launch each packaged
+  # build to record first-paint latency and peak RSS in release-metrics.json.
   package-size:
-    name: package-size
+    name: release-metrics
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
@@ -291,12 +316,37 @@ jobs:
       - name: Install water CLI
         run: cargo install --path waterui/cli --locked
 
-      - name: Measure packaged size
+      - name: Boot iOS simulator
+        run: |
+          set -euo pipefail
+          simulator_udid="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ {print $2; exit}')"
+          if [[ -z "${simulator_udid}" ]]; then
+            echo "::error::No available iPhone simulator found."
+            exit 1
+          fi
+          echo "SIMULATOR_UDID=${simulator_udid}" >> "${GITHUB_ENV}"
+          xcrun simctl boot "${simulator_udid}" || true
+          xcrun simctl bootstatus "${simulator_udid}" -b
+
+      - name: Measure release size, startup, and memory
         env:
           WATERUI_DIR: ${{ github.workspace }}/waterui
           RECORD_DIR: ${{ github.workspace }}/e2e-baselines
+          METRICS_DIR: ${{ github.workspace }}/release-metrics
           RECORD: ${{ inputs.record_baselines == true && '1' || '0' }}
         run: ./.github/scripts/check-package-size.sh
+
+      - name: Summarize release metrics
+        if: always()
+        run: cat release-metrics/release-metrics.md >> "${GITHUB_STEP_SUMMARY}" || true
+
+      - name: Upload release metrics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-metrics
+          path: release-metrics/
+          retention-days: 90
 
       - name: Upload size measurement
         if: inputs.record_baselines == true
