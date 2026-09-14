@@ -33,6 +33,8 @@ if [[ "${platform}" == "ios" && -z "${SIMULATOR_UDID:-}" ]]; then
 fi
 
 mkdir -p "${logs_dir}"
+startup_entries="${logs_dir}/.startup-${platform}-${shard_index}.entries"
+: > "${startup_entries}"
 
 all_examples=()
 while IFS= read -r example; do
@@ -51,6 +53,7 @@ done
 
 if (( ${#shard_examples[@]} == 0 )); then
   echo "Shard ${shard_index}/${shard_total} has no examples for ${platform}."
+  echo "{}" > "${logs_dir}/startup-times-${platform}-${shard_index}.json"
   exit 0
 fi
 
@@ -63,12 +66,14 @@ for example in ${shard_examples[@]+"${shard_examples[@]}"}; do
   echo "::group::${platform} example ${example}"
 
   # Examples are playground projects: `water build` rejects them and `water
-  # run` performs the build itself before launching.
+  # run` performs the build itself before launching. `--logs info` streams the
+  # app's own dev.waterui log lines back into the run log, which is where the
+  # backend's launch-time marker lands (#88).
   : > "${run_log}"
   if [[ "${platform}" == "ios" ]]; then
-    water run --platform ios --path "${example_path}" --device "${SIMULATOR_UDID}" > "${run_log}" 2>&1 &
+    water run --platform ios --path "${example_path}" --device "${SIMULATOR_UDID}" --logs info > "${run_log}" 2>&1 &
   else
-    water run --platform macos --path "${example_path}" > "${run_log}" 2>&1 &
+    water run --platform macos --path "${example_path}" --logs info > "${run_log}" 2>&1 &
   fi
 
   app_pid=$!
@@ -101,8 +106,34 @@ for example in ${shard_examples[@]+"${shard_examples[@]}"}; do
     exit 1
   fi
 
+  # Launch-to-first-paint, self-reported by the backend (#88): the app logs
+  # `waterui_first_paint_ms=N` once its first window paints. The os_log stream
+  # races the launch, so give the marker a short grace window and record
+  # whatever arrived — a missing marker is data, not a failure.
+  startup_ms=""
+  for _ in $(seq 1 10); do
+    startup_ms="$(sed -n 's/.*waterui_first_paint_ms=\([0-9][0-9]*\).*/\1/p' "${run_log}" | head -1)"
+    [[ -n "${startup_ms}" ]] && break
+    sleep 1
+  done
+  if [[ -n "${startup_ms}" ]]; then
+    echo "::notice::${example} first paint in ${startup_ms} ms (${platform})"
+    printf '  "%s": %s,\n' "${example}" "${startup_ms}" >> "${startup_entries}"
+  else
+    echo "::warning::${example} did not report a first-paint time"
+    printf '  "%s": null,\n' "${example}" >> "${startup_entries}"
+  fi
+
   kill "${app_pid}" 2>/dev/null || true
   wait "${app_pid}" || true
 
   echo "::endgroup::"
 done
+
+# Fold the per-example measurements into a JSON object the workflow uploads.
+{
+  echo "{"
+  sed '$ s/,$//' "${startup_entries}"
+  echo "}"
+} > "${logs_dir}/startup-times-${platform}-${shard_index}.json"
+rm -f "${startup_entries}"

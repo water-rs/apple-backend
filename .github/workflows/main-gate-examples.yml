@@ -69,6 +69,16 @@ jobs:
           EXAMPLE_LOG_DIR: ${{ github.workspace }}/example-logs
         run: ./.github/scripts/run-example-shard.sh
 
+      # Launch timings are recorded even when a shard fails — a regression
+      # that makes an app slow is exactly the signal this data exists for.
+      - name: Upload iOS startup times
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: startup-times-ios-${{ matrix.shard }}
+          path: example-logs/startup-times-*.json
+          retention-days: 90
+
       - name: Upload iOS shard logs
         if: failure()
         uses: actions/upload-artifact@v4
@@ -110,6 +120,14 @@ jobs:
           WATERUI_DIR: ${{ github.workspace }}/waterui
           EXAMPLE_LOG_DIR: ${{ github.workspace }}/example-logs
         run: ./.github/scripts/run-example-shard.sh
+
+      - name: Upload macOS startup times
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: startup-times-macos-${{ matrix.shard }}
+          path: example-logs/startup-times-*.json
+          retention-days: 90
 
       - name: Upload macOS shard logs
         if: failure()
