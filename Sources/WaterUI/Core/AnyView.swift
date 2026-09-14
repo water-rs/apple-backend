@@ -419,6 +419,9 @@ private func registerBuiltinComponentsIfNeeded() {
       super.didMoveToWindow()
       if window != nil {
         setupRootThemeControllerIfNeeded()
+        if !hasAnyViewAncestor() {
+          WuiLaunchTiming.markFirstPaint(on: self)
+        }
       }
     }
 
@@ -633,6 +636,9 @@ private func registerBuiltinComponentsIfNeeded() {
         lastMinSizeProbeBounds = .zero
         if isWindowRootContent() {
           scheduleWindowMinSizeUpdate()
+        }
+        if !hasAnyViewAncestor() {
+          WuiLaunchTiming.markFirstPaint(on: self)
         }
       }
     }

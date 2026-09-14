@@ -116,6 +116,16 @@ jobs:
           path: e2e-shots/
           retention-days: 14
 
+      # Launch timings are recorded even when a shard fails — a regression
+      # that makes an app slow is exactly the signal this data exists for.
+      - name: Upload iOS startup times
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: startup-times-ios-${{ matrix.shard }}
+          path: e2e-logs/startup-times-*.json
+          retention-days: 90
+
       - name: Upload iOS shard logs
         if: failure()
         uses: actions/upload-artifact@v4
@@ -177,6 +187,14 @@ jobs:
           path: e2e-shots/
           retention-days: 14
 
+      - name: Upload macOS startup times
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: startup-times-macos-${{ matrix.shard }}
+          path: e2e-logs/startup-times-*.json
+          retention-days: 90
+
       - name: Upload macOS shard logs
         if: failure()
         uses: actions/upload-artifact@v4
@@ -192,6 +210,61 @@ jobs:
           name: e2e-baselines-macos-${{ matrix.shard }}
           path: e2e-baselines/
           retention-days: 7
+
+  # Every shard uploads one startup-times JSON; this job merges them into a
+  # single launch-timing artifact and a step-summary table so a slow example
+  # is visible without digging through eight archives.
+  startup-report:
+    name: startup-report
+    if: always()
+    needs: [e2e-ios, e2e-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download startup times
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: startup-times-*
+          path: startup/
+
+      - name: Merge startup times
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import glob, json, os, re
+          merged = {"ios": {}, "macos": {}}
+          for path in sorted(glob.glob("startup/*/startup-times-*.json")):
+              m = re.search(r"startup-times-(ios|macos)-\d+\.json$", path)
+              if not m:
+                  continue
+              try:
+                  with open(path) as f:
+                      merged[m.group(1)].update(json.load(f))
+              except Exception:
+                  pass
+          with open("startup-times.json", "w") as f:
+              json.dump(merged, f, indent=2, sort_keys=True)
+              f.write("\n")
+          examples = sorted(set(merged["ios"]) | set(merged["macos"]))
+          rows = ["| Example | iOS | macOS |", "| --- | --- | --- |"]
+          for name in examples:
+              cells = []
+              for plat in ("ios", "macos"):
+                  ms = merged[plat].get(name)
+                  cells.append(f"{ms} ms" if isinstance(ms, (int, float))
+                               else "—" if name in merged[plat] else "not run")
+              rows.append(f"| `{name}` | {cells[0]} | {cells[1]} |")
+          with open("startup-summary.md", "w") as f:
+              f.write("## Launch to first paint\n\n" + "\n".join(rows) + "\n")
+          PY
+          cat startup-summary.md >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload merged startup times
+        uses: actions/upload-artifact@v4
+        with:
+          name: startup-times
+          path: startup-times.json
+          retention-days: 90
 
   # Baselines are recorded on CI, not locally: window metrics, scale factors,
   # and OS rendering all differ across machines. A record run uploads its
