@@ -10,6 +10,7 @@
 //   .shape(RoundedRectangle::new(0.2))        -> in: .rect(cornerRadius:) resolved
 //                                                against the card's shorter side
 //   Circle.fill(c).size(n, n).offset(x, y)    -> Circle().fill(c).frame(n).offset(x, y)
+//   .bottom_accessory(view)                   -> .tabViewBottomAccessory { view }
 
 import SwiftUI
 
@@ -37,6 +38,16 @@ struct LiquidGlassTwin: View {
       }
     }
     .tabBarMinimizeBehavior(.onScrollDown)
+    .tabViewBottomAccessory {
+      HStack(spacing: 12) {
+        Label("Play", systemImage: "play.fill")
+        VStack(spacing: 2) {
+          Text("Now Playing").bold()
+          caption("Liquid Glass — Surfaces")
+        }
+      }
+      .padding(14)
+    }
   }
 
   private var surfacesPage: some View {

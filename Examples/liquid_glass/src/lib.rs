@@ -63,6 +63,19 @@ pub fn main() -> impl View {
     // iOS collapses the bar into a glass pill as the surfaces scroll, and
     // brings it back on the way up.
     .minimize_behavior(TabBarMinimizeBehavior::OnScrollDown)
+    // The slot iOS keeps above the tab bar for a now-playing bar; the
+    // platform gives it the glass and collapses it inline with the bar.
+    .bottom_accessory(now_playing())
+}
+
+/// A now-playing bar for the tab bar's bottom accessory slot.
+fn now_playing() -> impl View {
+    hstack((
+        label("Play").icon(SystemIcon::new("play.fill")),
+        vstack((text("Now Playing").bold(), caption("Liquid Glass — Surfaces"))).spacing(2.0),
+    ))
+    .spacing(12.0)
+    .padding()
 }
 
 /// Glass surfaces over a colorful backdrop: the four parameters glass has —

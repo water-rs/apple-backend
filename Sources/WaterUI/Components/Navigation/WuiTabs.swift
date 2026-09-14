@@ -97,6 +97,10 @@ final class WuiTabs: PlatformView, WuiComponent {
     /// icon are set on it rather than on a child controller's bar item. The
     /// content controller is created by the tab on first display.
     private var uiTabs: [UITab] = []
+    /// The view floated above the tab bar, held for the tab controller's
+    /// lifetime; the platform gives it the glass capsule, placement and
+    /// collapse behavior.
+    private let bottomAccessory: WuiAnyView?
   #elseif canImport(AppKit)
     private var tabControl: NSSegmentedControl?
     private weak var windowToolbar: WuiWindowToolbar?
@@ -123,6 +127,16 @@ final class WuiTabs: PlatformView, WuiComponent {
 
     self.style = ffiTabs.style
     self.minimizeBehavior = ffiTabs.minimize_behavior
+    #if canImport(UIKit)
+      self.bottomAccessory = ffiTabs.bottom_accessory.map { WuiAnyView(anyview: $0, env: env) }
+    #elseif canImport(AppKit)
+      // AppKit has no slot above the tab chrome; the accessory is an iOS
+      // primitive and is documented as unsupported here, not emulated. The
+      // handle is released without being resolved.
+      if let accessory = ffiTabs.bottom_accessory {
+        waterui_drop_anyview(accessory)
+      }
+    #endif
     self.selection = WuiBinding<WuiId>(selectionPointer)
     self.tabs = rawTabs.map { tab in
       guard let labelPointer = tab.label else {
@@ -197,6 +211,9 @@ final class WuiTabs: PlatformView, WuiComponent {
       tabController.tabBarMinimizeBehavior = Self.minimizeBehavior(from: minimizeBehavior)
       uiTabs = tabs.map(Self.makeUITab)
       tabController.tabs = uiTabs
+      if let bottomAccessory {
+        tabController.bottomAccessory = UITabAccessory(contentView: bottomAccessory)
+      }
       // The view is attached by `wuiSyncControllerHierarchy` at window time,
       // after the controller has a parent — see that helper for why the order
       // matters.
