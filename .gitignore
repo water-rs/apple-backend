@@ -1,5 +1,7 @@
 .DS_Store
 /.build
+/.build-shapes
+/.ci/bin
 /Packages
 xcuserdata/
 DerivedData/

@@ -2,5 +2,5 @@
 --indent 4
 --maxwidth 140
 --stripunusedargs closure-only
---exclude .build,waterui
+--exclude .build,.build-shapes,.ci/bin,waterui
 --rules blankLinesAtEndOfScope,blankLinesAtStartOfScope,consecutiveBlankLines,spaceAroundOperators,spaceInsideParens
