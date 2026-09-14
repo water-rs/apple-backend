@@ -23,8 +23,14 @@ trap 'rm -rf "${work_dir}"' EXIT
 project_dir="${work_dir}/helloworld"
 mkdir -p "${project_dir}/src"
 
+# backend_path is mandatory here: without it the generated project resolves
+# the pinned SwiftPM release of apple-backend, and the job would measure a
+# published tag instead of the commit under test.
 cat > "${project_dir}/Water.toml" <<EOF
 waterui_path = "${waterui_dir}"
+
+[backend.apple]
+backend_path = "${waterui_dir}/backends/apple"
 
 [package]
 type = "playground"

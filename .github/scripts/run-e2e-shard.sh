@@ -230,8 +230,12 @@ for example in ${shard_examples[@]+"${shard_examples[@]}"}; do
   fi
   runner_pid=$!
 
+  # The window covers `water run`'s cold Rust build plus the launch, not just
+  # the launch: without a shared sccache the first example alone compiles for
+  # several minutes. A dead runner still short-circuits, so a hung build — not
+  # a slow one — is what actually costs time here.
   ready=0
-  for _ in $(seq 1 45); do
+  for _ in $(seq 1 450); do
     if ! kill -0 "${runner_pid}" 2>/dev/null; then
       break
     fi
