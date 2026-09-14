@@ -266,7 +266,7 @@ jobs:
               json.dump(memory, f, indent=2, sort_keys=True)
               f.write("\n")
           examples = sorted(set(merged["ios"]) | set(merged["macos"]))
-          rows = ["| Example | iOS paint | macOS paint | iOS peak RSS | macOS peak RSS |",
+          rows = ["| Example | iOS paint (debug) | macOS paint (debug) | iOS peak RSS (debug) | macOS peak RSS (debug) |",
                   "| --- | --- | --- | --- | --- |"]
           for name in examples:
               cells = []
@@ -279,7 +279,7 @@ jobs:
                                else "—" if name in memory[plat] else "not run")
               rows.append(f"| `{name}` | {cells[0]} | {cells[2]} | {cells[1]} | {cells[3]} |")
           with open("startup-summary.md", "w") as f:
-              f.write("## Launch to first paint / peak RSS\n\n" + "\n".join(rows) + "\n")
+              f.write("## Per-example launch to first paint / peak RSS (debug `water run`)\n\n" + "\n".join(rows) + "\n")
           PY
           cat startup-summary.md >> "${GITHUB_STEP_SUMMARY}"
 

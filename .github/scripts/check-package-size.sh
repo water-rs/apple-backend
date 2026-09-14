@@ -66,24 +66,24 @@ pub fn app(env: Environment) -> App {
 EOF
 
 measure_platform() {
-    local platform="$1"
-    local log_file="${work_dir}/package-${platform}.log"
+    local label="$1" platform="$2" subject_dir="$3"
+    local log_file="${work_dir}/package-${label}-${platform}.log"
 
-    echo "=== Packaging hello world for ${platform} (release)"
-    if ! water package --platform "${platform}" --backend apple --release --path "${project_dir}" \
+    echo "=== Packaging ${label} for ${platform} (release)"
+    if ! water package --platform "${platform}" --backend apple --release --path "${subject_dir}" \
         > "${log_file}" 2>&1; then
         tail -40 "${log_file}" || true
-        echo "::error::water package failed for ${platform}; see output above"
+        echo "::error::water package failed for ${label} on ${platform}; see output above"
         return 1
     fi
 
     local app_path
     app_path="$(sed -n 's/.*Packaged at //p' "${log_file}" | tail -1 | sed 's/\x1b\[[0-9;]*m//g' | tr -d '\r')"
     if [[ -z "${app_path}" || ! -d "${app_path}" ]]; then
-        app_path="$(find "${project_dir}" "${HOME}/.water/build_cache" -name "*.app" -type d -print -quit 2>/dev/null || true)"
+        app_path="$(find "${subject_dir}" "${HOME}/.water/build_cache" -name "*.app" -type d -print -quit 2>/dev/null || true)"
     fi
     if [[ -z "${app_path}" || ! -d "${app_path}" ]]; then
-        echo "::error::Packaged .app not found for ${platform}"
+        echo "::error::Packaged .app not found for ${label} on ${platform}"
         return 1
     fi
 
@@ -96,8 +96,8 @@ measure_platform() {
     fi
     executable_bytes="$(stat -f%z "${executable}")"
 
-    echo "${platform}: app=${app_bytes}B executable=${executable_bytes}B (${app_path})"
-    printf '%s %s %s %s\n' "${platform}" "${app_bytes}" "${executable_bytes}" "${app_path}" >> "${work_dir}/measured.txt"
+    echo "${label}/${platform}: app=${app_bytes}B executable=${executable_bytes}B (${app_path})"
+    printf '%s %s %s %s %s\n' "${label}" "${platform}" "${app_bytes}" "${executable_bytes}" "${app_path}" >> "${work_dir}/measured.txt"
 }
 
 # Launch the packaged release build and capture the two runtime metrics that
@@ -132,8 +132,8 @@ wait_first_paint() {
 }
 
 measure_runtime() {
-    local platform="$1" app_path="$2"
-    local marker_log="${work_dir}/paint-${platform}.log"
+    local label="$1" platform="$2" app_path="$3" bundle_id="$4"
+    local marker_log="${work_dir}/paint-${label}-${platform}.log"
     local exec_name first_paint="" peak_rss="" pid=""
     exec_name="$(basename "${app_path}" .app)"
 
@@ -147,8 +147,8 @@ measure_runtime() {
         first_paint="$(wait_first_paint "${marker_log}" || true)"
         if ! kill -0 "${pid}" 2>/dev/null; then
             kill "${stream_pid}" 2>/dev/null || true
-            echo "::error::${platform} release app exited during launch"
-            printf '%s %s %s\n' "${platform}" "null" "null" >> "${work_dir}/runtime.txt"
+            echo "::error::${label}/${platform} release app exited during launch"
+            printf '%s %s %s %s\n' "${label}" "${platform}" "null" "null" >> "${work_dir}/runtime.txt"
             return 1
         fi
         peak_rss="$(sample_peak_rss "${pid}")"
@@ -156,7 +156,6 @@ measure_runtime() {
         kill "${stream_pid}" 2>/dev/null || true
     else
         local udid="${SIMULATOR_UDID:?SIMULATOR_UDID is required for ios-simulator runtime metrics}"
-        local bundle_id="com.waterui.helloworld"
         xcrun simctl install "${udid}" "${app_path}"
         xcrun simctl spawn "${udid}" log stream --level info \
             --predicate 'subsystem == "dev.waterui"' --style compact \
@@ -166,8 +165,8 @@ measure_runtime() {
         pid="$(xcrun simctl launch "${udid}" "${bundle_id}" | awk -F': ' '{print $2}')"
         if [[ -z "${pid}" ]]; then
             kill "${stream_pid}" 2>/dev/null || true
-            echo "::error::${platform} release app failed to launch in the simulator"
-            printf '%s %s %s\n' "${platform}" "null" "null" >> "${work_dir}/runtime.txt"
+            echo "::error::${label}/${platform} release app failed to launch in the simulator"
+            printf '%s %s %s %s\n' "${label}" "${platform}" "null" "null" >> "${work_dir}/runtime.txt"
             return 1
         fi
         first_paint="$(wait_first_paint "${marker_log}" || true)"
@@ -178,30 +177,50 @@ measure_runtime() {
     fi
 
     if [[ -z "${first_paint}" ]]; then
-        echo "::warning::${platform} release app did not report a first-paint time"
+        echo "::warning::${label}/${platform} release app did not report a first-paint time"
         first_paint="null"
     fi
     [[ "${peak_rss:-0}" == 0 ]] && peak_rss="null"
-    echo "${platform}: first_paint=${first_paint}ms peak_rss=${peak_rss}B"
-    printf '%s %s %s\n' "${platform}" "${first_paint}" "${peak_rss}" >> "${work_dir}/runtime.txt"
+    echo "${label}/${platform}: first_paint=${first_paint}ms peak_rss=${peak_rss}B"
+    printf '%s %s %s %s\n' "${label}" "${platform}" "${first_paint}" "${peak_rss}" >> "${work_dir}/runtime.txt"
 }
 
+# Measurement subjects: the generated hello-world (size gate target) plus a
+# few representative examples — a broad widget surface, a real application,
+# and a stress list. Examples resolve the staged backend through their own
+# waterui_path, so these numbers also cover the commit under test.
+subjects=("helloworld=${project_dir}")
+for example in ${METRICS_EXAMPLES:-gallery reminders stress}; do
+    example_dir="${waterui_dir}/examples/${example}"
+    if [[ -f "${example_dir}/Water.toml" ]]; then
+        subjects+=("${example}=${example_dir}")
+    else
+        echo "::warning::metrics example ${example} not found at ${example_dir}; skipped"
+    fi
+done
+
 failed=0
-for platform in macos ios-simulator; do
-    measure_platform "${platform}" || failed=1
+for entry in ${subjects[@]+"${subjects[@]}"}; do
+    label="${entry%%=*}"
+    subject_dir="${entry#*=}"
+    for platform in macos ios-simulator; do
+        measure_platform "${label}" "${platform}" "${subject_dir}" || failed=1
+    done
 done
 [[ -f "${work_dir}/measured.txt" ]] || { echo "::error::No platform packaged successfully"; exit 1; }
 
 # Runtime metrics on the freshly packaged release builds. iOS needs a booted
 # simulator; when SIMULATOR_UDID is unset the size gate still runs and the
 # ios-simulator row records nulls rather than failing the job.
-while read -r platform app_bytes executable_bytes app_path; do
+while read -r label platform app_bytes executable_bytes app_path; do
     if [[ "${platform}" != macos && -z "${SIMULATOR_UDID:-}" ]]; then
-        echo "::warning::No booted simulator for ${platform}; runtime metrics skipped"
-        printf '%s %s %s\n' "${platform}" "null" "null" >> "${work_dir}/runtime.txt"
+        echo "::warning::No booted simulator for ${label}/${platform}; runtime metrics skipped"
+        printf '%s %s %s %s\n' "${label}" "${platform}" "null" "null" >> "${work_dir}/runtime.txt"
         continue
     fi
-    measure_runtime "${platform}" "${app_path}" || failed=1
+    subject_dir="$(printf '%s\n' "${subjects[@]}" | sed -n "s/^${label}=//p")"
+    bundle_id="$(sed -n 's/^bundle_identifier = "\([^"]*\)"$/\1/p' "${subject_dir}/Water.toml" | head -1)"
+    measure_runtime "${label}" "${platform}" "${app_path}" "${bundle_id}" || failed=1
 done < "${work_dir}/measured.txt"
 
 # Machine-readable record + human-readable table. Both are uploaded by the
@@ -210,31 +229,39 @@ metrics_dir="${METRICS_DIR:-${repo_root}/release-metrics}"
 mkdir -p "${metrics_dir}"
 {
     echo '{'
+    prev_label=""
     first=1
-    while read -r platform app_bytes executable_bytes app_path; do
-        runtime="$(grep "^${platform} " "${work_dir}/runtime.txt" 2>/dev/null || true)"
-        read -r _ first_paint peak_rss <<< "${runtime:-${platform} null null}"
-        [[ "${first}" == 1 ]] || echo ','
-        first=0
-        printf '  "%s": { "app_bytes": %s, "executable_bytes": %s, "first_paint_ms": %s, "peak_rss_bytes": %s }' \
+    while read -r label platform app_bytes executable_bytes app_path; do
+        runtime="$(grep "^${label} ${platform} " "${work_dir}/runtime.txt" 2>/dev/null || true)"
+        read -r _ _ first_paint peak_rss <<< "${runtime:-${label} ${platform} null null}"
+        if [[ "${label}" != "${prev_label}" ]]; then
+            if [[ -n "${prev_label}" ]]; then echo '},'; fi
+            first=0
+            printf '  "%s": {\n' "${label}"
+            platform_first=1
+        fi
+        prev_label="${label}"
+        if [[ "${platform_first}" != 1 ]]; then echo ','; fi
+        platform_first=0
+        printf '    "%s": { "app_bytes": %s, "executable_bytes": %s, "first_paint_ms": %s, "peak_rss_bytes": %s }' \
             "${platform}" "${app_bytes}" "${executable_bytes}" "${first_paint}" "${peak_rss}"
     done < "${work_dir}/measured.txt"
-    echo
+    if [[ -n "${prev_label}" ]]; then echo '}'; fi
     echo '}'
 } > "${metrics_dir}/release-metrics.json"
 
 {
-    echo "## Release metrics (hello-world playground)"
+    echo "## Release metrics (production builds)"
     echo
-    echo "| Platform | .app size | Executable | First paint | Peak RSS |"
-    echo "| --- | --- | --- | --- | --- |"
-    while read -r platform app_bytes executable_bytes app_path; do
-        runtime="$(grep "^${platform} " "${work_dir}/runtime.txt" 2>/dev/null || true)"
-        read -r _ first_paint peak_rss <<< "${runtime:-${platform} null null}"
+    echo "| App | Platform | .app size | Executable | First paint | Peak RSS |"
+    echo "| --- | --- | --- | --- | --- | --- |"
+    while read -r label platform app_bytes executable_bytes app_path; do
+        runtime="$(grep "^${label} ${platform} " "${work_dir}/runtime.txt" 2>/dev/null || true)"
+        read -r _ _ first_paint peak_rss <<< "${runtime:-${label} ${platform} null null}"
         fp_cell="—"; rss_cell="—"
         [[ "${first_paint}" != null ]] && fp_cell="${first_paint} ms"
         [[ "${peak_rss}" != null ]] && rss_cell="$(awk -v b="${peak_rss}" 'BEGIN{printf "%.1f MB", b/1048576}')"
-        printf '| `%s` | %s | %s | %s | %s |\n' "${platform}" \
+        printf '| `%s` | `%s` | %s | %s | %s | %s |\n' "${label}" "${platform}" \
             "$(awk -v b="${app_bytes}" 'BEGIN{printf "%.1f MB", b/1048576}')" \
             "$(awk -v b="${executable_bytes}" 'BEGIN{printf "%.1f MB", b/1048576}')" \
             "${fp_cell}" "${rss_cell}"
@@ -247,8 +274,9 @@ if [[ "${record}" == "1" ]]; then
     {
         echo '{'
         first=1
-        while read -r platform app_bytes executable_bytes _app_path; do
-            [[ "${first}" == 1 ]] || echo ','
+        while read -r label platform app_bytes executable_bytes _app_path; do
+            [[ "${label}" == helloworld ]] || continue
+            if [[ "${first}" != 1 ]]; then echo ','; fi
             first=0
             printf '  "%s": { "app_bytes": %s, "executable_bytes": %s }' \
                 "${platform}" "${app_bytes}" "${executable_bytes}"
@@ -282,7 +310,10 @@ check_metric() {
     echo "${platform} ${metric}: ${measured} bytes (baseline ${baseline}, $((growth_x100 / 100)).$((growth_x100 % 100))%)"
 }
 
-while read -r platform app_bytes executable_bytes _app_path; do
+# The byte gate applies to hello-world only — it is the stable minimal-app
+# signal. Example sizes are recorded for visibility, not gated.
+while read -r label platform app_bytes executable_bytes _app_path; do
+    [[ "${label}" == helloworld ]] || continue
     baseline_app="$(plutil -extract "${platform}.app_bytes" raw "${baseline_file}" 2>/dev/null || true)"
     baseline_exe="$(plutil -extract "${platform}.executable_bytes" raw "${baseline_file}" 2>/dev/null || true)"
     if [[ -z "${baseline_app}" || -z "${baseline_exe}" ]]; then
