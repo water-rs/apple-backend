@@ -14,18 +14,59 @@ import CWaterUI
   import AppKit
 #endif
 
+/// The platform label every `WuiTextBase` draws through.
+///
+/// Interpolated text carries directional isolates (U+2066–U+2069 and friends)
+/// so mixed-direction strings render correctly. They are formatting marks —
+/// invisible on screen and skipped by speech — but they do surface literally
+/// in the accessibility value, so the value answers with them removed while
+/// the rendered string keeps them.
+#if canImport(UIKit)
+  final class WuiTextLabel: UILabel {
+    override var accessibilityValue: String? {
+      get { super.accessibilityValue?.removingBidiControlCharacters }
+      set { super.accessibilityValue = newValue }
+    }
+  }
+#elseif canImport(AppKit)
+  final class WuiTextLabel: NSTextField {
+    override func accessibilityValue() -> String? {
+      super.accessibilityValue()?.removingBidiControlCharacters
+    }
+  }
+#endif
+
+extension String {
+  /// This string without the Unicode bidi control characters interpolation
+  /// wraps placeholders in (isolate marks, embeddings, overrides, and the
+  /// Arabic letter mark).
+  var removingBidiControlCharacters: String {
+    guard unicodeScalars.contains(where: { Self.bidiControls.contains($0) }) else {
+      return self
+    }
+    return String(
+      String.UnicodeScalarView(unicodeScalars.filter { !Self.bidiControls.contains($0) }))
+  }
+
+  private static let bidiControls: Set<Unicode.Scalar> = [
+    "\u{061C}",  // Arabic letter mark
+    "\u{202A}", "\u{202B}", "\u{202C}", "\u{202D}", "\u{202E}",  // embeddings, override
+    "\u{2066}", "\u{2067}", "\u{2068}", "\u{2069}",  // isolates
+  ]
+}
+
 /// Base class providing shared text rendering functionality for WuiText and WuiPlain.
 @MainActor
 class WuiTextBase: PlatformView {
   #if canImport(UIKit)
-    let label = UILabel()
+    let label = WuiTextLabel()
   #elseif canImport(AppKit)
     let textField: NSTextField
   #endif
 
   #if canImport(AppKit)
     init(initialText: String = "") {
-      self.textField = NSTextField(labelWithString: initialText)
+      self.textField = WuiTextLabel(labelWithString: initialText)
       super.init(frame: .zero)
       configureTextView()
     }

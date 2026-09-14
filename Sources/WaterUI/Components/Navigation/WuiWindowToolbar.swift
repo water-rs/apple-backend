@@ -72,9 +72,13 @@
     /// toolbar can give each the capsule, spacing and overflow it gives its
     /// own items; a single hosted view would get none of that.
     private var windowItems: [NSView] = []
-    /// The split view whose sidebar the toolbar aligns itself with, when the
-    /// pane on screen is a split view.
-    private weak var sidebarSplitView: NSSplitView?
+    /// The split view controller whose sidebar the toolbar aligns itself
+    /// with, when the pane on screen is a split view.
+    private weak var sidebarSplitViewController: NSSplitViewController?
+    /// Tracks the sidebar's collapse state so the toggle's name follows it.
+    private var sidebarCollapseObservation: NSKeyValueObservation?
+    /// The collapse control currently in the toolbar, if any.
+    private weak var sidebarToggle: NSToolbarItem?
     /// Which navigation stack currently owns the page-level items.
     private weak var contentOwner: AnyObject?
     private var content = Content()
@@ -134,15 +138,22 @@
     }
 
     /// Aligns the toolbar with a full-height sidebar, or withdraws the
-    /// alignment when `splitView` is nil.
+    /// alignment when `controller` is nil.
     ///
     /// The alignment is two items: the sidebar's collapse control, and a
     /// separator that tracks the split view's divider so everything after it
     /// sits over the detail column — which is where the Mac puts a window's
     /// page chrome when a sidebar runs the window's full height.
-    func setSidebarSplitView(_ splitView: NSSplitView?) {
-      guard sidebarSplitView !== splitView else { return }
-      sidebarSplitView = splitView
+    func setSidebarSplitView(_ controller: NSSplitViewController?) {
+      guard sidebarSplitViewController !== controller else { return }
+      sidebarSplitViewController = controller
+      sidebarCollapseObservation = sidebarItem?.observe(\.isCollapsed) {
+        [weak self] _, change in
+        let collapsed = change.newValue ?? false
+        Task { @MainActor [weak self] in
+          self?.updateSidebarToggleLabel(collapsed: collapsed)
+        }
+      }
       updateTitleVisibility()
       rebuild()
     }
@@ -155,7 +166,23 @@
     /// control takes the title's place the same way.
     private func updateTitleVisibility() {
       window?.titleVisibility =
-        tabsView != nil || sidebarSplitView != nil ? .hidden : .visible
+        tabsView != nil || sidebarSplitViewController != nil ? .hidden : .visible
+    }
+
+    /// The sidebar's split view item, when a split owns the toolbar's leading
+    /// edge.
+    private var sidebarItem: NSSplitViewItem? {
+      sidebarSplitViewController?.splitViewItems.first { $0.behavior == .sidebar }
+    }
+
+    /// Names the collapse control after what it will do, as the Mac's own
+    /// sidebar apps do: "Hide Sidebar" while the sidebar is up, "Show Sidebar"
+    /// once it is tucked away.
+    private func updateSidebarToggleLabel(collapsed: Bool) {
+      let label = collapsed ? "Show Sidebar" : "Hide Sidebar"
+      sidebarToggle?.label = label
+      sidebarToggle?.paletteLabel = label
+      sidebarToggle?.toolTip = label
     }
 
     /// Offers one navigation stack's chrome, claiming the toolbar for `owner`.
@@ -203,7 +230,7 @@
     /// around them.
     private var currentIdentifiers: [NSToolbarItem.Identifier] {
       var identifiers: [NSToolbarItem.Identifier] = []
-      if sidebarSplitView != nil {
+      if sidebarSplitViewController != nil {
         // The toggle hugs the divider, not the toolbar's leading edge: SwiftUI
         // parks it against the tracking separator at the sidebar's trailing
         // edge, so a flexible space does the pushing.
@@ -262,11 +289,29 @@
         searchField = item.searchField
         return item
 
+      case .toggleSidebar:
+        // A plain item rather than the system-vended one: the system's own
+        // toggle names itself "Sidebar" forever, while the Mac's sidebar apps
+        // name the control after what it does — "Hide Sidebar" up, "Show
+        // Sidebar" down. The target is the split view controller directly so
+        // the action does not depend on the responder chain's mood.
+        let item = NSToolbarItem(itemIdentifier: identifier)
+        // No accessibility description on the image — the item's label
+        // already says what the control does, and it changes with the
+        // sidebar's state.
+        item.image = NSImage(systemSymbolName: "sidebar.leading", accessibilityDescription: nil)
+        item.isNavigational = true
+        item.target = sidebarSplitViewController
+        item.action = #selector(NSSplitViewController.toggleSidebar(_:))
+        sidebarToggle = item
+        updateSidebarToggleLabel(collapsed: sidebarItem?.isCollapsed ?? false)
+        return item
+
       case Self.sidebarSeparatorIdentifier:
-        guard let sidebarSplitView else { return nil }
+        guard let splitView = sidebarSplitViewController?.splitView else { return nil }
         return NSTrackingSeparatorToolbarItem(
           identifier: identifier,
-          splitView: sidebarSplitView,
+          splitView: splitView,
           dividerIndex: 0
         )
 

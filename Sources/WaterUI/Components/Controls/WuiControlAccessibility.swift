@@ -35,6 +35,9 @@ final class WuiControlAccessibility {
   }
 
   private static func apply(_ label: String, to targets: [PlatformView]) {
+    // Labels speak and appear in tooltips; the bidi isolates interpolation
+    // inserts for layout are formatting marks and do not belong in either.
+    let label = label.removingBidiControlCharacters
     for target in targets {
       #if canImport(UIKit)
         target.isAccessibilityElement = true
