@@ -186,15 +186,11 @@ final class WuiNavigationDestinationState {
 
     override func viewDidLayoutSubviews() {
       super.viewDidLayoutSubviews()
-      // A scroll surface owns its insets and gets the full page, so scrolled
-      // content passes under the bars. Plain content is inset to the safe
-      // area — which includes the bars once this controller is contained —
-      // the way a pushed SwiftUI page's content starts below its bar.
-      if wuiResolvedPrimaryContent(of: contentView) is WuiSafeAreaManaging {
-        contentView.frame = view.bounds
-      } else {
-        contentView.frame = view.safeAreaLayoutGuide.layoutFrame
-      }
+      // The page's safe area includes its bars once this controller is
+      // contained; the content lays itself out against it, so a scroll
+      // surface passes under the bars while plain content starts below them,
+      // the way a SwiftUI page does.
+      contentView.frame = wuiContentFrame(of: contentView, in: view)
     }
 
     private func applyNavigationChrome() {

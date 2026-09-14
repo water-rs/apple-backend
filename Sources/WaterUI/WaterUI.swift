@@ -1300,35 +1300,16 @@ public final class WuiRootContext {
       super.viewDidLayoutSubviews()
       guard let context else { return }
 
-      let safeInsets = view.safeAreaInsets
-      let safeFrame = CGRect(
-        x: safeInsets.left,
-        y: safeInsets.top,
-        width: view.bounds.width - safeInsets.left - safeInsets.right,
-        height: view.bounds.height - safeInsets.top - safeInsets.bottom
-      )
-
-      let usesSafeArea = shouldApplySafeArea(to: context.rootView)
-      context.rootView.frame = usesSafeArea ? safeFrame : view.bounds
-      // What the root view still has to clear itself. An inset root already
-      // sits inside the safe area, so anything inside it must not inset again;
-      // a full-bounds root spans the hardware and every Rust-laid-out overlay
-      // in it is on its own. Deriving it from the branch just taken keeps the
-      // two answers from disagreeing.
-      context.updateSafeArea(usesSafeArea ? .zero : WuiEdgeInsets(safeInsets))
+      // The root lays itself out against the window's safe area
+      // (`wuiContentFrame`): the window's overlay stack and every stack
+      // below it place their content inside it and extend the scroll
+      // surfaces and chrome containers that touch its edges. The insets are
+      // therefore applied natively, and the Rust-laid-out overlay layers
+      // must not pad themselves again.
+      context.rootView.frame = wuiContentFrame(of: context.rootView, in: view)
+      context.updateSafeArea(.zero)
       context.rootView.setNeedsLayout()
       context.rootView.layoutIfNeeded()
-    }
-
-    /// Whether the window insets the root content to the safe area.
-    ///
-    /// The root resolves through its wrapper views (env scopes, the window's
-    /// overlay stack) to the view that actually decides: a platform chrome
-    /// container or scroll surface ([`WuiSafeAreaManaging`]) owns its bars and
-    /// insets and must be handed the full window, while plain content is inset
-    /// so it does not sit under the status bar.
-    private func shouldApplySafeArea(to rootView: UIView) -> Bool {
-      !(wuiResolvedPrimaryContent(of: rootView) is WuiSafeAreaManaging)
     }
 
     private func updateColorSchemeFromTraits() {
