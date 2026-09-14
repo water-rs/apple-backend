@@ -440,14 +440,13 @@ func installWindowManager(env: OpaquePointer, services: WuiNativeServices) {
     window.hasShadow = true
   }
 
-  /// The window's root container: places the content in the window, inset to
-  /// the safe area or not.
+  /// The window's root container: places the content in the window.
   ///
   /// With a toolbar the window supplies full-size content, so the toolbar's
-  /// height reaches the container as its top safe-area inset. Ordinary content
-  /// is placed below it; a platform chrome container or scroll surface
-  /// (`WuiSafeAreaManaging`) owns its bars and insets and gets the whole
-  /// window, as the iOS root does.
+  /// height reaches the container as its top safe-area inset. The content
+  /// lays itself out against it (`wuiContentFrame`): a leaf is placed below
+  /// the toolbar, and a stack or chrome container takes the whole window and
+  /// insets its own content, as the iOS root does.
   @MainActor
   private final class WindowContentContainer: NSView {
     private let content: NSView
@@ -472,8 +471,7 @@ func installWindowManager(env: OpaquePointer, services: WuiNativeServices) {
 
     override func layout() {
       super.layout()
-      let managesSafeArea = wuiResolvedPrimaryContent(of: content) is WuiSafeAreaManaging
-      content.frame = managesSafeArea ? bounds : safeAreaRect
+      content.frame = wuiContentFrame(of: content, in: self)
     }
   }
 

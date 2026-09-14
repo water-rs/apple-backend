@@ -469,41 +469,15 @@ final class ReactiveFontSignal {
 extension WuiEdgeInsets {
   /// No inset on any edge.
   static let zero = WuiEdgeInsets(top: 0, bottom: 0, leading: 0, trailing: 0)
-
-  /// Maps platform insets, which are physical (left/right), onto WaterUI's
-  /// logical edges.
-  ///
-  /// `PaddingLayout` places `leading` at the low-x edge unconditionally, so
-  /// left maps to leading and right to trailing. Should WaterUI ever resolve
-  /// those against the layout direction, this is the one place that has to
-  /// learn about it too.
-  #if canImport(UIKit)
-    init(_ insets: UIEdgeInsets) {
-      self.init(
-        top: Float(insets.top),
-        bottom: Float(insets.bottom),
-        leading: Float(insets.left),
-        trailing: Float(insets.right)
-      )
-    }
-  #elseif canImport(AppKit)
-    init(_ insets: NSEdgeInsets) {
-      self.init(
-        top: Float(insets.top),
-        bottom: Float(insets.bottom),
-        leading: Float(insets.left),
-        trailing: Float(insets.right)
-      )
-    }
-  #endif
 }
 
-/// A native-controlled reactive safe-area signal.
+/// The safe-area signal this backend installs in the environment.
 ///
-/// The window publishes its device insets here so the layers WaterUI lays out
-/// itself — the snackbar and overlay hosts, which arrive as one Rust-laid-out
-/// container this backend cannot frame piecewise — can pad themselves clear of
-/// the notch and the home indicator.
+/// It stays at zero: the roots lay their content out against the window's
+/// safe area (`wuiContentFrame`), and every stack below them insets its own
+/// content and extends the scroll surfaces and chrome that touch its edges,
+/// so the insets are applied natively and the layers WaterUI lays out itself
+/// — the snackbar and overlay hosts — must not pad themselves again.
 @MainActor
 final class ReactiveEdgeInsetsSignal {
   private typealias State = ReactiveWatcherList<WuiEdgeInsets>
@@ -564,16 +538,6 @@ final class ReactiveEdgeInsetsSignal {
     }
     computedPtr = computed
     return computed
-  }
-
-  func setValue(_ insets: WuiEdgeInsets) {
-    let current = state.value
-    guard
-      current.top != insets.top || current.bottom != insets.bottom
-        || current.leading != insets.leading || current.trailing != insets.trailing
-    else { return }
-    state.value = insets
-    state.notifyWatchers()
   }
 }
 
@@ -1172,11 +1136,6 @@ public final class WuiRootContext {
 
   /// Updates the theme for a new color scheme.
   /// Uses reactive signals so WaterUI views automatically update.
-  /// Publishes the window's device insets to the Rust-laid-out overlay layers.
-  public func updateSafeArea(_ insets: WuiEdgeInsets) {
-    safeAreaSignal.setValue(insets)
-  }
-
   public func updateColorScheme(_ colorScheme: ThemeBridge.ColorScheme) {
     themeBridge.updateColorScheme(colorScheme)
   }
@@ -1304,10 +1263,9 @@ public final class WuiRootContext {
       // (`wuiContentFrame`): the window's overlay stack and every stack
       // below it place their content inside it and extend the scroll
       // surfaces and chrome containers that touch its edges. The insets are
-      // therefore applied natively, and the Rust-laid-out overlay layers
-      // must not pad themselves again.
+      // therefore applied natively, and the safe-area signal the environment
+      // carries stays at zero.
       context.rootView.frame = wuiContentFrame(of: context.rootView, in: view)
-      context.updateSafeArea(.zero)
       context.rootView.setNeedsLayout()
       context.rootView.layoutIfNeeded()
     }
@@ -1404,14 +1362,14 @@ public final class WuiRootContext {
       guard let context else { return }
 
       // With a toolbar the window supplies full-size content, so the toolbar's
-      // height reaches this view as its top safe-area inset. Ordinary content
-      // is placed below it; a platform chrome container or scroll surface
-      // (`WuiSafeAreaManaging`) owns its bars and insets and spans the whole
-      // view, and whatever the window reserves for its chrome is then the
-      // overlay layers' to clear — the same rule the iOS root applies.
-      let managesSafeArea = wuiResolvedPrimaryContent(of: context.rootView) is WuiSafeAreaManaging
-      context.rootView.frame = managesSafeArea ? bounds : safeAreaRect
-      context.updateSafeArea(managesSafeArea ? WuiEdgeInsets(safeAreaInsets) : .zero)
+      // height reaches this view as its top safe-area inset. The root lays
+      // itself out against it (`wuiContentFrame`): a leaf is placed below the
+      // toolbar, and a stack or chrome container takes the whole view and
+      // insets its own content, extending the scroll surfaces and chrome
+      // that touch its edges. The insets are applied natively and the
+      // safe-area signal the environment carries stays at zero — the same
+      // rule the iOS root applies.
+      context.rootView.frame = wuiContentFrame(of: context.rootView, in: self)
       context.rootView.needsLayout = true
       context.rootView.layoutSubtreeIfNeeded()
     }
