@@ -17,16 +17,41 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # None of the lint tools need macOS: swiftformat and ast-grep are pure source
+  # tools, and the pinned swiftlint-static binary bundles SourceKit (which the
+  # `unused_import` rule requires). Running on Ubuntu frees one slot of the
+  # org's five-slot macOS pool for every run. Tool versions are pinned in the
+  # cache key; bump them there to upgrade.
   lint:
     name: lint
-    runs-on: macos-26
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        id: lint-tools
+        with:
+          path: .ci/bin
+          key: lint-tools-v1-swiftlint-0.65.1-swiftformat-0.63.0-ast-grep-0.45.3
       - name: Install lint tools
+        if: steps.lint-tools.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
-          brew update
-          brew install ast-grep swiftformat swiftlint
+          mkdir -p .ci/bin && cd .ci/bin
+          curl -sSfL -o /tmp/swiftlint.zip https://github.com/realm/SwiftLint/releases/download/0.65.1/swiftlint_linux_amd64.zip
+          unzip -jo /tmp/swiftlint.zip swiftlint-static -d .
+          mv swiftlint-static swiftlint
+          curl -sSfL -o /tmp/swiftformat.zip https://github.com/nicklockwood/SwiftFormat/releases/download/0.63.0/swiftformat_linux.zip
+          unzip -jo /tmp/swiftformat.zip -d .
+          mv swiftformat_linux swiftformat
+          curl -sSfL -o /tmp/ast-grep.zip https://github.com/ast-grep/ast-grep/releases/download/0.45.3/app-x86_64-unknown-linux-gnu.zip
+          unzip -jo /tmp/ast-grep.zip sg -d .
+          chmod +x swiftlint swiftformat sg
+      - uses: actions/cache/save@v4
+        if: steps.lint-tools.outputs.cache-hit != 'true'
+        with:
+          path: .ci/bin
+          key: ${{ steps.lint-tools.outputs.cache-primary-key }}
+      - run: echo "$PWD/.ci/bin" >> "$GITHUB_PATH"
       - name: SwiftFormat lint
         run: swiftformat . --lint --config .swiftformat
       - name: SwiftLint
@@ -41,10 +66,13 @@ jobs:
   # behind one of them once shipped deleted (waterui#343).
   #
   # The three shapes are steps of one job per configuration, not a matrix
-  # axis: they share the checkout, the header sync and the build directory,
-  # and macOS runners are what the org's concurrent-job cap runs out of, so
-  # one job that builds three shapes in a row gets through the queue where
-  # three jobs wait on three runners.
+  # axis: they share the checkout and the header sync, and macOS runners are
+  # what the org's concurrent-job cap runs out of, so one job that builds
+  # three shapes in a row gets through the queue where three jobs wait on
+  # three runners. Each shape gets its own scratch path because -Xswiftc
+  # flags invalidate SwiftPM's whole build plan — a shared `.build` would be
+  # fully rewritten by every shape and the cache would only ever warm the
+  # last one. Per-shape scratch dirs let all three restore warm.
   build:
     name: build (${{ matrix.configuration }})
     runs-on: macos-26
@@ -56,17 +84,28 @@ jobs:
       - uses: actions/checkout@v4
       - name: Sync WaterUI header
         run: ./.github/scripts/setup-waterui.sh
+      - name: Restore build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .build
+            .build-shapes
+          key: swiftpm-${{ matrix.configuration }}-${{ hashFiles('Package.swift', 'Sources/**', 'Tests/**', '.periphery.yml') }}
+          restore-keys: swiftpm-${{ matrix.configuration }}-
       - name: Build (default)
         run: >-
           swift build --configuration ${{ matrix.configuration }}
+          --scratch-path .build-shapes/default
           -Xswiftc -warnings-as-errors
       - name: Build (map)
         run: >-
           swift build --configuration ${{ matrix.configuration }}
+          --scratch-path .build-shapes/map
           -Xswiftc -warnings-as-errors -Xswiftc -DWATERUI_MAP
       - name: Build (no-gpu)
         run: >-
           swift build --configuration ${{ matrix.configuration }}
+          --scratch-path .build-shapes/nogpu
           -Xswiftc -warnings-as-errors -Xswiftc -DWATERUI_NO_GPU
       # The unit suite exercises the closure-based machinery around the FFI
       # surface — signal subscriptions, watcher plumbing, the layout bridge's
@@ -78,38 +117,19 @@ jobs:
       - name: Test
         if: matrix.configuration == 'debug'
         run: >-
-          swift test
+          swift test --scratch-path .build-shapes/default
           -Xswiftc -warnings-as-errors
           -Xlinker -undefined -Xlinker dynamic_lookup
-
-  # Scans the largest shape (`.periphery.yml` passes `-DWATERUI_MAP`), so code
-  # that only the map component reaches counts as used. `WATERUI_NO_GPU` only
-  # swaps implementations and adds no symbols of its own, so the default shape
-  # plus the map shape is the whole package.
-  periphery:
-    name: periphery
-    runs-on: macos-26
-    steps:
-      - uses: actions/checkout@v4
-      - name: Sync WaterUI header
-        run: ./.github/scripts/setup-waterui.sh
+      # Scans the largest shape (`.periphery.yml` passes `-DWATERUI_MAP`), so
+      # code that only the map component reaches counts as used. Lives inside
+      # this job rather than its own: a separate job cost a whole macOS slot
+      # just to redo checkout, header sync and brew. Its scan build lands in
+      # `.build` next to the shape dirs and stays cached.
       - name: Install Periphery
-        run: |
-          set -euo pipefail
-          brew update
-          brew install periphery
+        if: matrix.configuration == 'debug'
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+        run: brew install periphery
       - name: Run Periphery
+        if: matrix.configuration == 'debug'
         run: periphery scan --config .periphery.yml
-
-  notify-waterui:
-    name: notify-waterui
-    runs-on: ubuntu-latest
-    needs: [lint, build, periphery]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    steps:
-      - name: Send repository_dispatch to waterui
-        uses: peter-evans/repository-dispatch@v3
-        with:
-          token: ${{ secrets.SUBMODULE_UPDATE_PAT }}
-          repository: water-rs/waterui
-          event-type: update-apple-backend
