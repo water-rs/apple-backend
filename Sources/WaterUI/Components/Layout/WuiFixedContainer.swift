@@ -128,12 +128,17 @@ final class WuiFixedContainer: PlatformView, WuiComponent {
     nonisolated override var isFlipped: Bool { true }
   #endif
 
+  /// Children are laid out inside the safe area; a child that handles the safe
+  /// area itself (`wuiHandlesSafeArea`) and touches an edge of it is extended
+  /// to the bounds on that edge, so a scroll surface beside a backdrop reaches
+  /// the chrome and insets its own content, while the backdrop stays inside.
   private func performLayout() {
     guard !childViews.isEmpty else { return }
 
+    let safeRect = wuiSafeAreaRect
     let rects = bridge.placements(
       layout: wuiLayout,
-      bounds: bounds,
+      bounds: safeRect,
       children: subViewCache()
     )
 
@@ -149,6 +154,10 @@ final class WuiFixedContainer: PlatformView, WuiComponent {
         "WuiFixedContainer received an invalid layout rect for child \(index): \(frame)"
       )
 
+      if wuiHandlesSafeArea(child) {
+        frame = Self.extended(frame, touching: safeRect, to: bounds)
+      }
+
       #if canImport(AppKit)
         // Convert to AppKit coordinate system if not flipped
         if !isFlipped {
@@ -158,6 +167,28 @@ final class WuiFixedContainer: PlatformView, WuiComponent {
 
       child.frame = frame
     }
+  }
+
+  /// `frame` grown to `bounds` on every edge where it touches `safeRect`.
+  private static func extended(_ frame: CGRect, touching safeRect: CGRect, to bounds: CGRect)
+    -> CGRect
+  {
+    var result = frame
+    if abs(frame.minX - safeRect.minX) < 0.5 {
+      result.origin.x = bounds.minX
+      result.size.width += frame.minX - bounds.minX
+    }
+    if abs(frame.maxX - safeRect.maxX) < 0.5 {
+      result.size.width += bounds.maxX - frame.maxX
+    }
+    if abs(frame.minY - safeRect.minY) < 0.5 {
+      result.origin.y = bounds.minY
+      result.size.height += frame.minY - bounds.minY
+    }
+    if abs(frame.maxY - safeRect.maxY) < 0.5 {
+      result.size.height += bounds.maxY - frame.maxY
+    }
+    return result
   }
 
   // MARK: - Child Management
@@ -194,9 +225,10 @@ final class WuiFixedContainer: PlatformView, WuiComponent {
   }
 }
 
-/// A stack answers window-root questions with its base layer: the window
-/// composes overlay layers (snackbars, dialogs) above the content, and a layer
-/// stacked above the content never changes how the window insets it.
+/// A stack answers content questions — a bar's title text, a row's navigation
+/// link — with its base layer: the window composes overlay layers (snackbars,
+/// dialogs) above the content, and a layer stacked above the content is not
+/// what the stack is about.
 extension WuiFixedContainer: WuiPrimaryContentProviding {
   var wuiPrimaryContent: PlatformView? { childViews.first }
 }

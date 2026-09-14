@@ -83,3 +83,61 @@ func wuiResolvedPrimaryContent(of view: PlatformView) -> PlatformView {
     return nil
   }
 #endif
+
+/// Whether `view` lays its own content out against the safe area.
+///
+/// Platform containers and scroll surfaces ([`WuiSafeAreaManaging`]) own their
+/// insets. A stack lays its children out inside its safe area and extends the
+/// ones that handle it themselves to the edges they touch. A wrapper answers
+/// for its primary content. Everything else — a leaf — is placed inside the
+/// safe area by whoever holds it ([`wuiContentFrame(of:in:)`]).
+///
+/// This is the platform rule: a scroll view reaches the chrome it touches and
+/// turns the bar over it into a content inset, while a text or a color beside
+/// it stays inside the safe area.
+@MainActor
+func wuiHandlesSafeArea(_ view: PlatformView) -> Bool {
+  if view is WuiSafeAreaManaging || view is WuiFixedContainer {
+    return true
+  }
+  if let wrapper = view as? WuiPrimaryContentProviding, let content = wrapper.wuiPrimaryContent {
+    return wuiHandlesSafeArea(content)
+  }
+  return false
+}
+
+extension PlatformView {
+  /// The part of the bounds inside the safe area.
+  ///
+  /// On iOS a `WuiIgnoreSafeArea` — this view or an enclosing one — erases its
+  /// edges from the insets its subtree sees, up to the next view that owns
+  /// its insets (a scroll surface or chrome container starts afresh). UIKit computes every view's
+  /// `safeAreaInsets` from geometry alone, so the erasure is applied here
+  /// rather than expected from the platform.
+  @MainActor
+  var wuiSafeAreaRect: CGRect {
+    #if canImport(UIKit)
+      var insets = safeAreaInsets
+      var ancestor: PlatformView? = self
+      while let view = ancestor {
+        if let ignoring = view as? WuiIgnoreSafeArea {
+          insets = ignoring.erasingIgnoredEdges(from: insets)
+        } else if view is WuiSafeAreaManaging {
+          break
+        }
+        ancestor = view.superview
+      }
+      let rect = bounds.inset(by: insets)
+      return rect.isNull ? CGRect(origin: bounds.origin, size: .zero) : rect
+    #elseif canImport(AppKit)
+      safeAreaRect
+    #endif
+  }
+}
+
+/// The frame a wrapper gives its single content view: the whole of its bounds
+/// when the content handles the safe area itself, the safe-area part otherwise.
+@MainActor
+func wuiContentFrame(of content: PlatformView, in host: PlatformView) -> CGRect {
+  wuiHandlesSafeArea(content) ? host.bounds : host.wuiSafeAreaRect
+}

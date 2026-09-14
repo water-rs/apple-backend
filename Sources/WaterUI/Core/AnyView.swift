@@ -377,8 +377,9 @@ private func registerBuiltinComponentsIfNeeded() {
 
     override public func layoutSubviews() {
       super.layoutSubviews()
-      // Manually size inner view to fill bounds and trigger nested layout
-      inner.frame = bounds
+      // Manually size the inner view and trigger nested layout: a leaf is
+      // placed inside the safe area, content that handles it gets the bounds.
+      inner.frame = wuiContentFrame(of: inner, in: self)
       inner.setNeedsLayout()
       inner.layoutIfNeeded()
 

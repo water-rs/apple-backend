@@ -52,14 +52,14 @@ final class WuiNavigationLinkHint: PlatformView, WuiComponent {
   #if canImport(UIKit)
     override func layoutSubviews() {
       super.layoutSubviews()
-      contentView.frame = bounds
+      contentView.frame = wuiContentFrame(of: contentView, in: self)
     }
   #elseif canImport(AppKit)
     nonisolated override var isFlipped: Bool { true }
 
     override func layout() {
       super.layout()
-      contentView.frame = bounds
+      contentView.frame = wuiContentFrame(of: contentView, in: self)
     }
   #endif
 }
