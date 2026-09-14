@@ -41,7 +41,10 @@ private final class PickerItemNode {
     consuming item: CWaterUI.WuiPickerItem,
     onChange: @escaping (WuiWatcherMetadata) -> Void
   ) {
-    precondition(item.tag.inner == collectionId, "Picker item collection id must equal its tag")
+    // `collectionId` identifies the view slot inside the items collection
+    // (an IdGenerator raw id starting at i32.min); `item.tag` is the
+    // selection identity produced by the picker's `Mapping` (counter starting
+    // at 1). They are independent id spaces by design.
     guard let label = item.label else {
       fatalError("Picker item has no label signal")
     }
