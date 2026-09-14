@@ -31,7 +31,7 @@ jobs:
         id: lint-tools
         with:
           path: .ci/bin
-          key: lint-tools-v1-swiftlint-0.65.1-swiftformat-0.63.0-ast-grep-0.45.3
+          key: lint-tools-v2-swiftlint-0.65.1-swiftformat-0.63.0-ast-grep-0.45.3
       - name: Install lint tools
         if: steps.lint-tools.outputs.cache-hit != 'true'
         run: |
