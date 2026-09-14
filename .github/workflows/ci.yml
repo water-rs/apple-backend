@@ -4,8 +4,11 @@ permissions:
   contents: read
 
 on:
+  # Integration branches only: a topic branch that also has a pull request
+  # would otherwise run the whole suite twice for one commit, and every job
+  # here draws from the org's five-slot macOS pool.
   push:
-    branches: ["**"]
+    branches: [main, dev]
   pull_request:
     branches: ["**"]
 
