@@ -50,6 +50,12 @@ protocol WuiRenderedContentInvalidationSink: AnyObject {
   func renderedContentDidInvalidate()
 }
 
+/// Receives descendant invalidations that can change a container's measured size.
+@MainActor
+protocol WuiDescendantLayoutInvalidationSink: AnyObject {
+  func descendantLayoutDidInvalidate()
+}
+
 extension PlatformView {
   /// Invalidates layout for this view and all ancestor views.
   /// Use when content size changes and the entire hierarchy needs re-layout.
@@ -59,6 +65,7 @@ extension PlatformView {
       setNeedsLayout()
       var parent = superview
       while let p = parent {
+        (p as? WuiDescendantLayoutInvalidationSink)?.descendantLayoutDidInvalidate()
         p.invalidateIntrinsicContentSize()
         p.setNeedsLayout()
         parent = p.superview
