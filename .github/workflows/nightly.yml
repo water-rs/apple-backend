@@ -75,7 +75,7 @@ jobs:
           cache-directories: waterui/target
 
       - name: Install water CLI
-        run: cargo install --path waterui/cli --locked
+        run: cargo install --path "${WATER_CLI_DIR:-water-cli}" --locked
 
       - name: Boot iOS simulator
         run: |
@@ -169,7 +169,7 @@ jobs:
           cache-directories: waterui/target
 
       - name: Install water CLI
-        run: cargo install --path waterui/cli --locked
+        run: cargo install --path "${WATER_CLI_DIR:-water-cli}" --locked
 
       - name: Run macOS e2e shard
         env:
@@ -318,7 +318,7 @@ jobs:
           shared-key: nightly-package-size
 
       - name: Install water CLI
-        run: cargo install --path waterui/cli --locked
+        run: cargo install --path "${WATER_CLI_DIR:-water-cli}" --locked
 
       - name: Boot iOS simulator
         run: |
