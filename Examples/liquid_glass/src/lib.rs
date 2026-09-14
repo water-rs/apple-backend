@@ -11,6 +11,7 @@
 use waterui::app::App;
 use waterui::background::Glass;
 use waterui::icon::SystemIcon;
+use waterui::navigation::TabRole;
 use waterui::prelude::theme_color::Accent;
 use waterui::prelude::*;
 use waterui::preview;
@@ -23,6 +24,7 @@ enum Pane {
     Surfaces,
     Controls,
     About,
+    Search,
 }
 
 #[preview]
@@ -47,6 +49,14 @@ pub fn main() -> impl View {
                 label("About").icon(SystemIcon::new("info.circle")),
                 about_page,
             ),
+            // The role, not a different kind of tab: iOS places it trailing as
+            // the system search tab with its own glass and presentation.
+            Tab::container(
+                Pane::Search,
+                label("Search").icon(SystemIcon::new("magnifyingglass")),
+                search_page,
+            )
+            .role(TabRole::Search),
         ],
     )
     .style(tab_style::automatic())
@@ -127,6 +137,22 @@ fn about_page() -> impl View {
     .spacing(12.0)
     .padding()
     .title("About")
+}
+
+/// The search tab's root: a stack whose bar carries the search field, so the
+/// system search tab has a field to present.
+fn search_page() -> impl View {
+    let query = binding(Str::default());
+    NavigationStack::new(
+        vstack((
+            text!("Results for “{query}”"),
+            caption("Glass terms: regular, clear, interactive, tint, capsule, card."),
+        ))
+        .spacing(12.0)
+        .padding()
+        .title("Search")
+        .searchable(&query, "Search glass"),
+    )
 }
 
 fn caption(body: &'static str) -> impl View {

@@ -21,6 +21,7 @@ private final class WuiNativeTab {
   let content: WuiNavigationView
   let enabled: WuiComputed<Bool>
   let badge: WuiComputed<Int32>?
+  let role: WuiTabRole
   var enabledWatcher: WatcherGuard?
   var badgeWatcher: WatcherGuard?
 
@@ -32,7 +33,8 @@ private final class WuiNativeTab {
     contentHandle: OpaquePointer,
     content: WuiNavigationView,
     enabled: WuiComputed<Bool>,
-    badge: WuiComputed<Int32>?
+    badge: WuiComputed<Int32>?,
+    role: WuiTabRole
   ) {
     self.id = id
     self.title = title
@@ -42,6 +44,7 @@ private final class WuiNativeTab {
     self.content = content
     self.enabled = enabled
     self.badge = badge
+    self.role = role
   }
 
   func displayTitle(badge count: Int32) -> String {
@@ -86,6 +89,13 @@ final class WuiTabs: PlatformView, WuiComponent {
 
   #if canImport(UIKit)
     private let tabController = UITabBarController()
+    /// The platform's tab objects, one per WaterUI tab in order.
+    ///
+    /// `UITab` is the model the tab bar controller is driven through: it is
+    /// what carries a role (`UISearchTab`), and badge, enabled state and the
+    /// icon are set on it rather than on a child controller's bar item. The
+    /// content controller is created by the tab on first display.
+    private var uiTabs: [UITab] = []
   #elseif canImport(AppKit)
     private var tabControl: NSSegmentedControl?
     private weak var windowToolbar: WuiWindowToolbar?
@@ -135,7 +145,8 @@ final class WuiTabs: PlatformView, WuiComponent {
         contentHandle: contentHandle,
         content: WuiNavigationView(ffiNav: navigationView, env: env),
         enabled: WuiComputed<Bool>(enabledPointer),
-        badge: tab.badge.map(WuiComputed<Int32>.init)
+        badge: tab.badge.map(WuiComputed<Int32>.init),
+        role: tab.role
       )
     }
 
@@ -181,21 +192,15 @@ final class WuiTabs: PlatformView, WuiComponent {
       default:
         fatalError("Unsupported Apple tab style: \(style.rawValue)")
       }
-      tabController.viewControllers = tabs.map { tab in
-        let controller = UIViewController()
-        controller.view = tab.content
-        controller.tabBarItem = UITabBarItem(
-          title: tab.title,
-          image: tab.icon,
-          selectedImage: nil
-        )
-        return controller
-      }
+      uiTabs = tabs.map(Self.makeUITab)
+      tabController.tabs = uiTabs
       // The view is attached by `wuiSyncControllerHierarchy` at window time,
       // after the controller has a parent — see that helper for why the order
       // matters.
 
     #elseif canImport(AppKit)
+      // AppKit has no tab model with roles: the toolbar segments and the
+      // sidebar rows present a search-role tab as a regular one.
       for tab in tabs {
         tab.content.translatesAutoresizingMaskIntoConstraints = true
         tab.content.isHidden = true
@@ -357,6 +362,39 @@ final class WuiTabs: PlatformView, WuiComponent {
   }
 
   #if canImport(UIKit)
+    /// The platform tab for a WaterUI tab.
+    ///
+    /// A search-role tab is a `UISearchTab`: the system places it trailing,
+    /// gives it the search glass treatment and its own presentation. It ships
+    /// with the platform's search title and symbol; the WaterUI label's title
+    /// replaces the title, and its icon replaces the symbol only when the
+    /// label has one.
+    private static func makeUITab(for tab: WuiNativeTab) -> UITab {
+      let provider: (UITab) -> UIViewController = { _ in
+        let controller = UIViewController()
+        controller.view = tab.content
+        return controller
+      }
+      switch tab.role {
+      case WuiTabRole_Regular:
+        return UITab(
+          title: tab.title,
+          image: tab.icon,
+          identifier: String(tab.id),
+          viewControllerProvider: provider
+        )
+      case WuiTabRole_Search:
+        let searchTab = UISearchTab(viewControllerProvider: provider)
+        searchTab.title = tab.title
+        if let icon = tab.icon {
+          searchTab.image = icon
+        }
+        return searchTab
+      default:
+        fatalError("Unsupported WaterUI tab role: \(tab.role.rawValue)")
+      }
+    }
+
     /// The size a tab icon is rendered at, matching what the platform draws.
     ///
     /// A phone's tab bar icon is roughly 25pt. The image is a bitmap, so the bar
@@ -365,9 +403,7 @@ final class WuiTabs: PlatformView, WuiComponent {
     private static let iconMaxSide: CGFloat = 25
 
     private func applyIcon(_ image: PlatformImage, at index: Int) {
-      guard let controllers = tabController.viewControllers, controllers.indices.contains(index)
-      else { return }
-      controllers[index].tabBarItem.image = image
+      uiTabs[index].image = image
     }
   #endif
 
@@ -391,7 +427,7 @@ final class WuiTabs: PlatformView, WuiComponent {
 
   private func applyEnabled(_ enabled: Bool, at index: Int) {
     #if canImport(UIKit)
-      tabController.viewControllers?[index].tabBarItem.isEnabled = enabled
+      uiTabs[index].isEnabled = enabled
     #elseif canImport(AppKit)
       _ = enabled
       _ = index
@@ -401,7 +437,7 @@ final class WuiTabs: PlatformView, WuiComponent {
   private func applyBadge(_ count: Int32, at index: Int) {
     precondition(count >= 0, "Tab badge count cannot be negative")
     #if canImport(UIKit)
-      tabController.viewControllers?[index].tabBarItem.badgeValue = count > 0 ? String(count) : nil
+      uiTabs[index].badgeValue = count > 0 ? String(count) : nil
     #elseif canImport(AppKit)
       // SwiftUI draws no badge on macOS toolbar tab segments; folding the
       // count into the label only widens the segment and pushes the toolbar
@@ -420,7 +456,7 @@ final class WuiTabs: PlatformView, WuiComponent {
 
     synchronizingSelection = true
     #if canImport(UIKit)
-      tabController.selectedIndex = index
+      tabController.selectedTab = uiTabs[index]
     #elseif canImport(AppKit)
       showTab(at: index)
     #endif
@@ -541,21 +577,29 @@ final class WuiTabs: PlatformView, WuiComponent {
 
 #if canImport(UIKit)
   extension WuiTabs: UITabBarControllerDelegate {
-    func tabBarController(
-      _ tabBarController: UITabBarController,
-      shouldSelect viewController: UIViewController
-    ) -> Bool {
-      guard let index = tabBarController.viewControllers?.firstIndex(of: viewController) else {
-        fatalError("UITabBarController selected an unknown child controller")
+    /// The WaterUI tab index of a platform tab.
+    ///
+    /// The delegate hands back root tabs or their descendants; every tab here
+    /// is a root, so the tab is one of ours by identity.
+    private func index(of tab: UITab) -> Int {
+      guard let index = uiTabs.firstIndex(where: { $0 === tab }) else {
+        fatalError("UITabBarController selected an unknown tab \(tab.identifier)")
       }
-      return tabs[index].enabled.value
+      return index
+    }
+
+    func tabBarController(_ tabBarController: UITabBarController, shouldSelectTab tab: UITab)
+      -> Bool
+    {
+      tabs[index(of: tab)].enabled.value
     }
 
     func tabBarController(
       _ tabBarController: UITabBarController,
-      didSelect viewController: UIViewController
+      didSelectTab selectedTab: UITab,
+      previousTab: UITab?
     ) {
-      selectedNativeIndex(tabBarController.selectedIndex)
+      selectedNativeIndex(index(of: selectedTab))
     }
   }
 #endif

@@ -14,11 +14,12 @@
 import SwiftUI
 
 private enum Pane: Hashable {
-  case surfaces, controls, about
+  case surfaces, controls, about, search
 }
 
 struct LiquidGlassTwin: View {
   @State private var pane = Pane.surfaces
+  @State private var query = ""
 
   var body: some View {
     TabView(selection: $pane) {
@@ -30,6 +31,9 @@ struct LiquidGlassTwin: View {
       }
       Tab("About", systemImage: "info.circle", value: .about) {
         aboutPage
+      }
+      Tab("Search", systemImage: "magnifyingglass", value: .search, role: .search) {
+        searchPage
       }
     }
   }
@@ -99,6 +103,18 @@ struct LiquidGlassTwin: View {
       }
       .padding(14)
       .navigationTitle("About")
+    }
+  }
+
+  private var searchPage: some View {
+    NavigationStack {
+      VStack(spacing: 12) {
+        Text("Results for “\(query)”")
+        caption("Glass terms: regular, clear, interactive, tint, capsule, card.")
+      }
+      .padding(14)
+      .navigationTitle("Search")
+      .searchable(text: $query, prompt: "Search glass")
     }
   }
 
