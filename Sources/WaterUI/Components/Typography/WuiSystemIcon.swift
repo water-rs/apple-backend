@@ -28,7 +28,9 @@ final class WuiSystemIcon: PlatformView, WuiComponent {
     private let imageView = NSImageView()
   #endif
 
-  private let iconName: String
+  /// The symbol's name, kept so chrome that draws the icon itself — a Mac
+  /// toolbar item — can ask the platform for the same symbol.
+  let iconName: String
   private var foregroundObservation: WuiComputedObservation<WuiResolvedColor>?
   private var bodyFontObservation: WuiComputedObservation<WuiResolvedFontValue>?
 
