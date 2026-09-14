@@ -6,11 +6,14 @@
 # `backends/apple` with this repository's tested tree so the suite exercises the
 # commit under test rather than the submodule waterui has pinned. The committed
 # FFI header is then synced from the cloned waterui, matching what
-# `setup-waterui.sh` does for the package build legs.
+# `setup-waterui.sh` does for the package build legs. The `water` CLI lives in
+# its own repository now (water-rs/cli); it is cloned alongside so the
+# `cargo install --path` legs have a directory to build.
 set -euo pipefail
 
 repo_root="${GITHUB_WORKSPACE:-$(pwd)}"
 waterui_dir="${repo_root}/waterui"
+cli_dir="${repo_root}/water-cli"
 
 if [[ -n "${WATERUI_REF:-}" ]]; then
   waterui_ref="${WATERUI_REF}"
@@ -24,6 +27,12 @@ echo "Using waterui ref: ${waterui_ref}"
 rm -rf "${waterui_dir}"
 git clone --depth 1 --branch "${waterui_ref}" https://github.com/water-rs/waterui.git "${waterui_dir}"
 git -C "${waterui_dir}" submodule update --init --depth 1 kit utils/nami
+
+# The CLI tracks the integration branch; there is no released channel to pin
+# for a development flow.
+echo "Using water-cli ref: ${WATER_CLI_REF:-dev}"
+rm -rf "${cli_dir}"
+git clone --depth 1 --branch "${WATER_CLI_REF:-dev}" https://github.com/water-rs/cli.git "${cli_dir}"
 
 # `backends/apple` is consumed by example builds as a SwiftPM path dependency,
 # not through git; replacing the directory wholesale with the tested tree is
@@ -50,5 +59,6 @@ if [[ -n "${GITHUB_ENV:-}" ]]; then
   {
     echo "WATERUI_DIR=${waterui_dir}"
     echo "WATERUI_REF=${waterui_ref}"
+    echo "WATER_CLI_DIR=${cli_dir}"
   } >> "${GITHUB_ENV}"
 fi
