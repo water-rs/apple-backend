@@ -27,7 +27,7 @@ struct LocaleTwin: View {
 
   var body: some View {
     ScrollView {
-      VStack(alignment: .leading, spacing: 10) {
+      VStack(spacing: 10) {
         Text("WaterUI World Fair").font(.system(size: 28)).bold()
         Text("Live translations for a tiny world-fair kiosk").font(.system(size: 14))
         Divider()
@@ -46,7 +46,7 @@ struct LocaleTwin: View {
   }
 
   private var languageBooth: some View {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(spacing: 10) {
       Text("Language Booth").font(.system(size: 16)).bold()
       HStack {
         Text("Detected Locale:")
@@ -67,26 +67,26 @@ struct LocaleTwin: View {
   }
 
   private var localizedContent: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      VStack(alignment: .leading, spacing: 10) {
+    VStack(spacing: 10) {
+      VStack(spacing: 10) {
         Text("Welcome Desk").font(.system(size: 16)).bold()
         Text("Welcome to the World Fair!").font(.system(size: 24))
       }
       Divider()
-      VStack(alignment: .leading, spacing: 10) {
+      VStack(spacing: 10) {
         Text("Human Rights - Article 1").font(.system(size: 16)).bold()
         Text(
           "All human beings are born free and equal in dignity and rights. They are endowed with reason and conscience and should act towards one another in a spirit of brotherhood."
         ).font(.system(size: 14))
       }
       Divider()
-      VStack(alignment: .leading, spacing: 10) {
+      VStack(spacing: 10) {
         Text("Local Flavor").font(.system(size: 16)).bold()
         HStack { Spacer(); Text("Color"); Spacer() }
         HStack { Spacer(); Text("Favorite"); Spacer() }
       }
       Divider()
-      VStack(alignment: .leading, spacing: 10) {
+      VStack(spacing: 10) {
         Text("Passport Stamps").font(.system(size: 16)).bold()
         Text("I have 0 passport stamps")
         Text("I have 1 passport stamp")
@@ -104,8 +104,8 @@ struct LocaleTwin: View {
   }
 
   private var formattedContent: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      VStack(alignment: .leading, spacing: 10) {
+    VStack(spacing: 10) {
+      VStack(spacing: 10) {
         Text("Festival Date (2006-03-20)").font(.system(size: 16)).bold()
         HStack {
           Text("Short:")
@@ -129,7 +129,7 @@ struct LocaleTwin: View {
         }
       }
       Divider()
-      VStack(alignment: .leading, spacing: 10) {
+      VStack(spacing: 10) {
         Text("Distance Guide").font(.system(size: 16)).bold()
         HStack {
           Text("City Walk:")

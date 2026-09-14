@@ -55,6 +55,7 @@ struct TwinRoot: View {
     case "multi_window": MultiWindowTwin()
     case "navigation": NavigationTwin()
     case "picker": PickerTwin()
+    case "reminders": RemindersTwin()
     case "shape": ShapeTwin()
     case "snackbar": SnackbarTwin()
     case "typography-rtl": TypographyRtlTwin()
