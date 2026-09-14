@@ -23,14 +23,13 @@ trap 'rm -rf "${work_dir}"' EXIT
 project_dir="${work_dir}/helloworld"
 mkdir -p "${project_dir}/src"
 
-# backend_path is mandatory here: without it the generated project resolves
-# the pinned SwiftPM release of apple-backend, and the job would measure a
-# published tag instead of the commit under test.
+# The generated project resolves the backend through waterui_path's
+# backends/apple fallback — the staged checkout this suite produces — so the
+# packaged app builds the commit under test, not the pinned SwiftPM release.
+# Playground manifests cannot declare [backends.*], so no explicit override
+# is possible or needed here.
 cat > "${project_dir}/Water.toml" <<EOF
 waterui_path = "${waterui_dir}"
-
-[backend.apple]
-backend_path = "${waterui_dir}/backends/apple"
 
 [package]
 type = "playground"
