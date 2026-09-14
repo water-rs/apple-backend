@@ -63,6 +63,19 @@ import SwiftUI
       window.center()
       window.makeKeyAndOrderFront(nil)
       self.window = window
+
+      // Mirror the chrome flags the WaterUI backend applies once a window has
+      // a toolbar (WuiWindowToolbar): unified style + full-size content, which
+      // is what lets a NavigationSplitView sidebar run the window's full
+      // height with the traffic lights inside it — the presentation Apple's
+      // own apps use. SwiftUI installs window.toolbar on first layout, so the
+      // check runs after a turn of the main loop.
+      DispatchQueue.main.async {
+        if window.toolbar != nil {
+          window.toolbarStyle = .unified
+          window.styleMask.insert(.fullSizeContentView)
+        }
+      }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool {
