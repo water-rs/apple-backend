@@ -288,6 +288,10 @@ final class WuiButton: PlatformView, WuiComponent {
       default:
         fatalError("Unsupported WaterUI button style: \(style.rawValue)")
       }
+      // A transparent borderless NSButton reports AXUnknown instead of
+      // AXButton — the chrome change is visual, the element is still a
+      // button to assistive technology.
+      button.setAccessibilityRole(.button)
     #endif
   }
 

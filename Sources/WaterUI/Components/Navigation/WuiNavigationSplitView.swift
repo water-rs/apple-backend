@@ -470,7 +470,7 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
       }
       windowToolbar = WuiWindowToolbar.attached(to: window)
       if chromeIsActive {
-        windowToolbar?.setSidebarSplitView(splitController.splitView)
+        windowToolbar?.setSidebarSplitView(splitController)
       } else {
         applySidebarCollapse()
       }
@@ -483,7 +483,7 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
       guard chromeIsActive != active else { return }
       chromeIsActive = active
       applySidebarCollapse()
-      windowToolbar?.setSidebarSplitView(active ? splitController.splitView : nil)
+      windowToolbar?.setSidebarSplitView(active ? splitController : nil)
     }
 
     /// Collapses the sidebar while this split's pane is off screen and puts it
