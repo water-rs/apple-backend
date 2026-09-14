@@ -39,25 +39,32 @@ enum WuiShapePath {
             return CGPath(
                 roundedRect: bounds, cornerWidth: radius, cornerHeight: radius, transform: nil)
         case 4:  // Uneven rounded rect, per-corner normalized radii
-            return unevenRoundedRect(kind: kind, in: bounds)
+            return unevenRoundedRect(
+                kind: kind, scale: shorter, limit: shorter / 2, in: bounds)
         case 5:  // Capsule
             let radius = shorter / 2
             return CGPath(
                 roundedRect: bounds, cornerWidth: radius, cornerHeight: radius, transform: nil)
         case 6:  // Custom path: only the commands describe it
             return makePath(commands: commands, in: bounds)
+        case 7:  // Rounded rect, uniform radius in points
+            let radius = min(CGFloat(kind.top_left), shorter / 2)
+            return CGPath(
+                roundedRect: bounds, cornerWidth: radius, cornerHeight: radius, transform: nil)
+        case 8:  // Uneven rounded rect, per-corner radii in points
+            return unevenRoundedRect(kind: kind, scale: 1, limit: shorter / 2, in: bounds)
         default:
             fatalError("unknown WaterUI shape kind tag \(kind.tag)")
         }
     }
 
-    private static func unevenRoundedRect(kind: WuiShapeKind, in bounds: CGRect) -> CGPath {
-        let shorter = min(bounds.width, bounds.height)
-        let limit = shorter / 2
-        let tl = min(CGFloat(kind.top_left) * shorter, limit)
-        let tr = min(CGFloat(kind.top_right) * shorter, limit)
-        let br = min(CGFloat(kind.bottom_right) * shorter, limit)
-        let bl = min(CGFloat(kind.bottom_left) * shorter, limit)
+    private static func unevenRoundedRect(
+        kind: WuiShapeKind, scale: CGFloat, limit: CGFloat, in bounds: CGRect
+    ) -> CGPath {
+        let tl = min(CGFloat(kind.top_left) * scale, limit)
+        let tr = min(CGFloat(kind.top_right) * scale, limit)
+        let br = min(CGFloat(kind.bottom_right) * scale, limit)
+        let bl = min(CGFloat(kind.bottom_left) * scale, limit)
 
         let path = CGMutablePath()
         path.move(to: CGPoint(x: bounds.minX + tl, y: bounds.minY))
