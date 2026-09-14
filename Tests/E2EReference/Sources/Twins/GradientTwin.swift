@@ -17,7 +17,7 @@ private func srgb(_ r: Double, _ g: Double, _ b: Double) -> Color {
 struct GradientTwin: View {
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(spacing: 10) {
                 Text("WaterUI Gradient Examples").font(.system(size: 28))
                 Text("GPU-rendered gradients with animation support")
                 Divider()
@@ -31,7 +31,7 @@ struct GradientTwin: View {
                 Divider()
                 radialSection
                 Divider()
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(spacing: 10) {
                     meshSection
                     Divider()
                     hdrSection
@@ -64,7 +64,7 @@ struct GradientTwin: View {
     }
 
     private var animatedBackgroundSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(spacing: 12) {
             Text("Animated Mesh Gradient").font(.system(size: 20))
             Text("Automatic time-based fluid animation")
             TimelineView(.animation) { ctx in
@@ -103,7 +103,7 @@ struct GradientTwin: View {
     ]
 
     private var gpuMeshSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(spacing: 12) {
             Text("GPU Animated Mesh Gradient").font(.system(size: 20))
             Text("Speed + palette configured at creation time")
             MeshGradient(
@@ -137,7 +137,7 @@ struct GradientTwin: View {
     }
 
     private var shapeFillSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(spacing: 10) {
             Text("Shape + Gradient Fill").font(.system(size: 20))
             Text("Gradients clipped to shapes on the GPU")
             HStack(spacing: 16) {
@@ -176,7 +176,7 @@ struct GradientTwin: View {
     }
 
     private var linearSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(spacing: 10) {
             Text("Linear Gradients").font(.system(size: 20))
             Text("Gradients along a line from start to end point")
             HStack(spacing: 16) {
@@ -201,7 +201,7 @@ struct GradientTwin: View {
     }
 
     private var radialSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(spacing: 10) {
             Text("Radial Gradients").font(.system(size: 20))
             Text("Gradients expanding outward from a center point")
             HStack(spacing: 16) {
@@ -234,7 +234,7 @@ struct GradientTwin: View {
     }
 
     private var meshSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(spacing: 10) {
             Text("Static Mesh Gradients").font(.system(size: 20))
             Text("Gradients with per-vertex colors interpolated across a grid")
             HStack(spacing: 16) {
@@ -270,7 +270,7 @@ struct GradientTwin: View {
     }
 
     private var hdrSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(spacing: 12) {
             Text("HDR Gradients").font(.system(size: 20))
             Text("Extended brightness beyond SDR (requires HDR display)")
             HStack(spacing: 16) {

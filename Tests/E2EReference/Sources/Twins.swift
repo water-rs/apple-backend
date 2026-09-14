@@ -50,6 +50,7 @@ struct TwinRoot: View {
     case "image": ImageTwin()
     case "list": ListTwin()
     case "locale": LocaleTwin()
+    case "markdown": MarkdownTwin()
     case "menu": MenuTwin()
     case "multi_window": MultiWindowTwin()
     case "navigation": NavigationTwin()
