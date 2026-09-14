@@ -408,6 +408,23 @@ final class WuiButton: PlatformView, WuiComponent {
   }
 
   #if canImport(AppKit)
+    /// The button's name as its semantic label states it — the text assistive
+    /// technology reads, whatever the label draws.
+    ///
+    /// Chrome that presents the button as a toolbar item needs the name apart
+    /// from the view: the Mac draws the icon alone and keeps the name for the
+    /// overflow menu and the tooltip.
+    var semanticTitle: String {
+      button.accessibilityLabel() ?? ""
+    }
+
+    /// The platform symbol the button's label draws, if its icon is one.
+    var systemIconName: String? {
+      labelView.firstSystemIcon?.iconName
+    }
+  #endif
+
+  #if canImport(AppKit)
     nonisolated override var isFlipped: Bool { true }
   #endif
 }

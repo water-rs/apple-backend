@@ -42,6 +42,7 @@
       "dev.waterui.navigation.trailing")
     private static let searchIdentifier = NSToolbarItem.Identifier("dev.waterui.navigation.search")
     private static let tabsIdentifier = NSToolbarItem.Identifier("dev.waterui.tabs")
+    private static let windowItemPrefix = "dev.waterui.window.item."
     private static let sidebarSeparatorIdentifier = NSToolbarItem.Identifier(
       "dev.waterui.sidebar.separator")
 
@@ -66,6 +67,11 @@
 
     /// The tab control, when an app-level tab container is showing its tabs here.
     private var tabsView: NSView?
+    /// The window-level toolbar content (`Window::toolbar`), one entry per
+    /// child of the declared view, in order. Each becomes its own item so the
+    /// toolbar can give each the capsule, spacing and overflow it gives its
+    /// own items; a single hosted view would get none of that.
+    private var windowItems: [NSView] = []
     /// The split view whose sidebar the toolbar aligns itself with, when the
     /// pane on screen is a split view.
     private weak var sidebarSplitView: NSSplitView?
@@ -92,6 +98,32 @@
       // traffic lights inside it. Everything that is not a sidebar places
       // itself below the toolbar through the safe area instead.
       window.styleMask.insert(.fullSizeContentView)
+    }
+
+    /// Offers the window's own toolbar content, or withdraws it when `view` is nil.
+    ///
+    /// The content is whatever `Window::toolbar` declared — typically a row of
+    /// buttons. Its children are split into one toolbar item each: a child
+    /// that is a button with a symbol becomes a real `NSToolbarItem` running
+    /// the button's action, anything else is hosted as the view it is.
+    func setWindowContent(_ view: WuiAnyView?) {
+      windowItems = view.map(Self.toolbarChildren) ?? []
+      rebuild()
+    }
+
+    /// The views `Window::toolbar` content splits into.
+    ///
+    /// A declared row is a stack of children behind whatever single-child
+    /// wrappers (padding, an environment install) the declaration added, so
+    /// the walk descends through lone children and stops at the first view
+    /// with several — those are the items. A declaration that is a single
+    /// leaf is one item.
+    private static func toolbarChildren(of view: NSView) -> [NSView] {
+      var node: NSView = view
+      while node.subviews.count == 1 {
+        node = node.subviews[0]
+      }
+      return node.subviews.isEmpty ? [node] : node.subviews
     }
 
     /// Offers the app-level tab control, or withdraws it when `view` is nil.
@@ -172,6 +204,12 @@
       if content.titleView != nil { identifiers.append(Self.titleIdentifier) }
       if tabsView != nil { identifiers.append(Self.tabsIdentifier) }
       identifiers.append(.flexibleSpace)
+      // The window's own items sit outside the page's: the page's actions and
+      // its search field stay together at the trailing edge, where the page
+      // that owns them is used to finding them.
+      for index in windowItems.indices {
+        identifiers.append(Self.windowItemIdentifier(index))
+      }
       if content.trailing != nil { identifiers.append(Self.trailingIdentifier) }
       if content.search != nil { identifiers.append(Self.searchIdentifier) }
       return identifiers
@@ -235,8 +273,44 @@
         return actionItem(identifier: identifier, from: content.trailing)
 
       default:
-        return nil
+        guard let index = Self.windowItemIndex(identifier) else { return nil }
+        return windowItem(identifier: identifier, view: windowItems[index])
       }
+    }
+
+    private static func windowItemIdentifier(_ index: Int) -> NSToolbarItem.Identifier {
+      NSToolbarItem.Identifier(windowItemPrefix + String(index))
+    }
+
+    private static func windowItemIndex(_ identifier: NSToolbarItem.Identifier) -> Int? {
+      guard identifier.rawValue.hasPrefix(windowItemPrefix) else { return nil }
+      return Int(identifier.rawValue.dropFirst(windowItemPrefix.count))
+    }
+
+    /// Builds a toolbar item for one child of the window's toolbar content.
+    ///
+    /// A button whose label draws a platform symbol becomes a real
+    /// `NSToolbarItem` — icon in the glass capsule, name kept for the overflow
+    /// menu, tooltip and assistive technology, running the button's action —
+    /// exactly as a navigation action does. Any other child is hosted as the
+    /// view it is.
+    private func windowItem(identifier: NSToolbarItem.Identifier, view: NSView) -> NSToolbarItem? {
+      guard let button = view.firstButton, let symbol = button.systemIconName else {
+        return hostingItem(identifier: identifier, view: view)
+      }
+      let item = NSToolbarItem(itemIdentifier: identifier)
+      item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+      let label = button.semanticTitle
+      item.label = label
+      item.paletteLabel = label
+      item.toolTip = label.isEmpty ? nil : label
+      item.isBordered = true
+      item.target = self
+      item.action = #selector(actionInvoked(_:))
+      itemActions[identifier] = { [weak button] in
+        button?.invokeAction()
+      }
+      return item
     }
 
     /// Builds a toolbar item for one navigation action.
@@ -328,6 +402,15 @@
   }
 
   extension NSView {
+    /// The first platform-symbol icon in this subtree.
+    var firstSystemIcon: WuiSystemIcon? {
+      if let icon = self as? WuiSystemIcon { return icon }
+      for subview in subviews {
+        if let icon = subview.firstSystemIcon { return icon }
+      }
+      return nil
+    }
+
     /// The first `WaterUI` button in this subtree.
     ///
     /// Chrome built from a label's semantics rather than its view still has to

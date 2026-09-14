@@ -1377,7 +1377,7 @@ public final class WuiRootContext {
 
     private func bindRootWindowIfReady() {
       guard rootWindowBinding == nil, let context, let window else { return }
-      rootWindowBinding = bindRootWindow(window, to: context.window)
+      rootWindowBinding = bindRootWindow(window, to: context.window, env: context.env)
     }
 
     @available(*, unavailable)
@@ -1422,11 +1422,15 @@ public final class WuiRootContext {
       super.layout()
       guard let context else { return }
 
-      // Manually size root view to fill bounds and trigger layout
-      context.rootView.frame = bounds
-      // The root spans the whole view, so whatever the window reserves for its
-      // toolbar chrome is the overlay layers' to clear.
-      context.updateSafeArea(WuiEdgeInsets(safeAreaInsets))
+      // With a toolbar the window supplies full-size content, so the toolbar's
+      // height reaches this view as its top safe-area inset. Ordinary content
+      // is placed below it; a platform chrome container or scroll surface
+      // (`WuiSafeAreaManaging`) owns its bars and insets and spans the whole
+      // view, and whatever the window reserves for its chrome is then the
+      // overlay layers' to clear — the same rule the iOS root applies.
+      let managesSafeArea = wuiResolvedPrimaryContent(of: context.rootView) is WuiSafeAreaManaging
+      context.rootView.frame = managesSafeArea ? bounds : safeAreaRect
+      context.updateSafeArea(managesSafeArea ? WuiEdgeInsets(safeAreaInsets) : .zero)
       context.rootView.needsLayout = true
       context.rootView.layoutSubtreeIfNeeded()
     }

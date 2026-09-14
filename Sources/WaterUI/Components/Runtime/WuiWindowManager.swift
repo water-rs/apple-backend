@@ -246,23 +246,12 @@ func installWindowManager(env: OpaquePointer, services: WuiNativeServices) {
       resources.window = window
       window.title = titleObservation.value.toString()
 
-      // Optional toolbar content rendered in the titlebar.
-      // This uses NSTitlebarAccessoryViewController so the toolbar automatically
-      // benefits from the system titlebar materials (macOS “liquid glass”).
+      // The declared toolbar goes through the window toolbar coordinator, as
+      // the main window's does; see `WuiRootWindowBinding`.
       if let rawToolbar = wuiWindow.toolbar {
         let toolbarPtr = OpaquePointer(UnsafeMutableRawPointer(rawToolbar))
-        let toolbarView = WuiAnyView(anyview: toolbarPtr, env: env)
-
-        let accessory = NSTitlebarAccessoryViewController()
-        accessory.view = toolbarView
-        accessory.layoutAttribute = .top
-        window.addTitlebarAccessoryViewController(accessory)
-
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
-
-        objc_setAssociatedObject(
-          window, "windowToolbarAccessory", accessory, .OBJC_ASSOCIATION_RETAIN)
+        WuiWindowToolbar.attached(to: window)
+          .setWindowContent(WuiAnyView(anyview: toolbarPtr, env: env))
       }
 
       let contentView = WuiAnyView(anyview: contentPtr, env: env)
@@ -270,7 +259,8 @@ func installWindowManager(env: OpaquePointer, services: WuiNativeServices) {
       // Create container and apply background
       // Note: Material blur is now handled via MaterialBackground metadata on content,
       // not as a window background style. Window only supports Opaque and Color.
-      let containerView = NSView(frame: NSRect(origin: .zero, size: contentRect.size))
+      let containerView = WindowContentContainer(
+        frame: NSRect(origin: .zero, size: contentRect.size), content: contentView)
       containerView.wantsLayer = true
 
       switch wuiWindow.background.tag {
@@ -300,8 +290,6 @@ func installWindowManager(env: OpaquePointer, services: WuiNativeServices) {
         fatalError("Unsupported window background: \(wuiWindow.background.tag.rawValue)")
       }
 
-      // Add content on top of container
-      containerView.addSubview(contentView)
       // The window's content is a view *controller*, so that components built
       // out of view controllers — a split view above all — can join the
       // window's controller hierarchy. `NSSplitViewItem` only extends a sidebar
@@ -370,9 +358,8 @@ func installWindowManager(env: OpaquePointer, services: WuiNativeServices) {
       // Ensure mouse move events are delivered for hover-driven interactions (e.g. GpuSurface pointer tracking)
       window.acceptsMouseMovedEvents = true
 
-      // Layout the content with autoresizing (before waiting for ready)
-      contentView.frame = containerView.bounds
-      contentView.autoresizingMask = [.width, .height]
+      // Layout the content (before waiting for ready)
+      containerView.layoutSubtreeIfNeeded()
       contentView.needsLayout = true
       contentView.refreshWindowMinSize(force: true)
 
@@ -451,6 +438,43 @@ func installWindowManager(env: OpaquePointer, services: WuiNativeServices) {
     window.backgroundColor = color.toNSColor()
     window.isOpaque = color.opacity >= 1
     window.hasShadow = true
+  }
+
+  /// The window's root container: places the content in the window, inset to
+  /// the safe area or not.
+  ///
+  /// With a toolbar the window supplies full-size content, so the toolbar's
+  /// height reaches the container as its top safe-area inset. Ordinary content
+  /// is placed below it; a platform chrome container or scroll surface
+  /// (`WuiSafeAreaManaging`) owns its bars and insets and gets the whole
+  /// window, as the iOS root does.
+  @MainActor
+  private final class WindowContentContainer: NSView {
+    private let content: NSView
+
+    init(frame: NSRect, content: NSView) {
+      self.content = content
+      super.init(frame: frame)
+      addSubview(content)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+      fatalError("init(coder:) has not been implemented")
+    }
+
+    nonisolated override var isFlipped: Bool { true }
+
+    override func resizeSubviews(withOldSize oldSize: NSSize) {
+      super.resizeSubviews(withOldSize: oldSize)
+      needsLayout = true
+    }
+
+    override func layout() {
+      super.layout()
+      let managesSafeArea = wuiResolvedPrimaryContent(of: content) is WuiSafeAreaManaging
+      content.frame = managesSafeArea ? bounds : safeAreaRect
+    }
   }
 
   /// Window delegate to track state changes and cleanup
@@ -541,7 +565,7 @@ func installWindowManager(env: OpaquePointer, services: WuiNativeServices) {
     private let resources = WindowResources()
     private let delegate: WindowDelegate
 
-    fileprivate init(window: NSWindow, declaration: WuiWindowContext) {
+    fileprivate init(window: NSWindow, declaration: WuiWindowContext, env: WuiEnvironment) {
       guard let rawTitle = declaration.title else {
         fatalError("Main window title signal is null")
       }
@@ -566,6 +590,16 @@ func installWindowManager(env: OpaquePointer, services: WuiNativeServices) {
         mask.insert(.fullSizeContentView)
       }
       window.styleMask = mask
+
+      // The declared toolbar goes through the window's one `NSToolbar`, the
+      // coordinator a navigation stack hands its chrome to as well: each child
+      // becomes an `NSToolbarItem`, which is what gives it the system's glass
+      // capsule, spacing and overflow. The coordinator retains the resolved
+      // view for the window's life.
+      if let rawToolbar = declaration.toolbar {
+        WuiWindowToolbar.attached(to: window)
+          .setWindowContent(WuiAnyView(anyview: rawToolbar, env: env))
+      }
 
       // An empty title is a window with none of its own, and the host has
       // already set the application's name — which is what should be read then,
@@ -613,9 +647,10 @@ func installWindowManager(env: OpaquePointer, services: WuiNativeServices) {
   @MainActor
   public func bindRootWindow(
     _ window: NSWindow,
-    to declaration: WuiWindowContext
+    to declaration: WuiWindowContext,
+    env: WuiEnvironment
   ) -> WuiRootWindowBinding {
-    WuiRootWindowBinding(window: window, declaration: declaration)
+    WuiRootWindowBinding(window: window, declaration: declaration, env: env)
   }
 
 #endif
