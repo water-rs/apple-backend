@@ -44,8 +44,8 @@ jobs:
           unzip -jo /tmp/swiftformat.zip -d .
           mv swiftformat_linux swiftformat
           curl -sSfL -o /tmp/ast-grep.zip https://github.com/ast-grep/ast-grep/releases/download/0.45.3/app-x86_64-unknown-linux-gnu.zip
-          unzip -jo /tmp/ast-grep.zip sg -d .
-          chmod +x swiftlint swiftformat sg
+          unzip -jo /tmp/ast-grep.zip -d .
+          chmod +x swiftlint swiftformat sg ast-grep
       - uses: actions/cache/save@v4
         if: steps.lint-tools.outputs.cache-hit != 'true'
         with:
@@ -57,7 +57,7 @@ jobs:
       - name: SwiftLint
         run: swiftlint lint --strict --config .swiftlint.yml
       - name: ast-grep
-        run: sg scan Sources Tests --inline-rules "$(cat .ci/sg/swift.yml)" --report-style short
+        run: ast-grep scan Sources Tests --inline-rules "$(cat .ci/sg/swift.yml)" --report-style short
 
   # Every Swift compilation condition the water CLI can hand this package
   # (`apple_swift_conditions` in waterui's cli/src/apple/platform.rs) is built:
