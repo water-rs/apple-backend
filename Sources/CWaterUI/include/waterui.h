@@ -6463,6 +6463,13 @@ typedef struct WuiTabs {
    * How the bar behaves while content scrolls.
    */
   enum WuiTabBarMinimizeBehavior minimize_behavior;
+  /**
+   * A view the platform floats above the tab bar, or null.
+   *
+   * An iOS primitive (`UITabBarController.bottomAccessory`); a backend
+   * without the slot does not show it.
+   */
+  struct WuiAnyView *bottom_accessory;
 } WuiTabs;
 
 /**
