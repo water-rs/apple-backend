@@ -266,6 +266,46 @@ jobs:
           path: startup-times.json
           retention-days: 90
 
+  # A minimal hello-world app is almost all framework: its release .app size
+  # moves only when the backend or the shared dependency tree grows. Package
+  # it on both Apple platforms and gate the byte counts against
+  # Tests/E2EBaselines/package-size.json so size regressions land on the
+  # nightly report instead of shipping silently.
+  package-size:
+    name: package-size
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare waterui with this backend
+        run: ./.github/scripts/setup-e2e.sh
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: nightly-package-size
+
+      - name: Install water CLI
+        run: cargo install --path waterui/cli --locked
+
+      - name: Measure packaged size
+        env:
+          WATERUI_DIR: ${{ github.workspace }}/waterui
+          RECORD_DIR: ${{ github.workspace }}/e2e-baselines
+          RECORD: ${{ inputs.record_baselines == true && '1' || '0' }}
+        run: ./.github/scripts/check-package-size.sh
+
+      - name: Upload size measurement
+        if: inputs.record_baselines == true
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-baselines-package-size
+          path: e2e-baselines/
+          retention-days: 7
+
   # Baselines are recorded on CI, not locally: window metrics, scale factors,
   # and OS rendering all differ across machines. A record run uploads its
   # captures; this job files them under Tests/E2EBaselines and opens a PR so a
@@ -273,7 +313,7 @@ jobs:
   publish-baselines:
     name: publish-baselines
     if: inputs.record_baselines == true
-    needs: [e2e-ios, e2e-macos]
+    needs: [e2e-ios, e2e-macos, package-size]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -300,6 +340,12 @@ jobs:
                 [[ -f "${shot}" ]] || continue
                 cp "${shot}" "Tests/E2EBaselines/${platform}/"
               done
+            done
+            # The package-size measurement lands beside the per-platform
+            # screenshot directories as a plain JSON file.
+            for measurement in "${artifact_dir}"*.json; do
+              [[ -f "${measurement}" ]] || continue
+              cp "${measurement}" "Tests/E2EBaselines/"
             done
           done
 
@@ -353,7 +399,7 @@ jobs:
   # are expected to capture a partially broken suite — they do not report.
   report:
     name: Report failure
-    needs: [e2e-ios, e2e-macos]
+    needs: [e2e-ios, e2e-macos, package-size]
     if: failure() && inputs.record_baselines != true
     runs-on: ubuntu-latest
     steps:
