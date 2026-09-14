@@ -1,0 +1,6 @@
+waterui_path = "../.."
+
+[package]
+type = "playground"
+name = "Liquid Glass"
+bundle_identifier = "dev.waterui.liquid_glass"

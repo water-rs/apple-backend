@@ -36,6 +36,16 @@ git -C "${repo_root}" archive HEAD | tar -x -C "${waterui_dir}/backends/apple"
 # must see its declarations, not the snapshot the backend repo last synced.
 cp "${waterui_dir}/ffi/waterui.h" "${waterui_dir}/backends/apple/Sources/CWaterUI/include/waterui.h"
 
+# Apple-specific examples live in this repository (Examples/README.md); staged
+# into the framework checkout they are workspace members like any other
+# example, so discovery, the shards, baselines, and twins all see them.
+for example_dir in "${repo_root}"/Examples/*/; do
+  [[ -f "${example_dir}/Cargo.toml" ]] || continue
+  example="$(basename "${example_dir}")"
+  rm -rf "${waterui_dir}/examples/${example}"
+  cp -R "${example_dir}" "${waterui_dir}/examples/${example}"
+done
+
 if [[ -n "${GITHUB_ENV:-}" ]]; then
   {
     echo "WATERUI_DIR=${waterui_dir}"

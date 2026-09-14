@@ -1,0 +1,105 @@
+// Twin of Examples/liquid_glass: three tabs, the Surfaces pane on screen — a
+// large-title navigation view whose scroll content is glass pills and a glass
+// card over four offset colored discs. Only the settled first screen is
+// rendered, so the tab bar's other panes and the interactive pill are inert.
+//
+//   Glass::regular()                          -> .glassEffect()
+//   Glass::clear()                            -> .glassEffect(.clear)
+//   .interactive(true)                        -> .interactive()
+//   .tint(color)                              -> .tint(color)
+//   .shape(RoundedRectangle::new(0.2))        -> in: .rect(cornerRadius:) resolved
+//                                                against the card's shorter side
+//   Circle.fill(c).size(n, n).offset(x, y)    -> Circle().fill(c).frame(n).offset(x, y)
+
+import SwiftUI
+
+private enum Pane: Hashable {
+  case surfaces, about
+}
+
+struct LiquidGlassTwin: View {
+  @State private var pane = Pane.surfaces
+
+  var body: some View {
+    TabView(selection: $pane) {
+      Tab("Surfaces", systemImage: "square.on.square", value: .surfaces) {
+        surfacesPage
+      }
+      Tab("About", systemImage: "info.circle", value: .about) {
+        aboutPage
+      }
+    }
+  }
+
+  private var surfacesPage: some View {
+    NavigationStack {
+      ZStack {
+        backdrop
+        ScrollView {
+          VStack(spacing: 12) {
+            caption("Regular glass is the default: a capsule that stays legible over anything.")
+            pill("Now Playing").glassEffect()
+            caption("Clear glass diffuses less, for surfaces over media.")
+            pill("Clear").glassEffect(.clear)
+            caption("Interactive glass answers touch and hover with the platform's own effects.")
+            pill("Tap me").glassEffect(.regular.interactive())
+            caption("A tint washes the glass toward a color.")
+            pill("Accent").glassEffect(.regular.tint(.accentColor))
+            pill("Tomato")
+              .glassEffect(.clear.tint(Color(.sRGB, red: 255 / 255, green: 99 / 255, blue: 71 / 255)))
+            caption("The outline belongs to the glass, not to an outer clip.")
+            card
+          }
+          .padding(14)
+        }
+      }
+      .navigationTitle("Surfaces")
+    }
+  }
+
+  private var aboutPage: some View {
+    NavigationStack {
+      VStack(spacing: 12) {
+        Text("Liquid Glass").font(.system(size: 24))
+        Text(
+          "Glass is the chrome-layer surface of iOS 26 and macOS 26. This app declares it; the Apple backend projects it."
+        )
+      }
+      .padding(14)
+      .navigationTitle("About")
+    }
+  }
+
+  private func caption(_ body: String) -> some View {
+    Text(body).font(.system(size: 15))
+  }
+
+  private func pill(_ title: String) -> some View {
+    Text(title).bold().padding(14)
+  }
+
+  private var card: some View {
+    VStack(spacing: 6) {
+      Text("Rounded card").bold()
+      Text("Text inside glass keeps its full contrast; the glass adapts to what is behind it.")
+    }
+    .padding(14)
+    // RoundedRectangle::new(0.2) is a fifth of the shorter side; the card is
+    // two text lines plus padding, so the radius resolves to about 14 points.
+    .glassEffect(in: .rect(cornerRadius: 14))
+  }
+
+  /// Large colored discs, so the lensing at each glass edge has edges to bend.
+  private var backdrop: some View {
+    ZStack {
+      Circle().fill(Color(.sRGB, red: 255 / 255, green: 149 / 255, blue: 0))
+        .frame(width: 320, height: 320).offset(x: -120, y: -160)
+      Circle().fill(Color(.sRGB, red: 48 / 255, green: 176 / 255, blue: 199 / 255))
+        .frame(width: 280, height: 280).offset(x: 140, y: 40)
+      Circle().fill(Color(.sRGB, red: 175 / 255, green: 82 / 255, blue: 222 / 255))
+        .frame(width: 360, height: 360).offset(x: -60, y: 320)
+      Circle().fill(Color(.sRGB, red: 52 / 255, green: 199 / 255, blue: 89 / 255))
+        .frame(width: 220, height: 220).offset(x: 150, y: 560)
+    }
+  }
+}
