@@ -1,3 +1,4 @@
+#if !WATERUI_NO_MEDIA
 import AVFoundation
 import CWaterUI
 
@@ -93,3 +94,4 @@ final class WuiVideo: PlatformView, WuiComponent {
     applyResolvedDynamicRange(to: playerLayer, for: self)
   }
 }
+#endif  // !WATERUI_NO_MEDIA

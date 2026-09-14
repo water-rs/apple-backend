@@ -269,6 +269,7 @@ func makeWindowStateWatcher(
   return watcher
 }
 
+#if !WATERUI_NO_MEDIA
 @MainActor
 func makeSubtitleSelectionWatcher(
   _ f: @escaping (CWaterUI.WuiSubtitleSelection, WuiWatcherMetadata) -> Void
@@ -375,6 +376,7 @@ func makeVideoDeliveryWatcher(
   return watcher
 }
 
+#endif  // !WATERUI_NO_MEDIA
 @MainActor
 func makeSecureWatcher(_ f: @escaping (WuiStr, WuiWatcherMetadata) -> Void) -> OpaquePointer {
   let data = wrap(f)

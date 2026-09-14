@@ -1,3 +1,4 @@
+#if !WATERUI_NO_MEDIA
 import AVFoundation
 import CWaterUI
 import Foundation
@@ -1626,3 +1627,4 @@ final class WuiVideoPlaybackCoordinator: WuiMediaSessionHost {
     }
   }
 }
+#endif  // !WATERUI_NO_MEDIA

@@ -1,3 +1,4 @@
+#if WATERUI_WEBVIEW
 // WuiWebView.swift
 // WebView component - WKWebView wrapper for WaterUI
 //
@@ -1014,3 +1015,4 @@ final class WuiWebViewComponent: PlatformView, WuiComponent {
     return CGSize(width: width, height: height)
   }
 }
+#endif  // WATERUI_WEBVIEW

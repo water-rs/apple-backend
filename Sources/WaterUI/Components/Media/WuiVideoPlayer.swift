@@ -1,3 +1,4 @@
+#if !WATERUI_NO_MEDIA
 import AVFoundation
 import AVKit
 import CWaterUI
@@ -248,3 +249,4 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
     playback.emitError(error.localizedDescription)
   }
 }
+#endif  // !WATERUI_NO_MEDIA
