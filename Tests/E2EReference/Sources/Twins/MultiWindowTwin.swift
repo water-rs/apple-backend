@@ -61,6 +61,10 @@ struct MultiWindowTwin: View {
       }
     }
     .padding(16)
-    .background(Color(nsColor: .tertiarySystemFill))
+    #if os(iOS)
+      .background(Color(uiColor: .tertiarySystemFill))
+    #else
+      .background(Color(nsColor: .tertiarySystemFill))
+    #endif
   }
 }
