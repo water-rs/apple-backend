@@ -23,7 +23,7 @@ struct LiquidGlassTwin: View {
   @State private var query = ""
 
   var body: some View {
-    TabView(selection: $pane) {
+    let tabs = TabView(selection: $pane) {
       Tab("Surfaces", systemImage: "square.on.square", value: .surfaces) {
         surfacesPage
       }
@@ -37,18 +37,25 @@ struct LiquidGlassTwin: View {
         searchPage
       }
     }
-    .tabBarMinimizeBehavior(.onScrollDown)
-    .tabViewBottomAccessory {
-      HStack(spacing: 12) {
-        Label("Play", systemImage: "play.fill")
-        VStack(spacing: 1) {
-          Text("Now Playing").bold().font(.system(size: 15))
-          Text("Liquid Glass — Surfaces").font(.system(size: 12))
+    // The minimize behavior and bottom accessory exist only on iOS; on macOS
+    // the tabs still render, which is what the twin's comparison needs.
+    #if os(iOS)
+      tabs
+        .tabBarMinimizeBehavior(.onScrollDown)
+        .tabViewBottomAccessory {
+          HStack(spacing: 12) {
+            Label("Play", systemImage: "play.fill")
+            VStack(spacing: 1) {
+              Text("Now Playing").bold().font(.system(size: 15))
+              Text("Liquid Glass — Surfaces").font(.system(size: 12))
+            }
+          }
+          .padding(.vertical, 6)
+          .padding(.horizontal, 16)
         }
-      }
-      .padding(.vertical, 6)
-      .padding(.horizontal, 16)
-    }
+    #else
+      tabs
+    #endif
   }
 
   private var surfacesPage: some View {

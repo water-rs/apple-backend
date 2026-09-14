@@ -48,6 +48,7 @@ struct TwinRoot: View {
     case "gradient": GradientTwin()
     case "hover": HoverTwin()
     case "image": ImageTwin()
+    case "liquid_glass": LiquidGlassTwin()
     case "list": ListTwin()
     case "locale": LocaleTwin()
     case "markdown": MarkdownTwin()

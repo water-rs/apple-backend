@@ -94,7 +94,12 @@ struct PickerTwin: View {
       Picker("Radio Style", selection: $radio) {
         ForEach(Fruit.allCases) { Text($0.rawValue).tag($0) }
       }
-      .pickerStyle(.radioGroup)
+      // iOS has no radio-group picker; .inline is its one-choice-visible list.
+      #if os(iOS)
+        .pickerStyle(.inline)
+      #else
+        .pickerStyle(.radioGroup)
+      #endif
       selectionLabel(radio)
     }
     .padding(12)
