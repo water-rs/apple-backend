@@ -255,6 +255,8 @@ private func registerBuiltinComponentsIfNeeded() {
 
   // Material background (blur effect)
   registerMetadataComponent(WuiMaterialBackground.self)
+  // Glass background (Liquid Glass)
+  registerMetadataComponent(WuiGlassBackground.self)
 
   // Drag and drop components
   registerMetadataComponent(WuiDraggable.self)
