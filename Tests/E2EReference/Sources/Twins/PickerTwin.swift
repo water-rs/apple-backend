@@ -38,7 +38,7 @@ struct PickerTwin: View {
     return c.date ?? Date()
   }
 
-  private var dateRange: ClosedRange<Date> { Self.day(2025, 1, 1)...Self.day(2025, 12, 31) }
+  private var dateRange: ClosedRange<Date> { Self.day(2025, 1, 1) ... Self.day(2025, 12, 31) }
 
   var body: some View {
     ScrollView {
