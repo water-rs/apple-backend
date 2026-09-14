@@ -34,10 +34,9 @@ final class WuiOffset: PlatformView, WuiComponent {
 
     super.init(frame: .zero)
 
-    // Enable layer for transforms
+    // A layer keeps the offset content composited rather than redrawn.
     #if canImport(AppKit)
       wantsLayer = true
-      contentView.wantsLayer = true
     #endif
 
     contentView.translatesAutoresizingMaskIntoConstraints = true
@@ -83,9 +82,13 @@ final class WuiOffset: PlatformView, WuiComponent {
       contentView.transform = CGAffineTransform(translationX: currentOffsetX, y: currentOffsetY)
 
     #elseif canImport(AppKit)
-      // AppKit: Apply translation via layer transform
-      let transform = CGAffineTransform(translationX: currentOffsetX, y: currentOffsetY)
-      contentView.layer?.setAffineTransform(transform)
+      // AppKit owns the geometry of a layer-backed view's layer and rewrites it
+      // whenever the view is laid out, so a transform set on the layer does
+      // not survive the next layout pass. Moving the content's frame inside
+      // this view is the translation that does: this view keeps its own
+      // frame, so the offset stays purely visual, and `NSAnimationContext`
+      // animates the frame change implicitly.
+      contentView.frame = bounds.offsetBy(dx: currentOffsetX, dy: currentOffsetY)
     #endif
     invalidateCapturedRendering()
   }
@@ -111,7 +114,6 @@ final class WuiOffset: PlatformView, WuiComponent {
 
     override func layout() {
       super.layout()
-      contentView.frame = bounds
       applyTransform()
     }
   #endif
