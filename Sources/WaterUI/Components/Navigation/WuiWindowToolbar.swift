@@ -129,7 +129,7 @@
     /// Offers the app-level tab control, or withdraws it when `view` is nil.
     func setTabs(_ view: NSView?) {
       tabsView = view
-      window?.titleVisibility = view == nil ? .visible : .hidden
+      updateTitleVisibility()
       rebuild()
     }
 
@@ -143,7 +143,19 @@
     func setSidebarSplitView(_ splitView: NSSplitView?) {
       guard sidebarSplitView !== splitView else { return }
       sidebarSplitView = splitView
+      updateTitleVisibility()
       rebuild()
+    }
+
+    /// Whether the window title is painted in the titlebar.
+    ///
+    /// The Mac's own full-height-sidebar apps — Mail, Notes, Reminders — show
+    /// no title text next to the traffic lights; the window title still exists
+    /// for the Window menu and Mission Control, it is just not drawn. A tab
+    /// control takes the title's place the same way.
+    private func updateTitleVisibility() {
+      window?.titleVisibility =
+        tabsView != nil || sidebarSplitView != nil ? .hidden : .visible
     }
 
     /// Offers one navigation stack's chrome, claiming the toolbar for `owner`.
