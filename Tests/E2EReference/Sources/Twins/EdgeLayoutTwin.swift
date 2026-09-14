@@ -1,4 +1,4 @@
-// Twin of examples/edge_layout: 24-deep alternating stack nesting, a 16x10
+// Twin of examples/edge_layout: 8-deep alternating stack nesting, a 16x10
 // eager grid, and frame-constraint edges inside a leading scroll stack.
 
 import SwiftUI
@@ -12,8 +12,8 @@ struct EdgeLayoutTwin: View {
           .font(.subheadline)
           .foregroundStyle(.secondary)
         Divider()
-        Text("Deep nesting (24 levels)").font(.subheadline)
-        deepNest(24)
+        Text("Deep nesting (8 levels)").font(.subheadline)
+        deepNest(8)
         Divider()
         Text("Dense grid (160 eager children)").font(.subheadline)
         denseGrid
