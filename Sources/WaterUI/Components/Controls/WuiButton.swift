@@ -21,10 +21,12 @@ import CWaterUI
 
 func buttonLabelForegroundSlot(for style: WuiButtonStyle) -> WuiColorSlot {
   #if canImport(UIKit)
+    // Glass takes the primary label color: the capsule is the emphasis, and
+    // only the prominent variant carries the accent, as a fill.
     switch style {
-    case WuiButtonStyle_BorderedProminent:
+    case WuiButtonStyle_BorderedProminent, WuiButtonStyle_GlassProminent:
       WuiColorSlot_AccentForeground
-    case WuiButtonStyle_Plain:
+    case WuiButtonStyle_Plain, WuiButtonStyle_Glass:
       WuiColorSlot_Foreground
     case WuiButtonStyle_Automatic,
       WuiButtonStyle_Link,
@@ -38,11 +40,12 @@ func buttonLabelForegroundSlot(for style: WuiButtonStyle) -> WuiColorSlot {
     // SwiftUI on macOS draws bordered button titles in the primary label
     // color; only link/borderless styles are accent-tinted.
     switch style {
-    case WuiButtonStyle_BorderedProminent:
+    case WuiButtonStyle_BorderedProminent, WuiButtonStyle_GlassProminent:
       WuiColorSlot_AccentForeground
     case WuiButtonStyle_Automatic,
       WuiButtonStyle_Bordered,
-      WuiButtonStyle_Plain:
+      WuiButtonStyle_Plain,
+      WuiButtonStyle_Glass:
       WuiColorSlot_Foreground
     case WuiButtonStyle_Link,
       WuiButtonStyle_Borderless:
@@ -177,7 +180,8 @@ final class WuiButton: PlatformView, WuiComponent {
       switch style {
       case WuiButtonStyle_Link, WuiButtonStyle_Plain:
         (0, 0)
-      case WuiButtonStyle_Bordered, WuiButtonStyle_BorderedProminent:
+      case WuiButtonStyle_Bordered, WuiButtonStyle_BorderedProminent, WuiButtonStyle_Glass,
+        WuiButtonStyle_GlassProminent:
         (14, 7)
       default:
         (8, 4)
@@ -186,7 +190,8 @@ final class WuiButton: PlatformView, WuiComponent {
       switch style {
       case WuiButtonStyle_Link, WuiButtonStyle_Plain:
         (0, 0)
-      case WuiButtonStyle_Automatic, WuiButtonStyle_Bordered, WuiButtonStyle_BorderedProminent:
+      case WuiButtonStyle_Automatic, WuiButtonStyle_Bordered, WuiButtonStyle_BorderedProminent,
+        WuiButtonStyle_Glass, WuiButtonStyle_GlassProminent:
         (16, 5)
       default:
         (8, 4)
@@ -272,6 +277,11 @@ final class WuiButton: PlatformView, WuiComponent {
       case WuiButtonStyle_Automatic, WuiButtonStyle_Bordered, WuiButtonStyle_BorderedProminent:
         button.isBordered = true
         button.bezelStyle = .flexiblePush
+      case WuiButtonStyle_Glass, WuiButtonStyle_GlassProminent:
+        // The glass bezel is AppKit's Liquid Glass capsule; the prominent
+        // variant is the same bezel with the accent as its `bezelColor`.
+        button.isBordered = true
+        button.bezelStyle = .glass
       case WuiButtonStyle_Plain, WuiButtonStyle_Link, WuiButtonStyle_Borderless:
         button.isBordered = false
         button.isTransparent = true
@@ -311,13 +321,17 @@ final class WuiButton: PlatformView, WuiComponent {
           .tinted()
         case WuiButtonStyle_BorderedProminent:
           .filled()
+        case WuiButtonStyle_Glass:
+          .glass()
+        case WuiButtonStyle_GlassProminent:
+          .prominentGlass()
         default:
           .plain()
         }
       configuration.contentInsets = .zero
       button.configuration = configuration
     #elseif canImport(AppKit)
-      if style == WuiButtonStyle_BorderedProminent {
+      if style == WuiButtonStyle_BorderedProminent || style == WuiButtonStyle_GlassProminent {
         button.bezelColor = accent.toNSColor()
       }
     #endif

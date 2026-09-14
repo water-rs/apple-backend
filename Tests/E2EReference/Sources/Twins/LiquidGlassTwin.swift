@@ -14,7 +14,7 @@
 import SwiftUI
 
 private enum Pane: Hashable {
-  case surfaces, about
+  case surfaces, controls, about
 }
 
 struct LiquidGlassTwin: View {
@@ -24,6 +24,9 @@ struct LiquidGlassTwin: View {
     TabView(selection: $pane) {
       Tab("Surfaces", systemImage: "square.on.square", value: .surfaces) {
         surfacesPage
+      }
+      Tab("Controls", systemImage: "button.horizontal", value: .controls) {
+        controlsPage
       }
       Tab("About", systemImage: "info.circle", value: .about) {
         aboutPage
@@ -54,6 +57,35 @@ struct LiquidGlassTwin: View {
         }
       }
       .navigationTitle("Surfaces")
+    }
+  }
+
+  private var controlsPage: some View {
+    NavigationStack {
+      ZStack {
+        backdrop
+        ScrollView {
+          VStack(spacing: 12) {
+            caption("Glass: the capsule is the emphasis, the label keeps the primary color.")
+            HStack(spacing: 12) {
+              Button("Glass") {}.buttonStyle(.glass)
+              Button("Bordered") {}.buttonStyle(.bordered)
+            }
+            caption("Prominent glass: the accent fills the capsule, for the primary action.")
+            HStack(spacing: 12) {
+              Button("Glass Prominent") {}.buttonStyle(.glassProminent)
+              Button("Bordered Prominent") {}.buttonStyle(.borderedProminent)
+            }
+            caption("Labels with symbols get the same capsule.")
+            HStack(spacing: 12) {
+              Button("Share", systemImage: "square.and.arrow.up") {}.buttonStyle(.glass)
+              Button("Play", systemImage: "play.fill") {}.buttonStyle(.glassProminent)
+            }
+          }
+          .padding(14)
+        }
+      }
+      .navigationTitle("Controls")
     }
   }
 
