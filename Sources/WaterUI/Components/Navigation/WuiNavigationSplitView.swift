@@ -98,6 +98,7 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
     // view the split view no longer arranges, and the column goes blank — which
     // is what an empty detail column beside a populated sidebar looks like. Each
     // column is a container that stays put, and its child is what changes.
+    private let sidebarContainer = WuiSplitColumnContainer()
     private let supplementaryContainer = WuiSplitColumnContainer()
     private let secondaryContainer = WuiSplitColumnContainer()
     private var hasPlacedSidebar = false
@@ -251,10 +252,11 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
       // after the controller has a parent — see that helper for why the order
       // matters.
     #elseif canImport(AppKit)
-      primaryController.view = sidebarView
+      primaryController.view = sidebarContainer
       // As above: one placeholder view, so one column may hold it.
       supplementaryController.view = supplementaryContainer
       secondaryController.view = secondaryContainer
+      sidebarContainer.show(sidebarView)
       supplementaryContainer.show(emptyColumnView)
       secondaryContainer.show(placeholderView)
       // The sidebar column's contents draw on the split view's own material
