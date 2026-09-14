@@ -82,6 +82,7 @@ final class WuiTabs: PlatformView, WuiComponent {
   private(set) var stretchAxis: WuiStretchAxis = .both
 
   private let style: WuiTabStyle
+  private let minimizeBehavior: WuiTabBarMinimizeBehavior
   private let tabs: [WuiNativeTab]
   private let selection: WuiBinding<WuiId>
   private var selectionWatcher: WatcherGuard?
@@ -121,6 +122,7 @@ final class WuiTabs: PlatformView, WuiComponent {
     }
 
     self.style = ffiTabs.style
+    self.minimizeBehavior = ffiTabs.minimize_behavior
     self.selection = WuiBinding<WuiId>(selectionPointer)
     self.tabs = rawTabs.map { tab in
       guard let labelPointer = tab.label else {
@@ -192,6 +194,7 @@ final class WuiTabs: PlatformView, WuiComponent {
       default:
         fatalError("Unsupported Apple tab style: \(style.rawValue)")
       }
+      tabController.tabBarMinimizeBehavior = Self.minimizeBehavior(from: minimizeBehavior)
       uiTabs = tabs.map(Self.makeUITab)
       tabController.tabs = uiTabs
       // The view is attached by `wuiSyncControllerHierarchy` at window time,
@@ -199,8 +202,9 @@ final class WuiTabs: PlatformView, WuiComponent {
       // matters.
 
     #elseif canImport(AppKit)
-      // AppKit has no tab model with roles: the toolbar segments and the
-      // sidebar rows present a search-role tab as a regular one.
+      // AppKit has no tab model with roles, and neither the toolbar segments
+      // nor the sidebar collapse on scroll: a search-role tab is presented as
+      // a regular one and the minimize behavior is ignored.
       for tab in tabs {
         tab.content.translatesAutoresizingMaskIntoConstraints = true
         tab.content.isHidden = true
@@ -362,6 +366,25 @@ final class WuiTabs: PlatformView, WuiComponent {
   }
 
   #if canImport(UIKit)
+    /// `Automatic` is the platform's own default, which on iOS keeps the bar
+    /// expanded; the app opts into collapsing with the scroll directions.
+    private static func minimizeBehavior(from behavior: WuiTabBarMinimizeBehavior)
+      -> UITabBarController.MinimizeBehavior
+    {
+      switch behavior {
+      case WuiTabBarMinimizeBehavior_Automatic:
+        return .automatic
+      case WuiTabBarMinimizeBehavior_Never:
+        return .never
+      case WuiTabBarMinimizeBehavior_OnScrollDown:
+        return .onScrollDown
+      case WuiTabBarMinimizeBehavior_OnScrollUp:
+        return .onScrollUp
+      default:
+        fatalError("Unsupported WaterUI tab bar minimize behavior: \(behavior.rawValue)")
+      }
+    }
+
     /// The platform tab for a WaterUI tab.
     ///
     /// A search-role tab is a `UISearchTab`: the system places it trailing,

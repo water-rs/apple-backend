@@ -36,6 +36,7 @@ struct LiquidGlassTwin: View {
         searchPage
       }
     }
+    .tabBarMinimizeBehavior(.onScrollDown)
   }
 
   private var surfacesPage: some View {
