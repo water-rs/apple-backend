@@ -11,7 +11,7 @@
 use waterui::app::App;
 use waterui::background::Glass;
 use waterui::icon::SystemIcon;
-use waterui::navigation::TabRole;
+use waterui::navigation::{TabBarMinimizeBehavior, TabRole};
 use waterui::prelude::theme_color::Accent;
 use waterui::prelude::*;
 use waterui::preview;
@@ -60,6 +60,9 @@ pub fn main() -> impl View {
         ],
     )
     .style(tab_style::automatic())
+    // iOS collapses the bar into a glass pill as the surfaces scroll, and
+    // brings it back on the way up.
+    .minimize_behavior(TabBarMinimizeBehavior::OnScrollDown)
 }
 
 /// Glass surfaces over a colorful backdrop: the four parameters glass has —
