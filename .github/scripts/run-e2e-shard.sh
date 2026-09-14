@@ -230,12 +230,18 @@ for example in ${shard_examples[@]+"${shard_examples[@]}"}; do
   fi
   runner_pid=$!
 
-  # The window covers `water run`'s cold Rust build plus the launch, not just
-  # the launch: without a shared sccache the first example alone compiles for
-  # several minutes. A dead runner still short-circuits, so a hung build — not
-  # a slow one — is what actually costs time here.
+  # The wait covers `water run`'s cold Rust build plus the launch, not just the
+  # launch: without a shared sccache a first-in-shard example compiles for tens
+  # of minutes. The bound is therefore on *silence*, not duration — a build
+  # that is writing to the log or running compiler processes is making
+  # progress and must not be killed (#140). A dead runner still short-circuits,
+  # and a hard ceiling caps genuinely hung cases.
   ready=0
-  for _ in $(seq 1 450); do
+  stuck=0
+  log_size=-1
+  silent_since=${SECONDS}
+  deadline=$((SECONDS + 2700))
+  while (( SECONDS < deadline )); do
     if ! kill -0 "${runner_pid}" 2>/dev/null; then
       break
     fi
@@ -243,15 +249,31 @@ for example in ${shard_examples[@]+"${shard_examples[@]}"}; do
       ready=1
       break
     fi
+    new_size=$(stat -f%z "${run_log}" 2>/dev/null || echo -1)
+    if (( new_size != log_size )); then
+      log_size=${new_size}
+      silent_since=${SECONDS}
+    elif pgrep -f 'xcodebuild|swiftc|swift-frontend|cargo|rustc|clang' >/dev/null 2>&1; then
+      silent_since=${SECONDS}
+    elif (( SECONDS - silent_since > 300 )); then
+      stuck=1
+      break
+    fi
     sleep 2
   done
 
   if (( ready == 0 )); then
     if kill -0 "${runner_pid}" 2>/dev/null; then
-      echo "::error::Timed out waiting for readiness for ${example} (${platform})."
+      if (( stuck == 1 )); then
+        echo "::error::No build progress for 5 minutes waiting for readiness for ${example} (${platform}); declaring the runner stuck."
+        failures+=("${example}: launch stuck")
+        report+=("| \`${example}\` | launch stuck | — | — | ${mem_cell} |")
+      else
+        echo "::error::Readiness ceiling (45 min) exceeded for ${example} (${platform})."
+        failures+=("${example}: launch timeout")
+        report+=("| \`${example}\` | launch timeout | — | — | ${mem_cell} |")
+      fi
       kill "${runner_pid}" 2>/dev/null || true
-      failures+=("${example}: launch timeout")
-      report+=("| \`${example}\` | launch timeout | — | — | ${mem_cell} |")
       printf '  "%s": null,\n' "${example}" >> "${startup_entries}"
     else
       echo "::error::water run failed for ${example} (${platform})."
