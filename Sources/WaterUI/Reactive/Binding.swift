@@ -250,6 +250,7 @@ extension WuiBinding where T == CWaterUI.WuiRect {
   }
 }
 
+#if !WATERUI_NO_MEDIA
 extension WuiBinding where T == CWaterUI.WuiSubtitleSelection {
   convenience init(_ inner: OpaquePointer) {
     self.init(
@@ -315,6 +316,7 @@ extension WuiBinding where T == CWaterUI.WuiVideoTrackSelection {
     )
   }
 }
+#endif  // !WATERUI_NO_MEDIA
 
 extension WuiBinding where T == CWaterUI.WuiWindowState {
   convenience init(_ inner: OpaquePointer) {

@@ -132,6 +132,7 @@ extension WuiComputed where T == Int32 {
     )
   }
 }
+#if !WATERUI_NO_MEDIA
 
 extension WuiComputed where T == CWaterUI.WuiVideoDelivery {
   convenience init(_ inner: OpaquePointer) {
@@ -153,6 +154,7 @@ extension WuiComputed where T == CWaterUI.WuiVideoDelivery {
   }
 }
 
+#endif  // !WATERUI_NO_MEDIA
 extension WuiComputed where T == Bool {
   convenience init(_ inner: OpaquePointer) {
     self.init(

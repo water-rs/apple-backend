@@ -1000,7 +1000,9 @@ public final class WuiRootContext {
     #endif
     let nativeServices = WuiNativeServices()
     nativeServices.environment = env
-    installWebViewController(env: initEnvPtr)
+    #if WATERUI_WEBVIEW
+      installWebViewController(env: initEnvPtr)
+    #endif
     installWindowManager(env: initEnvPtr, services: nativeServices)
     installViewRenderer(env: initEnvPtr, services: nativeServices)
 

@@ -262,9 +262,13 @@ private func registerBuiltinComponentsIfNeeded() {
   registerMetadataComponent(WuiDraggable.self)
   registerMetadataComponent(WuiDropDestination.self)
 
-  // Media components
-  registerComponent(WuiVideo.self)
-  registerComponent(WuiVideoPlayer.self)
+  // Media components. Off when the app dropped WaterUI's `media` capability,
+  // which is what exports the `waterui_video_*`/`waterkit_audio_*` symbols
+  // these components bind to.
+  #if !WATERUI_NO_MEDIA
+    registerComponent(WuiVideo.self)
+    registerComponent(WuiVideoPlayer.self)
+  #endif
 
   // Navigation components
   registerComponent(WuiNavigationStack.self)
@@ -280,8 +284,11 @@ private func registerBuiltinComponentsIfNeeded() {
     registerMetadataComponent(WuiAppliedFilter.self)
   #endif
 
-  // WebView component
-  registerComponent(WuiWebViewComponent.self)
+  // WebView component. On only when the app's graph carries `waterui-webview`,
+  // which is what exports the `waterui_webview_*` symbols it binds to.
+  #if WATERUI_WEBVIEW
+    registerComponent(WuiWebViewComponent.self)
+  #endif
 
   // Map component. Off unless the app enabled WaterUI's `map` feature, which
   // is what exports the map symbols this component binds to.

@@ -1,3 +1,4 @@
+#if !WATERUI_NO_MEDIA
 import Foundation
 
 private struct WaterKitAppleMediaCommandFFI {
@@ -343,3 +344,4 @@ final class WuiWaterKitMediaSessionBridge {
     }
   }
 }
+#endif  // !WATERUI_NO_MEDIA
