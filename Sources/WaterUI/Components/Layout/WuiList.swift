@@ -1448,6 +1448,21 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       case .row(let itemIndex):
         let item = resolveListItem(from: contents, at: itemIndex, env: env)
         let itemId = itemIds[itemIndex]
+        // Materializing the row is also when its real height becomes known;
+        // the table was told an estimate for it in `heightOfRow`. Correct the
+        // span asynchronously — noting mid-tile would re-enter layout.
+        let measuredHeight = max(
+          item.view.sizeThatFits(
+            WuiProposalSize(width: Float(tableView.bounds.width), height: nil)
+          ).height + Self.rowVerticalInset * 2,
+          Self.minimumRowHeight)
+        if measuredRowHeights[itemId] != measuredHeight {
+          measuredRowHeights[itemId] = measuredHeight
+          DispatchQueue.main.async { [weak self] in
+            guard let self, let flat = self.flatRow(forItemIndex: itemIndex) else { return }
+            self.tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: flat))
+          }
+        }
         let containerView = WuiListRowContainerView()
         containerView.translatesAutoresizingMaskIntoConstraints = true
         containerView.configure(
@@ -1532,12 +1547,25 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       case .footer:
         return 32
       case .row(let itemIndex):
-        let item = resolveListItem(from: contents, at: itemIndex, env: env)
-        let size = item.view.sizeThatFits(
-          WuiProposalSize(width: Float(tableView.bounds.width), height: nil))
-        return max(size.height + Self.rowVerticalInset * 2, Self.minimumRowHeight)
+        // Measuring here would materialize the row's view — and the table
+        // asks for every row's height up front while it caches spans, which
+        // for a six-figure list is a white screen of nothing but
+        // measurement. Unmaterialized rows get the estimate; the real height
+        // is filled in by `viewFor` the moment the row exists.
+        let itemId = itemIds[itemIndex]
+        return measuredRowHeights[itemId] ?? Self.estimatedRowHeight
       }
     }
+
+    /// Row heights the table has actually measured, by item id. Keyed on the
+    /// id rather than the row index so a reorder does not hand a row another
+    /// row's height.
+    private var measuredRowHeights: [Int32: CGFloat] = [:]
+
+    /// What the table is told about a row whose view has not materialized
+    /// yet — near a typical text row so the scrollbar's proportions stay
+    /// honest until the real height arrives.
+    private static let estimatedRowHeight: CGFloat = 30
 
     /// macOS list rows follow the pointer metric (~24pt like SwiftUI's List),
     /// not the 44pt iOS touch-target floor.
