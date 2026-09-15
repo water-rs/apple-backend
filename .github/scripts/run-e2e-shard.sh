@@ -385,6 +385,20 @@ for example in ${shard_examples[@]+"${shard_examples[@]}"}; do
     [[ -n "${startup_ms}" ]] && break
     sleep 1
   done
+  if [[ -z "${startup_ms}" ]]; then
+    # A very fast first paint can still beat the stream attach; the marker is
+    # in the persisted log store, so replay the recent window from the same
+    # domain the stream reads before declaring the marker missing.
+    if [[ "${platform}" == "ios" ]]; then
+      xcrun simctl spawn "${SIMULATOR_UDID}" log show --last 2m \
+        --predicate 'subsystem == "dev.waterui"' --style compact \
+        >> "${marker_log}" 2>/dev/null || true
+    else
+      log show --last 2m --predicate 'subsystem == "dev.waterui"' \
+        --style compact >> "${marker_log}" 2>/dev/null || true
+    fi
+    startup_ms="$(sed -n 's/.*waterui_first_paint_ms=\([0-9][0-9]*\).*/\1/p' "${marker_log}" | head -1)"
+  fi
   if [[ -n "${startup_ms}" ]]; then
     echo "::notice::${example} first paint in ${startup_ms} ms (${platform}, release)"
     printf '  "%s": %s,\n' "${example}" "${startup_ms}" >> "${startup_entries}"

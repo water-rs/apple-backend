@@ -119,7 +119,7 @@ sample_peak_rss() {
 }
 
 wait_first_paint() {
-    local log_file="$1"
+    local log_file="$1" platform="${2:-}"
     for _ in $(seq 1 30); do
         if grep -q "waterui_first_paint_ms=" "${log_file}" 2>/dev/null; then
             sed -n 's/.*waterui_first_paint_ms=\([0-9][0-9]*\).*/\1/p' "${log_file}" | head -1
@@ -127,6 +127,21 @@ wait_first_paint() {
         fi
         sleep 1
     done
+    # The fastest apps can paint before the stream attaches; the marker is in
+    # the persisted log store, so replay the recent window from the same
+    # domain the stream reads before giving up.
+    if [[ "${platform}" == macos ]]; then
+        log show --last 2m --predicate 'subsystem == "dev.waterui"' \
+            --style compact >> "${log_file}" 2>/dev/null || true
+    elif [[ -n "${SIMULATOR_UDID:-}" ]]; then
+        xcrun simctl spawn "${SIMULATOR_UDID}" log show --last 2m \
+            --predicate 'subsystem == "dev.waterui"' --style compact \
+            >> "${log_file}" 2>/dev/null || true
+    fi
+    if grep -q "waterui_first_paint_ms=" "${log_file}" 2>/dev/null; then
+        sed -n 's/.*waterui_first_paint_ms=\([0-9][0-9]*\).*/\1/p' "${log_file}" | head -1
+        return 0
+    fi
     return 1
 }
 
@@ -143,7 +158,7 @@ measure_runtime() {
         sleep 1  # let logd attach before the app can paint
         "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1 &
         pid=$!
-        first_paint="$(wait_first_paint "${marker_log}" || true)"
+        first_paint="$(wait_first_paint "${marker_log}" "${platform}" || true)"
         if ! kill -0 "${pid}" 2>/dev/null; then
             kill "${stream_pid}" 2>/dev/null || true
             echo "::error::${label}/${platform} release app exited during launch"
@@ -168,7 +183,7 @@ measure_runtime() {
             printf '%s %s %s %s\n' "${label}" "${platform}" "null" "null" >> "${work_dir}/runtime.txt"
             return 1
         fi
-        first_paint="$(wait_first_paint "${marker_log}" || true)"
+        first_paint="$(wait_first_paint "${marker_log}" "${platform}" || true)"
         peak_rss="$(sample_peak_rss "${pid}")"
         xcrun simctl terminate "${udid}" "${bundle_id}" > /dev/null 2>&1 || true
         xcrun simctl uninstall "${udid}" "${bundle_id}" > /dev/null 2>&1 || true
