@@ -30,6 +30,22 @@ private func proposalDimension(_ value: Float?) -> CGFloat {
   value.map(CGFloat.init) ?? 0
 }
 
+struct WuiScrollContentMeasurementState {
+  private var invalidated = true
+  private var viewportSize: CGSize?
+
+  mutating func shouldMeasure(viewportSize newViewportSize: CGSize) -> Bool {
+    guard invalidated || viewportSize != newViewportSize else { return false }
+    invalidated = false
+    viewportSize = newViewportSize
+    return true
+  }
+
+  mutating func invalidate() {
+    invalidated = true
+  }
+}
+
 private func scrollMinSize(
   axis: WuiAxis,
   proposal: WuiProposalSize,
@@ -76,7 +92,9 @@ private func scrollMinSize(
 
 #if canImport(UIKit)
   @MainActor
-  final class WuiScroll: UIScrollView, WuiComponent, UIScrollViewDelegate {
+  final class WuiScroll: UIScrollView, WuiComponent, UIScrollViewDelegate,
+    WuiDescendantLayoutInvalidationSink
+  {
     static var rawId: CWaterUI.WuiTypeId { waterui_scroll_view_id() }
 
     private(set) var stretchAxis: WuiStretchAxis
@@ -86,6 +104,7 @@ private func scrollMinSize(
     private var targetXObservation: WuiComputedObservation<Float>?
     private var targetYObservation: WuiComputedObservation<Float>?
     private var scrollGenerationObservation: WuiComputedObservation<Int32>?
+    private var contentMeasurementState = WuiScrollContentMeasurementState()
 
     // MARK: - WuiComponent Init
 
@@ -142,6 +161,11 @@ private func scrollMinSize(
     override func layoutSubviews() {
       super.layoutSubviews()
 
+      // UIScrollView invokes layoutSubviews as its bounds origin changes during
+      // scrolling. Only the viewport size or a content invalidation can change
+      // the document measurement.
+      guard contentMeasurementState.shouldMeasure(viewportSize: bounds.size) else { return }
+
       // Do NOT manually adjust contentInset - trust UIKit's .automatic behavior
       // UIKit adds top inset for nav bar, bottom inset for home indicator automatically
 
@@ -186,6 +210,10 @@ private func scrollMinSize(
         contentView.setNeedsLayout()
         contentView.layoutIfNeeded()
       }
+    }
+
+    func descendantLayoutDidInvalidate() {
+      contentMeasurementState.invalidate()
     }
 
     private func installScrollController(_ descriptor: CWaterUI.WuiScrollView) {
