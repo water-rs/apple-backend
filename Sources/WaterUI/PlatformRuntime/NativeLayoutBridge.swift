@@ -22,13 +22,20 @@ struct NativeLayoutBridge {
     }
 
     /// Calculate the full measurement packet for a container.
+    ///
+    /// The child measurement cache persists across calls: a proxy's answer to a
+    /// proposal only changes when the child's content changes, which is exactly
+    /// what `invalidateIntrinsicContentSize` on the owning container reports
+    /// (both Rust-side layout invalidation and a descendant's
+    /// `invalidateLayoutHierarchy` reach it). Clearing the cache per session
+    /// turned every nested container measure into a full subtree re-measure —
+    /// exponential across depth (water-rs/apple-backend#164).
     func containerMeasure(
         layout: WuiLayout,
         parentProposal: WuiProposalSize,
         children: CachedSubViewArray
     ) -> WuiViewDimensions {
-        children.resetMeasurements()
-        return layout.measure(proposal: parentProposal, children: children)
+        layout.measure(proposal: parentProposal, children: children)
     }
 
     /// Calculate the container size using Rust layout engine.
@@ -41,13 +48,13 @@ struct NativeLayoutBridge {
     }
 
     /// Get placement rects for all children.
-    /// Rust will call back to measure each child as needed during placement.
+    /// Rust will call back to measure each child as needed during placement;
+    /// those answers reuse the cache `containerMeasure` already populated.
     func placements(
         layout: WuiLayout,
         bounds: CGRect,
         children: CachedSubViewArray
     ) -> [CGRect] {
-        children.resetMeasurements()
-        return layout.place(bounds: bounds, children: children)
+        layout.place(bounds: bounds, children: children)
     }
 }

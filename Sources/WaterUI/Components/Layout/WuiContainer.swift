@@ -257,6 +257,15 @@ final class WuiContainer: PlatformView, WuiComponent {
     }
   #endif
 
+  /// Content feeding the cached child measurements invalidated — a
+  /// descendant's `invalidateLayoutHierarchy` and the Rust layout watcher's
+  /// `WuiLayoutInvalidationTarget` both funnel through here. Drop the
+  /// per-proposal caches so the next layout pass re-measures.
+  override func invalidateIntrinsicContentSize() {
+    cachedSubViews?.invalidateMeasurements()
+    super.invalidateIntrinsicContentSize()
+  }
+
   func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
     if let lazyStack = LazyStackConfig(layout: wuiLayout) {
       return lazyStackSizeThatFits(proposal, config: lazyStack)

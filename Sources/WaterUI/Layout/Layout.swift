@@ -320,9 +320,13 @@ final class CachedSubViewArray {
     return unsafeBitCast(raw, to: CWaterUI.WuiArray_WuiSubView.self)
   }
 
-  func resetMeasurements() {
+  /// Drop every cached child measurement. Called by the owning container when
+  /// the content feeding those measurements is invalidated — the per-proposal
+  /// cache is otherwise kept alive across measure and place calls so nested
+  /// containers do not re-measure their entire subtree per FFI session.
+  func invalidateMeasurements() {
     for proxy in proxies {
-      proxy.resetMeasurementCache()
+      proxy.invalidateMeasurementCache()
     }
   }
 }
@@ -383,7 +387,7 @@ final class SubViewProxy {
     )
   }
 
-  func resetMeasurementCache() {
+  func invalidateMeasurementCache() {
     measurementCache.removeAll(keepingCapacity: true)
     activeMeasurements.removeAll(keepingCapacity: true)
   }
