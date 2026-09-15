@@ -364,7 +364,7 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
     /// way every UIKit split-view column works — including the collapsed
     /// form, where the system pushes the page and provides the back button.
     /// Popping back through that system back clears the selection via the
-    /// split delegate's `willShow` callback.
+    /// split delegate's `didShow` callback.
     private func destinationController(
       for selected: Int32,
       handle: UnsafeMutablePointer<CWaterUI.WuiNavigationSplitDetail>,
@@ -545,26 +545,26 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
 
     func splitViewController(
       _ splitViewController: UISplitViewController,
-      willShow column: UISplitViewController.Column
+      didShow column: UISplitViewController.Column
     ) {
       guard splitViewController.isCollapsed else { return }
-      // Deferred one hop: this fires inside the split view's own layout
-      // transition, and writing the binding immediately re-enters that
-      // transition through the selection watcher (which shows columns).
-      // The write also crosses into Rust, where a panic at this depth
-      // cannot unwind. One main-actor hop runs it after the transition.
+      // Selection follows the column the transition committed to, never the
+      // one it attempted: `willShow` fires as the gesture starts — even a
+      // one-hop deferred write then lands inside the still-running
+      // interactive transition, and the selection watcher answers it by
+      // calling `setViewController`/`show` on a transitioning split. That
+      // swaps the outgoing page for the placeholder under the user's finger,
+      // unbalances the appearance calls, and can make UIKit raise through
+      // the FFI binding write, which cannot unwind. A cancelled pop never
+      // reaches `didShow`, so a released-early gesture leaves the selection
+      // untouched too.
       if column == .primary, primarySelection.value != 0 {
-        let selection = primarySelection
-        Task { @MainActor in
-          if selection.value != 0 { selection.set(0) }
-        }
+        primarySelection.set(0)
       } else if column == .supplementary,
         let secondarySelection,
         secondarySelection.value != 0
       {
-        Task { @MainActor in
-          if secondarySelection.value != 0 { secondarySelection.set(0) }
-        }
+        secondarySelection.set(0)
       }
     }
   }
