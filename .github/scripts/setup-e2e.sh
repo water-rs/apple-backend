@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Prepares a waterui checkout for driving the examples: clones waterui at the
 # ref matching the current flow (main for main-gate, dev otherwise), initializes
-# the submodules example builds resolve (`kit` and `utils/nami` are workspace
-# members, so cargo cannot even read the workspace without them), and replaces
+# whatever submodules that revision still records (none, since
+# water-rs/waterui#937; older revisions carry workspace members there), and replaces
 # `backends/apple` with this repository's tested tree so the suite exercises the
 # commit under test rather than the submodule waterui has pinned. The committed
 # FFI header is then synced from the cloned waterui, matching what
@@ -26,7 +26,7 @@ fi
 echo "Using waterui ref: ${waterui_ref}"
 rm -rf "${waterui_dir}"
 git clone --depth 1 --branch "${waterui_ref}" https://github.com/water-rs/waterui.git "${waterui_dir}"
-git -C "${waterui_dir}" submodule update --init --depth 1 kit utils/nami
+git -C "${waterui_dir}" submodule update --init --depth 1
 
 # The CLI tracks the integration branch; there is no released channel to pin
 # for a development flow.
