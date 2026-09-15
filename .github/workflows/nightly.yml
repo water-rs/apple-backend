@@ -11,12 +11,22 @@ name: Nightly E2E
 # backend daily (#4). A red run opens one tracking issue and keeps it current.
 # Dispatching with `record_baselines` captures fresh baselines and parity
 # budgets and opens a PR containing them.
+#
+# Shape (#156): `prepare` builds the water CLI once and hands it to every
+# shard as an artifact — seventeen macOS jobs each running `cargo install`
+# cost ~110 macOS-minutes a night for one binary. The release-metrics job
+# (a single ~105-minute macOS job) is a weekly signal, not a nightly one:
+# it runs on the Sunday schedule and on dispatch.
 
 on:
-  # Off-peak UTC, staggered against the waterui nightly (03:17) so the two
-  # suites do not compete for the org's macOS job cap.
+  # Off-peak UTC, staggered against the other nightlies (winui 02:00, cli
+  # 03:13, android 04:23, gtk 06:47, waterui 08:11) so the suites do not
+  # compete for the org's macOS job cap. The Sunday entry is the weekly
+  # run that also measures release metrics; `github.event.schedule` tells
+  # the two apart.
   schedule:
-    - cron: "23 5 * * *"
+    - cron: "23 5 * * 1-6"
+    - cron: "23 5 * * 0"
   workflow_dispatch:
     inputs:
       record_baselines:
@@ -50,8 +60,43 @@ env:
   SHARD_TOTAL: 8
 
 jobs:
+  prepare:
+    name: prepare
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      # The CLI's own target directory, cached under its own key: it shares
+      # nothing with the framework builds the shards perform.
+      CARGO_TARGET_DIR: ${{ github.workspace }}/water-cli/target
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare waterui with this backend
+        run: ./.github/scripts/setup-e2e.sh
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: nightly-cli
+          workspaces: water-cli
+
+      - name: Build the water CLI
+        run: cargo install --path "${WATER_CLI_DIR:-water-cli}" --locked --root "${{ github.workspace }}/cli-bin"
+
+      - name: Upload the water CLI
+        uses: actions/upload-artifact@v4
+        with:
+          name: water-cli
+          path: cli-bin/bin/water
+          retention-days: 1
+          if-no-files-found: error
+
   e2e-ios:
     name: e2e-ios-${{ matrix.shard }}
+    needs: prepare
     runs-on: macos-26
     strategy:
       fail-fast: false
@@ -74,8 +119,14 @@ jobs:
           shared-key: nightly-e2e-ios
           cache-directories: waterui/target
 
-      - name: Install water CLI
-        run: cargo install --path "${WATER_CLI_DIR:-water-cli}" --locked
+      - name: Install the water CLI
+        uses: actions/download-artifact@v4
+        with:
+          name: water-cli
+          path: cli-bin/bin
+      - run: |
+          chmod +x cli-bin/bin/water
+          echo "${{ github.workspace }}/cli-bin/bin" >> "$GITHUB_PATH"
 
       - name: Boot iOS simulator
         run: |
@@ -149,6 +200,7 @@ jobs:
 
   e2e-macos:
     name: e2e-macos-${{ matrix.shard }}
+    needs: prepare
     runs-on: macos-26
     strategy:
       fail-fast: false
@@ -169,8 +221,14 @@ jobs:
           shared-key: nightly-e2e-macos
           cache-directories: waterui/target
 
-      - name: Install water CLI
-        run: cargo install --path "${WATER_CLI_DIR:-water-cli}" --locked
+      - name: Install the water CLI
+        uses: actions/download-artifact@v4
+        with:
+          name: water-cli
+          path: cli-bin/bin
+      - run: |
+          chmod +x cli-bin/bin/water
+          echo "${{ github.workspace }}/cli-bin/bin" >> "$GITHUB_PATH"
 
       - name: Run macOS e2e shard
         env:
@@ -322,6 +380,11 @@ jobs:
   # build to record first-paint latency and peak RSS in release-metrics.json.
   package-size:
     name: release-metrics
+    needs: prepare
+    # Weekly (the Sunday schedule) and on dispatch: a ~105-minute macOS job
+    # measuring release size, startup and memory is a trend series, not a
+    # nightly gate, and on the other six nights its slot goes to the shards.
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '23 5 * * 0'
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
@@ -339,8 +402,14 @@ jobs:
         with:
           shared-key: nightly-package-size
 
-      - name: Install water CLI
-        run: cargo install --path "${WATER_CLI_DIR:-water-cli}" --locked
+      - name: Install the water CLI
+        uses: actions/download-artifact@v4
+        with:
+          name: water-cli
+          path: cli-bin/bin
+      - run: |
+          chmod +x cli-bin/bin/water
+          echo "${{ github.workspace }}/cli-bin/bin" >> "$GITHUB_PATH"
 
       - name: Boot iOS simulator
         run: |
