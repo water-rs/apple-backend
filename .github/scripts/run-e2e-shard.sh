@@ -173,9 +173,11 @@ capture_reference() {
   local target="$1" example="$2" title="$3"
   build_reference_host || return 1
   if [[ "${platform}" == "ios" ]]; then
-    xcrun simctl install "${SIMULATOR_UDID}" "${reference_app}" >/dev/null
+    # A failed install/launch used to slide through and screenshot the home
+    # screen — which then compared as a bogus ~95% parity regression (#147).
+    xcrun simctl install "${SIMULATOR_UDID}" "${reference_app}" >/dev/null || return 1
     xcrun simctl launch "${SIMULATOR_UDID}" dev.waterui.E2EReference \
-      -E2EExample "${example}" -E2ETitle "${title}" >/dev/null
+      -E2EExample "${example}" -E2ETitle "${title}" >/dev/null || return 1
     sleep 2
     capture_settled "${target}"
     local rc=$?
