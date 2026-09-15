@@ -104,7 +104,11 @@ final class WuiBadge: PlatformView, WuiComponent {
 
   private func layoutIndicator() {
     let size = indicator.indicatorSize()
-    let isRTL = userInterfaceLayoutDirection == .rightToLeft
+    #if canImport(UIKit)
+      let isRTL = effectiveUserInterfaceLayoutDirection == .rightToLeft
+    #elseif canImport(AppKit)
+      let isRTL = userInterfaceLayoutDirection == .rightToLeft
+    #endif
     let x: CGFloat
     if isRTL {
       x = bounds.minX + indicator.horizontalOffset - size.width
