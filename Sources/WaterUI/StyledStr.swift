@@ -236,6 +236,16 @@ struct WuiTextStyle {
   }
 }
 
+/// Splits a CSS-style family list ("Roboto, sans-serif") into the candidate
+/// order a lookup should try: each comma-separated family, trimmed. A single
+/// name returns a one-element list, preserving exact-family semantics.
+private func fontFamilyCandidates(_ familyName: String) -> [String] {
+  familyName
+    .split(separator: ",")
+    .map { $0.trimmingCharacters(in: .whitespaces) }
+    .filter { !$0.isEmpty }
+}
+
 struct WuiResolvedFontValue {
   let size: Float
   let weight: CWaterUI.WuiFontWeight
@@ -257,11 +267,13 @@ struct WuiResolvedFontValue {
       let weight = weight.toUIFontWeight()
 
       if !familyName.isEmpty {
-        if let genericFont = genericUIFont(familyName: familyName, size: size, weight: weight) {
-          return genericFont
-        }
-        if let customFont = UIFont(name: familyName, size: size) {
-          return customFont
+        for candidate in fontFamilyCandidates(familyName) {
+          if let genericFont = genericUIFont(familyName: candidate, size: size, weight: weight) {
+            return genericFont
+          }
+          if let customFont = UIFont(name: candidate, size: size) {
+            return customFont
+          }
         }
         fatalError(
           "WaterUI: Font family '\(familyName)' not found. Ensure the font is bundled and registered."
@@ -284,11 +296,13 @@ struct WuiResolvedFontValue {
       let weight = weight.toNSFontWeight()
 
       if !familyName.isEmpty {
-        if let genericFont = genericNSFont(familyName: familyName, size: size, weight: weight) {
-          return genericFont
-        }
-        if let customFont = NSFont(name: familyName, size: size) {
-          return customFont
+        for candidate in fontFamilyCandidates(familyName) {
+          if let genericFont = genericNSFont(familyName: candidate, size: size, weight: weight) {
+            return genericFont
+          }
+          if let customFont = NSFont(name: candidate, size: size) {
+            return customFont
+          }
         }
         fatalError(
           "WaterUI: Font family '\(familyName)' not found. Ensure the font is bundled and registered."
