@@ -314,9 +314,16 @@ for example in ${shard_examples[@]+"${shard_examples[@]}"}; do
       fi
       kill "${runner_pid}" 2>/dev/null || true
     else
-      echo "::error::water package failed for ${example} (${platform})."
-      failures+=("${example}: package")
-      report+=("| \`${example}\` | package failed | — | — | — | ${mem_cell} |")
+      if grep -qi "unsupported for" "${run_log}"; then
+        # The CLI refused a platform-impossible configuration (e.g. a CEF
+        # WebView on iOS) — by-design, not a defect (#154). Skipped, not failed.
+        echo "::notice::${example} is unsupported on ${platform}; skipping."
+        report+=("| \`${example}\` | skipped (unsupported) | — | — | — | ${mem_cell} |")
+      else
+        echo "::error::water package failed for ${example} (${platform})."
+        failures+=("${example}: package")
+        report+=("| \`${example}\` | package failed | — | — | — | ${mem_cell} |")
+      fi
     fi
     printf '  "%s": null,\n' "${example}" >> "${startup_entries}"
     printf '  "%s": null,\n' "${example}" >> "${memory_entries}"
