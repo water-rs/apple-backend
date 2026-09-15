@@ -83,6 +83,15 @@ final class WuiFixedContainer: PlatformView, WuiComponent {
     }
   #endif
 
+  /// Content feeding the cached child measurements invalidated — a
+  /// descendant's `invalidateLayoutHierarchy` and the Rust layout watcher's
+  /// `WuiLayoutInvalidationTarget` both funnel through here. Drop the
+  /// per-proposal caches so the next layout pass re-measures.
+  override func invalidateIntrinsicContentSize() {
+    cachedSubViews?.invalidateMeasurements()
+    super.invalidateIntrinsicContentSize()
+  }
+
   func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
     measure(proposal).cgSize
   }
