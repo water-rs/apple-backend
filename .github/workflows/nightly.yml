@@ -128,6 +128,7 @@ jobs:
           path: |
             e2e-logs/startup-times-*.json
             e2e-logs/memory-*.json
+            e2e-logs/package-sizes-*.json
           retention-days: 90
 
       - name: Upload iOS shard logs
@@ -199,6 +200,7 @@ jobs:
           path: |
             e2e-logs/startup-times-*.json
             e2e-logs/memory-*.json
+            e2e-logs/package-sizes-*.json
           retention-days: 90
 
       - name: Upload macOS shard logs
@@ -217,10 +219,11 @@ jobs:
           path: e2e-baselines/
           retention-days: 7
 
-  # Every shard uploads one startup-times JSON and one memory JSON; this job
-  # merges them into launch-timing + footprint artifacts and a step-summary
-  # table so a slow or bloated example is visible without digging through
-  # eight archives.
+  # Every shard uploads one startup-times JSON, one memory JSON, and one
+  # package-size JSON; this job merges them into launch-timing + footprint +
+  # size artifacts and a step-summary table so a slow or bloated example is
+  # visible without digging through eight archives. All measurements come from
+  # the release packages the shards built.
   startup-report:
     name: startup-report
     if: always()
@@ -241,6 +244,7 @@ jobs:
           import glob, json, os, re
           merged = {"ios": {}, "macos": {}}
           memory = {"ios": {}, "macos": {}}
+          sizes = {"ios": {}, "macos": {}}
           for path in sorted(glob.glob("startup/*/startup-times-*.json")):
               m = re.search(r"startup-times-(ios|macos)-\d+\.json$", path)
               if not m:
@@ -259,27 +263,44 @@ jobs:
                       memory[m.group(1)].update(json.load(f))
               except Exception:
                   pass
+          for path in sorted(glob.glob("startup/*/package-sizes-*.json")):
+              m = re.search(r"package-sizes-(ios|macos)-\d+\.json$", path)
+              if not m:
+                  continue
+              try:
+                  with open(path) as f:
+                      sizes[m.group(1)].update(json.load(f))
+              except Exception:
+                  pass
           with open("startup-times.json", "w") as f:
               json.dump(merged, f, indent=2, sort_keys=True)
               f.write("\n")
           with open("memory-footprints.json", "w") as f:
               json.dump(memory, f, indent=2, sort_keys=True)
               f.write("\n")
+          with open("package-sizes.json", "w") as f:
+              json.dump(sizes, f, indent=2, sort_keys=True)
+              f.write("\n")
           examples = sorted(set(merged["ios"]) | set(merged["macos"]))
-          rows = ["| Example | iOS paint (debug) | macOS paint (debug) | iOS peak RSS (debug) | macOS peak RSS (debug) |",
-                  "| --- | --- | --- | --- | --- |"]
+          rows = ["| Example | iOS .app | macOS .app | iOS paint | macOS paint | iOS peak RSS | macOS peak RSS |",
+                  "| --- | --- | --- | --- | --- | --- | --- |"]
           for name in examples:
               cells = []
+              for plat in ("ios", "macos"):
+                  size = sizes[plat].get(name)
+                  cells.append(f"{size['app_bytes'] / 1048576:.1f} MB" if isinstance(size, dict)
+                               else "—" if name in sizes[plat] else "not run")
               for plat in ("ios", "macos"):
                   ms = merged[plat].get(name)
                   cells.append(f"{ms} ms" if isinstance(ms, (int, float))
                                else "—" if name in merged[plat] else "not run")
+              for plat in ("ios", "macos"):
                   rss = memory[plat].get(name)
                   cells.append(f"{rss / 1048576:.1f} MB" if isinstance(rss, (int, float))
                                else "—" if name in memory[plat] else "not run")
-              rows.append(f"| `{name}` | {cells[0]} | {cells[2]} | {cells[1]} | {cells[3]} |")
+              rows.append(f"| `{name}` | {cells[0]} | {cells[1]} | {cells[2]} | {cells[3]} | {cells[4]} | {cells[5]} |")
           with open("startup-summary.md", "w") as f:
-              f.write("## Per-example launch to first paint / peak RSS (debug `water run`)\n\n" + "\n".join(rows) + "\n")
+              f.write("## Per-example release metrics (packaged `.app` builds)\n\n" + "\n".join(rows) + "\n")
           PY
           cat startup-summary.md >> "${GITHUB_STEP_SUMMARY}"
 
@@ -290,6 +311,7 @@ jobs:
           path: |
             startup-times.json
             memory-footprints.json
+            package-sizes.json
           retention-days: 90
 
   # A minimal hello-world app is almost all framework: its release .app size

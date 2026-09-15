@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
-# Nightly e2e shard. For every example assigned to this shard: build it, launch
-# it, wait for the app's own readiness log, capture a settled screenshot, and
-# verify it — a capture must carry real content (not a uniform fill), and when
-# a recorded baseline exists under Tests/E2EBaselines it must match within the
-# compare budget. A `.skip` marker next to a baseline opts an example out of
-# pixel comparison only; launch and content are still verified. With RECORD=1,
-# captures are written to ${RECORD_DIR} for the baseline-publish job instead of
-# being compared. Failures are collected so one broken example does not hide
-# the state of the rest; the script exits nonzero if any example failed.
+# Nightly e2e shard. For every example assigned to this shard: package it in
+# release mode, record the .app and executable sizes, launch the packaged app
+# directly, capture the self-reported first-paint marker, sample peak RSS, and
+# verify a settled screenshot — a capture must carry real content (not a
+# uniform fill), and when a recorded baseline exists under Tests/E2EBaselines
+# it must match within the compare budget. A `.skip` marker next to a baseline
+# opts an example out of pixel comparison only; launch and content are still
+# verified. With RECORD=1, captures are written to ${RECORD_DIR} for the
+# baseline-publish job instead of being compared. Failures are collected so one
+# broken example does not hide the state of the rest; the script exits nonzero
+# if any example failed.
+#
+# The shard measures the release package, never a debug `water run`: the
+# packaged artifact is what users ship, so size, startup, memory, and pixel
+# parity all describe the production binary.
 set -euo pipefail
 
 platform="${PLATFORM:-${1:-}}"
@@ -47,8 +53,10 @@ fi
 mkdir -p "${logs_dir}" "${shots_dir}"
 startup_entries="${logs_dir}/.startup-${platform}-${shard_index}.entries"
 memory_entries="${logs_dir}/.memory-${platform}-${shard_index}.entries"
+size_entries="${logs_dir}/.size-${platform}-${shard_index}.entries"
 : > "${startup_entries}"
 : > "${memory_entries}"
+: > "${size_entries}"
 if [[ "${record}" == "1" ]]; then
   mkdir -p "${record_dir}/${platform}"
 fi
@@ -72,6 +80,7 @@ if (( ${#shard_examples[@]} == 0 )); then
   echo "Shard ${shard_index}/${shard_total} has no examples for ${platform}."
   echo "{}" > "${logs_dir}/startup-times-${platform}-${shard_index}.json"
   echo "{}" > "${logs_dir}/memory-${platform}-${shard_index}.json"
+  echo "{}" > "${logs_dir}/package-sizes-${platform}-${shard_index}.json"
   exit 0
 fi
 
@@ -203,13 +212,27 @@ except Exception:
   echo "${budget:-${DIFF_BUDGET:-0.02}}"
 }
 
+# `water package` emits `Packaged at <path>` on success; resolve the bundle it
+# names, falling back to the newest .app under the build cache.
+find_packaged_app() {
+  local log_file="$1" example_path="$2" app_path
+  app_path="$(sed -n 's/.*Packaged at //p' "${log_file}" | tail -1 | sed 's/\x1b\[[0-9;]*m//g' | tr -d '\r')"
+  if [[ -z "${app_path}" || ! -d "${app_path}" ]]; then
+    app_path="$(find "${example_path}" "${HOME}/.water/build_cache" -name "*.app" -type d -print -quit 2>/dev/null || true)"
+  fi
+  [[ -n "${app_path}" && -d "${app_path}" ]] && echo "${app_path}"
+}
+
 declare -a failures=()
 declare -a report=()
 
 for example in ${shard_examples[@]+"${shard_examples[@]}"}; do
   mem_cell="—"
+  fp_cell="—"
+  size_cell="—"
   example_path="${waterui_dir}/examples/${example}"
   run_log="${logs_dir}/${platform}-${example}.log"
+  marker_log="${logs_dir}/${platform}-${example}-marker.log"
   shot="${shots_dir}/${platform}-${example}.png"
   rm -f "${shot}"
 
@@ -219,34 +242,30 @@ for example in ${shard_examples[@]+"${shard_examples[@]}"}; do
   # executable inside the built .app bundle.
   product="$(sed -n 's/^name = "\([^"]*\)"$/\1/p' "${example_path}/Water.toml" | head -1)"
   bundle_id="$(sed -n 's/^bundle_identifier = "\([^"]*\)"$/\1/p' "${example_path}/Water.toml" | head -1)"
+  package_platform="macos"
+  [[ "${platform}" == "ios" ]] && package_platform="ios-simulator"
 
-  # `--logs info` streams the app's own dev.waterui log lines back into the
-  # run log, which is where the backend's launch-time marker lands (#88).
   : > "${run_log}"
-  if [[ "${platform}" == "ios" ]]; then
-    water run --platform ios --path "${example_path}" --device "${SIMULATOR_UDID}" --logs info > "${run_log}" 2>&1 &
-  else
-    water run --platform macos --path "${example_path}" --logs info > "${run_log}" 2>&1 &
-  fi
+  : > "${marker_log}"
+  water package --platform "${package_platform}" --backend apple --release \
+    --path "${example_path}" > "${run_log}" 2>&1 &
   runner_pid=$!
 
-  # The wait covers `water run`'s cold Rust build plus the launch, not just the
-  # launch: without a shared sccache a first-in-shard example compiles for tens
-  # of minutes. The bound is therefore on *silence*, not duration — a build
-  # that is writing to the log or running compiler processes is making
-  # progress and must not be killed (#140). A dead runner still short-circuits,
-  # and a hard ceiling caps genuinely hung cases.
-  ready=0
+  # The wait covers `water package`'s cold release build, not just a launch:
+  # without a shared sccache a first-in-shard example compiles for tens of
+  # minutes, and release codegen runs longer than debug. The bound is
+  # therefore on *silence*, not duration — a build that is writing to the log
+  # or running compiler processes is making progress and must not be killed
+  # (#140). A dead runner still short-circuits, and a hard ceiling caps hung
+  # cases.
+  built=0
   stuck=0
   log_size=-1
   silent_since=${SECONDS}
   deadline=$((SECONDS + 2700))
   while (( SECONDS < deadline )); do
     if ! kill -0 "${runner_pid}" 2>/dev/null; then
-      break
-    fi
-    if grep -q "Application started" "${run_log}"; then
-      ready=1
+      if wait "${runner_pid}"; then built=1; fi
       break
     fi
     new_size=$(stat -f%z "${run_log}" 2>/dev/null || echo -1)
@@ -262,97 +281,145 @@ for example in ${shard_examples[@]+"${shard_examples[@]}"}; do
     sleep 2
   done
 
-  if (( ready == 0 )); then
+  app_path=""
+  if (( built == 1 )); then
+    app_path="$(find_packaged_app "${run_log}" "${example_path}")"
+  fi
+  if [[ -n "${app_path}" ]]; then
+    app_bytes="$(find "${app_path}" -type f -exec stat -f%z {} + | awk '{s+=$1} END {print s}')"
+    if [[ "${platform}" == "macos" ]]; then
+      executable="${app_path}/Contents/MacOS/$(basename "${app_path}" .app)"
+    else
+      executable="${app_path}/$(basename "${app_path}" .app)"
+    fi
+    executable_bytes="$(stat -f%z "${executable}")"
+    printf '  "%s": { "app_bytes": %s, "executable_bytes": %s },\n' \
+      "${example}" "${app_bytes}" "${executable_bytes}" >> "${size_entries}"
+    size_cell="$(awk -v b="${app_bytes}" 'BEGIN{printf "%.1f MB", b/1048576}')"
+    echo "::notice::${example} packaged: .app=${app_bytes}B executable=${executable_bytes}B (${platform})"
+  fi
+
+  if [[ -z "${app_path}" ]]; then
     if kill -0 "${runner_pid}" 2>/dev/null; then
       if (( stuck == 1 )); then
-        echo "::error::No build progress for 5 minutes waiting for readiness for ${example} (${platform}); declaring the runner stuck."
-        failures+=("${example}: launch stuck")
-        report+=("| \`${example}\` | launch stuck | — | — | ${mem_cell} |")
+        echo "::error::No build progress for 5 minutes packaging ${example} (${platform}); declaring the runner stuck."
+        failures+=("${example}: package stuck")
+        report+=("| \`${example}\` | package stuck | — | — | — | ${mem_cell} |")
       else
-        echo "::error::Readiness ceiling (45 min) exceeded for ${example} (${platform})."
-        failures+=("${example}: launch timeout")
-        report+=("| \`${example}\` | launch timeout | — | — | ${mem_cell} |")
+        echo "::error::Packaging ceiling (45 min) exceeded for ${example} (${platform})."
+        failures+=("${example}: package timeout")
+        report+=("| \`${example}\` | package timeout | — | — | — | ${mem_cell} |")
       fi
       kill "${runner_pid}" 2>/dev/null || true
-      printf '  "%s": null,\n' "${example}" >> "${startup_entries}"
     else
-      echo "::error::water run failed for ${example} (${platform})."
-      failures+=("${example}: build/launch")
-      report+=("| \`${example}\` | build/launch failed | — | — | ${mem_cell} |")
-      printf '  "%s": null,\n' "${example}" >> "${startup_entries}"
+      echo "::error::water package failed for ${example} (${platform})."
+      failures+=("${example}: package")
+      report+=("| \`${example}\` | package failed | — | — | — | ${mem_cell} |")
     fi
+    printf '  "%s": null,\n' "${example}" >> "${startup_entries}"
+    printf '  "%s": null,\n' "${example}" >> "${memory_entries}"
+    printf '  "%s": null,\n' "${example}" >> "${size_entries}"
     tail -n 120 "${run_log}" || true
     wait "${runner_pid}" || true
     echo "::endgroup::"
     continue
   fi
 
-  # Launch-to-first-paint, self-reported by the backend (#88): the app logs
-  # `waterui_first_paint_ms=N` once its first window paints. The os_log stream
-  # races the launch, so give the marker a short grace window and record
-  # whatever arrived — a missing marker is data, not a failure.
-  startup_ms=""
-  for _ in $(seq 1 10); do
-    startup_ms="$(sed -n 's/.*waterui_first_paint_ms=\([0-9][0-9]*\).*/\1/p' "${run_log}" | head -1)"
-    [[ -n "${startup_ms}" ]] && break
-    sleep 1
-  done
-  if [[ -n "${startup_ms}" ]]; then
-    echo "::notice::${example} first paint in ${startup_ms} ms (${platform})"
-    printf '  "%s": %s,\n' "${example}" "${startup_ms}" >> "${startup_entries}"
-    fp_cell="${startup_ms} ms"
-  else
-    echo "::warning::${example} did not report a first-paint time"
-    printf '  "%s": null,\n' "${example}" >> "${startup_entries}"
-    fp_cell="—"
-  fi
-
+  # Launch the packaged release app directly. The log stream attaches BEFORE
+  # the launch — inside the simulator on iOS, where the app's logd actually
+  # lives — so the first-paint marker cannot be lost to an attach race. A
+  # missing marker after the grace window is data (the app ran, the marker
+  # pipeline broke), not a launch failure.
+  stream_pid=""
   app_pid=""
+  exec_name="$(basename "${app_path}" .app)"
   if [[ "${platform}" == "macos" ]]; then
-    # The window server only knows the app once it has presented; poll briefly
-    # past the readiness log before declaring the process missing.
-    for _ in $(seq 1 10); do
-      app_pid="$(pgrep -f "${product}\.app/Contents/MacOS/" | head -1 || true)"
-      [[ -n "${app_pid}" ]] && break
-      sleep 1
-    done
+    log stream --predicate 'subsystem == "dev.waterui"' --style compact \
+      > "${marker_log}" 2>/dev/null &
+    stream_pid=$!
+    sleep 1
+    "${app_path}/Contents/MacOS/${exec_name}" >/dev/null 2>&1 &
+    app_pid=$!
+    sleep 1
+    if ! kill -0 "${app_pid}" 2>/dev/null; then
+      kill "${stream_pid}" 2>/dev/null || true
+      echo "::error::${example} packaged app exited during launch (${platform})."
+      failures+=("${example}: launch")
+      report+=("| \`${example}\` | launch failed | — | — | ${size_cell} | ${mem_cell} |")
+      printf '  "%s": null,\n' "${example}" >> "${startup_entries}"
+      printf '  "%s": null,\n' "${example}" >> "${memory_entries}"
+      echo "::endgroup::"
+      continue
+    fi
+  else
+    if ! xcrun simctl install "${SIMULATOR_UDID}" "${app_path}"; then
+      echo "::error::${example} packaged app failed to install in the simulator."
+      failures+=("${example}: install")
+      report+=("| \`${example}\` | install failed | — | — | ${size_cell} | ${mem_cell} |")
+      printf '  "%s": null,\n' "${example}" >> "${startup_entries}"
+      printf '  "%s": null,\n' "${example}" >> "${memory_entries}"
+      echo "::endgroup::"
+      continue
+    fi
+    xcrun simctl spawn "${SIMULATOR_UDID}" log stream --level info \
+      --predicate 'subsystem == "dev.waterui"' --style compact \
+      > "${marker_log}" 2>/dev/null &
+    stream_pid=$!
+    sleep 1
+    app_pid="$(xcrun simctl launch "${SIMULATOR_UDID}" "${bundle_id}" | awk -F': ' '{print $2}')"
     if [[ -z "${app_pid}" ]]; then
-      echo "::error::No running process found for ${example}."
-      kill "${runner_pid}" 2>/dev/null || true
-      wait "${runner_pid}" || true
-      failures+=("${example}: no process")
-      report+=("| \`${example}\` | no process | — | ${fp_cell} | ${mem_cell} |")
+      kill "${stream_pid}" 2>/dev/null || true
+      echo "::error::${example} packaged app failed to launch in the simulator."
+      failures+=("${example}: launch")
+      report+=("| \`${example}\` | launch failed | — | — | ${size_cell} | ${mem_cell} |")
+      printf '  "%s": null,\n' "${example}" >> "${startup_entries}"
+      printf '  "%s": null,\n' "${example}" >> "${memory_entries}"
       echo "::endgroup::"
       continue
     fi
   fi
 
+  startup_ms=""
+  for _ in $(seq 1 30); do
+    startup_ms="$(sed -n 's/.*waterui_first_paint_ms=\([0-9][0-9]*\).*/\1/p' "${marker_log}" | head -1)"
+    [[ -n "${startup_ms}" ]] && break
+    sleep 1
+  done
+  if [[ -n "${startup_ms}" ]]; then
+    echo "::notice::${example} first paint in ${startup_ms} ms (${platform}, release)"
+    printf '  "%s": %s,\n' "${example}" "${startup_ms}" >> "${startup_entries}"
+    fp_cell="${startup_ms} ms"
+  else
+    echo "::warning::${example} did not report a first-paint time"
+    printf '  "%s": null,\n' "${example}" >> "${startup_entries}"
+  fi
+
   if ! capture_settled "${shot}"; then
     echo "::error::Could not capture a screenshot for ${example}."
-    kill "${runner_pid}" 2>/dev/null || true
-    wait "${runner_pid}" || true
+    kill "${stream_pid}" 2>/dev/null || true
+    if [[ "${platform}" == "ios" ]]; then
+      xcrun simctl terminate "${SIMULATOR_UDID}" "${bundle_id}" >/dev/null 2>&1 || true
+      xcrun simctl uninstall "${SIMULATOR_UDID}" "${bundle_id}" >/dev/null 2>&1 || true
+    else
+      kill "${app_pid}" 2>/dev/null || true
+    fi
     failures+=("${example}: capture")
-    report+=("| \`${example}\` | capture failed | — | ${fp_cell} | ${mem_cell} |")
+    report+=("| \`${example}\` | capture failed | — | ${fp_cell} | ${size_cell} | ${mem_cell} |")
+    printf '  "%s": null,\n' "${example}" >> "${memory_entries}"
     echo "::endgroup::"
     continue
   fi
 
   # Post-launch memory footprint: peak resident set sampled over a short idle
-  # window while the app is still up. Simulator apps are host processes, so
-  # `ps` covers both platforms; the iOS pid is recovered from the bundle path
-  # under the booted device's data directory.
-  mem_pid="${app_pid}"
-  if [[ "${platform}" == "ios" ]]; then
-    mem_pid="$(pgrep -f "CoreSimulator/Devices/${SIMULATOR_UDID}/.*${product}\.app/" | head -1 || true)"
-  fi
+  # window while the app is still up. Simulator apps are host processes and
+  # `simctl launch` returned the host pid, so `ps` covers both platforms
+  # directly.
   peak_rss=0
-  if [[ -n "${mem_pid}" ]]; then
-    for _ in $(seq 1 4); do
-      rss="$(ps -o rss= -p "${mem_pid}" 2>/dev/null | tr -d ' ' || true)"
-      if [[ -n "${rss}" ]] && (( rss > peak_rss )); then peak_rss="${rss}"; fi
-      sleep 0.5
-    done
-  fi
+  for _ in $(seq 1 4); do
+    rss="$(ps -o rss= -p "${app_pid}" 2>/dev/null | tr -d ' ' || true)"
+    if [[ -n "${rss}" ]] && (( rss > peak_rss )); then peak_rss="${rss}"; fi
+    sleep 0.5
+  done
   if (( peak_rss > 0 )); then
     printf '  "%s": %s,\n' "${example}" "$(( peak_rss * 1024 ))" >> "${memory_entries}"
     mem_cell="$(awk -v b="${peak_rss}" 'BEGIN{printf "%.0f MB", b/1024}')"
@@ -361,21 +428,18 @@ for example in ${shard_examples[@]+"${shard_examples[@]}"}; do
     mem_cell="—"
   fi
 
-  kill "${runner_pid}" 2>/dev/null || true
-  wait "${runner_pid}" || true
-  # A signal-killed runner cannot forward shutdown to the app, so the launched
-  # process is ended explicitly; otherwise its window stays up and piles onto
-  # the next example's.
-  if [[ "${platform}" == "ios" && -n "${bundle_id}" ]]; then
+  kill "${stream_pid}" 2>/dev/null || true
+  if [[ "${platform}" == "ios" ]]; then
     xcrun simctl terminate "${SIMULATOR_UDID}" "${bundle_id}" >/dev/null 2>&1 || true
-  elif [[ "${platform}" == "macos" ]]; then
+    xcrun simctl uninstall "${SIMULATOR_UDID}" "${bundle_id}" >/dev/null 2>&1 || true
+  else
     kill "${app_pid}" 2>/dev/null || true
   fi
 
   if ! swift "${workspace}/.github/scripts/compare-screenshots.swift" content "${shot}"; then
     echo "::error::Captured screenshot for ${example} is blank."
     failures+=("${example}: blank")
-    report+=("| \`${example}\` | blank capture | — | ${fp_cell} | ${mem_cell} |")
+    report+=("| \`${example}\` | blank capture | — | ${fp_cell} | ${size_cell} | ${mem_cell} |")
     echo "::endgroup::"
     continue
   fi
@@ -383,20 +447,20 @@ for example in ${shard_examples[@]+"${shard_examples[@]}"}; do
   baseline="${baselines_dir}/${platform}/${example}.png"
   if [[ "${record}" == "1" ]]; then
     cp "${shot}" "${record_dir}/${platform}/${example}.png"
-    report+=("| \`${example}\` | recorded | — | ${fp_cell} | ${mem_cell} |")
+    report+=("| \`${example}\` | recorded | — | ${fp_cell} | ${size_cell} | ${mem_cell} |")
   elif [[ -f "${baselines_dir}/${platform}/${example}.skip" ]]; then
-    report+=("| \`${example}\` | launched (compare skipped) | — | ${fp_cell} | ${mem_cell} |")
+    report+=("| \`${example}\` | launched (compare skipped) | — | ${fp_cell} | ${size_cell} | ${mem_cell} |")
   elif [[ ! -f "${baseline}" ]]; then
-    report+=("| \`${example}\` | launched (no baseline yet) | — | ${fp_cell} | ${mem_cell} |")
+    report+=("| \`${example}\` | launched (no baseline yet) | — | ${fp_cell} | ${size_cell} | ${mem_cell} |")
   else
     diff_image="${shots_dir}/${platform}-${example}-diff.png"
     if compare_out="$(swift "${workspace}/.github/scripts/compare-screenshots.swift" \
         compare "${baseline}" "${shot}" "${diff_image}")"; then
-      report+=("| \`${example}\` | baseline match | ${compare_out#compare: } | ${fp_cell} | ${mem_cell} |")
+      report+=("| \`${example}\` | baseline match | ${compare_out#compare: } | ${fp_cell} | ${size_cell} | ${mem_cell} |")
     else
       echo "::error::Screenshot regression for ${example}: ${compare_out}"
       failures+=("${example}: regression")
-      report+=("| \`${example}\` | regression | ${compare_out#compare: } | ${fp_cell} | ${mem_cell} |")
+      report+=("| \`${example}\` | regression | ${compare_out#compare: } | ${fp_cell} | ${size_cell} | ${mem_cell} |")
     fi
   fi
 
@@ -414,12 +478,12 @@ for example in ${shard_examples[@]+"${shard_examples[@]}"}; do
     if ! capture_reference "${ref_shot}" "${example}" "${product}"; then
       echo "::error::Could not capture the SwiftUI reference for ${example}."
       failures+=("${example}: reference capture")
-      report+=("| \`${example}\` (parity) | reference failed | — | ${fp_cell} | ${mem_cell} |")
+      report+=("| \`${example}\` (parity) | reference failed | — | ${fp_cell} | ${size_cell} | ${mem_cell} |")
     elif ! swift "${workspace}/.github/scripts/compare-screenshots.swift" \
         content "${ref_shot}" >/dev/null 2>&1; then
       echo "::error::SwiftUI reference for ${example} captured blank."
       failures+=("${example}: reference blank")
-      report+=("| \`${example}\` (parity) | reference blank | — | ${fp_cell} | ${mem_cell} |")
+      report+=("| \`${example}\` (parity) | reference blank | — | ${fp_cell} | ${size_cell} | ${mem_cell} |")
     elif parity_out="$(DIFF_BUDGET="${budget}" \
         swift "${workspace}/.github/scripts/compare-screenshots.swift" \
         compare "${ref_shot}" "${shot}" "${parity_diff}" 2>&1)"; then
@@ -429,14 +493,14 @@ for example in ${shard_examples[@]+"${shard_examples[@]}"}; do
         mkdir -p "${record_dir}/parity"
         printf '%s\n' "${parity_fraction}" \
           > "${record_dir}/parity/${platform}-${example}.txt"
-        report+=("| \`${example}\` (parity) | recorded ${parity_fraction} | — | ${fp_cell} | ${mem_cell} |")
+        report+=("| \`${example}\` (parity) | recorded ${parity_fraction} | — | ${fp_cell} | ${size_cell} | ${mem_cell} |")
       else
-        report+=("| \`${example}\` (parity) | within budget ${budget} | ${parity_out#compare: } | ${fp_cell} | ${mem_cell} |")
+        report+=("| \`${example}\` (parity) | within budget ${budget} | ${parity_out#compare: } | ${fp_cell} | ${size_cell} | ${mem_cell} |")
       fi
     else
       echo "::error::SwiftUI parity regression for ${example}: ${parity_out} (budget ${budget})"
       failures+=("${example}: parity regression")
-      report+=("| \`${example}\` (parity) | drift over budget ${budget} | ${parity_out#compare: } | ${fp_cell} | ${mem_cell} |")
+      report+=("| \`${example}\` (parity) | drift over budget ${budget} | ${parity_out#compare: } | ${fp_cell} | ${size_cell} | ${mem_cell} |")
     fi
   fi
 
@@ -459,10 +523,17 @@ rm -f "${startup_entries}"
 rm -f "${memory_entries}"
 
 {
+  echo "{"
+  sed '$ s/,$//' "${size_entries}"
+  echo "}"
+} > "${logs_dir}/package-sizes-${platform}-${shard_index}.json"
+rm -f "${size_entries}"
+
+{
   echo "## E2E ${platform} — shard ${shard_index}/${shard_total}"
   echo ""
-  echo "| Example | Result | Diff | First paint | Peak RSS |"
-  echo "| --- | --- | --- | --- | --- |"
+  echo "| Example | Result | Diff | First paint | .app | Peak RSS |"
+  echo "| --- | --- | --- | --- | --- | --- |"
   for row in ${report[@]+"${report[@]}"}; do
     echo "${row}"
   done
