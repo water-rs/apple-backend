@@ -626,8 +626,8 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
       return CGRect(
         x: insets.left,
         y: insets.top,
-        width: bounds.width - insets.left - insets.right,
-        height: bounds.height - insets.top - insets.bottom
+        width: max(bounds.width - insets.left - insets.right, 0),
+        height: max(bounds.height - insets.top - insets.bottom, 0)
       )
     }
   }

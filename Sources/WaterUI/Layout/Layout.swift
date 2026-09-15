@@ -420,6 +420,6 @@ extension CGRect {
   /// Checks if the rect's origin and size are composed of valid, finite numbers.
   var isValidForLayout: Bool {
     origin.x.isValidForLayout && origin.y.isValidForLayout && size.width.isValidForLayout
-      && size.height.isValidForLayout
+      && size.height.isValidForLayout && size.width >= 0 && size.height >= 0
   }
 }

@@ -532,7 +532,7 @@ final class WuiNavigationView: PlatformView, WuiComponent {
         x: 0,
         y: contentTop,
         width: bounds.width,
-        height: bounds.height - contentTop
+        height: max(bounds.height - contentTop, 0)
       )
     #endif
   }
@@ -568,7 +568,7 @@ final class WuiNavigationView: PlatformView, WuiComponent {
         x: 0,
         y: topInset,
         width: bounds.width,
-        height: bounds.height - topInset
+        height: max(bounds.height - topInset, 0)
       )
     }
 
@@ -670,7 +670,7 @@ final class WuiNavigationView: PlatformView, WuiComponent {
         x: 0,
         y: barHeight,
         width: bounds.width,
-        height: bounds.height - barHeight
+        height: max(bounds.height - barHeight, 0)
       )
     }
 

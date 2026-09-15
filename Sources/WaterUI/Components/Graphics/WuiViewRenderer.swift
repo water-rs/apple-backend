@@ -43,6 +43,16 @@ private func captureScale(for display: WuiCaptureDisplay) -> CGFloat {
   #endif
 }
 
+#if canImport(UIKit)
+  /// Capture windows never appear on a display, so the device safe area
+  /// (notch, home indicator) does not apply. Reporting `.zero` keeps a
+  /// snapshot view smaller than those insets from seeing a negative
+  /// safe-area rect.
+  private final class WuiCaptureWindow: UIWindow {
+    override var safeAreaInsets: UIEdgeInsets { .zero }
+  }
+#endif
+
 // MARK: - View Renderer Installation
 
 /// Installs the native view renderer into the environment.
@@ -347,7 +357,7 @@ private func captureViewToRGBA(
   context.fill(CGRect(origin: .zero, size: actualSize))
 
   #if canImport(UIKit)
-    let tempWindow = UIWindow(windowScene: display)
+    let tempWindow = WuiCaptureWindow(windowScene: display)
     tempWindow.frame = CGRect(origin: CGPoint(x: -10_000, y: -10_000), size: actualSize)
     let viewController = UIViewController()
     viewController.view.frame = tempWindow.bounds
