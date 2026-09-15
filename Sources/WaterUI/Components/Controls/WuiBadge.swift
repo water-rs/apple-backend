@@ -52,11 +52,11 @@ final class WuiBadge: PlatformView, WuiComponent {
     #endif
 
     valueObservation = WuiComputedObservation(WuiComputed<Int32>(badge.value)) {
-      [weak self, indicator] count, _ in
-      indicator.count = count
+      [weak self, indicator] value, _ in
+      indicator.value = value
       self?.setNeedsIndicatorLayout()
     }
-    indicator.count = valueObservation!.value
+    indicator.value = valueObservation!.value
 
     // `waterui_resolve_computed_color` reclaims the `Computed<Color>` handle
     // and hands back an env-resolved `Computed<ResolvedColor>` owned here.
@@ -146,12 +146,12 @@ private final class BadgeIndicatorView: PlatformView {
   static let capsuleHorizontalPadding: CGFloat = 4
   static let capsuleFontSize: CGFloat = 11
 
-  var horizontalOffset: CGFloat { count == 0 ? Self.dotSize : 12 }
-  var verticalOffset: CGFloat { count == 0 ? Self.dotSize : 14 }
+  var horizontalOffset: CGFloat { value == 0 ? Self.dotSize : 12 }
+  var verticalOffset: CGFloat { value == 0 ? Self.dotSize : 14 }
 
-  var count: Int32 = 0 {
+  var value: Int32 = 0 {
     didSet {
-      guard count != oldValue else { return }
+      guard value != oldValue else { return }
       updateAccessibility()
       requestDisplay()
     }
@@ -184,15 +184,15 @@ private final class BadgeIndicatorView: PlatformView {
   #endif
 
   func indicatorSize() -> CGSize {
-    guard count != 0 else {
+    guard value != 0 else {
       return CGSize(width: Self.dotSize, height: Self.dotSize)
     }
-    let textSize = countText.size(withAttributes: textAttributes)
+    let textSize = valueText.size(withAttributes: textAttributes)
     let width = ceil(textSize.width) + Self.capsuleHorizontalPadding * 2
     return CGSize(width: max(Self.capsuleHeight, width), height: Self.capsuleHeight)
   }
 
-  private var countText: NSString { "\(count)" as NSString }
+  private var valueText: NSString { "\(value)" as NSString }
 
   private var textAttributes: [NSAttributedString.Key: Any] {
     [
@@ -211,11 +211,11 @@ private final class BadgeIndicatorView: PlatformView {
 
   private func updateAccessibility() {
     #if canImport(UIKit)
-      isAccessibilityElement = count != 0
-      accessibilityLabel = count != 0 ? "\(count)" : nil
+      isAccessibilityElement = value != 0
+      accessibilityLabel = value != 0 ? "\(value)" : nil
     #elseif canImport(AppKit)
-      setAccessibilityElement(count != 0)
-      setAccessibilityLabel(count != 0 ? "\(count)" : nil)
+      setAccessibilityElement(value != 0)
+      setAccessibilityLabel(value != 0 ? "\(value)" : nil)
     #endif
   }
 
@@ -226,7 +226,7 @@ private final class BadgeIndicatorView: PlatformView {
       guard let context = NSGraphicsContext.current?.cgContext else { return }
     #endif
     context.setFillColor(fillColor.cgColor)
-    if count == 0 {
+    if value == 0 {
       context.fillEllipse(in: rect)
       return
     }
@@ -238,14 +238,14 @@ private final class BadgeIndicatorView: PlatformView {
         transform: nil
       ))
     context.fillPath()
-    let textSize = countText.size(withAttributes: textAttributes)
+    let textSize = valueText.size(withAttributes: textAttributes)
     let textRect = CGRect(
       x: rect.midX - textSize.width / 2,
       y: rect.midY - textSize.height / 2,
       width: textSize.width,
       height: textSize.height
     )
-    countText.draw(in: textRect, withAttributes: textAttributes)
+    valueText.draw(in: textRect, withAttributes: textAttributes)
   }
 
   #if canImport(UIKit)
