@@ -1026,7 +1026,7 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
         x: 0,
         y: topInset,
         width: bounds.width,
-        height: bounds.height - topInset
+        height: max(bounds.height - topInset, 0)
       )
       for entry in viewStack {
         entry.view.frame = pageFrame

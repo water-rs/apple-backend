@@ -128,7 +128,14 @@ extension PlatformView {
         ancestor = view.superview
       }
       let rect = bounds.inset(by: insets)
-      return rect.isNull ? CGRect(origin: bounds.origin, size: .zero) : rect
+      // `inset(by:)` does not null out a negative result — a view smaller than
+      // its insets (e.g. an offscreen snapshot window tinier than the device
+      // safe area) would otherwise hand the layout engine a negative rect and
+      // trip `clamp(0.0, <negative>)` inside Rust. `rect.width`/`rect.height`
+      // cannot see it — they call `CGRectGetWidth`/`CGRectGetHeight`, which
+      // return magnitudes — so the check reads the raw `size` fields.
+      return rect.isNull || rect.size.width < 0 || rect.size.height < 0
+        ? CGRect(origin: bounds.origin, size: .zero) : rect
     #elseif canImport(AppKit)
       safeAreaRect
     #endif
