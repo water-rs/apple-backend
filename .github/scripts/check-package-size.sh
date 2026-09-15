@@ -184,19 +184,12 @@ measure_runtime() {
     printf '%s %s %s %s\n' "${label}" "${platform}" "${first_paint}" "${peak_rss}" >> "${work_dir}/runtime.txt"
 }
 
-# Measurement subjects: the generated hello-world (size gate target) plus a
-# few representative examples — a broad widget surface, a real application,
-# and a stress list. Examples resolve the staged backend through their own
-# waterui_path, so these numbers also cover the commit under test.
+# Measurement subject: the generated hello-world — the stable minimal-app
+# signal the size gate applies to. Per-example release sizes/startup/memory
+# are measured by the e2e shards themselves, which package every example in
+# release mode; duplicating example subjects here would pay the packaging
+# cost twice (#144).
 subjects=("helloworld=${project_dir}")
-for example in ${METRICS_EXAMPLES:-gallery reminders stress}; do
-    example_dir="${waterui_dir}/examples/${example}"
-    if [[ -f "${example_dir}/Water.toml" ]]; then
-        subjects+=("${example}=${example_dir}")
-    else
-        echo "::warning::metrics example ${example} not found at ${example_dir}; skipped"
-    fi
-done
 
 failed=0
 for entry in ${subjects[@]+"${subjects[@]}"}; do
