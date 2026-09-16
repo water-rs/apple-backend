@@ -3,7 +3,7 @@
 
 import SwiftUI
 
-private let fruitCardWidth: CGFloat = 152
+private let fruitCardWidth: CGFloat = 160
 
 struct DragDropTwin: View {
   var body: some View {
