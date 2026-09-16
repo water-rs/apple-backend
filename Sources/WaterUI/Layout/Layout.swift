@@ -14,7 +14,7 @@ enum LazyStackAxis: Int32 {
 
 // MARK: - Proposal and Layout Types
 
-public struct WuiProposalSize {
+public struct WuiProposalSize: Equatable {
   public var width: Float?
   public var height: Float?
 
@@ -192,6 +192,23 @@ public struct WuiViewDimensions {
   }
 }
 
+/// A placed child: its frame in the parent's coordinate space paired with the
+/// proposal the layout selected to measure and recursively lay it out.
+///
+/// The proposal is contract data returned by `waterui_layout_place_subviews`
+/// alongside the frame — a layout probes a child under several proposals
+/// before choosing one, so it is never reconstructed from the frame, the
+/// parent's bounds, or whichever probe ran last.
+struct WuiSubviewPlacement {
+  var frame: CGRect
+  var proposal: WuiProposalSize
+
+  init(_ raw: CWaterUI.WuiSubviewPlacement) {
+    self.frame = WuiRect(raw.frame).cgRect
+    self.proposal = WuiProposalSize(raw.proposal)
+  }
+}
+
 // MARK: - Layout Engine
 
 @MainActor
@@ -248,17 +265,35 @@ final class WuiLayout {
     return WuiViewDimensions(dimensions)
   }
 
-  /// Place children within the given bounds.
-  /// Returns a rect for each child specifying its position and size.
-  func place(
+  /// Place children within the given bounds under the selected proposal.
+  ///
+  /// `proposal` is the same value the container was measured with — it selects
+  /// which of a layout's possible distributions the placement realizes. The
+  /// returned [`WuiSubviewPlacement`] values pair each child's frame with the
+  /// proposal negotiated for it, which is what the child's own layout pass
+  /// must receive verbatim.
+  func placeSubviews(
     bounds: CGRect,
+    proposal: WuiProposalSize,
     children: CachedSubViewArray
-  ) -> [CGRect] {
+  ) -> [WuiSubviewPlacement] {
     let boundsRaw = WuiRect(bounds).toCStruct()
-    let rects = waterui_layout_place(inner, boundsRaw, children.ffiArray)
-    let rawArray = unsafeBitCast(rects, to: CWaterUI.WuiArray.self)
-    let bridged = WuiArray<CWaterUI.WuiRect>(c: rawArray)
-    return bridged.map { WuiRect($0).cgRect }
+    let placements = waterui_layout_place_subviews(
+      inner,
+      boundsRaw,
+      proposal.toCStruct(),
+      children.ffiArray
+    )
+    return WuiArray<CWaterUI.WuiSubviewPlacement>(placements).map(WuiSubviewPlacement.init)
+  }
+
+  /// The layout's live stretch answer computed from the children's current
+  /// stretch axes — the query `NativeView::stretch_axis` runs Rust-side,
+  /// forwarded here so containers re-resolve it as their children change.
+  func stretchAxis(childAxes: [WuiStretchAxis]) -> WuiStretchAxis {
+    let axes = WuiArray<CWaterUI.WuiStretchAxis>(array: childAxes.map { $0.ffiValue })
+    let result = waterui_layout_stretch_axis(inner, axes.intoWuiStretchAxisArray())
+    return WuiStretchAxis(result)
   }
 
   func lazyStackAxis() -> LazyStackAxis {
@@ -319,16 +354,6 @@ final class CachedSubViewArray {
     )
     return unsafeBitCast(raw, to: CWaterUI.WuiArray_WuiSubView.self)
   }
-
-  /// Drop every cached child measurement. Called by the owning container when
-  /// the content feeding those measurements is invalidated — the per-proposal
-  /// cache is otherwise kept alive across measure and place calls so nested
-  /// containers do not re-measure their entire subtree per FFI session.
-  func invalidateMeasurements() {
-    for proxy in proxies {
-      proxy.invalidateMeasurementCache()
-    }
-  }
 }
 
 /// A proxy for child views that provides measurement via callback.
@@ -385,11 +410,6 @@ final class SubViewProxy {
       stretch_axis: stretchAxis.ffiValue,
       priority: priority
     )
-  }
-
-  func invalidateMeasurementCache() {
-    measurementCache.removeAll(keepingCapacity: true)
-    activeMeasurements.removeAll(keepingCapacity: true)
   }
 
   private func measureCached(_ proposal: WuiProposalSize) -> WuiViewDimensions {

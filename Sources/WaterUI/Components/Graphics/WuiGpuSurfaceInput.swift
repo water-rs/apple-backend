@@ -772,7 +772,7 @@
     /// host deliberately mirrors none of it. Every position below is an offset
     /// into the text currently being composed.
     @MainActor
-    final class WuiGpuSurfaceInputResponder: UIView, @preconcurrency UITextInput {
+    final class WuiGpuSurfaceInputResponder: UIView, UITextInput {
       private let carrier: WuiGpuSurfaceInputCarrier
       /// The pre-edit text the input method is currently composing.
       private var markedText = ""

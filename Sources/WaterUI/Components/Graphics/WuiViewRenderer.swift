@@ -304,7 +304,10 @@ private func captureViewToRGBA(
     height: resolvedDimension(measuredSize.height, proposed: proposedSize.height)
   )
 
-  // Layout the view at actual content size
+  // Layout the view at actual content size. The render boundary's offer is
+  // the proposed size the view was measured under — delivered so a container
+  // subtree does not infer a different proposal from the stamped frame.
+  view.setPlacementProposal(WuiProposalSize(size: proposedSize))
   view.frame = CGRect(origin: .zero, size: actualSize)
 
   #if canImport(UIKit)

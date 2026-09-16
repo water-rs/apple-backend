@@ -245,6 +245,7 @@ final class WuiNavigationDestinationState {
 
       if let principal {
         principal.removeFromSuperview()
+        principal.setPlacementProposal(WuiProposalSize())
         principal.frame = CGRect(origin: .zero, size: principal.sizeThatFits(WuiProposalSize()))
         navigationItem.titleView = principal
       }
@@ -252,6 +253,7 @@ final class WuiNavigationDestinationState {
       if !leadingViews.isEmpty {
         for view in leadingViews {
           view.removeFromSuperview()
+          view.setPlacementProposal(WuiProposalSize())
           view.frame = CGRect(origin: .zero, size: view.sizeThatFits(WuiProposalSize()))
         }
         navigationItem.leftItemsSupplementBackButton = true
@@ -263,6 +265,7 @@ final class WuiNavigationDestinationState {
       if !trailingViews.isEmpty {
         for view in trailingViews {
           view.removeFromSuperview()
+          view.setPlacementProposal(WuiProposalSize())
           view.frame = CGRect(origin: .zero, size: view.sizeThatFits(WuiProposalSize()))
         }
         navigationItem.rightBarButtonItems = trailingViews.map(UIBarButtonItem.init(customView:))
@@ -273,6 +276,7 @@ final class WuiNavigationDestinationState {
       if !bottomViews.isEmpty {
         for view in bottomViews {
           view.removeFromSuperview()
+          view.setPlacementProposal(WuiProposalSize())
           view.frame = CGRect(origin: .zero, size: view.sizeThatFits(WuiProposalSize()))
         }
         toolbarItems = bottomViews.map(UIBarButtonItem.init(customView:))

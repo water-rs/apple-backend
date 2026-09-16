@@ -122,6 +122,10 @@ final class WuiDatePicker: PlatformView, WuiComponent {
 
   func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
     let labelSize = labelView.sizeThatFits(WuiProposalSize())
+    // Natively hosted: labels are always measured under a fully
+    // unspecified proposal, so that is the offer their own layout
+    // pass receives rather than their resolved frame.
+    labelView.setPlacementProposal(WuiProposalSize())
     #if canImport(UIKit)
       let pickerSize = datePicker.intrinsicContentSize
       let secondsWidth: CGFloat =

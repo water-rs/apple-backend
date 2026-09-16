@@ -187,6 +187,10 @@ final class WuiTextField: PlatformView, WuiComponent {
 
   func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
     let labelSize = labelView.sizeThatFits(WuiProposalSize())
+    // Natively hosted: labels are always measured under a fully
+    // unspecified proposal, so that is the offer their own layout
+    // pass receives rather than their resolved frame.
+    labelView.setPlacementProposal(WuiProposalSize())
 
     #if canImport(UIKit)
       let minTextWidth: CGFloat = 100.0
@@ -258,6 +262,10 @@ final class WuiTextField: PlatformView, WuiComponent {
 
   private func updateLabelLayout() {
     let labelSize = labelView.sizeThatFits(WuiProposalSize())
+    // Natively hosted: labels are always measured under a fully
+    // unspecified proposal, so that is the offer their own layout
+    // pass receives rather than their resolved frame.
+    labelView.setPlacementProposal(WuiProposalSize())
     let hasLabel = labelSize.height > 0
 
     labelView.isHidden = !hasLabel

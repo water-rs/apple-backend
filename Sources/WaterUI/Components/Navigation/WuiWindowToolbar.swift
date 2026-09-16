@@ -434,6 +434,9 @@
         (view as? WuiAnyView)?.sizeThatFits(WuiProposalSize(width: nil, height: nil))
         ?? view.fittingSize
       view.removeFromSuperview()
+      // Natively hosted toolbar item: measured under a fully unspecified
+      // proposal, so that is the offer its own layout pass receives.
+      (view as? WuiAnyView)?.setPlacementProposal(WuiProposalSize(width: nil, height: nil))
       view.frame = NSRect(origin: .zero, size: size)
       // The toolbar measures an item through the constraint system, so the size
       // the layout engine produced is stated as constraints rather than through

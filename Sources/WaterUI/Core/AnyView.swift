@@ -253,6 +253,7 @@ private func registerBuiltinComponentsIfNeeded() {
   registerMetadataComponent(WuiNavigationLinkHint.self)
   registerMetadataComponent(WuiNavigationTransitionSourceView.self)
   registerMetadataComponent(WuiNavigationTransitionDestinationView.self)
+  registerMetadataComponent(WuiLayoutPriority.self)
 
   // Material background (blur effect)
   registerMetadataComponent(WuiMaterialBackground.self)
@@ -341,6 +342,14 @@ private func registerBuiltinComponentsIfNeeded() {
 
     public func layoutPriority() -> Int32 {
       inner.layoutPriority()
+    }
+
+    /// The placement proposal selected for this view belongs to the resolved
+    /// component: `WuiAnyView` is a pass-through, so delivery continues to
+    /// `inner` — reaching the nearest layout-running descendant or stopping
+    /// at a leaf.
+    public func setPlacementProposal(_ proposal: WuiProposalSize) {
+      inner.setPlacementProposal(proposal)
     }
 
     /// A wrapper is not a control: a touch it does not contain belongs to
@@ -553,6 +562,14 @@ private func registerBuiltinComponentsIfNeeded() {
 
     public func layoutPriority() -> Int32 {
       inner.layoutPriority()
+    }
+
+    /// The placement proposal selected for this view belongs to the resolved
+    /// component: `WuiAnyView` is a pass-through, so delivery continues to
+    /// `inner` — reaching the nearest layout-running descendant or stopping
+    /// at a leaf.
+    public func setPlacementProposal(_ proposal: WuiProposalSize) {
+      inner.setPlacementProposal(proposal)
     }
 
     /// A wrapper is not a control: a click it does not contain belongs to

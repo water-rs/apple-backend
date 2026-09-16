@@ -688,8 +688,8 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     private func applyText(_ text: String) {
       var configuration =
         kind == .header
-        ? UIListContentConfiguration.groupedHeader()
-        : UIListContentConfiguration.groupedFooter()
+        ? UIListContentConfiguration.header()
+        : UIListContentConfiguration.footer()
       configuration.text = text
       contentConfiguration = configuration
     }
@@ -770,6 +770,12 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
           equalTo: contentView.bottomAnchor, constant: -insets.bottom),
       ])
 
+      // Natively hosted: rows measure under `{content width, nil}` in
+      // `heightForRowAt`, so the row's recursive layout must not see its
+      // resolved height as a bound. The width is only known once the cell's
+      // constraints resolve, so delivery happens in `layoutSubviews`.
+      setNeedsLayout()
+
       deletableObservation = deletable.map { signal in
         WuiComputedObservation(signal) { _, metadata in
           onDeletableChange(metadata)
@@ -788,6 +794,16 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     /// `List(selection:)` row does; the card color returns when it clears.
     private func applySelected(_ selected: Bool) {
       backgroundColor = selected ? .systemGray4 : .secondarySystemGroupedBackground
+    }
+
+    /// Once constraints resolve, the row's content width is the offer it was
+    /// measured under in `heightForRowAt` — `{width, nil}` — which is what its
+    /// own layout pass must receive rather than the cell's resolved frame.
+    override func layoutSubviews() {
+      super.layoutSubviews()
+      guard let contentWuiView else { return }
+      contentWuiView.setPlacementProposal(
+        WuiProposalSize(width: Float(contentWuiView.frame.width), height: nil))
     }
 
     override func prepareForReuse() {
@@ -1456,6 +1472,11 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
             WuiProposalSize(width: Float(tableView.bounds.width), height: nil)
           ).height + Self.rowVerticalInset * 2,
           Self.minimumRowHeight)
+        // Natively hosted: the row's selected proposal is the width-bounded
+        // offer it was just measured under — its height stays unspecified so
+        // its own layout pass does not see the resolved row height as a bound.
+        item.view.setPlacementProposal(
+          WuiProposalSize(width: Float(tableView.bounds.width), height: nil))
         if measuredRowHeights[itemId] != measuredHeight {
           measuredRowHeights[itemId] = measuredHeight
           DispatchQueue.main.async { [weak self] in

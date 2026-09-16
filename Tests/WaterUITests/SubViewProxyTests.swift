@@ -30,7 +30,7 @@ struct SubViewProxyTests {
     #expect(dimensions.cgSize == CGSize(width: 10, height: 5))
   }
 
-  @Test func measurementsAreCachedPerProposalUntilInvalidated() throws {
+  @Test func measurementsAreCachedPerProposalWithinTheProxyLifetime() throws {
     var proposals: [WaterUI.WuiProposalSize] = []
     let proxy = SubViewProxy { proposal in
       proposals.append(proposal)
@@ -47,34 +47,36 @@ struct SubViewProxyTests {
       WaterUI.WuiProposalSize(width: 50, height: nil).toCStruct()
     )
     #expect(proposals.count == 2)
-    proxy.invalidateMeasurementCache()
-    _ = measure(subview.context, proposal)
-    #expect(proposals.count == 3)
   }
 
-  @Test func invalidateMeasurementsOnTheArrayClearsEveryProxy() throws {
-    var proposals: [WaterUI.WuiProposalSize] = []
-    let first = SubViewProxy { proposal in
-      proposals.append(proposal)
-      return WaterUI.WuiViewDimensions(size: .zero)
+  @Test func rebuildingTheArrayRefreshesMeasurementsAndSlotTraits() throws {
+    var width: CGFloat = 10
+    var calls = 0
+    func makeArray(priority: Int32) -> CachedSubViewArray {
+      CachedSubViewArray([SubViewProxy(stretchAxis: .horizontal, priority: priority) { _ in
+        calls += 1
+        return WaterUI.WuiViewDimensions(size: CGSize(width: width, height: 5))
+      }])
     }
-    let second = SubViewProxy { proposal in
-      proposals.append(proposal)
-      return WaterUI.WuiViewDimensions(size: .zero)
+    func measure(_ array: CachedSubViewArray, priority: Int32) throws -> CGFloat {
+      let ffi = array.ffiArray
+      let sliceFunction = try #require(ffi.vtable.slice)
+      let slice = sliceFunction(ffi.data)
+      let head = try #require(slice.head)
+      let child = head.pointee
+      #expect(child.priority == priority)
+      let measureFunction = try #require(child.vtable.measure)
+      let result = measureFunction(
+        child.context, WaterUI.WuiProposalSize(width: 100, height: nil).toCStruct())
+      return WaterUI.WuiViewDimensions(result).cgSize.width
     }
-    let array = CachedSubViewArray([first, second])
-    let firstSubview = first.toBorrowedWuiSubView()
-    let secondSubview = second.toBorrowedWuiSubView()
-    let measure = try #require(firstSubview.vtable.measure)
-    let proposal = WaterUI.WuiProposalSize(width: 100, height: nil).toCStruct()
-    _ = measure(firstSubview.context, proposal)
-    _ = measure(secondSubview.context, proposal)
-    _ = measure(firstSubview.context, proposal)
-    #expect(proposals.count == 2)
-    array.invalidateMeasurements()
-    _ = measure(firstSubview.context, proposal)
-    _ = measure(secondSubview.context, proposal)
-    #expect(proposals.count == 4)
+    let old = makeArray(priority: 0)
+    #expect(try measure(old, priority: 0) == 10)
+    width = 30
+    #expect(try measure(old, priority: 0) == 10)
+    let rebuilt = makeArray(priority: 5)
+    #expect(try measure(rebuilt, priority: 5) == 30)
+    #expect(calls == 2)
   }
 
   @Test func cachedArraySlicesToItsSubviewCount() throws {

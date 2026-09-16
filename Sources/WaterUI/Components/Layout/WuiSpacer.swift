@@ -9,7 +9,7 @@
 // // INTERNAL: Layout Contract for Backend Implementers
 // // - stretchAxis: .mainAxis (expands along parent's main axis)
 // // - sizeThatFits: Returns proposed size or 0 if unspecified
-// // - Priority: 0 (default)
+// // - Priority: Int32.min (flexible gap)
 
 import CWaterUI
 
@@ -51,6 +51,12 @@ final class WuiSpacer: PlatformView, WuiComponent {
     }
 
     // MARK: - WuiComponent
+
+    /// `Spacer::DEFAULT_LAYOUT_PRIORITY` — a spacer yields every other child
+    /// before taking space, so it sits at the bottom of the priority bands.
+    func layoutPriority() -> Int32 {
+        Int32.min
+    }
 
     func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
         CGSize(

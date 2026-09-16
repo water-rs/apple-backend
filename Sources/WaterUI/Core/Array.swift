@@ -215,6 +215,19 @@ extension WuiArray where T == CWaterUI.WuiVerticalGuide {
   }
 }
 
+extension WuiArray where T == CWaterUI.WuiSubviewPlacement {
+  init(_ inner: CWaterUI.WuiArray_WuiSubviewPlacement) {
+    let raw = unsafeBitCast(inner, to: CWaterUI.WuiArray.self)
+    self.init(c: raw)
+  }
+}
+
+extension WuiArray where T == CWaterUI.WuiStretchAxis {
+  func intoWuiStretchAxisArray() -> CWaterUI.WuiArray_WuiStretchAxis {
+    unsafeBitCast(inner.intoInner(), to: CWaterUI.WuiArray_WuiStretchAxis.self)
+  }
+}
+
 extension WuiArray<CWaterUI.WuiStyledChunk> {
   init(_ inner: CWaterUI.WuiArray_WuiStyledChunk) {
     let raw = unsafeBitCast(inner, to: CWaterUI.WuiArray.self)

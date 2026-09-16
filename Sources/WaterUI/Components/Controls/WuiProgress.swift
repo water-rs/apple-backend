@@ -565,13 +565,18 @@ final class WuiProgress: PlatformView, WuiComponent {
 
   private func performLayout() {
     let width = bounds.width
-    let labelSize = labelView.sizeThatFits(WuiProposalSize(width: Float(width)))
+    // The labels are natively hosted: their selected proposal is the
+    // width-bounded offer they are measured with, delivered before the frame
+    // so a container label does not see its measured height as a bound.
+    let labelProposal = WuiProposalSize(width: Float(width))
+    let labelSize = labelView.sizeThatFits(labelProposal)
     let valueLabelSize =
       currentValue.isFinite
-      ? valueLabelView.sizeThatFits(WuiProposalSize(width: Float(width))) : .zero
+      ? valueLabelView.sizeThatFits(labelProposal) : .zero
     let controlSize = progressControlSize
     var y: CGFloat = 0
 
+    labelView.setPlacementProposal(labelProposal)
     labelView.frame = CGRect(
       x: 0, y: y, width: min(width, labelSize.width), height: labelSize.height)
     y += labelSize.height
@@ -596,6 +601,7 @@ final class WuiProgress: PlatformView, WuiComponent {
 
     if valueLabelSize.height > 0 {
       y += verticalSpacing
+      valueLabelView.setPlacementProposal(labelProposal)
       valueLabelView.frame = CGRect(
         x: 0,
         y: y,

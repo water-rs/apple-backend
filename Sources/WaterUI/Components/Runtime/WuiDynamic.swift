@@ -26,6 +26,11 @@ final class WuiDynamic: PlatformView, WuiComponent {
   private var env: WuiEnvironment
   private var currentChild: WuiAnyView?
 
+  /// The proposal the parent layout selected when it placed this dynamic —
+  /// forwarded to the current child and re-applied to every replacement so a
+  /// swapped-in child is never left with a stale or bounds-inferred offer.
+  private var selectedProposal: WuiProposalSize?
+
   // MARK: - WuiComponent Init
 
   convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
@@ -61,6 +66,17 @@ final class WuiDynamic: PlatformView, WuiComponent {
     currentChild?.sizeThatFits(proposal) ?? .zero
   }
 
+  /// The child owns the full measurement packet — forwarding only
+  /// `sizeThatFits` would drop its alignment guides inside stacks.
+  func measure(_ proposal: WuiProposalSize) -> WuiViewDimensions {
+    currentChild?.measure(proposal) ?? WuiViewDimensions(size: .zero)
+  }
+
+  func setPlacementProposal(_ proposal: WuiProposalSize) {
+    selectedProposal = proposal
+    currentChild?.setPlacementProposal(proposal)
+  }
+
   // MARK: - Watcher Setup
 
   private func setupWatcher() {
@@ -76,6 +92,13 @@ final class WuiDynamic: PlatformView, WuiComponent {
     anyView.translatesAutoresizingMaskIntoConstraints = true
     addSubview(anyView)
     currentChild = anyView
+
+    // The replacement inherits the last negotiated proposal until the parent
+    // re-places us — a container child must not lay out against its own
+    // bounds in the interim.
+    if let selectedProposal {
+      anyView.setPlacementProposal(selectedProposal)
+    }
 
     // Invalidate layout up the entire view hierarchy
     invalidateLayoutHierarchy()

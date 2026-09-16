@@ -554,6 +554,15 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
     self.explicitDynamicRangePreference = renderState.explicitDynamicRangePreference
 
     super.init(frame: .zero)
+    #if canImport(UIKit)
+      registerForTraitChanges([UITraitDisplayScale.self]) {
+        (view: WuiGpuSurface, _: UITraitCollection) in
+        view.currentScaleFactor = view.window?.screen.scale ?? view.traitCollection.displayScale
+        view.updatePresentationLayerFrame()
+        view.initializeGpuIfNeeded()
+        view.updateDisplayLinkState()
+      }
+    #endif
 
     renderState.onRedrawRequested = { [weak self] in
       self?.handleRedrawRequest()
@@ -1247,7 +1256,7 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
   /// and is left alone.
   private func publishContentAccessibilityValue() {
     #if canImport(UIKit)
-      let existing = accessibilityValue as? String
+      let existing = accessibilityValue
     #elseif canImport(AppKit)
       let existing = accessibilityValue() as? String
     #endif
@@ -1292,9 +1301,8 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
 
   private func isEffectivelyVisible() -> Bool {
     #if canImport(UIKit)
-      guard let window else { return false }
+      guard window != nil else { return false }
       guard hasVisibleAncestry() else { return false }
-      guard window.screen != nil else { return false }
       return UIApplication.shared.applicationState == .active
     #elseif canImport(AppKit)
       guard let window else { return false }
@@ -1641,18 +1649,6 @@ final class WuiGpuSurface: PlatformView, WuiComponent, WuiFirstPaintReadyPartici
       updateDisplayLinkState()
     }
 
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-      super.traitCollectionDidChange(previousTraitCollection)
-      // `contentScaleFactor` is unreliable here: UIKit only syncs it for views
-      // that implement `drawRect:`, so the screen's scale comes from the window.
-      guard traitCollection.displayScale != previousTraitCollection?.displayScale else {
-        return
-      }
-      currentScaleFactor = window?.screen.scale ?? traitCollection.displayScale
-      updatePresentationLayerFrame()
-      initializeGpuIfNeeded()
-      updateDisplayLinkState()
-    }
   #elseif canImport(AppKit)
     override func layout() {
       super.layout()

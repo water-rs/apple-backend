@@ -97,6 +97,10 @@ final class WuiSecureField: PlatformView, WuiComponent {
     // SecureField is axis-expanding on width per LAYOUT_SPEC.md
     // It uses isStretch: true to expand, so here we report MINIMUM usable size
     let labelSize = labelView.sizeThatFits(WuiProposalSize())
+    // Natively hosted: labels are always measured under a fully
+    // unspecified proposal, so that is the offer their own layout
+    // pass receives rather than their resolved frame.
+    labelView.setPlacementProposal(WuiProposalSize())
     let textFieldHeight = textField.intrinsicContentSize.height
 
     // Intrinsic height: label height + spacing + text field height

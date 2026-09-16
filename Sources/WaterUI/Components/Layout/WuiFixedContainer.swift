@@ -25,30 +25,39 @@ import CWaterUI
 final class WuiFixedContainer: PlatformView, WuiComponent {
   static var rawId: CWaterUI.WuiTypeId { waterui_fixed_container_id() }
 
-  private(set) var stretchAxis: WuiStretchAxis
+  /// `FixedContainer::stretch_axis` answers from its children's current axes
+  /// (`layout.stretch_axis(&child_stretch_axes())`), so the property re-asks
+  /// the layout each time rather than freezing the axis read at init.
+  var stretchAxis: WuiStretchAxis {
+    wuiLayout.stretchAxis(childAxes: childViews.map { $0.stretchAxis })
+  }
 
   private var wuiLayout: WuiLayout
   private var childViews: [WuiAnyView]
   private var cachedSubViews: CachedSubViewArray?
   private let bridge = NativeLayoutBridge()
 
+  /// The proposal the parent layout selected when it placed this container —
+  /// delivered through `setPlacementProposal`. `nil` means no Rust parent has
+  /// placed us: the container is natively hosted and constructs its own
+  /// bounded offer from the rect it fills.
+  private var selectedProposal: WuiProposalSize?
+
   // MARK: - WuiComponent Init
 
   convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
-    let stretchAxis = WuiStretchAxis(waterui_view_stretch_axis(anyview))
     let container: CWaterUI.WuiFixedContainer = waterui_force_as_fixed_container(anyview)
     let layout = WuiLayout(inner: container.layout!)
     let pointerArray = WuiArray<OpaquePointer>(container.contents)
     let childViews = pointerArray.map {
       WuiAnyView(anyview: $0, env: env)
     }
-    self.init(stretchAxis: stretchAxis, layout: layout, children: childViews)
+    self.init(layout: layout, children: childViews)
   }
 
   // MARK: - Designated Init
 
-  init(stretchAxis: WuiStretchAxis, layout: WuiLayout, children: [WuiAnyView]) {
-    self.stretchAxis = stretchAxis
+  init(layout: WuiLayout, children: [WuiAnyView]) {
     self.wuiLayout = layout
     self.childViews = children
     super.init(frame: .zero)
@@ -83,13 +92,28 @@ final class WuiFixedContainer: PlatformView, WuiComponent {
     }
   #endif
 
-  /// Content feeding the cached child measurements invalidated — a
-  /// descendant's `invalidateLayoutHierarchy` and the Rust layout watcher's
-  /// `WuiLayoutInvalidationTarget` both funnel through here. Drop the
-  /// per-proposal caches so the next layout pass re-measures.
+  /// Content feeding the cached child entries invalidated — a descendant's
+  /// `invalidateLayoutHierarchy` and the Rust layout watcher's
+  /// `WuiLayoutInvalidationTarget` both funnel through here. Rebuild rather
+  /// than only flushing measurement caches: child stretch axes and layout
+  /// priorities are baked into the `WuiSubView` array and may themselves have
+  /// changed.
   override func invalidateIntrinsicContentSize() {
-    cachedSubViews?.invalidateMeasurements()
+    cachedSubViews = nil
     super.invalidateIntrinsicContentSize()
+  }
+
+  /// A new selected proposal invalidates placement even when the frame does
+  /// not move — equal bounds under a different offer can produce a different
+  /// child layout, which is exactly the case this contract exists for.
+  func setPlacementProposal(_ proposal: WuiProposalSize) {
+    guard selectedProposal != proposal else { return }
+    selectedProposal = proposal
+    #if canImport(UIKit)
+      setNeedsLayout()
+    #elseif canImport(AppKit)
+      needsLayout = true
+    #endif
   }
 
   func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
@@ -145,19 +169,25 @@ final class WuiFixedContainer: PlatformView, WuiComponent {
     guard !childViews.isEmpty else { return }
 
     let safeRect = wuiSafeAreaRect
-    let rects = bridge.placements(
+    // Placed by a Rust parent: the proposal it selected. Natively hosted
+    // (root content, controller-hosted views): the boundary offer for the
+    // rect this container fills — the only place a proposal is built from
+    // bounds.
+    let proposal = selectedProposal ?? WuiProposalSize(size: safeRect.size)
+    let placements = bridge.placements(
       layout: wuiLayout,
       bounds: safeRect,
+      proposal: proposal,
       children: subViewCache()
     )
 
     precondition(
-      rects.count == childViews.count,
-      "WuiFixedContainer layout returned \(rects.count) placements for \(childViews.count) children"
+      placements.count == childViews.count,
+      "WuiFixedContainer layout returned \(placements.count) placements for \(childViews.count) children"
     )
-    for (index, pair) in zip(childViews, rects).enumerated() {
-      let (child, rect) = pair
-      var frame = rect
+    for (index, pair) in zip(childViews, placements).enumerated() {
+      let (child, placement) = pair
+      var frame = placement.frame
       precondition(
         frame.isValidForLayout,
         "WuiFixedContainer received an invalid layout rect for child \(index): \(frame)"
@@ -174,6 +204,10 @@ final class WuiFixedContainer: PlatformView, WuiComponent {
         }
       #endif
 
+      // The negotiated proposal must land before the frame: a container child
+      // that lays out on the frame change already holds its selected
+      // proposal, and a proposal change alone still marks it for relayout.
+      child.setPlacementProposal(placement.proposal)
       child.frame = frame
     }
   }

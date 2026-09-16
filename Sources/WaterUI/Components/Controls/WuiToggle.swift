@@ -266,6 +266,10 @@ final class WuiToggle: PlatformView, WuiComponent {
 
   func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
     let labelSize = labelView.sizeThatFits(WuiProposalSize())
+    // Natively hosted: labels are always measured under a fully
+    // unspecified proposal, so that is the offer their own layout
+    // pass receives rather than their resolved frame.
+    labelView.setPlacementProposal(WuiProposalSize())
     let controlSize = toggleControl.view.intrinsicContentSize
     let hasLabel = labelSize.width > 0 && labelSize.height > 0
     let intrinsicWidth = controlSize.width + (hasLabel ? horizontalSpacing + labelSize.width : 0)
