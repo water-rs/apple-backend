@@ -633,6 +633,9 @@ public final class ThemeBridge {
           Self.appAccentColor()
         },
         installColorSignal(env: env, slot: WuiColorSlot_SelectionForeground) { UIColor.white },
+        // White on systemRed is what UIKit draws for destructive fills.
+        installColorSignal(env: env, slot: WuiColorSlot_Error) { UIColor.systemRed },
+        installColorSignal(env: env, slot: WuiColorSlot_ErrorForeground) { UIColor.white },
       ]
     }
 
@@ -699,6 +702,9 @@ public final class ThemeBridge {
           // the accent pair uses, so a selected row's labels are unchanged.
           NSColor.alternateSelectedControlTextColor
         },
+        // White on systemRed is what AppKit draws for destructive fills.
+        installColorSignal(env: env, slot: WuiColorSlot_Error) { NSColor.systemRed },
+        installColorSignal(env: env, slot: WuiColorSlot_ErrorForeground) { NSColor.white },
       ]
     }
 
