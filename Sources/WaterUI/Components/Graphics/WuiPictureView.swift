@@ -47,6 +47,12 @@ final class WuiPictureView: PlatformView, WuiComponent {
     self.picture = picture
     self.pointSize = pointSize
     super.init(frame: .zero)
+    #if canImport(UIKit)
+      registerForTraitChanges([UITraitDisplayScale.self]) {
+        (view: WuiPictureView, _: UITraitCollection) in
+        view.rasterize(at: view.traitCollection.displayScale)
+      }
+    #endif
     configureImageView()
     if !label.isEmpty || !value.isEmpty {
       #if canImport(UIKit)
@@ -105,10 +111,6 @@ final class WuiPictureView: PlatformView, WuiComponent {
       rasterize(at: traitCollection.displayScale)
     }
 
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-      super.traitCollectionDidChange(previousTraitCollection)
-      rasterize(at: traitCollection.displayScale)
-    }
   #elseif canImport(AppKit)
     nonisolated override var isFlipped: Bool { true }
 

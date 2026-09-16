@@ -134,9 +134,19 @@ final class WuiScale: PlatformView, WuiComponent {
     contentView.layoutPriority()
   }
 
+  /// Transparent for layout: the proposal selected for this
+  /// wrapper is the proposal its content was negotiated with.
+  func setPlacementProposal(_ proposal: WuiProposalSize) {
+    contentView.setPlacementProposal(proposal)
+  }
+
   func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
     // Transform doesn't affect layout size
     contentView.sizeThatFits(proposal)
+  }
+
+  func measure(_ proposal: WuiProposalSize) -> WuiViewDimensions {
+    contentView.measure(proposal)
   }
 
   #if canImport(UIKit)

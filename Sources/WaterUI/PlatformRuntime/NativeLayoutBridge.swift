@@ -47,14 +47,21 @@ struct NativeLayoutBridge {
         containerMeasure(layout: layout, parentProposal: parentProposal, children: children).cgSize
     }
 
-    /// Get placement rects for all children.
+    /// Get placements for all children under the selected proposal.
+    ///
+    /// `proposal` is the proposal this container was measured and placed
+    /// with — the input `containerMeasure` already received, never a value
+    /// reconstructed from `bounds`. Each returned placement pairs the child's
+    /// frame with the proposal negotiated for it; the frame drives native
+    /// allocation and the proposal drives the child's own layout pass.
     /// Rust will call back to measure each child as needed during placement;
     /// those answers reuse the cache `containerMeasure` already populated.
     func placements(
         layout: WuiLayout,
         bounds: CGRect,
+        proposal: WuiProposalSize,
         children: CachedSubViewArray
-    ) -> [CGRect] {
-        layout.place(bounds: bounds, children: children)
+    ) -> [WuiSubviewPlacement] {
+        layout.placeSubviews(bounds: bounds, proposal: proposal, children: children)
     }
 }

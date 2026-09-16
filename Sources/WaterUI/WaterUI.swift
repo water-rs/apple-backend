@@ -118,6 +118,18 @@ public protocol WuiComponent: PlatformView {
 
   /// Measures the view and returns the full layout packet.
   func measure(_ proposal: WuiProposalSize) -> WuiViewDimensions
+
+  /// Receives the proposal the parent layout selected when it placed this
+  /// view — the `proposal` field of the child's `WuiSubviewPlacement`.
+  ///
+  /// This is distinct from measurement: a layout probes a child under several
+  /// proposals and only the selected one is delivered here. Containers store
+  /// it to drive their own placement pass, transparent wrappers forward it to
+  /// their content, and leaves ignore it. Components whose children are
+  /// placed by native hosting (nav pages, table cells, constraint-hosted
+  /// labels) leave the default: those children construct their own bounded
+  /// offer at the boundary.
+  func setPlacementProposal(_ proposal: WuiProposalSize)
 }
 
 extension WuiComponent {
@@ -126,6 +138,7 @@ extension WuiComponent {
   public func measure(_ proposal: WuiProposalSize) -> WuiViewDimensions {
     WuiViewDimensions(size: sizeThatFits(proposal))
   }
+  public func setPlacementProposal(_ proposal: WuiProposalSize) {}
 
   /// 128-bit view ID for O(1) registry lookup
   static var viewId: WuiViewId {

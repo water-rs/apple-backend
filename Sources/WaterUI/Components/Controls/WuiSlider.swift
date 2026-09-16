@@ -126,8 +126,20 @@ final class WuiSlider: PlatformView, WuiComponent {
     // Slider is axis-expanding on width per LAYOUT_SPEC.md
     // It uses isStretch: true to expand, so here we report MINIMUM usable size
     let labelSize = labelView.sizeThatFits(WuiProposalSize())
+    // Natively hosted: labels are always measured under a fully
+    // unspecified proposal, so that is the offer their own layout
+    // pass receives rather than their resolved frame.
+    labelView.setPlacementProposal(WuiProposalSize())
     let minLabelSize = minLabelView.sizeThatFits(WuiProposalSize())
+    // Natively hosted: labels are always measured under a fully
+    // unspecified proposal, so that is the offer their own layout
+    // pass receives rather than their resolved frame.
+    minLabelView.setPlacementProposal(WuiProposalSize())
     let maxLabelSize = maxLabelView.sizeThatFits(WuiProposalSize())
+    // Natively hosted: labels are always measured under a fully
+    // unspecified proposal, so that is the offer their own layout
+    // pass receives rather than their resolved frame.
+    maxLabelView.setPlacementProposal(WuiProposalSize())
     let sliderHeight = slider.intrinsicContentSize.height
 
     // Slider row height: max of slider and labels

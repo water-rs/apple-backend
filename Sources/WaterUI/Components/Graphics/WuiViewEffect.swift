@@ -192,6 +192,13 @@ final class WuiViewEffect: PlatformView, WuiComponent, WuiPresentsOwnContent, Wu
         self.scheduleFrameIfNeeded()
       }
     #endif
+    #if canImport(UIKit)
+      registerForTraitChanges([UITraitDisplayScale.self]) {
+        (view: WuiViewEffect, _: UITraitCollection) in
+        view.initializeGpuIfNeeded()
+        view.requestRenderIfNeeded()
+      }
+    #endif
     setupChildView()
     setupOutputView(device: metalDevice)
     capturePipeline.onRedraw = { [weak self] in
@@ -609,6 +616,16 @@ final class WuiViewEffect: PlatformView, WuiComponent, WuiPresentsOwnContent, Wu
     childView.sizeThatFits(proposal)
   }
 
+  func measure(_ proposal: WuiProposalSize) -> WuiViewDimensions {
+    childView.measure(proposal)
+  }
+
+  /// Transparent for layout: the proposal selected for this wrapper is the
+  /// proposal its content was negotiated with.
+  func setPlacementProposal(_ proposal: WuiProposalSize) {
+    childView.setPlacementProposal(proposal)
+  }
+
   #if canImport(UIKit)
     override func layoutSubviews() {
       super.layoutSubviews()
@@ -625,14 +642,6 @@ final class WuiViewEffect: PlatformView, WuiComponent, WuiPresentsOwnContent, Wu
       handleWindowChange()
     }
 
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-      super.traitCollectionDidChange(previousTraitCollection)
-      guard traitCollection.displayScale != previousTraitCollection?.displayScale else {
-        return
-      }
-      initializeGpuIfNeeded()
-      requestRenderIfNeeded()
-    }
   #elseif canImport(AppKit)
     nonisolated override var isFlipped: Bool { true }
 

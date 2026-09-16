@@ -159,6 +159,10 @@ private func scrollMinSize(
         fatalError("Unsupported WaterUI scroll axis: \(axis.rawValue)")
       }
 
+      // The scroll axis stays unspecified in the offer — content bounds grow
+      // past the viewport, so the proposal it recursively lays out under is
+      // the constructed one, never the measured frame.
+      contentView.setPlacementProposal(contentProposal)
       let measuredSize = contentView.sizeThatFits(contentProposal)
 
       let finalWidth: CGFloat
@@ -333,6 +337,10 @@ private func scrollMinSize(
         fatalError("Unsupported WaterUI scroll axis: \(axis.rawValue)")
       }
 
+      // The scroll axis stays unspecified in the offer — content bounds grow
+      // past the viewport, so the proposal it recursively lays out under is
+      // the constructed one, never the measured frame.
+      contentHostView.setPlacementProposal(contentProposal)
       let measuredSize = contentHostView.sizeThatFits(contentProposal)
 
       let finalWidth: CGFloat

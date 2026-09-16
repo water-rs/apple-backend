@@ -93,7 +93,13 @@ private final class WuiContainerLayoutInvalidator: @unchecked Sendable {
 final class WuiContainer: PlatformView, WuiComponent {
   static var rawId: CWaterUI.WuiTypeId { waterui_layout_container_id() }
 
-  private(set) var stretchAxis: WuiStretchAxis
+  /// `LazyContainer::stretch_axis` answers `layout.stretch_axis(&[])` — it
+  /// cannot enumerate children without materializing the collection, which is
+  /// the thing it exists to avoid — so this container asks the layout with an
+  /// empty child set on every query, matching `waterui_view_stretch_axis`.
+  var stretchAxis: WuiStretchAxis {
+    wuiLayout.stretchAxis(childAxes: [])
+  }
 
   private var wuiLayout: WuiLayout
   private var anyViews: WuiAnyViews
@@ -104,6 +110,12 @@ final class WuiContainer: PlatformView, WuiComponent {
   private let env: WuiEnvironment
   private let usesLazyStack: Bool
   private lazy var layoutInvalidator = WuiContainerLayoutInvalidator(self)
+
+  /// The proposal the parent layout selected when it placed this container —
+  /// delivered through `setPlacementProposal`. `nil` means no Rust parent has
+  /// placed us: the container is natively hosted and constructs its own
+  /// bounded offer from the rect it fills.
+  private var selectedProposal: WuiProposalSize?
 
   private var itemIds: [Int32] = []
   private var renderedChildren: [Int32: WuiAnyView] = [:]
@@ -126,15 +138,13 @@ final class WuiContainer: PlatformView, WuiComponent {
   #endif
 
   convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
-    let stretchAxis = WuiStretchAxis(waterui_view_stretch_axis(anyview))
     let container: CWaterUI.WuiContainer = waterui_force_as_layout_container(anyview)
     let layout = WuiLayout(inner: container.layout!)
     let anyViews = WuiAnyViews(container.contents)
-    self.init(stretchAxis: stretchAxis, layout: layout, anyViews: anyViews, env: env)
+    self.init(layout: layout, anyViews: anyViews, env: env)
   }
 
-  init(stretchAxis: WuiStretchAxis, layout: WuiLayout, anyViews: WuiAnyViews, env: WuiEnvironment) {
-    self.stretchAxis = stretchAxis
+  init(layout: WuiLayout, anyViews: WuiAnyViews, env: WuiEnvironment) {
     self.wuiLayout = layout
     self.anyViews = anyViews
     self.env = env
@@ -257,13 +267,28 @@ final class WuiContainer: PlatformView, WuiComponent {
     }
   #endif
 
-  /// Content feeding the cached child measurements invalidated — a
-  /// descendant's `invalidateLayoutHierarchy` and the Rust layout watcher's
-  /// `WuiLayoutInvalidationTarget` both funnel through here. Drop the
-  /// per-proposal caches so the next layout pass re-measures.
+  /// Content feeding the cached child entries invalidated — a descendant's
+  /// `invalidateLayoutHierarchy` and the Rust layout watcher's
+  /// `WuiLayoutInvalidationTarget` both funnel through here. Rebuild rather
+  /// than only flushing measurement caches: child stretch axes and layout
+  /// priorities are baked into the `WuiSubView` array and may themselves have
+  /// changed.
   override func invalidateIntrinsicContentSize() {
-    cachedSubViews?.invalidateMeasurements()
+    cachedSubViews = nil
     super.invalidateIntrinsicContentSize()
+  }
+
+  /// A new selected proposal invalidates placement even when the frame does
+  /// not move — equal bounds under a different offer can produce a different
+  /// child layout, which is exactly the case this contract exists for.
+  func setPlacementProposal(_ proposal: WuiProposalSize) {
+    guard selectedProposal != proposal else { return }
+    selectedProposal = proposal
+    #if canImport(UIKit)
+      setNeedsLayout()
+    #elseif canImport(AppKit)
+      needsLayout = true
+    #endif
   }
 
   func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
@@ -364,28 +389,32 @@ final class WuiContainer: PlatformView, WuiComponent {
 
     guard !childViews.isEmpty else { return }
 
-    let boundsProposal = WuiProposalSize(
-      width: Float(bounds.width), height: Float(bounds.height))
+    // Placed by a Rust parent: the proposal it selected. Natively hosted
+    // (root content, controller-hosted views): the boundary offer for the
+    // rect this container fills — the only place a proposal is built from
+    // bounds. Measure and place share it, as `measure_layout` does.
+    let proposal = selectedProposal ?? WuiProposalSize(size: bounds.size)
 
     _ = bridge.containerSize(
       layout: wuiLayout,
-      parentProposal: boundsProposal,
+      parentProposal: proposal,
       children: subViewCache()
     )
 
-    let rects = bridge.placements(
+    let placements = bridge.placements(
       layout: wuiLayout,
       bounds: bounds,
+      proposal: proposal,
       children: subViewCache()
     )
 
     precondition(
-      rects.count == childViews.count,
-      "WuiContainer layout returned \(rects.count) placements for \(childViews.count) children"
+      placements.count == childViews.count,
+      "WuiContainer layout returned \(placements.count) placements for \(childViews.count) children"
     )
-    for (index, pair) in zip(childViews, rects).enumerated() {
-      let (child, rect) = pair
-      var frame = rect
+    for (index, pair) in zip(childViews, placements).enumerated() {
+      let (child, placement) = pair
+      var frame = placement.frame
       precondition(
         frame.isValidForLayout,
         "WuiContainer received an invalid layout rect for child \(index): \(frame)"
@@ -397,6 +426,10 @@ final class WuiContainer: PlatformView, WuiComponent {
         }
       #endif
 
+      // The negotiated proposal must land before the frame: a container child
+      // that lays out on the frame change already holds its selected
+      // proposal, and a proposal change alone still marks it for relayout.
+      child.setPlacementProposal(placement.proposal)
       child.frame = frame
     }
   }
@@ -470,6 +503,27 @@ final class WuiContainer: PlatformView, WuiComponent {
     }
   }
 
+  /// The proposal a virtualized child is offered: the stack's cross
+  /// constraint on one axis, its own main axis left unspecified — the same
+  /// value `measureLazyChild` negotiates with, delivered to the child's own
+  /// layout pass at placement.
+  private func lazyChildProposal(crossConstraint: CGFloat, config: LazyStackConfig)
+    -> WuiProposalSize
+  {
+    switch config.axis {
+    case .vertical:
+      WuiProposalSize(
+        width: crossConstraint > 0 ? Float(crossConstraint) : nil,
+        height: nil
+      )
+    case .horizontal:
+      WuiProposalSize(
+        width: nil,
+        height: crossConstraint > 0 ? Float(crossConstraint) : nil
+      )
+    }
+  }
+
   private func measureLazyChild(
     _ child: WuiAnyView,
     crossConstraint: CGFloat,
@@ -482,10 +536,7 @@ final class WuiContainer: PlatformView, WuiComponent {
         stretchAxis != .vertical && stretchAxis != .both && stretchAxis != .mainAxis,
         "Lazy vertical stack does not support children stretching on the main axis"
       )
-      let proposal = WuiProposalSize(
-        width: crossConstraint > 0 ? Float(crossConstraint) : nil,
-        height: nil
-      )
+      let proposal = lazyChildProposal(crossConstraint: crossConstraint, config: config)
       let intrinsic = child.sizeThatFits(proposal)
       let finalWidth: CGFloat
       if stretchAxis == .horizontal || stretchAxis == .both || stretchAxis == .crossAxis
@@ -503,10 +554,7 @@ final class WuiContainer: PlatformView, WuiComponent {
         stretchAxis != .horizontal && stretchAxis != .both && stretchAxis != .mainAxis,
         "Lazy horizontal stack does not support children stretching on the main axis"
       )
-      let proposal = WuiProposalSize(
-        width: nil,
-        height: crossConstraint > 0 ? Float(crossConstraint) : nil
-      )
+      let proposal = lazyChildProposal(crossConstraint: crossConstraint, config: config)
       let intrinsic = child.sizeThatFits(proposal)
       let finalHeight: CGFloat
       if stretchAxis == .vertical || stretchAxis == .both || stretchAxis == .crossAxis
@@ -574,6 +622,7 @@ final class WuiContainer: PlatformView, WuiComponent {
     var activeIds = Set<Int32>()
     var cursor = window.leadingOffset
     var needsInvalidation = false
+    let childProposal = lazyChildProposal(crossConstraint: crossConstraint, config: config)
 
     for index in window.start ..< window.end {
       let id = itemIds[index]
@@ -585,6 +634,11 @@ final class WuiContainer: PlatformView, WuiComponent {
       }
       activeIds.insert(id)
 
+      // The virtualized child is natively hosted: its selected proposal is
+      // the offer it was measured with, not the frame it lands in — a child
+      // container placed under `{cross, nil}` must not see the main-axis
+      // extent as a bounded offer.
+      child.setPlacementProposal(childProposal)
       let size = measureLazyChild(child, crossConstraint: crossConstraint, config: config)
       let mainAxis = mainAxisExtent(of: size, config: config)
       let crossAxis = crossAxisExtent(of: size, config: config)

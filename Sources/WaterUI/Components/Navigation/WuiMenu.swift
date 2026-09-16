@@ -164,7 +164,12 @@ final class WuiMenu: PlatformView, WuiComponent {
 
   func layoutPriority() -> Int32 { 0 }
 
-  func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
+  /// The proposal the parent layout selected when it placed this menu — the
+  /// label's offer derives from it exactly as `sizeThatFits` computes the
+  /// label proposal under the same value.
+  private var selectedProposal: WuiProposalSize?
+
+  private var labelPaddings: (horizontal: CGFloat, vertical: CGFloat) {
     let verticalPadding: CGFloat = 8
     #if canImport(UIKit)
       let horizontalPadding: CGFloat = 16
@@ -172,21 +177,59 @@ final class WuiMenu: PlatformView, WuiComponent {
       // Side padding plus the pull-down indicator and its spacing.
       let horizontalPadding: CGFloat = 16 + indicatorView.intrinsicContentSize.width + 4
     #endif
+    return (horizontalPadding, verticalPadding)
+  }
+
+  /// The offer the embedded label is measured under — the menu's own
+  /// proposal minus its padding. Layout delivers the same derived value for
+  /// the proposal the parent selected, so the label's own layout pass sees
+  /// the negotiated offer, not its resolved frame.
+  private func labelOffer(from base: WuiProposalSize) -> WuiProposalSize {
+    let (horizontalPadding, verticalPadding) = labelPaddings
     var labelProposal = WuiProposalSize()
-    if let proposedWidth = proposal.width {
+    if let proposedWidth = base.width {
       labelProposal.width = max(proposedWidth - Float(horizontalPadding), 0)
     }
-    if let proposedHeight = proposal.height {
+    if let proposedHeight = base.height {
       labelProposal.height = max(proposedHeight - Float(verticalPadding), 0)
     }
-    let labelSize = labelView.sizeThatFits(labelProposal)
+    return labelProposal
+  }
+
+  func setPlacementProposal(_ proposal: WuiProposalSize) {
+    guard selectedProposal != proposal else { return }
+    selectedProposal = proposal
+    #if canImport(UIKit)
+      setNeedsLayout()
+    #elseif canImport(AppKit)
+      needsLayout = true
+    #endif
+  }
+
+  func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
+    let (horizontalPadding, verticalPadding) = labelPaddings
+    let labelSize = labelView.sizeThatFits(labelOffer(from: proposal))
     return CGSize(
       width: labelSize.width + horizontalPadding,
       height: labelSize.height + verticalPadding
     )
   }
 
-  #if canImport(AppKit)
+  #if canImport(UIKit)
+    override func layoutSubviews() {
+      super.layoutSubviews()
+      // Natively hosted menus fall back to a bounded offer from the rect
+      // they fill — the same boundary rule containers use.
+      labelView.setPlacementProposal(
+        labelOffer(from: selectedProposal ?? WuiProposalSize(size: bounds.size)))
+    }
+  #elseif canImport(AppKit)
     nonisolated override var isFlipped: Bool { true }
+
+    override func layout() {
+      super.layout()
+      labelView.setPlacementProposal(
+        labelOffer(from: selectedProposal ?? WuiProposalSize(size: bounds.size)))
+    }
   #endif
 }

@@ -97,6 +97,11 @@ final class WuiButton: PlatformView, WuiComponent {
   private let action: Action
   private let labelView: WuiAnyView
   private let style: WuiButtonStyle
+
+  /// The proposal the parent layout selected when it placed this button —
+  /// the label's offer derives from it exactly as `sizeThatFits` computes
+  /// `labelProposal` under the same value.
+  private var selectedProposal: WuiProposalSize?
   private var accessibility: WuiControlAccessibility?
   private let disabled: WuiComputed<Bool>
   private var disabledWatcher: WatcherGuard?
@@ -207,20 +212,54 @@ final class WuiButton: PlatformView, WuiComponent {
     // (allowing text to wrap) and the button grows in the cross-axis as needed.
     let (horizontalPadding, verticalPadding) = contentPadding
 
-    var labelProposal = WuiProposalSize()
-    if let proposedWidth = proposal.width {
-      labelProposal.width = max(proposedWidth - Float(horizontalPadding * 2), 0)
-    }
-    if let proposedHeight = proposal.height {
-      labelProposal.height = max(proposedHeight - Float(verticalPadding * 2), 0)
-    }
-
-    let labelSize = labelView.sizeThatFits(labelProposal)
+    let labelSize = labelView.sizeThatFits(labelOffer(from: proposal))
     return CGSize(
       width: labelSize.width + horizontalPadding * 2,
       height: labelSize.height + verticalPadding * 2
     )
   }
+
+  /// The offer the embedded label is measured under — the button's own
+  /// proposal minus its padding. Layout delivers the same derived value for
+  /// the proposal the parent selected, so the label's own layout pass sees
+  /// the negotiated offer, not its resolved frame.
+  private func labelOffer(from base: WuiProposalSize) -> WuiProposalSize {
+    let (horizontalPadding, verticalPadding) = contentPadding
+    var labelProposal = WuiProposalSize()
+    if let proposedWidth = base.width {
+      labelProposal.width = max(proposedWidth - Float(horizontalPadding * 2), 0)
+    }
+    if let proposedHeight = base.height {
+      labelProposal.height = max(proposedHeight - Float(verticalPadding * 2), 0)
+    }
+    return labelProposal
+  }
+
+  func setPlacementProposal(_ proposal: WuiProposalSize) {
+    guard selectedProposal != proposal else { return }
+    selectedProposal = proposal
+    #if canImport(UIKit)
+      setNeedsLayout()
+    #elseif canImport(AppKit)
+      needsLayout = true
+    #endif
+  }
+
+  #if canImport(UIKit)
+    override func layoutSubviews() {
+      super.layoutSubviews()
+      // Natively hosted buttons fall back to a bounded offer from the rect
+      // they fill — the same boundary rule containers use.
+      labelView.setPlacementProposal(
+        labelOffer(from: selectedProposal ?? WuiProposalSize(size: bounds.size)))
+    }
+  #elseif canImport(AppKit)
+    override func layout() {
+      super.layout()
+      labelView.setPlacementProposal(
+        labelOffer(from: selectedProposal ?? WuiProposalSize(size: bounds.size)))
+    }
+  #endif
 
   // MARK: - Configuration
 

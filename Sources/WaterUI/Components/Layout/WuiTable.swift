@@ -289,6 +289,9 @@ final class WuiTable: PlatformView, WuiComponent {
       let rowHeights = rowHeights()
       var x: CGFloat = 0
       for (index, column) in columns.enumerated() {
+        // Natively hosted: measured under a fully unspecified proposal, so the
+        // cell's recursive layout must not infer bounds from its frame.
+        column.label.setPlacementProposal(WuiProposalSize())
         column.label.frame = CGRect(x: x, y: 0, width: widths[index], height: headerHeight)
         x += widths[index]
       }
@@ -298,6 +301,7 @@ final class WuiTable: PlatformView, WuiComponent {
         x = 0
         for (columnIndex, column) in columns.enumerated() {
           if column.rows.ordered.indices.contains(rowIndex) {
+            column.rows.ordered[rowIndex].setPlacementProposal(WuiProposalSize())
             column.rows.ordered[rowIndex].frame = CGRect(
               x: x + horizontalPadding,
               y: y + verticalPadding,
@@ -350,7 +354,11 @@ final class WuiTable: PlatformView, WuiComponent {
       let tableColumn = tableColumn!
       let column = columns.first { nativeColumns[$0.id] === tableColumn }!
       guard column.rows.ordered.indices.contains(row) else { return nil }
-      return column.rows.ordered[row]
+      let cell = column.rows.ordered[row]
+      // Natively hosted: measured under a fully unspecified proposal, so the
+      // cell's recursive layout must not infer bounds from its frame.
+      cell.setPlacementProposal(WuiProposalSize())
+      return cell
     }
   }
 #endif

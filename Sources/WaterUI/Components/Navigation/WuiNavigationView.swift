@@ -547,11 +547,16 @@ final class WuiNavigationView: PlatformView, WuiComponent {
         height: nil
       )
       let titleSize = titleView.sizeThatFits(barProposal)
+      // Bar items are natively hosted: the proposal they were measured under
+      // is the offer their own layout pass receives, not their stamped frame.
+      titleView.setPlacementProposal(barProposal)
       titleView.frame.size = titleSize
       if let leadingView = barState.leading {
+        leadingView.setPlacementProposal(barProposal)
         leadingView.frame.size = leadingView.sizeThatFits(barProposal)
       }
       if let trailingView = barState.trailing {
+        trailingView.setPlacementProposal(barProposal)
         trailingView.frame.size = trailingView.sizeThatFits(barProposal)
       }
     }
@@ -612,9 +617,11 @@ final class WuiNavigationView: PlatformView, WuiComponent {
       }
 
       if let leadingView = barState.leading {
-        let leadingSize = leadingView.sizeThatFits(
-          WuiProposalSize(width: Float(max(bounds.width * 0.3, 1)), height: Float(headerHeight))
-        )
+        let leadingProposal = WuiProposalSize(
+          width: Float(max(bounds.width * 0.3, 1)), height: Float(headerHeight))
+        let leadingSize = leadingView.sizeThatFits(leadingProposal)
+        // Natively hosted: deliver the measured proposal, not the frame.
+        leadingView.setPlacementProposal(leadingProposal)
         leadingView.frame = CGRect(
           x: leadingCursor,
           y: (headerHeight - leadingSize.height) / 2,
@@ -626,9 +633,10 @@ final class WuiNavigationView: PlatformView, WuiComponent {
 
       var trailingBoundary = bounds.width - horizontalInset
       if let trailingView = barState.trailing {
-        let trailingSize = trailingView.sizeThatFits(
-          WuiProposalSize(width: Float(max(bounds.width * 0.3, 1)), height: Float(headerHeight))
-        )
+        let trailingProposal = WuiProposalSize(
+          width: Float(max(bounds.width * 0.3, 1)), height: Float(headerHeight))
+        let trailingSize = trailingView.sizeThatFits(trailingProposal)
+        trailingView.setPlacementProposal(trailingProposal)
         trailingView.frame = CGRect(
           x: trailingBoundary - trailingSize.width,
           y: (headerHeight - trailingSize.height) / 2,
@@ -639,9 +647,10 @@ final class WuiNavigationView: PlatformView, WuiComponent {
       }
 
       let titleProposalWidth = max(trailingBoundary - leadingCursor, 1)
-      let titleSize = titleView.sizeThatFits(
-        WuiProposalSize(width: Float(titleProposalWidth), height: Float(headerHeight))
-      )
+      let titleProposal = WuiProposalSize(
+        width: Float(titleProposalWidth), height: Float(headerHeight))
+      let titleSize = titleView.sizeThatFits(titleProposal)
+      titleView.setPlacementProposal(titleProposal)
       let minTitleX = leadingCursor
       let maxTitleX = max(minTitleX, trailingBoundary - titleSize.width)
       let centeredTitleX = (bounds.width - titleSize.width) / 2
