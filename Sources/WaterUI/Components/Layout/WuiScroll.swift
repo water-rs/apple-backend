@@ -289,6 +289,8 @@ func scrollContentPlacement(
     private var targetXObservation: WuiComputedObservation<Float>?
     private var targetYObservation: WuiComputedObservation<Float>?
     private var scrollGenerationObservation: WuiComputedObservation<Int32>?
+    /// The clip view size the content was last laid out against.
+    private var laidOutViewport: CGSize = .zero
 
     // MARK: - WuiComponent Init
 
@@ -341,6 +343,19 @@ func scrollContentPlacement(
       }
     }
 
+    /// The clip view is retiled whenever a scroller appears or disappears.
+    /// The first layout pass sees no scroller because the document is still
+    /// empty, and the document frame that pass sets is what makes the
+    /// scroller appear: with legacy scrollers the clip view then narrows by
+    /// the scroller width, a viewport the content has not been laid out
+    /// against yet.
+    override func tile() {
+      super.tile()
+      if contentView.bounds.size != laidOutViewport {
+        needsLayout = true
+      }
+    }
+
     override func layout() {
       super.layout()
 
@@ -352,6 +367,7 @@ func scrollContentPlacement(
       // centred content sits at the clip view's centre. `super.layout()` has
       // tiled the clip view, so its bounds are current here.
       let viewport = contentView.bounds.size
+      laidOutViewport = viewport
       let visibleWidth = viewport.width
       let visibleHeight = viewport.height
 
