@@ -47,11 +47,24 @@ if [[ $# -ge 1 ]]; then
   [[ -f "${example_path}/Water.toml" ]] || {
     echo "error: no example at ${example_path}" >&2; exit 1; }
 
-  water package --platform ios-simulator --backend apple --path "${example_path}"
-  archive="$(find "${waterui_dir}/target/water-backends/static/aarch64-apple-ios-sim/debug" \
-    -maxdepth 1 -name "lib*_ffi.a" -print -quit)"
-  [[ -n "${archive}" ]] || {
-    echo "error: no lib*_ffi.a archive produced for ${example}" >&2; exit 1; }
+  # `water package` stages the example's Rust archive as `libwaterui_app.a`
+  # beside the packaged `.app` in the project's managed DerivedData products
+  # directory (`~/.water/build_cache/<project>/managed_backends/apple/...`),
+  # and names the bundle on its `Packaged at <path>` line. Read the archive
+  # from there: it is exactly this example's build for this platform and
+  # profile, whereas a search of a shared target directory can return another
+  # example's archive once a restored cache holds several.
+  package_log="$(mktemp)"
+  water package --platform ios-simulator --backend apple --path "${example_path}" \
+    2>&1 | tee "${package_log}"
+  app_path="$(sed -n 's/.*Packaged at //p' "${package_log}" | tail -n 1 \
+    | sed 's/\x1b\[[0-9;]*m//g' | tr -d '\r')"
+  rm -f "${package_log}"
+  [[ -n "${app_path}" ]] || {
+    echo "error: water package did not report a packaged bundle for ${example}" >&2; exit 1; }
+  archive="$(dirname "${app_path}")/libwaterui_app.a"
+  [[ -f "${archive}" ]] || {
+    echo "error: no libwaterui_app.a beside ${app_path} for ${example}" >&2; exit 1; }
   ldflags="${ldflags} ${archive}"
 fi
 
