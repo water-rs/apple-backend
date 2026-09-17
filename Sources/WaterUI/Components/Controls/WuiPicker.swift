@@ -1,3 +1,16 @@
+// WuiPicker.swift
+// Picker component - merged UIKit and AppKit implementation
+//
+// # Style mapping
+// Every `PickerStyle` projects onto the platform's own control:
+// - automatic / menu: a menu button (UIKit) or a popup button (AppKit)
+// - segmented: the platform segmented control
+// - radio: an `NSButton` radio group on macOS. iOS has no radio group — neither
+//   UIKit nor SwiftUI offers one — so the style renders the platform's inline
+//   picker, a `UIPickerView` wheel, exactly as SwiftUI's `.inline` style does
+//   in the same place. The asymmetry is documented on the framework's
+//   `PickerStyle::Radio`; it is not faked with a self-drawn list.
+
 import CWaterUI
 
 #if canImport(UIKit)
@@ -78,8 +91,9 @@ final class WuiPicker: PlatformView, WuiComponent {
   #if canImport(UIKit)
     private let segmentedControl = UISegmentedControl()
     private let menuButton = UIButton(type: .system)
-    private let radioStack = UIStackView()
-    private var radioButtons: [Int32: UIButton] = [:]
+    /// The inline wheel the radio style renders on iOS.
+    private let wheel = UIPickerView()
+    private var wheelFont: UIFont?
   #elseif canImport(AppKit)
     private let segmentedControl = NSSegmentedControl()
     private let popupButton = NSPopUpButton()
@@ -182,8 +196,8 @@ final class WuiPicker: PlatformView, WuiComponent {
       )
       menuButton.configuration = menuConfiguration
       menuButton.showsMenuAsPrimaryAction = true
-      radioStack.axis = .vertical
-      radioStack.spacing = 8
+      wheel.dataSource = self
+      wheel.delegate = self
     #elseif canImport(AppKit)
       segmentedControl.target = self
       segmentedControl.action = #selector(segmentedChanged)
@@ -209,7 +223,7 @@ final class WuiPicker: PlatformView, WuiComponent {
       case .automatic, .menu:
         menuButton
       case .radio:
-        radioStack
+        wheel
       case .segmented:
         segmentedControl
       }
@@ -251,7 +265,7 @@ final class WuiPicker: PlatformView, WuiComponent {
           segmentedControl.insertSegment(withTitle: item.text, at: index, animated: false)
         }
       case .radio:
-        reconcileUIKitRadioButtons()
+        wheel.reloadAllComponents()
       }
     #elseif canImport(AppKit)
       switch style {
@@ -290,12 +304,8 @@ final class WuiPicker: PlatformView, WuiComponent {
         configuration.titleTextAttributesTransformer = transformer
         menuButton.configuration = configuration
       }
-      for button in radioButtons.values {
-        if var configuration = button.configuration {
-          configuration.titleTextAttributesTransformer = transformer
-          button.configuration = configuration
-        }
-      }
+      wheelFont = platformFont
+      wheel.reloadAllComponents()
     #elseif canImport(AppKit)
       segmentedControl.font = platformFont
       popupButton.font = platformFont
@@ -316,7 +326,7 @@ final class WuiPicker: PlatformView, WuiComponent {
           segmentedControl.setTitle(item.text, forSegmentAt: index)
         }
       case .radio:
-        break
+        wheel.reloadAllComponents()
       }
     #elseif canImport(AppKit)
       switch style {
@@ -352,35 +362,6 @@ final class WuiPicker: PlatformView, WuiComponent {
           }
         }
       )
-    }
-
-    private func reconcileUIKitRadioButtons() {
-      let activeIds = Set(items.lazy.map(\.collectionId))
-      let removed = radioButtons.filter { !activeIds.contains($0.key) }
-      for (_, button) in removed {
-        radioStack.removeArrangedSubview(button)
-        button.removeFromSuperview()
-      }
-      radioButtons = radioButtons.filter { activeIds.contains($0.key) }
-      for button in radioStack.arrangedSubviews {
-        radioStack.removeArrangedSubview(button)
-      }
-      for (index, item) in items.enumerated() {
-        let button =
-          radioButtons[item.collectionId]
-          ?? {
-            let button = UIButton(type: .system)
-            var configuration = UIButton.Configuration.plain()
-            configuration.imagePadding = 8
-            button.configuration = configuration
-            button.contentHorizontalAlignment = .leading
-            button.addTarget(self, action: #selector(radioTapped(_:)), for: .touchUpInside)
-            radioButtons[item.collectionId] = button
-            return button
-          }()
-        button.tag = index
-        radioStack.addArrangedSubview(button)
-      }
     }
   #elseif canImport(AppKit)
     private func reconcileAppKitPopupItems() {
@@ -439,12 +420,8 @@ final class WuiPicker: PlatformView, WuiComponent {
       case .segmented:
         segmentedControl.selectedSegmentIndex = selectedIndex ?? UISegmentedControl.noSegment
       case .radio:
-        for (index, item) in items.enumerated() {
-          let button = radioButtons[item.collectionId]!
-          let imageName = item.tag == selected ? "circle.inset.filled" : "circle"
-          button.configuration?.image = UIImage(systemName: imageName)
-          button.configuration?.title = item.text
-          button.tag = index
+        if let selectedIndex {
+          wheel.selectRow(selectedIndex, inComponent: 0, animated: false)
         }
       }
     #elseif canImport(AppKit)
@@ -474,7 +451,11 @@ final class WuiPicker: PlatformView, WuiComponent {
       case .segmented:
         segmentedControl.intrinsicContentSize
       case .radio:
-        radioStack.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+        // The wheel is as wide as it is offered, like SwiftUI's inline
+        // picker, and keeps its own height.
+        CGSize(
+          width: proposal.width.map(CGFloat.init) ?? wheel.intrinsicContentSize.width,
+          height: wheel.intrinsicContentSize.height)
       }
     #elseif canImport(AppKit)
       switch style {
@@ -499,10 +480,6 @@ final class WuiPicker: PlatformView, WuiComponent {
       selectionBinding.set(items[index].tag)
     }
 
-    @objc private func radioTapped(_ sender: UIButton) {
-      precondition(items.indices.contains(sender.tag), "Picker emitted an invalid radio index")
-      selectionBinding.set(items[sender.tag].tag)
-    }
   #elseif canImport(AppKit)
     @objc private func segmentedChanged() {
       let index = segmentedControl.selectedSegment
@@ -522,3 +499,29 @@ final class WuiPicker: PlatformView, WuiComponent {
     }
   #endif
 }
+
+#if canImport(UIKit)
+  extension WuiPicker: UIPickerViewDataSource, UIPickerViewDelegate {
+    func numberOfComponents(in pickerView: UIPickerView) -> Int { 1 }
+
+    func pickerView(_ pickerView: UIPickerView, numberOfRowsInComponent component: Int) -> Int {
+      items.count
+    }
+
+    func pickerView(
+      _ pickerView: UIPickerView, viewForRow row: Int, forComponent component: Int,
+      reusing view: UIView?
+    ) -> UIView {
+      let label = view as? UILabel ?? UILabel()
+      label.textAlignment = .center
+      label.font = wheelFont ?? .preferredFont(forTextStyle: .body)
+      label.text = items[row].text
+      return label
+    }
+
+    func pickerView(_ pickerView: UIPickerView, didSelectRow row: Int, inComponent component: Int) {
+      precondition(items.indices.contains(row), "Picker emitted an invalid wheel row")
+      selectionBinding.set(items[row].tag)
+    }
+  }
+#endif
