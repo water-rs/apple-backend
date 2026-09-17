@@ -12,16 +12,21 @@ name: Nightly E2E
 # Dispatching with `record_baselines` captures fresh baselines and parity
 # budgets and opens a PR containing them.
 #
-# Shape (#156): `prepare` builds the water CLI once and hands it to every
-# shard as an artifact — seventeen macOS jobs each running `cargo install`
-# cost ~110 macOS-minutes a night for one binary. The release-metrics job
-# (a single ~105-minute macOS job) is a weekly signal, not a nightly one:
-# it runs on the Sunday schedule and on dispatch.
+# Shape (#156, #218): `prepare` builds the water CLI once and hands it to
+# every job as an artifact — seventeen macOS jobs each running
+# `cargo install` cost ~110 macOS-minutes a night for one binary.
+# `build-ios`/`build-macos` then package every example once and upload the
+# .app bundles as one tarball per platform; the capture shards download it
+# and only launch, capture and compare. The shards used to each pay the same
+# ~32-minute cold release build — sixteen times a night for identical
+# artifacts. The release-metrics job (a single ~105-minute macOS job) is a
+# weekly signal, not a nightly one: it runs on the Sunday schedule and on
+# dispatch.
 #
 # The e2e jobs pin a dated nightly rather than floating `nightly`: Cargo folds
 # `rustc -vV` into every unit fingerprint, so a toolchain that rotates daily
-# would invalidate the restored `~/.water/build_cache/target` unconditionally
-# and the build cache could never be warm for the next night. Bump the pin
+# would invalidate the restored `waterui/target` unconditionally and the
+# build cache could never be warm for the next night. Bump the pin
 # deliberately; the trade is that the suite no longer exercises each night's
 # newest rustc.
 
@@ -68,10 +73,6 @@ env:
   CARGO_INCREMENTAL: 0
   CARGO_PROFILE_DEV_DEBUG: "0"
   CARGO_PROFILE_TEST_DEBUG: "0"
-  # `cargo install --path` otherwise builds in a tempdir that rust-cache can
-  # never see. Point it at the cloned workspace's target dir so the CLI build
-  # is incremental across runs.
-  CARGO_TARGET_DIR: ${{ github.workspace }}/waterui/target
   SHARD_TOTAL: 8
 
 jobs:
@@ -121,14 +122,21 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-  e2e-ios:
-    name: e2e-ios-${{ matrix.shard }}
+  # One build job per platform packages every example once and hands the
+  # capture shards the bundles as a tarball — the shards used to each pay the
+  # same ~32-minute cold release build, sixteen times a night for identical
+  # artifacts (#218). A package failure fails here with the example's log
+  # tail, and the shards never start.
+  build-ios:
+    name: build-ios
     needs: prepare
     runs-on: macos-26
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    timeout-minutes: 120
+    env:
+      # `water package` builds under ${CARGO_TARGET_DIR}/water-backends —
+      # waterui/target/water-backends — so the release units this job spends
+      # ~35 min compiling ride the waterui workspace's cache entry.
+      CARGO_TARGET_DIR: ${{ github.workspace }}/waterui/target
     steps:
       - uses: actions/checkout@v4
 
@@ -148,20 +156,14 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: nightly-e2e-ios
-          # `water package` builds into the CLI's shared target dir —
-          # `~/.water/build_cache/target` — not `waterui/target`, so the
-          # release units the shard spends ~35 min compiling have to ride
-          # the same cache entry.
           # The Cargo workspace is the staged framework checkout, so the key
           # follows its lockfile and a night whose dependencies moved writes a
           # fresh entry instead of skipping the save as "already cached".
           workspaces: waterui
-          # Every shard restores; only the scheduled run on dev saves, so the
-          # warmed dir is written once a night for the next night.
           # Any run on dev writes (the concurrency group serialises them), so a
           # dispatched re-test warms the cache as well as the schedule. Save
-          # even when the shard fails: the build finished before the parity
-          # comparison, and a red parity result must not cost the next run a
+          # even when the job fails: the build finished before the packaging
+          # or staging error, and a red result must not cost the next run a
           # cold build.
           save-if: ${{ github.ref == 'refs/heads/dev' }}
           cache-on-failure: true
@@ -174,6 +176,152 @@ jobs:
       - run: |
           chmod +x cli-bin/bin/water
           echo "${{ github.workspace }}/cli-bin/bin" >> "$GITHUB_PATH"
+
+      - name: Package every iOS example
+        env:
+          PLATFORM: ios
+          WATERUI_DIR: ${{ github.workspace }}/waterui
+          EXAMPLE_LOG_DIR: ${{ github.workspace }}/e2e-logs
+          PACKAGE_OUT_DIR: ${{ github.workspace }}/packaged-ios
+        run: ./.github/scripts/package-examples.sh
+
+      # Bundles must survive the artifact round trip intact — symlinks,
+      # permissions and the ad-hoc code signature — so they cross as a tar,
+      # not as a bare directory upload.
+      - name: Archive packaged iOS apps
+        run: COPYFILE_DISABLE=1 tar -C "${{ github.workspace }}" -cf packaged-ios.tar packaged-ios
+
+      - name: Upload packaged iOS apps
+        uses: actions/upload-artifact@v4
+        with:
+          name: packaged-ios
+          path: packaged-ios.tar
+          retention-days: 1
+          if-no-files-found: error
+
+      # Separate from the bundle tar so startup-report can merge the numbers
+      # without downloading the apps.
+      - name: Upload iOS package sizes
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-sizes-ios
+          path: packaged-ios/package-sizes-ios.json
+          retention-days: 90
+          if-no-files-found: error
+
+  build-macos:
+    name: build-macos
+    needs: prepare
+    runs-on: macos-26
+    timeout-minutes: 120
+    env:
+      # `water package` builds under ${CARGO_TARGET_DIR}/water-backends —
+      # waterui/target/water-backends — so the release units this job spends
+      # ~35 min compiling ride the waterui workspace's cache entry.
+      CARGO_TARGET_DIR: ${{ github.workspace }}/waterui/target
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare waterui with this backend
+        env:
+          WATERUI_SHA: ${{ needs.prepare.outputs.waterui_sha }}
+          WATER_CLI_SHA: ${{ needs.prepare.outputs.cli_sha }}
+        run: ./.github/scripts/setup-e2e.sh
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly-2026-09-17
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: nightly-e2e-macos
+          # The Cargo workspace is the staged framework checkout, so the key
+          # follows its lockfile and a night whose dependencies moved writes a
+          # fresh entry instead of skipping the save as "already cached".
+          workspaces: waterui
+          # Any run on dev writes (the concurrency group serialises them), so a
+          # dispatched re-test warms the cache as well as the schedule. Save
+          # even when the job fails: the build finished before the packaging
+          # or staging error, and a red result must not cost the next run a
+          # cold build.
+          save-if: ${{ github.ref == 'refs/heads/dev' }}
+          cache-on-failure: true
+
+      - name: Install the water CLI
+        uses: actions/download-artifact@v4
+        with:
+          name: water-cli
+          path: cli-bin/bin
+      - run: |
+          chmod +x cli-bin/bin/water
+          echo "${{ github.workspace }}/cli-bin/bin" >> "$GITHUB_PATH"
+
+      - name: Package every macOS example
+        env:
+          PLATFORM: macos
+          WATERUI_DIR: ${{ github.workspace }}/waterui
+          EXAMPLE_LOG_DIR: ${{ github.workspace }}/e2e-logs
+          PACKAGE_OUT_DIR: ${{ github.workspace }}/packaged-macos
+        run: ./.github/scripts/package-examples.sh
+
+      - name: Archive packaged macOS apps
+        run: COPYFILE_DISABLE=1 tar -C "${{ github.workspace }}" -cf packaged-macos.tar packaged-macos
+
+      - name: Upload packaged macOS apps
+        uses: actions/upload-artifact@v4
+        with:
+          name: packaged-macos
+          path: packaged-macos.tar
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Upload macOS package sizes
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-sizes-macos
+          path: packaged-macos/package-sizes-macos.json
+          retention-days: 90
+          if-no-files-found: error
+
+  e2e-ios:
+    name: e2e-ios-${{ matrix.shard }}
+    needs: [prepare, build-ios]
+    runs-on: macos-26
+    # ~7 examples × ~3 min of launch/settle/capture/twin/compare plus
+    # simulator boot and the artifact download — no compile. 45 minutes keeps
+    # a wide margin over the ~30 measured.
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare waterui with this backend
+        env:
+          WATERUI_SHA: ${{ needs.prepare.outputs.waterui_sha }}
+          WATER_CLI_SHA: ${{ needs.prepare.outputs.cli_sha }}
+        run: ./.github/scripts/setup-e2e.sh
+
+      - name: Install the water CLI
+        uses: actions/download-artifact@v4
+        with:
+          name: water-cli
+          path: cli-bin/bin
+      - run: |
+          chmod +x cli-bin/bin/water
+          echo "${{ github.workspace }}/cli-bin/bin" >> "$GITHUB_PATH"
+
+      - name: Download packaged iOS apps
+        uses: actions/download-artifact@v4
+        with:
+          name: packaged-ios
+          path: packaged-artifacts
+      - name: Unpack packaged iOS apps
+        run: tar -xf packaged-artifacts/packaged-ios.tar -C "${{ github.workspace }}"
 
       - name: Boot iOS simulator
         run: |
@@ -206,6 +354,7 @@ jobs:
           SHOTS_DIR: ${{ github.workspace }}/e2e-shots
           RECORD_DIR: ${{ github.workspace }}/e2e-baselines
           RECORD: ${{ inputs.record_baselines == true && '1' || '0' }}
+          PREBUILT_DIR: ${{ github.workspace }}/packaged-ios
         run: ./.github/scripts/run-e2e-shard.sh
 
       - name: Upload iOS shard captures
@@ -218,6 +367,8 @@ jobs:
 
       # Launch timings are recorded even when a shard fails — a regression
       # that makes an app slow is exactly the signal this data exists for.
+      # Package sizes come from the build-ios job's own artifact — they are a
+      # property of the package, not of the capture.
       - name: Upload iOS startup times
         if: always()
         uses: actions/upload-artifact@v4
@@ -226,7 +377,6 @@ jobs:
           path: |
             e2e-logs/startup-times-*.json
             e2e-logs/memory-*.json
-            e2e-logs/package-sizes-*.json
           retention-days: 90
 
       - name: Upload iOS shard logs
@@ -247,8 +397,12 @@ jobs:
 
   e2e-macos:
     name: e2e-macos-${{ matrix.shard }}
-    needs: prepare
+    needs: [prepare, build-macos]
     runs-on: macos-26
+    # ~7 examples × ~3 min of launch/settle/capture/twin/compare plus the
+    # artifact download — no compile. 45 minutes keeps a wide margin over the
+    # ~30 measured.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -262,27 +416,6 @@ jobs:
           WATER_CLI_SHA: ${{ needs.prepare.outputs.cli_sha }}
         run: ./.github/scripts/setup-e2e.sh
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@nightly
-        with:
-          toolchain: nightly-2026-09-17
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: nightly-e2e-macos
-          # The Cargo workspace is the staged framework checkout, so the key
-          # follows its lockfile and a night whose dependencies moved writes a
-          # fresh entry instead of skipping the save as "already cached".
-          workspaces: waterui
-          # Any run on dev writes (the concurrency group serialises them), so a
-          # dispatched re-test warms the cache as well as the schedule. Save
-          # even when the shard fails: the build finished before the parity
-          # comparison, and a red parity result must not cost the next run a
-          # cold build.
-          save-if: ${{ github.ref == 'refs/heads/dev' }}
-          cache-on-failure: true
-
       - name: Install the water CLI
         uses: actions/download-artifact@v4
         with:
@@ -291,6 +424,14 @@ jobs:
       - run: |
           chmod +x cli-bin/bin/water
           echo "${{ github.workspace }}/cli-bin/bin" >> "$GITHUB_PATH"
+
+      - name: Download packaged macOS apps
+        uses: actions/download-artifact@v4
+        with:
+          name: packaged-macos
+          path: packaged-artifacts
+      - name: Unpack packaged macOS apps
+        run: tar -xf packaged-artifacts/packaged-macos.tar -C "${{ github.workspace }}"
 
       - name: Run macOS e2e shard
         env:
@@ -302,6 +443,7 @@ jobs:
           SHOTS_DIR: ${{ github.workspace }}/e2e-shots
           RECORD_DIR: ${{ github.workspace }}/e2e-baselines
           RECORD: ${{ inputs.record_baselines == true && '1' || '0' }}
+          PREBUILT_DIR: ${{ github.workspace }}/packaged-macos
         run: ./.github/scripts/run-e2e-shard.sh
 
       - name: Upload macOS shard captures
@@ -320,7 +462,6 @@ jobs:
           path: |
             e2e-logs/startup-times-*.json
             e2e-logs/memory-*.json
-            e2e-logs/package-sizes-*.json
           retention-days: 90
 
       - name: Upload macOS shard logs
@@ -355,6 +496,11 @@ jobs:
     needs: prepare
     runs-on: macos-26
     timeout-minutes: 60
+    env:
+      # Packages the repository's own ios_test_host fixture in dev profile —
+      # not one of the release examples build-ios packages — so it keeps its
+      # own toolchain, cache and target dir.
+      CARGO_TARGET_DIR: ${{ github.workspace }}/waterui/target
     steps:
       - uses: actions/checkout@v4
 
@@ -400,15 +546,16 @@ jobs:
           WATERUI_DIR: ${{ github.workspace }}/waterui
         run: ./.github/scripts/run-ios-device-tests.sh ios_test_host
 
-  # Every shard uploads one startup-times JSON, one memory JSON, and one
-  # package-size JSON; this job merges them into launch-timing + footprint +
-  # size artifacts and a step-summary table so a slow or bloated example is
-  # visible without digging through sixteen archives. All measurements come
-  # from the release packages the shards built.
+  # Every shard uploads one startup-times JSON and one memory JSON; the build
+  # jobs upload one package-size JSON per platform. This job merges them into
+  # launch-timing + footprint + size artifacts and a step-summary table so a
+  # slow or bloated example is visible without digging through sixteen
+  # archives. All measurements come from the release packages build-ios and
+  # build-macos built.
   startup-report:
     name: startup-report
     if: always()
-    needs: [prepare, e2e-ios, e2e-macos]
+    needs: [prepare, build-ios, build-macos, e2e-ios, e2e-macos]
     runs-on: ubuntu-latest
     steps:
       - name: Note the certified inputs
@@ -426,6 +573,13 @@ jobs:
         with:
           pattern: startup-times-*
           path: startup/
+
+      - name: Download package sizes
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: package-sizes-*
+          path: sizes/
 
       - name: Merge startup times
         run: |
@@ -453,8 +607,8 @@ jobs:
                       memory[m.group(1)].update(json.load(f))
               except Exception:
                   pass
-          for path in sorted(glob.glob("startup/*/package-sizes-*.json")):
-              m = re.search(r"package-sizes-(ios|macos)-\d+\.json$", path)
+          for path in sorted(glob.glob("sizes/*/package-sizes-*.json")):
+              m = re.search(r"package-sizes-(ios|macos)\.json$", path)
               if not m:
                   continue
               try:
@@ -518,6 +672,10 @@ jobs:
     # nightly gate, and on the other six nights its slot goes to the shards.
     if: github.event_name == 'workflow_dispatch' || github.event.schedule == '23 5 * * 0'
     runs-on: macos-26
+    env:
+      # Packages a generated hello-world playground rather than a discovered
+      # example, so it keeps its own toolchain, cache and target dir.
+      CARGO_TARGET_DIR: ${{ github.workspace }}/waterui/target
     steps:
       - uses: actions/checkout@v4
 
@@ -680,7 +838,7 @@ jobs:
   # are expected to capture a partially broken suite — they do not report.
   report:
     name: Report failure
-    needs: [prepare, e2e-ios, e2e-macos, package-size, ios-device-tests]
+    needs: [prepare, build-ios, build-macos, e2e-ios, e2e-macos, package-size, ios-device-tests]
     if: failure() && inputs.record_baselines != true
     runs-on: ubuntu-latest
     steps:
