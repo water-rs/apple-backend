@@ -15,20 +15,20 @@ struct MenuTwin: View {
         Text("Demonstrating popup menus, nested menus, and context menus")
           .font(.body)
           .foregroundStyle(.secondary)
-        Divider()
+        wuiDivider()
         Spacer().frame(height: 8)
         menuSection
-        Divider()
+        wuiDivider()
         styledMenuSection
-        Divider()
+        wuiDivider()
         contextMenuSection
-        Divider()
+        wuiDivider()
         VStack(spacing: 10) {
           contextMenuViewsSection
-          Divider()
+          wuiDivider()
           selectionMenuSection
         }
-        Divider()
+        wuiDivider()
         toolbarSceneSection
         Spacer().frame(height: 40)
       }

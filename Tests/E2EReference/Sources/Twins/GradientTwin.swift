@@ -20,20 +20,20 @@ struct GradientTwin: View {
             VStack(spacing: 10) {
                 Text("WaterUI Gradient Examples").font(.system(size: 28))
                 Text("GPU-rendered gradients with animation support")
-                Divider()
+                wuiDivider()
                 animatedBackgroundSection
-                Divider()
+                wuiDivider()
                 gpuMeshSection
-                Divider()
+                wuiDivider()
                 shapeFillSection
-                Divider()
+                wuiDivider()
                 linearSection
-                Divider()
+                wuiDivider()
                 radialSection
-                Divider()
+                wuiDivider()
                 VStack(spacing: 10) {
                     meshSection
-                    Divider()
+                    wuiDivider()
                     hdrSection
                 }
             }

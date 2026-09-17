@@ -22,14 +22,14 @@ struct AnimationTwin: View {
       VStack(spacing: 10) {
         Text("WaterUI Animation Examples").font(.title)
         Text("Visual demonstrations of the animation system")
-        Divider()
+        wuiDivider()
         VStack(spacing: 10) {
           scaleSection
-          Divider()
+          wuiDivider()
           rotationSection
-          Divider()
+          wuiDivider()
           translationSection
-          Divider()
+          wuiDivider()
           combinedSection
         }
       }
