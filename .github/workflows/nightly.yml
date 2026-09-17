@@ -277,6 +277,53 @@ jobs:
           path: e2e-baselines/
           retention-days: 7
 
+  # The DeviceHostedApp cases (ListCellLayoutTests, CompactSplitTests) drive a
+  # real WaterUI application and run only when an example's Rust archive is
+  # linked into the test bundle — `swift test` in the PR lane binds nothing,
+  # so they skip there. This job stages the same waterui checkout the shards
+  # build, packages the repository's own ios_test_host fixture with the water
+  # CLI from `prepare`, and runs the suite on an iOS simulator. It belongs to
+  # the nightly rather than the PR lane: measured cold on a PR run it timed
+  # out at thirty minutes (CLI build ~5.5m, `water package` ~10.5m, then a
+  # cold xcodebuild DerivedData), and even warm it does not fit a per-change
+  # gate. The helper fails the run when the archive never lands in the test
+  # bundle, so a broken staging step cannot turn the check green by skipping.
+  ios-device-tests:
+    name: ios-device-tests
+    needs: prepare
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare waterui with this backend
+        run: ./.github/scripts/setup-e2e.sh
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: aarch64-apple-ios-sim
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: nightly-e2e-ios
+          cache-directories: waterui/target
+
+      - name: Install the water CLI
+        uses: actions/download-artifact@v4
+        with:
+          name: water-cli
+          path: cli-bin/bin
+      - run: |
+          chmod +x cli-bin/bin/water
+          echo "${{ github.workspace }}/cli-bin/bin" >> "$GITHUB_PATH"
+
+      - name: Run archive-backed iOS tests
+        env:
+          WATERUI_DIR: ${{ github.workspace }}/waterui
+        run: ./.github/scripts/run-ios-device-tests.sh ios_test_host
+
   # Every shard uploads one startup-times JSON, one memory JSON, and one
   # package-size JSON; this job merges them into launch-timing + footprint +
   # size artifacts and a step-summary table so a slow or bloated example is
@@ -544,7 +591,7 @@ jobs:
   # are expected to capture a partially broken suite — they do not report.
   report:
     name: Report failure
-    needs: [e2e-ios, e2e-macos, package-size]
+    needs: [e2e-ios, e2e-macos, package-size, ios-device-tests]
     if: failure() && inputs.record_baselines != true
     runs-on: ubuntu-latest
     steps:
