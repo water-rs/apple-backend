@@ -139,8 +139,9 @@ jobs:
         run: ./.github/scripts/setup-e2e.sh
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@nightly-2026-09-17
+        uses: dtolnay/rust-toolchain@nightly
         with:
+          toolchain: nightly-2026-09-17
           targets: aarch64-apple-ios-sim
 
       - name: Cache cargo
@@ -155,7 +156,6 @@ jobs:
           # follows its lockfile and a night whose dependencies moved writes a
           # fresh entry instead of skipping the save as "already cached".
           workspaces: waterui
-          cache-directories: ~/.water/build_cache/target
           # Every shard restores; only the scheduled run on dev saves, so the
           # warmed dir is written once a night for the next night.
           # Any run on dev writes (the concurrency group serialises them), so a
@@ -263,7 +263,9 @@ jobs:
         run: ./.github/scripts/setup-e2e.sh
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@nightly-2026-09-17
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly-2026-09-17
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -273,7 +275,6 @@ jobs:
           # follows its lockfile and a night whose dependencies moved writes a
           # fresh entry instead of skipping the save as "already cached".
           workspaces: waterui
-          cache-directories: ~/.water/build_cache/target
           # Any run on dev writes (the concurrency group serialises them), so a
           # dispatched re-test warms the cache as well as the schedule. Save
           # even when the shard fails: the build finished before the parity
@@ -364,8 +365,9 @@ jobs:
         run: ./.github/scripts/setup-e2e.sh
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@nightly-2026-09-17
+        uses: dtolnay/rust-toolchain@nightly
         with:
+          toolchain: nightly-2026-09-17
           targets: aarch64-apple-ios-sim
 
       - name: Cache cargo
@@ -376,7 +378,6 @@ jobs:
           # follows its lockfile and a night whose dependencies moved writes a
           # fresh entry instead of skipping the save as "already cached".
           workspaces: waterui
-          cache-directories: ~/.water/build_cache/target
           # Any run on dev writes (the concurrency group serialises them), so a
           # dispatched re-test warms the cache as well as the schedule. Save
           # even when the shard fails: the build finished before the parity
@@ -527,8 +528,9 @@ jobs:
         run: ./.github/scripts/setup-e2e.sh
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@nightly-2026-09-17
+        uses: dtolnay/rust-toolchain@nightly
         with:
+          toolchain: nightly-2026-09-17
           targets: aarch64-apple-ios-sim
 
       - name: Cache cargo

@@ -44,10 +44,12 @@ on:
 permissions:
   contents: read
 
-# A running targeted job is never cancelled: its value is the complete report
-# on the examples it was asked about.
+# Targeted runs are independent by construction — each resolves its own
+# (backend, framework, CLI) triple and names its own examples — so they run
+# side by side, one group per run, and a running job is never cancelled: its
+# value is the complete report on the examples it was asked about.
 concurrency:
-  group: e2e-targeted
+  group: e2e-targeted-${{ github.run_id }}
   cancel-in-progress: false
 
 env:
@@ -119,6 +121,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@nightly
         with:
+          toolchain: nightly-2026-09-17
           targets: aarch64-apple-ios-sim
 
       - name: Cache cargo
@@ -221,6 +224,8 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly-2026-09-17
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
