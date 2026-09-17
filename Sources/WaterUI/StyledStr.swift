@@ -119,37 +119,7 @@ final class WuiStyledStrRenderer {
     for chunk in chunks {
       result.append(chunk.attributedString(defaultForeground: defaultForeground?.value))
     }
-    restoreClosingLeading(of: result)
     return result
-  }
-
-  /// `lineSpacing` moves every line boundary except the one after the
-  /// closing line: a face's leading is part of every line's fragment, the
-  /// last one included. The final paragraph instead gets the declared pitch
-  /// as a line-height multiple — each of its fragments carries the full
-  /// pitch — so the block's bottom edge lands where a label typeset with
-  /// the leading-carrying face itself would put it.
-  private func restoreClosingLeading(of attributedString: NSMutableAttributedString) {
-    guard attributedString.length > 0 else { return }
-    let lastParagraph = (attributedString.string as NSString).paragraphRange(
-      for: NSRange(location: attributedString.length - 1, length: 0))
-    var closing: [(NSMutableParagraphStyle, NSRange)] = []
-    attributedString.enumerateAttribute(.paragraphStyle, in: lastParagraph) {
-      value, range, _ in
-      guard let style = value as? NSParagraphStyle, style.lineSpacing != 0,
-        let font = attributedString.attribute(
-          .font, at: range.location, effectiveRange: nil) as? PlatformFont
-      else { return }
-      let natural = font.naturalLinePitch
-      guard natural > 0 else { return }
-      let copy = style.mutableCopy() as! NSMutableParagraphStyle
-      copy.lineSpacing = 0
-      copy.lineHeightMultiple = (natural + style.lineSpacing) / natural
-      closing.append((copy, range))
-    }
-    for (style, range) in closing {
-      attributedString.addAttribute(.paragraphStyle, value: style, range: range)
-    }
   }
 }
 
@@ -200,17 +170,21 @@ struct WuiStyledChunk {
     }
 
     let paragraphStyle = NSMutableParagraphStyle()
-    // SwiftUI Text hyphenates a run that cannot break at word boundaries;
-    // TextKit's default word wrapping just breaks mid-glyph. The factor
-    // matches the platform typesetter's behavior on overflow words.
-    paragraphStyle.hyphenationFactor = 1.0
+    // SwiftUI Text hyphenates only a run that cannot break at a word
+    // boundary; an ordinary word wraps whole. TextKit hyphenates a line
+    // whenever the width it fills at its last word boundary, as a fraction
+    // of the fragment width, falls below the factor — a run with no word
+    // boundary fills nothing at one, so the smallest positive factor keeps
+    // ordinary words whole and breaks overflow runs with a hyphen the way
+    // the platform typesetter does.
+    paragraphStyle.hyphenationFactor = .leastNormalMagnitude
     // A resolved line height is the face's line pitch — line box plus
     // leading. The platform font we can rebuild carries no leading, so the
     // pitch is expressed as `lineSpacing` over the rebuilt face's natural
     // line pitch: mixed-script lines keep their inflated metrics, and the
     // declared pitch lands between lines the way the face's leading does.
-    // The closing line's leading is restored by the renderer, which owns the
-    // whole string's paragraph boundaries.
+    // The closing line keeps its natural line box: SwiftUI's text height is
+    // the interior pitch times the line count less one, plus one line box.
     if resolvedFont.lineHeight > 0 {
       paragraphStyle.lineSpacing = CGFloat(resolvedFont.lineHeight) - font.naturalLinePitch
     }
