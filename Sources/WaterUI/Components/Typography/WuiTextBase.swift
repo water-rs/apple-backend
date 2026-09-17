@@ -169,27 +169,30 @@ class WuiTextBase: PlatformView {
       return (.zero, nil, nil)
     }
 
-    let proposedWidth = proposal.width.map(CGFloat.init)
-    let proposedHeight = proposal.height.map(CGFloat.init)
-    let maxWidth = proposedWidth ?? CGFloat.greatestFiniteMagnitude
-    let maxHeight = proposedHeight ?? CGFloat.greatestFiniteMagnitude
-    let constraintSize = CGSize(
-      width: proposedWidth ?? CGFloat.greatestFiniteMagnitude,
-      height: proposedHeight ?? CGFloat.greatestFiniteMagnitude
-    )
+    // The leaf contract: a finite width proposal is the wrap width, `0` asks
+    // for the narrowest wrap and `nil` for the unwrapped line; the answer is
+    // the laid-out width (the widest line) and the line count times the
+    // line box. The height proposal never enters the measurement. A stack
+    // probes `0` on its main axis for a child's minimum, and a text that
+    // echoed the `0` back would read as fully compressible: the moment a
+    // spacer made the stack compress, the water-fill took the whole
+    // deficit out of the text before anything else. TextKit treats a `0`
+    // container width as unbounded and breaks mid-word below a glyph width,
+    // so the narrowest wrap is laid out at the widest unbreakable run.
+    let scale = displayScale()
+    let wrapWidth: CGFloat
+    switch proposal.width.map(CGFloat.init) {
+    case .none:
+      wrapWidth = CGFloat.greatestFiniteMagnitude
+    case .some(let width) where width > 0:
+      wrapWidth = width
+    case .some:
+      wrapWidth = (Self.widestUnbreakableRun(in: attributedText) * scale).rounded(.up) / scale
+    }
+    let constraintSize = CGSize(width: wrapWidth, height: CGFloat.greatestFiniteMagnitude)
 
-    // Line layout through TextKit — the engine NSTextField/UILabel (and
-    // SwiftUI Text) use — not CTFramesetter. CoreText sizes a line to the
-    // largest font metric it contains, so one CJK/Arabic fallback glyph
-    // inflates the whole line by ~1pt and the extra height accumulates down
-    // a stack.
-    let textStorage = NSTextStorage(attributedString: attributedText)
-    let layoutManager = NSLayoutManager()
-    let container = NSTextContainer(size: constraintSize)
-    container.lineFragmentPadding = 0
-    textStorage.addLayoutManager(layoutManager)
-    layoutManager.addTextContainer(container)
-    layoutManager.ensureLayout(for: container)
+    let layout = Self.layOut(attributedText, wrapWidth: wrapWidth)
+    let layoutManager = layout.manager
     let glyphCount = layoutManager.numberOfGlyphs
     guard glyphCount > 0 else {
       return (.zero, nil, nil)
@@ -236,13 +239,67 @@ class WuiTextBase: PlatformView {
     // on 3x displays (~2px per line of stack drift).
     let bounding = measuredText.boundingRect(
       with: constraintSize, options: [.usesLineFragmentOrigin], context: nil)
-    let scale = displayScale()
-    let width = min((bounding.width * scale).rounded(.up) / scale, maxWidth)
-    let height = min((bounding.height * scale).rounded(.up) / scale, maxHeight)
+    let width = (bounding.width * scale).rounded(.up) / scale
+    let height = (bounding.height * scale).rounded(.up) / scale
     let size = CGSize(width: max(width, 0.0), height: max(height, 0.0))
 
     let lastBaseline = baselineOfLine(containingGlyph: lastBaselineGlyph)
     return (size, firstBaseline, lastBaseline)
+  }
+
+  /// A TextKit layout of `text` wrapped at `wrapWidth` with unbounded height.
+  /// The storage owns the layout manager, so it is kept alongside.
+  private struct TextLayout {
+    let storage: NSTextStorage
+    let manager: NSLayoutManager
+    let container: NSTextContainer
+  }
+
+  /// Line layout through TextKit — the engine NSTextField/UILabel (and
+  /// SwiftUI Text) use — not CTFramesetter. CoreText sizes a line to the
+  /// largest font metric it contains, so one CJK/Arabic fallback glyph
+  /// inflates the whole line by ~1pt and the extra height accumulates down
+  /// a stack.
+  private static func layOut(_ text: NSAttributedString, wrapWidth: CGFloat) -> TextLayout {
+    let storage = NSTextStorage(attributedString: text)
+    let manager = NSLayoutManager()
+    let container = NSTextContainer(
+      size: CGSize(width: wrapWidth, height: CGFloat.greatestFiniteMagnitude))
+    container.lineFragmentPadding = 0
+    storage.addLayoutManager(manager)
+    manager.addTextContainer(container)
+    manager.ensureLayout(for: container)
+    return TextLayout(storage: storage, manager: manager, container: container)
+  }
+
+  /// The width of the widest run between two line-break opportunities
+  /// (UAX #14, as the platform tokenizer reports them), trailing whitespace
+  /// excluded — the narrowest width the text wraps to without breaking
+  /// inside a word. A wrap at this width fits every run on a line of its
+  /// own, which is the layout a `0` width proposal asks for.
+  private static func widestUnbreakableRun(in text: NSAttributedString) -> CGFloat {
+    let layout = layOut(text, wrapWidth: CGFloat.greatestFiniteMagnitude)
+    let string = text.string as NSString
+    let tokenizer = CFStringTokenizerCreate(
+      nil, string, CFRange(location: 0, length: string.length),
+      kCFStringTokenizerUnitLineBreak, nil)
+    let visibleCharacters = CharacterSet.whitespacesAndNewlines.inverted
+    var widest: CGFloat = 0
+    while CFStringTokenizerAdvanceToNextToken(tokenizer).rawValue != 0 {
+      let token = CFStringTokenizerGetCurrentTokenRange(tokenizer)
+      let tokenRange = NSRange(location: token.location, length: token.length)
+      let lastVisible = string.rangeOfCharacter(
+        from: visibleCharacters, options: .backwards, range: tokenRange)
+      guard lastVisible.location != NSNotFound else { continue }
+      let visibleRange = NSRange(
+        location: tokenRange.location,
+        length: NSMaxRange(lastVisible) - tokenRange.location)
+      let glyphRange = layout.manager.glyphRange(
+        forCharacterRange: visibleRange, actualCharacterRange: nil)
+      let run = layout.manager.boundingRect(forGlyphRange: glyphRange, in: layout.container)
+      widest = max(widest, run.width)
+    }
+    return widest
   }
 
   func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
