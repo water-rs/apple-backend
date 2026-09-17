@@ -139,8 +139,9 @@ jobs:
         run: ./.github/scripts/setup-e2e.sh
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@nightly-2026-09-17
+        uses: dtolnay/rust-toolchain@nightly
         with:
+          toolchain: nightly-2026-09-17
           targets: aarch64-apple-ios-sim
 
       - name: Cache cargo
@@ -262,7 +263,9 @@ jobs:
         run: ./.github/scripts/setup-e2e.sh
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@nightly-2026-09-17
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly-2026-09-17
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -362,8 +365,9 @@ jobs:
         run: ./.github/scripts/setup-e2e.sh
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@nightly-2026-09-17
+        uses: dtolnay/rust-toolchain@nightly
         with:
+          toolchain: nightly-2026-09-17
           targets: aarch64-apple-ios-sim
 
       - name: Cache cargo
@@ -524,8 +528,9 @@ jobs:
         run: ./.github/scripts/setup-e2e.sh
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@nightly-2026-09-17
+        uses: dtolnay/rust-toolchain@nightly
         with:
+          toolchain: nightly-2026-09-17
           targets: aarch64-apple-ios-sim
 
       - name: Cache cargo
