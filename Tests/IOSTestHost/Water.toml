@@ -1,0 +1,6 @@
+waterui_path = "../.."
+
+[package]
+type = "playground"
+name = "iOS Test Host"
+bundle_identifier = "dev.waterui.ios_test_host"
