@@ -4,7 +4,9 @@
 // # Layout Behavior
 // ScrollView fills available space when proposed, but reports 0 size when unconstrained.
 // This prevents ScrollView from forcing window/parent expansion.
-// Content can exceed scroll view bounds and becomes scrollable.
+// Content can exceed scroll view bounds and becomes scrollable along the axis.
+// On the non-scrolling axis the content keeps its measured extent and is
+// centred in the viewport, clipped on both edges when it is wider.
 // Scroll direction is configured via axis parameter.
 //
 // // INTERNAL: Layout Contract for Backend Implementers
@@ -69,6 +71,45 @@ private func scrollMinSize(
       width: minQuery.width ? 0 : proposedWidth,
       height: minQuery.height ? 0 : proposedHeight
     )
+  default:
+    fatalError("Unsupported WaterUI scroll axis: \(axis.rawValue)")
+  }
+}
+
+/// Where a scroll frames its content once the content has answered the
+/// viewport-constrained proposal.
+///
+/// On the non-scrolling axis the content keeps its own answer and is centred
+/// in the viewport: a wider content crosses both edges by the same amount,
+/// the way SwiftUI's `ScrollView` clips it, while the scrollable extent stays
+/// the viewport's so nothing scrolls sideways in a vertical scroll. On the
+/// scrolling axis the content frame and the scrollable extent are the answer.
+struct WuiScrollContentPlacement: Equatable {
+  /// The content view's frame in the scroll view's coordinate space.
+  let contentFrame: CGRect
+  /// The scrollable extent: `contentSize` on UIKit, the document frame on AppKit.
+  let scrollExtent: CGSize
+}
+
+func scrollContentPlacement(
+  axis: WuiAxis, viewport: CGSize, measured: CGSize
+) -> WuiScrollContentPlacement {
+  switch axis {
+  case WuiAxis_Vertical:
+    return WuiScrollContentPlacement(
+      contentFrame: CGRect(
+        x: (viewport.width - measured.width) / 2, y: 0,
+        width: measured.width, height: measured.height),
+      scrollExtent: CGSize(width: viewport.width, height: measured.height))
+  case WuiAxis_Horizontal:
+    return WuiScrollContentPlacement(
+      contentFrame: CGRect(
+        x: 0, y: (viewport.height - measured.height) / 2,
+        width: measured.width, height: measured.height),
+      scrollExtent: CGSize(width: measured.width, height: viewport.height))
+  case WuiAxis_All:
+    return WuiScrollContentPlacement(
+      contentFrame: CGRect(origin: .zero, size: measured), scrollExtent: measured)
   default:
     fatalError("Unsupported WaterUI scroll axis: \(axis.rawValue)")
   }
@@ -164,29 +205,13 @@ private func scrollMinSize(
       // the constructed one, never the measured frame.
       contentView.setPlacementProposal(contentProposal)
       let measuredSize = contentView.sizeThatFits(contentProposal)
-
-      let finalWidth: CGFloat
-      let finalHeight: CGFloat
-
-      switch axis {
-      case WuiAxis_Vertical:
-        finalWidth = bounds.width
-        finalHeight = measuredSize.height
-      case WuiAxis_Horizontal:
-        finalWidth = measuredSize.width
-        finalHeight = bounds.height
-      case WuiAxis_All:
-        finalWidth = measuredSize.width
-        finalHeight = measuredSize.height
-      default:
-        fatalError("Unsupported WaterUI scroll axis: \(axis.rawValue)")
-      }
+      let placement = scrollContentPlacement(
+        axis: axis, viewport: bounds.size, measured: measuredSize)
 
       // Only update frame when changed to avoid recursive layout loops
-      let newFrame = CGRect(x: 0, y: 0, width: finalWidth, height: finalHeight)
-      if contentView.frame != newFrame {
-        contentView.frame = newFrame
-        contentSize = CGSize(width: finalWidth, height: finalHeight)
+      if contentView.frame != placement.contentFrame {
+        contentView.frame = placement.contentFrame
+        contentSize = placement.scrollExtent
         contentView.setNeedsLayout()
         contentView.layoutIfNeeded()
       }
@@ -343,29 +368,15 @@ private func scrollMinSize(
       contentHostView.setPlacementProposal(contentProposal)
       let measuredSize = contentHostView.sizeThatFits(contentProposal)
 
-      let finalWidth: CGFloat
-      let finalHeight: CGFloat
-
-      // The document takes the measured content size, matching the UIKit
-      // path and SwiftUI's ScrollView: content smaller than the viewport
-      // stays compact instead of being stretched so spacers can expand.
-      switch axis {
-      case WuiAxis_Vertical:
-        finalWidth = visibleWidth
-        finalHeight = measuredSize.height
-      case WuiAxis_Horizontal:
-        finalWidth = measuredSize.width
-        finalHeight = visibleHeight
-      case WuiAxis_All:
-        finalWidth = measuredSize.width
-        finalHeight = measuredSize.height
-      default:
-        fatalError("Unsupported WaterUI scroll axis: \(axis.rawValue)")
-      }
-
-      let documentFrame = CGRect(x: 0, y: 0, width: finalWidth, height: finalHeight)
-      documentView.frame = documentFrame
-      contentHostView.frame = documentFrame
+      // The document is the scrollable extent and the content keeps its own
+      // answer inside it, matching the UIKit path and SwiftUI's ScrollView:
+      // content smaller than the viewport stays compact instead of being
+      // stretched so spacers can expand, and wider content is clipped on
+      // both edges rather than scrolling sideways.
+      let placement = scrollContentPlacement(
+        axis: axis, viewport: bounds.size, measured: measuredSize)
+      documentView.frame = CGRect(origin: .zero, size: placement.scrollExtent)
+      contentHostView.frame = placement.contentFrame
 
       contentHostView.needsLayout = true
       contentHostView.layoutSubtreeIfNeeded()
