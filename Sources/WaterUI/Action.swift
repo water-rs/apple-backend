@@ -35,6 +35,7 @@ class Action {
         )
     }
 
+    // periphery:ignore - test seam: the unit suite builds controls without the Rust library
     init(call: @escaping @MainActor () -> Void, drop: @escaping () -> Void = {}) {
         callbacks = Callbacks(call: call, drop: drop)
     }

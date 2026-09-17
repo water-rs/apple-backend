@@ -11,6 +11,7 @@ import Foundation
 struct WuiStyledStr {
   var chunks: [WuiStyledChunk]
 
+  // periphery:ignore - test seam: the unit suite builds styled text without the Rust library
   init(chunks: [WuiStyledChunk] = []) {
     self.chunks = chunks
   }
