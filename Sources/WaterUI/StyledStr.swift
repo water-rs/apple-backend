@@ -199,6 +199,11 @@ struct WuiStyledChunk {
       attributes[.kern] = CGFloat(resolvedFont.letterSpacing)
     }
 
+    let paragraphStyle = NSMutableParagraphStyle()
+    // SwiftUI Text hyphenates a run that cannot break at word boundaries;
+    // TextKit's default word wrapping just breaks mid-glyph. The factor
+    // matches the platform typesetter's behavior on overflow words.
+    paragraphStyle.hyphenationFactor = 1.0
     // A resolved line height is the face's line pitch — line box plus
     // leading. The platform font we can rebuild carries no leading, so the
     // pitch is expressed as `lineSpacing` over the rebuilt face's natural
@@ -207,10 +212,9 @@ struct WuiStyledChunk {
     // The closing line's leading is restored by the renderer, which owns the
     // whole string's paragraph boundaries.
     if resolvedFont.lineHeight > 0 {
-      let paragraphStyle = NSMutableParagraphStyle()
       paragraphStyle.lineSpacing = CGFloat(resolvedFont.lineHeight) - font.naturalLinePitch
-      attributes[.paragraphStyle] = paragraphStyle
     }
+    attributes[.paragraphStyle] = paragraphStyle
 
     var finalFont = font
     if style.italic {
