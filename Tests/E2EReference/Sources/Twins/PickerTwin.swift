@@ -47,20 +47,20 @@ struct PickerTwin: View {
           Text("Picker Gallery").font(.title)
           Text("Demonstrating WaterUI form and picker components").font(.body)
         }
-        Divider()
+        wuiDivider()
         pickerStyles
-        Divider()
+        wuiDivider()
         datePickers
-        Divider()
+        wuiDivider()
         calendarSection
-        Divider()
+        wuiDivider()
         multiDateSection
-        Divider()
+        wuiDivider()
         colorSection
-        Divider()
+        wuiDivider()
         fileSection
         VStack(spacing: 10) {
-          Divider()
+          wuiDivider()
           Text("Built with WaterUI Picker Components").font(.caption)
         }
       }

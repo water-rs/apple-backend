@@ -16,9 +16,15 @@
 //   text(...).size(n)              -> .font(.system(size: n))
 //   .bold()                        -> .bold()
 //   Srgb::from_hex("#RRGGBB")      -> Color(.sRGB, red:..., green:..., blue:...)
+//   ResolvedColor{...} / color()   -> linearSrgb(r, g, b) — ResolvedColor
+//                                    stores linear sRGB components; Color(.sRGB)
+//                                    would render them gamma-shifted dark
 //   .with_opacity(x)               -> .opacity(x) on the Color
 //   Foreground / MutedForeground   -> .primary / .secondary
-//   Divider                        -> Divider()
+//   Divider                        -> wuiDivider() (stack separators only;
+//                                    inside Menu/contextMenu content a WaterUI
+//                                    Divider maps to a native menu separator,
+//                                    which stays `Divider()`)
 //   spacer() / spacer().height(n)  -> Spacer() / Spacer().frame(height: n)
 //   button("X").action(...)        -> Button("X") {}
 //   Toggle::new("X", &b)           -> Toggle("X", isOn:)
@@ -67,6 +73,26 @@ struct TwinRoot: View {
 }
 
 // MARK: - Translation helpers
+
+/// WaterUI's `Divider` is a 1pt bar filled with the theme's Border slot —
+/// `UIColor.separator` / `NSColor.separatorColor` on this backend — that spans
+/// the stack's cross axis. SwiftUI's `Divider` is a different thing: a 1-pixel
+/// hairline in the opaque separator color, ~2px thinner at 3x.
+func wuiDivider() -> some View {
+  #if os(iOS)
+    return Color(uiColor: .separator).frame(height: 1)
+  #else
+    return Color(nsColor: .separatorColor).frame(height: 1)
+  #endif
+}
+
+/// `ResolvedColor` components — the waterui color currency is *linear* sRGB,
+/// so values authored into `ResolvedColor`/`color()`/`palette_color` (e.g. the
+/// gradient example's palettes) must be handed to SwiftUI as sRGBLinear, not
+/// sRGB: `Color(.sRGB)` re-encodes them and renders the palette too dark.
+func linearSrgb(_ r: Double, _ g: Double, _ b: Double) -> Color {
+  Color(.sRGBLinear, red: r, green: g, blue: b, opacity: 1)
+}
 
 /// `Color::srgb_hex("#RRGGBB")`
 func srgbHex(_ hex: UInt32) -> Color {

@@ -792,18 +792,22 @@ public final class ThemeBridge {
     }
 
     private func uiFontWeightToWuiFontWeight(_ weight: CGFloat) -> WuiFontWeight {
-      // UIFont.Weight ranges from -1.0 (ultra-light) to 1.0 (black), with 0.0 being regular
-      switch weight {
-      case ...(-0.8): return WuiFontWeight_Thin
-      case (-0.8) ... (-0.6): return WuiFontWeight_UltraLight
-      case (-0.6) ... (-0.4): return WuiFontWeight_Light
-      case (-0.4) ... (0.0): return WuiFontWeight_Normal
-      case (0.0) ... (0.23): return WuiFontWeight_Medium
-      case (0.23) ... (0.3): return WuiFontWeight_SemiBold
-      case (0.3) ... (0.5): return WuiFontWeight_Bold
-      case (0.5) ... (0.8): return WuiFontWeight_UltraBold
-      default: return WuiFontWeight_Black
-      }
+      // The trait dictionary stores the weight as a Float32, so the values
+      // land just above the Double literals — semibold reads
+      // 0.30000001192092896, medium 0.23000000417232513. Bucket by the
+      // nearest semantic weight rather than ranged equality.
+      let candidates: [(CGFloat, WuiFontWeight)] = [
+        (UIFont.Weight.ultraLight.rawValue, WuiFontWeight_UltraLight),
+        (UIFont.Weight.thin.rawValue, WuiFontWeight_Thin),
+        (UIFont.Weight.light.rawValue, WuiFontWeight_Light),
+        (UIFont.Weight.regular.rawValue, WuiFontWeight_Normal),
+        (UIFont.Weight.medium.rawValue, WuiFontWeight_Medium),
+        (UIFont.Weight.semibold.rawValue, WuiFontWeight_SemiBold),
+        (UIFont.Weight.bold.rawValue, WuiFontWeight_Bold),
+        (UIFont.Weight.heavy.rawValue, WuiFontWeight_UltraBold),
+        (UIFont.Weight.black.rawValue, WuiFontWeight_Black),
+      ]
+      return candidates.min(by: { abs($0.0 - weight) < abs($1.0 - weight) })!.1
     }
   #elseif canImport(AppKit)
     private func installFontSlot(
@@ -825,18 +829,20 @@ public final class ThemeBridge {
     }
 
     private func nsFontWeightToWuiFontWeight(_ weight: CGFloat) -> WuiFontWeight {
-      // NSFont.Weight ranges from -1.0 to 1.0, similar to UIFont.Weight
-      switch weight {
-      case ...(-0.8): return WuiFontWeight_Thin
-      case (-0.8) ... (-0.6): return WuiFontWeight_UltraLight
-      case (-0.6) ... (-0.4): return WuiFontWeight_Light
-      case (-0.4) ... (0.0): return WuiFontWeight_Normal
-      case (0.0) ... (0.23): return WuiFontWeight_Medium
-      case (0.23) ... (0.3): return WuiFontWeight_SemiBold
-      case (0.3) ... (0.5): return WuiFontWeight_Bold
-      case (0.5) ... (0.8): return WuiFontWeight_UltraBold
-      default: return WuiFontWeight_Black
-      }
+      // Same Float32 trait problem as the UIKit path — bucket by the
+      // nearest semantic weight rather than ranged equality.
+      let candidates: [(CGFloat, WuiFontWeight)] = [
+        (NSFont.Weight.ultraLight.rawValue, WuiFontWeight_UltraLight),
+        (NSFont.Weight.thin.rawValue, WuiFontWeight_Thin),
+        (NSFont.Weight.light.rawValue, WuiFontWeight_Light),
+        (NSFont.Weight.regular.rawValue, WuiFontWeight_Normal),
+        (NSFont.Weight.medium.rawValue, WuiFontWeight_Medium),
+        (NSFont.Weight.semibold.rawValue, WuiFontWeight_SemiBold),
+        (NSFont.Weight.bold.rawValue, WuiFontWeight_Bold),
+        (NSFont.Weight.heavy.rawValue, WuiFontWeight_UltraBold),
+        (NSFont.Weight.black.rawValue, WuiFontWeight_Black),
+      ]
+      return candidates.min(by: { abs($0.0 - weight) < abs($1.0 - weight) })!.1
     }
   #endif
 }

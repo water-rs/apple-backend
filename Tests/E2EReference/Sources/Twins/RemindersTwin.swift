@@ -195,7 +195,7 @@ struct RemindersTwin: View {
           .foregroundStyle((selection ?? .today).color)
           .frame(maxWidth: .infinity, alignment: .leading)
           .padding(EdgeInsets(top: 14, leading: 18, bottom: 12, trailing: 18))
-        Divider()
+        wuiDivider()
         reminderSection("Today", rows: todayRows)
         reminderSection("Upcoming", rows: upcomingRows)
         Spacer()
