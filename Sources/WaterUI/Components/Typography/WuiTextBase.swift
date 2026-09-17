@@ -138,6 +138,19 @@ class WuiTextBase: PlatformView {
 
   // MARK: - Measurement
 
+  /// Backing scale of the surface this view is drawn on — the grid the
+  /// platform text view (and SwiftUI Text) snaps its measured size up to.
+  /// Attached: the window's screen. Detached: the trait environment on UIKit,
+  /// the main screen on AppKit — where the view will almost certainly land.
+  private func displayScale() -> CGFloat {
+    #if canImport(UIKit)
+      let scale = traitCollection.displayScale
+      return scale > 0 ? scale : 1
+    #elseif canImport(AppKit)
+      return window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
+    #endif
+  }
+
   private func currentAttributedText() -> NSAttributedString {
     #if canImport(UIKit)
       return label.attributedText ?? NSAttributedString(string: label.text ?? "")
@@ -217,11 +230,15 @@ class WuiTextBase: PlatformView {
 
     // `boundingRect(with:options:)` without `.usesFontLeading` applies the
     // platform's default leading — identical to what NSTextField/UILabel
-    // report for the same attributed string.
+    // report for the same attributed string. The text views then round the
+    // result up to the backing store's pixel grid, and so does SwiftUI Text;
+    // a whole-point ceiling here made every line box up to ~0.7pt too tall
+    // on 3x displays (~2px per line of stack drift).
     let bounding = measuredText.boundingRect(
       with: constraintSize, options: [.usesLineFragmentOrigin], context: nil)
-    let width = ceil(min(bounding.width, maxWidth))
-    let height = ceil(min(bounding.height, maxHeight))
+    let scale = displayScale()
+    let width = min((bounding.width * scale).rounded(.up) / scale, maxWidth)
+    let height = min((bounding.height * scale).rounded(.up) / scale, maxHeight)
     let size = CGSize(width: max(width, 0.0), height: max(height, 0.0))
 
     let lastBaseline = baselineOfLine(containingGlyph: lastBaselineGlyph)
