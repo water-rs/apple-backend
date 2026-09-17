@@ -28,7 +28,7 @@ struct LocaleTwin: View {
   var body: some View {
     ScrollView {
       VStack(spacing: 10) {
-        Text("WaterUI World Fair").font(.system(size: 28)).bold()
+        Text("WaterUI World Fair").font(.system(size: 28)).fontWeight(.bold)
         Text("Live translations for a tiny world-fair kiosk").font(.system(size: 14))
         Divider()
         languageBooth
@@ -47,7 +47,7 @@ struct LocaleTwin: View {
 
   private var languageBooth: some View {
     VStack(spacing: 10) {
-      Text("Language Booth").font(.system(size: 16)).bold()
+      Text("Language Booth").font(.system(size: 16)).fontWeight(.bold)
       HStack {
         Text("Detected Locale:")
         Spacer()
@@ -69,25 +69,25 @@ struct LocaleTwin: View {
   private var localizedContent: some View {
     VStack(spacing: 10) {
       VStack(spacing: 10) {
-        Text("Welcome Desk").font(.system(size: 16)).bold()
+        Text("Welcome Desk").font(.system(size: 16)).fontWeight(.bold)
         Text("Welcome to the World Fair!").font(.system(size: 24))
       }
       Divider()
       VStack(spacing: 10) {
-        Text("Human Rights - Article 1").font(.system(size: 16)).bold()
+        Text("Human Rights - Article 1").font(.system(size: 16)).fontWeight(.bold)
         Text(
           "All human beings are born free and equal in dignity and rights. They are endowed with reason and conscience and should act towards one another in a spirit of brotherhood."
         ).font(.system(size: 14))
       }
       Divider()
       VStack(spacing: 10) {
-        Text("Local Flavor").font(.system(size: 16)).bold()
+        Text("Local Flavor").font(.system(size: 16)).fontWeight(.bold)
         HStack { Spacer(); Text("Color"); Spacer() }
         HStack { Spacer(); Text("Favorite"); Spacer() }
       }
       Divider()
       VStack(spacing: 10) {
-        Text("Passport Stamps").font(.system(size: 16)).bold()
+        Text("Passport Stamps").font(.system(size: 16)).fontWeight(.bold)
         Text("I have 0 passport stamps")
         Text("I have 1 passport stamp")
         Text("I have 2 passport stamps")
@@ -106,7 +106,7 @@ struct LocaleTwin: View {
   private var formattedContent: some View {
     VStack(spacing: 10) {
       VStack(spacing: 10) {
-        Text("Festival Date (2006-03-20)").font(.system(size: 16)).bold()
+        Text("Festival Date (2006-03-20)").font(.system(size: 16)).fontWeight(.bold)
         HStack {
           Text("Short:")
           Spacer()
@@ -130,7 +130,7 @@ struct LocaleTwin: View {
       }
       Divider()
       VStack(spacing: 10) {
-        Text("Distance Guide").font(.system(size: 16)).bold()
+        Text("Distance Guide").font(.system(size: 16)).fontWeight(.bold)
         HStack {
           Text("City Walk:")
           Spacer()
