@@ -16,6 +16,9 @@
 //   text(...).size(n)              -> .font(.system(size: n))
 //   .bold()                        -> .bold()
 //   Srgb::from_hex("#RRGGBB")      -> Color(.sRGB, red:..., green:..., blue:...)
+//   ResolvedColor{...} / color()   -> linearSrgb(r, g, b) — ResolvedColor
+//                                    stores linear sRGB components; Color(.sRGB)
+//                                    would render them gamma-shifted dark
 //   .with_opacity(x)               -> .opacity(x) on the Color
 //   Foreground / MutedForeground   -> .primary / .secondary
 //   Divider                        -> wuiDivider() (stack separators only;
@@ -81,6 +84,14 @@ func wuiDivider() -> some View {
   #else
     return Color(nsColor: .separatorColor).frame(height: 1)
   #endif
+}
+
+/// `ResolvedColor` components — the waterui color currency is *linear* sRGB,
+/// so values authored into `ResolvedColor`/`color()`/`palette_color` (e.g. the
+/// gradient example's palettes) must be handed to SwiftUI as sRGBLinear, not
+/// sRGB: `Color(.sRGB)` re-encodes them and renders the palette too dark.
+func linearSrgb(_ r: Double, _ g: Double, _ b: Double) -> Color {
+  Color(.sRGBLinear, red: r, green: g, blue: b, opacity: 1)
 }
 
 /// `Color::srgb_hex("#RRGGBB")`
