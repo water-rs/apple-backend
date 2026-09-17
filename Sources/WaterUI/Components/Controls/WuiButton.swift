@@ -95,7 +95,7 @@ final class WuiButton: PlatformView, WuiComponent {
   #endif
 
   private let action: Action
-  private let labelView: WuiAnyView
+  private let labelView: any WuiComponent
   private let style: WuiButtonStyle
 
   /// The proposal the parent layout selected when it placed this button —
@@ -105,7 +105,7 @@ final class WuiButton: PlatformView, WuiComponent {
   private var accessibility: WuiControlAccessibility?
   private let disabled: WuiComputed<Bool>
   private var disabledWatcher: WatcherGuard?
-  private let env: WuiEnvironment
+  private let accent: WuiComputed<WuiResolvedColor>
   private var accentObservation: WuiComputedObservation<WuiResolvedColor>?
 
   // MARK: - WuiComponent Init
@@ -115,31 +115,37 @@ final class WuiButton: PlatformView, WuiComponent {
     let labelEnv = makeButtonLabelEnvironment(style: ffiButton.style, parent: env)
     let labelView = WuiAnyView(anyview: ffiButton.label.view, env: labelEnv)
     let action = Action(inner: ffiButton.action, env: env)
+    guard let accessibilityLabel = ffiButton.label.accessibility_label else {
+      fatalError("WaterUI button label has no accessibility signal")
+    }
+    guard let accent = waterui_theme_color(env.inner, WuiColorSlot_Accent) else {
+      fatalError("WaterUI theme is missing required color slot \(WuiColorSlot_Accent.rawValue)")
+    }
     self.init(
       label: labelView,
       action: action,
       style: ffiButton.style,
-      semanticLabel: ffiButton.label,
       disabled: env.disabled,
-      env: env
+      accent: WuiComputed<WuiResolvedColor>(accent),
+      accessibilityLabel: WuiComputed<WuiStyledStr>(accessibilityLabel)
     )
   }
 
   // MARK: - Designated Init
 
   init(
-    label: WuiAnyView,
+    label: any WuiComponent,
     action: Action,
     style: WuiButtonStyle = WuiButtonStyle_Automatic,
-    semanticLabel: CWaterUI.WuiLabel,
     disabled: WuiComputed<Bool>,
-    env: WuiEnvironment
+    accent: WuiComputed<WuiResolvedColor>,
+    accessibilityLabel: WuiComputed<WuiStyledStr>
   ) {
     self.action = action
     self.labelView = label
     self.style = style
     self.disabled = disabled
-    self.env = env
+    self.accent = accent
     #if canImport(AppKit)
       self.button = NSButton()
     #endif
@@ -148,7 +154,7 @@ final class WuiButton: PlatformView, WuiComponent {
     installThemeObservers()
     embedLabel(label)
     accessibility = WuiControlAccessibility(
-      consuming: semanticLabel,
+      label: accessibilityLabel,
       target: button,
       visualLabel: label
     )
@@ -177,32 +183,61 @@ final class WuiButton: PlatformView, WuiComponent {
     fatalError("init(coder:) has not been implemented")
   }
 
-  /// Label padding inside the button chrome, styled after the platform's
-  /// own defaults: SwiftUI's bordered iOS buttons sit at roughly (14, 7)
-  /// and macOS push bezels leave wide side insets around the title.
+  /// Whether the style draws chrome around its label. Styles without
+  /// chrome — plain, borderless, link — present the label bare, matching
+  /// SwiftUI's borderless button.
+  private var drawsChrome: Bool {
+    switch style {
+    case WuiButtonStyle_Bordered, WuiButtonStyle_BorderedProminent, WuiButtonStyle_Glass,
+      WuiButtonStyle_GlassProminent:
+      true
+    #if canImport(AppKit)
+      // SwiftUI's automatic button style resolves to the bordered push
+      // bezel on macOS.
+      case WuiButtonStyle_Automatic:
+        true
+    #endif
+    default:
+      false
+    }
+  }
+
+  /// Label padding inside the button chrome, measured from the platform's
+  /// own bezel rather than styled literals: UIKit reports it through the
+  /// button configuration's content insets, AppKit through the bezel cell's
+  /// drawing rect inside a standard control bounds. Chrome-less styles get
+  /// none — SwiftUI's borderless presentation pads nothing.
   private var contentPadding: (horizontal: CGFloat, vertical: CGFloat) {
+    guard drawsChrome else { return (0, 0) }
     #if canImport(UIKit)
-      switch style {
-      case WuiButtonStyle_Link, WuiButtonStyle_Plain:
-        (0, 0)
-      case WuiButtonStyle_Bordered, WuiButtonStyle_BorderedProminent, WuiButtonStyle_Glass,
-        WuiButtonStyle_GlassProminent:
-        (14, 7)
-      default:
-        (8, 4)
-      }
+      guard let insets = chromeConfiguration?.contentInsets else { return (0, 0) }
+      return (insets.leading, insets.top)
     #elseif canImport(AppKit)
-      switch style {
-      case WuiButtonStyle_Link, WuiButtonStyle_Plain:
-        (0, 0)
-      case WuiButtonStyle_Automatic, WuiButtonStyle_Bordered, WuiButtonStyle_BorderedProminent,
-        WuiButtonStyle_Glass, WuiButtonStyle_GlassProminent:
-        (16, 5)
-      default:
-        (8, 4)
-      }
+      guard let cell = button.cell as? NSButtonCell else { return (0, 0) }
+      let drawing = cell.drawingRect(forBounds: NSRect(x: 0, y: 0, width: 200, height: 24))
+      return (drawing.minX, drawing.minY)
     #endif
   }
+
+  #if canImport(UIKit)
+    /// The native configuration the style's chrome is drawn with — what
+    /// SwiftUI's button styles resolve to on iOS — or nil for chrome-less
+    /// styles.
+    private var chromeConfiguration: UIButton.Configuration? {
+      switch style {
+      case WuiButtonStyle_Bordered:
+        .tinted()
+      case WuiButtonStyle_BorderedProminent:
+        .filled()
+      case WuiButtonStyle_Glass:
+        .glass()
+      case WuiButtonStyle_GlassProminent:
+        .prominentGlass()
+      default:
+        nil
+      }
+    }
+  #endif
 
   // MARK: - WuiComponent
 
@@ -271,6 +306,38 @@ final class WuiButton: PlatformView, WuiComponent {
       labelContainer.isUserInteractionEnabled = false
     #endif
 
+    #if canImport(AppKit)
+      button.target = self
+      button.action = #selector(didTap)
+      button.title = ""
+      // The native bezel is what SwiftUI renders for bordered styles on
+      // macOS: platform gradient, pressed state, and appearance adaptation
+      // all come from NSButton. `.flexiblePush` is the push bezel that may
+      // grow beyond the standard control height, which arbitrary WaterUI
+      // labels routinely need.
+      switch style {
+      case WuiButtonStyle_Automatic, WuiButtonStyle_Bordered, WuiButtonStyle_BorderedProminent:
+        button.isBordered = true
+        button.bezelStyle = .flexiblePush
+      case WuiButtonStyle_Glass, WuiButtonStyle_GlassProminent:
+        // The glass bezel is AppKit's Liquid Glass capsule; the prominent
+        // variant is the same bezel with the accent as its `bezelColor`.
+        button.isBordered = true
+        button.bezelStyle = .glass
+      case WuiButtonStyle_Plain, WuiButtonStyle_Link, WuiButtonStyle_Borderless:
+        button.isBordered = false
+        button.isTransparent = true
+      default:
+        fatalError("Unsupported WaterUI button style: \(style.rawValue)")
+      }
+      // A transparent borderless NSButton reports AXUnknown instead of
+      // AXButton — the chrome change is visual, the element is still a
+      // button to assistive technology.
+      button.setAccessibilityRole(.button)
+    #endif
+
+    // Padding is asked of the platform chrome, so the bezel/configuration
+    // has to be in place first.
     let (horizontalPadding, verticalPadding) = contentPadding
 
     #if canImport(AppKit)
@@ -303,42 +370,11 @@ final class WuiButton: PlatformView, WuiComponent {
       button.addTarget(
         self, action: #selector(handleTouchUp),
         for: [.touchUpInside, .touchUpOutside, .touchCancel, .touchDragExit])
-    #elseif canImport(AppKit)
-      button.target = self
-      button.action = #selector(didTap)
-      button.title = ""
-      // The native bezel is what SwiftUI renders for bordered styles on
-      // macOS: platform gradient, pressed state, and appearance adaptation
-      // all come from NSButton. `.flexiblePush` is the push bezel that may
-      // grow beyond the standard control height, which arbitrary WaterUI
-      // labels routinely need.
-      switch style {
-      case WuiButtonStyle_Automatic, WuiButtonStyle_Bordered, WuiButtonStyle_BorderedProminent:
-        button.isBordered = true
-        button.bezelStyle = .flexiblePush
-      case WuiButtonStyle_Glass, WuiButtonStyle_GlassProminent:
-        // The glass bezel is AppKit's Liquid Glass capsule; the prominent
-        // variant is the same bezel with the accent as its `bezelColor`.
-        button.isBordered = true
-        button.bezelStyle = .glass
-      case WuiButtonStyle_Plain, WuiButtonStyle_Link, WuiButtonStyle_Borderless:
-        button.isBordered = false
-        button.isTransparent = true
-      default:
-        fatalError("Unsupported WaterUI button style: \(style.rawValue)")
-      }
-      // A transparent borderless NSButton reports AXUnknown instead of
-      // AXButton — the chrome change is visual, the element is still a
-      // button to assistive technology.
-      button.setAccessibilityRole(.button)
     #endif
   }
 
   private func installThemeObservers() {
-    accentObservation = WuiComputedObservation(
-      themeColor: WuiColorSlot_Accent,
-      env: env
-    ) { [weak self] _, _ in
+    accentObservation = WuiComputedObservation(accent) { [weak self] _, _ in
       self?.applyThemeAppearance()
     }
     #if canImport(AppKit)
@@ -358,19 +394,7 @@ final class WuiButton: PlatformView, WuiComponent {
       // to on iOS: .bordered is the tinted fill, .borderedProminent the
       // filled accent capsule. Insets stay zero because the WaterUI label
       // view is overlaid and padded by this component.
-      var configuration: UIButton.Configuration =
-        switch style {
-        case WuiButtonStyle_Bordered:
-          .tinted()
-        case WuiButtonStyle_BorderedProminent:
-          .filled()
-        case WuiButtonStyle_Glass:
-          .glass()
-        case WuiButtonStyle_GlassProminent:
-          .prominentGlass()
-        default:
-          .plain()
-        }
+      var configuration = chromeConfiguration ?? .plain()
       configuration.contentInsets = .zero
       button.configuration = configuration
     #elseif canImport(AppKit)
@@ -439,7 +463,7 @@ final class WuiButton: PlatformView, WuiComponent {
     }
   #endif
 
-  private func embedLabel(_ view: WuiAnyView) {
+  private func embedLabel(_ view: PlatformView) {
     view.translatesAutoresizingMaskIntoConstraints = false
     labelContainer.addSubview(view)
     NSLayoutConstraint.activate([

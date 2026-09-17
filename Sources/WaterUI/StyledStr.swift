@@ -11,6 +11,10 @@ import Foundation
 struct WuiStyledStr {
   var chunks: [WuiStyledChunk]
 
+  init(chunks: [WuiStyledChunk] = []) {
+    self.chunks = chunks
+  }
+
   init(_ inner: CWaterUI.WuiStyledStr) {
     self.chunks = WuiArray(inner.chunks).map(WuiStyledChunk.init)
   }
