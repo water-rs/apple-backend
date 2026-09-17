@@ -178,6 +178,21 @@ struct WuiStyledChunk {
       attributes[.font] = finalFont
     }
 
+    // The resolved font's absolute line pitch arrives as `lineHeight`; TextKit
+    // expresses it as spacing added between line fragments, which is also what
+    // keeps a single line at the face's natural fragment height — the same
+    // geometry SwiftUI's named text styles produce through `leading`.
+    if resolvedFont.lineHeight > 0 {
+      let paragraphStyle = NSMutableParagraphStyle()
+      paragraphStyle.lineSpacing =
+        CGFloat(resolvedFont.lineHeight) - finalFont.naturalLineHeight
+      attributes[.paragraphStyle] = paragraphStyle
+    }
+
+    if resolvedFont.letterSpacing != 0 {
+      attributes[.kern] = CGFloat(resolvedFont.letterSpacing)
+    }
+
     return NSAttributedString(string: text.toString(), attributes: attributes)
   }
 
@@ -241,6 +256,18 @@ struct WuiTextStyle {
   }
 }
 
+extension PlatformFont {
+  /// The height TextKit gives one line fragment of this face — the base a
+  /// paragraph style's `lineSpacing` adds to between adjacent lines.
+  fileprivate var naturalLineHeight: CGFloat {
+    #if canImport(UIKit)
+      return lineHeight
+    #elseif canImport(AppKit)
+      return ascender - descender
+    #endif
+  }
+}
+
 /// Splits a CSS-style family list ("Roboto, sans-serif") into the candidate
 /// order a lookup should try: each comma-separated family, trimmed. A single
 /// name returns a one-element list, preserving exact-family semantics.
@@ -257,12 +284,19 @@ struct WuiResolvedFontValue {
   let familyName: String
   /// Which of the system's own faces to use when no family is named.
   let design: CWaterUI.WuiFontDesign
+  /// Absolute baseline-to-baseline pitch in points; `0` keeps the face's
+  /// natural metrics.
+  let lineHeight: Float
+  /// Additional spacing between adjacent glyphs in points.
+  let letterSpacing: Float
 
   init(consuming resolved: CWaterUI.WuiResolvedFont) {
     size = resolved.size
     weight = resolved.weight
     familyName = WuiStr(resolved.family).toString()
     design = resolved.design
+    lineHeight = resolved.line_height
+    letterSpacing = resolved.letter_spacing
   }
 
   #if canImport(UIKit)
