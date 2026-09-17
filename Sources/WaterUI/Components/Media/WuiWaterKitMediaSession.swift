@@ -1,10 +1,6 @@
 #if !WATERUI_NO_MEDIA
+import CWaterUI
 import Foundation
-
-private struct WaterKitAppleMediaCommandFFI {
-  var kind: Int32
-  var valueSeconds: Double
-}
 
 private enum WaterKitAppleMediaResult: Int32 {
   case success = 0
@@ -31,48 +27,6 @@ private enum WaterKitAppleMediaCommandKind: Int32 {
   case audioFocusLostDuck = 13
   case audioBecomingNoisy = 14
 }
-
-@_silgen_name("waterkit_audio_apple_media_session_init")
-private func waterkitAudioAppleMediaSessionInit(
-  _: UnsafeMutablePointer<Int32>
-) -> UnsafeMutableRawPointer?
-
-@_silgen_name("waterkit_audio_apple_media_session_set_metadata")
-private func waterkitAudioAppleMediaSessionSetMetadata(
-  _: UnsafeMutableRawPointer,
-  _: UnsafePointer<CChar>?,
-  _: UnsafePointer<CChar>?,
-  _: UnsafePointer<CChar>?,
-  _: UnsafePointer<CChar>?,
-  _: Double
-) -> Int32
-
-@_silgen_name("waterkit_audio_apple_media_session_set_playback_state")
-private func waterkitAudioAppleMediaSessionSetPlaybackState(
-  _: UnsafeMutableRawPointer,
-  _: UInt8,
-  _: Double,
-  _: Double,
-  _: Bool,
-  _: Bool
-) -> Int32
-
-@_silgen_name("waterkit_audio_apple_media_session_request_audio_focus")
-private func waterkitAudioAppleMediaSessionRequestAudioFocus(_: UnsafeMutableRawPointer) -> Int32
-
-@_silgen_name("waterkit_audio_apple_media_session_abandon_audio_focus")
-private func waterkitAudioAppleMediaSessionAbandonAudioFocus(_: UnsafeMutableRawPointer) -> Int32
-
-@_silgen_name("waterkit_audio_apple_media_session_clear")
-private func waterkitAudioAppleMediaSessionClear(_: UnsafeMutableRawPointer) -> Int32
-
-@_silgen_name("waterkit_audio_apple_media_session_wait_command")
-private func waterkitAudioAppleMediaSessionWaitCommand(
-  _: UnsafeMutableRawPointer
-) -> WaterKitAppleMediaCommandFFI
-
-@_silgen_name("waterkit_audio_apple_media_session_destroy")
-private func waterkitAudioAppleMediaSessionDestroy(_: UnsafeMutableRawPointer)
 
 struct WuiMediaMetadataSnapshot: Equatable {
   var title: String
@@ -142,7 +96,7 @@ private func mediaSessionAssertSuccess(_ rawValue: Int32, context: String) {
 @MainActor
 final class WuiWaterKitMediaSessionBridge {
   private weak var host: (any WuiMediaSessionHost)?
-  private let sessionHandle: UnsafeMutableRawPointer
+  private let sessionHandle: OpaquePointer
   private let commandQueue = DispatchQueue(label: "dev.waterui.media-session.commands")
   private var lastMetadata: WuiMediaMetadataSnapshot?
   private var lastPlayback: WuiMediaPlaybackSnapshot?
@@ -152,7 +106,7 @@ final class WuiWaterKitMediaSessionBridge {
   init(host: any WuiMediaSessionHost) {
     self.host = host
     var initializationResult = WaterKitAppleMediaResult.unknown.rawValue
-    guard let sessionHandle = waterkitAudioAppleMediaSessionInit(&initializationResult) else {
+    guard let sessionHandle = waterkit_audio_apple_media_session_init(&initializationResult) else {
       mediaSessionAssertSuccess(initializationResult, context: "media session initialization")
       fatalError("waterkit-audio returned no Apple media session after successful initialization")
     }
@@ -177,9 +131,9 @@ final class WuiWaterKitMediaSessionBridge {
   private func startCommandPump() {
     let handleAddress = UInt(bitPattern: sessionHandle)
     commandQueue.async { [weak self] in
-      let handle = UnsafeMutableRawPointer(bitPattern: handleAddress)!
+      let handle = OpaquePointer(bitPattern: handleAddress)!
       while true {
-        let command = waterkitAudioAppleMediaSessionWaitCommand(handle)
+        let command = waterkit_audio_apple_media_session_wait_command(handle)
         guard let kind = WaterKitAppleMediaCommandKind(rawValue: command.kind) else {
           fatalError("waterkit-audio returned unsupported Apple media command \(command.kind)")
         }
@@ -187,7 +141,7 @@ final class WuiWaterKitMediaSessionBridge {
           return
         }
         Task { @MainActor [weak self] in
-          self?.handleCommand(kind, valueSeconds: command.valueSeconds)
+          self?.handleCommand(kind, valueSeconds: command.value_secs)
         }
       }
     }
@@ -206,7 +160,7 @@ final class WuiWaterKitMediaSessionBridge {
         withOptionalCString(metadata.album) { album in
           withOptionalCString(metadata.artworkURL) { artworkURL in
             mediaSessionAssertSuccess(
-              waterkitAudioAppleMediaSessionSetMetadata(
+              waterkit_audio_apple_media_session_set_metadata(
                 sessionHandle,
                 title,
                 artist,
@@ -232,13 +186,13 @@ final class WuiWaterKitMediaSessionBridge {
 
     if shouldHoldAudioSession && !audioSessionActive {
       mediaSessionAssertSuccess(
-        waterkitAudioAppleMediaSessionRequestAudioFocus(sessionHandle),
+        waterkit_audio_apple_media_session_request_audio_focus(sessionHandle),
         context: "audio session activation"
       )
       audioSessionActive = true
     } else if !shouldHoldAudioSession && audioSessionActive {
       mediaSessionAssertSuccess(
-        waterkitAudioAppleMediaSessionAbandonAudioFocus(sessionHandle),
+        waterkit_audio_apple_media_session_abandon_audio_focus(sessionHandle),
         context: "audio session deactivation"
       )
       audioSessionActive = false
@@ -249,7 +203,7 @@ final class WuiWaterKitMediaSessionBridge {
     }
 
     mediaSessionAssertSuccess(
-      waterkitAudioAppleMediaSessionSetPlaybackState(
+      waterkit_audio_apple_media_session_set_playback_state(
         sessionHandle,
         snapshot.status.rawValue,
         snapshot.positionSeconds,
@@ -329,18 +283,18 @@ final class WuiWaterKitMediaSessionBridge {
   @MainActor deinit {
     if audioSessionActive {
       mediaSessionAssertSuccess(
-        waterkitAudioAppleMediaSessionAbandonAudioFocus(sessionHandle),
+        waterkit_audio_apple_media_session_abandon_audio_focus(sessionHandle),
         context: "audio session deactivation"
       )
     }
     mediaSessionAssertSuccess(
-      waterkitAudioAppleMediaSessionClear(sessionHandle),
+      waterkit_audio_apple_media_session_clear(sessionHandle),
       context: "media session teardown"
     )
     let handleAddress = UInt(bitPattern: sessionHandle)
     commandQueue.async {
-      let handle = UnsafeMutableRawPointer(bitPattern: handleAddress)!
-      waterkitAudioAppleMediaSessionDestroy(handle)
+      let handle = OpaquePointer(bitPattern: handleAddress)!
+      waterkit_audio_apple_media_session_destroy(handle)
     }
   }
 }
