@@ -1,0 +1,286 @@
+name: E2E Targeted
+
+# Dispatch-only re-test of a named set of examples: a fixed example can be
+# re-verified on one or both platforms without paying for the full 16-shard
+# nightly plus release-metrics. This is deliberately a separate workflow — the
+# release gate reads the Nightly workflow's conclusion, and a partial run must
+# never be able to mark a commit certified. The job shape mirrors nightly's:
+# `prepare` resolves the (backend, framework, CLI) triple once and builds the
+# `water` CLI, then one job per requested platform runs the named examples
+# through the same shard script with the same artifacts (shots, logs, and —
+# with `record_baselines` — captures uploaded for manual review; nothing here
+# publishes or promotes them).
+
+on:
+  workflow_dispatch:
+    inputs:
+      examples:
+        description: Comma-separated example names (e.g. counter,form)
+        required: true
+        type: string
+      platforms:
+        description: Platforms to run
+        required: true
+        type: choice
+        options:
+          - both
+          - ios
+          - macos
+        default: both
+      waterui_ref:
+        description: waterui framework branch, tag, or full commit SHA (default dev)
+        required: false
+        type: string
+      cli_ref:
+        description: water-rs/cli branch, tag, or full commit SHA (default dev)
+        required: false
+        type: string
+      record_baselines:
+        description: Upload captures as baseline artifacts instead of comparing them
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# A running targeted job is never cancelled: its value is the complete report
+# on the examples it was asked about.
+concurrency:
+  group: e2e-targeted
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+  # `cargo install --path` otherwise builds in a tempdir that rust-cache can
+  # never see. Point it at the cloned workspace's target dir so the CLI build
+  # is incremental across runs.
+  CARGO_TARGET_DIR: ${{ github.workspace }}/waterui/target
+
+jobs:
+  prepare:
+    name: prepare
+    runs-on: macos-26
+    timeout-minutes: 30
+    outputs:
+      waterui_ref: ${{ steps.setup.outputs.waterui_ref }}
+      waterui_sha: ${{ steps.setup.outputs.waterui_sha }}
+      cli_ref: ${{ steps.setup.outputs.cli_ref }}
+      cli_sha: ${{ steps.setup.outputs.cli_sha }}
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/water-cli/target
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare waterui with this backend
+        id: setup
+        env:
+          WATERUI_REF: ${{ inputs.waterui_ref }}
+          WATER_CLI_REF: ${{ inputs.cli_ref }}
+        run: ./.github/scripts/setup-e2e.sh
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: e2e-targeted-cli
+          workspaces: water-cli
+
+      - name: Build the water CLI
+        run: cargo install --path "${WATER_CLI_DIR:-water-cli}" --locked --root "${{ github.workspace }}/cli-bin"
+
+      - name: Upload the water CLI
+        uses: actions/upload-artifact@v4
+        with:
+          name: water-cli
+          path: cli-bin/bin/water
+          retention-days: 1
+          if-no-files-found: error
+
+  e2e-ios:
+    name: e2e-ios
+    if: inputs.platforms == 'ios' || inputs.platforms == 'both'
+    needs: prepare
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare waterui with this backend
+        env:
+          WATERUI_SHA: ${{ needs.prepare.outputs.waterui_sha }}
+          WATER_CLI_SHA: ${{ needs.prepare.outputs.cli_sha }}
+        run: ./.github/scripts/setup-e2e.sh
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: aarch64-apple-ios-sim
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: e2e-targeted-ios
+          cache-directories: waterui/target
+
+      - name: Install the water CLI
+        uses: actions/download-artifact@v4
+        with:
+          name: water-cli
+          path: cli-bin/bin
+      - run: |
+          chmod +x cli-bin/bin/water
+          echo "${{ github.workspace }}/cli-bin/bin" >> "$GITHUB_PATH"
+
+      - name: Boot iOS simulator
+        run: |
+          set -euo pipefail
+          simulator_udid="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ {print $2; exit}')"
+          if [[ -z "${simulator_udid}" ]]; then
+            echo "::error::No available iPhone simulator found."
+            exit 1
+          fi
+          echo "SIMULATOR_UDID=${simulator_udid}" >> "${GITHUB_ENV}"
+          xcrun simctl boot "${simulator_udid}" || true
+          xcrun simctl bootstatus "${simulator_udid}" -b
+          # The capture is compared pixel-by-pixel; pin the status bar so the
+          # clock and battery do not diff against the baseline.
+          xcrun simctl status_bar "${simulator_udid}" override \
+            --time "9:41" \
+            --batteryState charged \
+            --batteryLevel 100 \
+            --cellularMode active \
+            --cellularBars 4 \
+            --wifiBars 3
+
+      - name: Run iOS e2e examples
+        env:
+          PLATFORM: ios
+          SHARD_INDEX: 0
+          SHARD_TOTAL: 1
+          EXAMPLES: ${{ inputs.examples }}
+          WATERUI_DIR: ${{ github.workspace }}/waterui
+          EXAMPLE_LOG_DIR: ${{ github.workspace }}/e2e-logs
+          SHOTS_DIR: ${{ github.workspace }}/e2e-shots
+          RECORD_DIR: ${{ github.workspace }}/e2e-baselines
+          RECORD: ${{ inputs.record_baselines == true && '1' || '0' }}
+        run: ./.github/scripts/run-e2e-shard.sh
+
+      - name: Upload iOS captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-shots-ios-0
+          path: e2e-shots/
+          retention-days: 14
+
+      - name: Upload iOS startup times
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: startup-times-ios-0
+          path: |
+            e2e-logs/startup-times-*.json
+            e2e-logs/memory-*.json
+            e2e-logs/package-sizes-*.json
+          retention-days: 90
+
+      - name: Upload iOS logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-logs-ios-0
+          path: e2e-logs/
+          retention-days: 14
+
+      - name: Upload recorded iOS baselines
+        if: inputs.record_baselines == true
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-baselines-ios-0
+          path: e2e-baselines/
+          retention-days: 7
+
+  e2e-macos:
+    name: e2e-macos
+    if: inputs.platforms == 'macos' || inputs.platforms == 'both'
+    needs: prepare
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare waterui with this backend
+        env:
+          WATERUI_SHA: ${{ needs.prepare.outputs.waterui_sha }}
+          WATER_CLI_SHA: ${{ needs.prepare.outputs.cli_sha }}
+        run: ./.github/scripts/setup-e2e.sh
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: e2e-targeted-macos
+          cache-directories: waterui/target
+
+      - name: Install the water CLI
+        uses: actions/download-artifact@v4
+        with:
+          name: water-cli
+          path: cli-bin/bin
+      - run: |
+          chmod +x cli-bin/bin/water
+          echo "${{ github.workspace }}/cli-bin/bin" >> "$GITHUB_PATH"
+
+      - name: Run macOS e2e examples
+        env:
+          PLATFORM: macos
+          SHARD_INDEX: 0
+          SHARD_TOTAL: 1
+          EXAMPLES: ${{ inputs.examples }}
+          WATERUI_DIR: ${{ github.workspace }}/waterui
+          EXAMPLE_LOG_DIR: ${{ github.workspace }}/e2e-logs
+          SHOTS_DIR: ${{ github.workspace }}/e2e-shots
+          RECORD_DIR: ${{ github.workspace }}/e2e-baselines
+          RECORD: ${{ inputs.record_baselines == true && '1' || '0' }}
+        run: ./.github/scripts/run-e2e-shard.sh
+
+      - name: Upload macOS captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-shots-macos-0
+          path: e2e-shots/
+          retention-days: 14
+
+      - name: Upload macOS startup times
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: startup-times-macos-0
+          path: |
+            e2e-logs/startup-times-*.json
+            e2e-logs/memory-*.json
+            e2e-logs/package-sizes-*.json
+          retention-days: 90
+
+      - name: Upload macOS logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-logs-macos-0
+          path: e2e-logs/
+          retention-days: 14
+
+      - name: Upload recorded macOS baselines
+        if: inputs.record_baselines == true
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-baselines-macos-0
+          path: e2e-baselines/
+          retention-days: 7

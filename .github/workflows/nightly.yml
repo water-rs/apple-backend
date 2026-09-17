@@ -41,6 +41,14 @@ on:
         required: true
         type: boolean
         default: false
+      waterui_ref:
+        description: waterui framework branch, tag, or full commit SHA (default follows the base branch)
+        required: false
+        type: string
+      cli_ref:
+        description: water-rs/cli branch, tag, or full commit SHA (default dev)
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -71,6 +79,14 @@ jobs:
     name: prepare
     runs-on: macos-26
     timeout-minutes: 30
+    # `prepare` is the only job allowed to resolve the waterui/cli refs; every
+    # consumer checks out the commits published here so one run certifies one
+    # (backend, framework, CLI) triple.
+    outputs:
+      waterui_ref: ${{ steps.setup.outputs.waterui_ref }}
+      waterui_sha: ${{ steps.setup.outputs.waterui_sha }}
+      cli_ref: ${{ steps.setup.outputs.cli_ref }}
+      cli_sha: ${{ steps.setup.outputs.cli_sha }}
     env:
       # The CLI's own target directory, cached under its own key: it shares
       # nothing with the framework builds the shards perform.
@@ -79,6 +95,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Prepare waterui with this backend
+        id: setup
+        env:
+          WATERUI_REF: ${{ inputs.waterui_ref }}
+          WATER_CLI_REF: ${{ inputs.cli_ref }}
         run: ./.github/scripts/setup-e2e.sh
 
       - name: Install Rust toolchain
@@ -113,6 +133,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Prepare waterui with this backend
+        env:
+          WATERUI_SHA: ${{ needs.prepare.outputs.waterui_sha }}
+          WATER_CLI_SHA: ${{ needs.prepare.outputs.cli_sha }}
         run: ./.github/scripts/setup-e2e.sh
 
       - name: Install Rust toolchain
@@ -234,6 +257,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Prepare waterui with this backend
+        env:
+          WATERUI_SHA: ${{ needs.prepare.outputs.waterui_sha }}
+          WATER_CLI_SHA: ${{ needs.prepare.outputs.cli_sha }}
         run: ./.github/scripts/setup-e2e.sh
 
       - name: Install Rust toolchain
@@ -332,6 +358,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Prepare waterui with this backend
+        env:
+          WATERUI_SHA: ${{ needs.prepare.outputs.waterui_sha }}
+          WATER_CLI_SHA: ${{ needs.prepare.outputs.cli_sha }}
         run: ./.github/scripts/setup-e2e.sh
 
       - name: Install Rust toolchain
@@ -378,9 +407,18 @@ jobs:
   startup-report:
     name: startup-report
     if: always()
-    needs: [e2e-ios, e2e-macos]
+    needs: [prepare, e2e-ios, e2e-macos]
     runs-on: ubuntu-latest
     steps:
+      - name: Note the certified inputs
+        run: |
+          {
+            echo "### Certified inputs"
+            echo "- backend: \`${{ github.sha }}\`"
+            echo "- waterui: \`${{ needs.prepare.outputs.waterui_sha }}\` (${{ needs.prepare.outputs.waterui_ref }})"
+            echo "- water CLI: \`${{ needs.prepare.outputs.cli_sha }}\` (${{ needs.prepare.outputs.cli_ref }})"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
       - name: Download startup times
         uses: actions/download-artifact@v4
         continue-on-error: true
@@ -483,6 +521,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Prepare waterui with this backend
+        env:
+          WATERUI_SHA: ${{ needs.prepare.outputs.waterui_sha }}
+          WATER_CLI_SHA: ${{ needs.prepare.outputs.cli_sha }}
         run: ./.github/scripts/setup-e2e.sh
 
       - name: Install Rust toolchain
@@ -637,7 +678,7 @@ jobs:
   # are expected to capture a partially broken suite — they do not report.
   report:
     name: Report failure
-    needs: [e2e-ios, e2e-macos, package-size, ios-device-tests]
+    needs: [prepare, e2e-ios, e2e-macos, package-size, ios-device-tests]
     if: failure() && inputs.record_baselines != true
     runs-on: ubuntu-latest
     steps:
@@ -646,6 +687,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          BACKEND_SHA: ${{ github.sha }}
+          WATERUI_SHA: ${{ needs.prepare.outputs.waterui_sha }}
+          WATERUI_REF: ${{ needs.prepare.outputs.waterui_ref }}
+          CLI_SHA: ${{ needs.prepare.outputs.cli_sha }}
+          CLI_REF: ${{ needs.prepare.outputs.cli_ref }}
         with:
           filename: .github/NIGHTLY_FAILURE.md
           update_existing: true
