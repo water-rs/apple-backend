@@ -121,6 +121,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@nightly
         with:
+          toolchain: nightly-2026-09-17
           targets: aarch64-apple-ios-sim
 
       - name: Cache cargo
@@ -223,6 +224,8 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly-2026-09-17
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
