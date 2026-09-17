@@ -346,9 +346,14 @@ func scrollContentPlacement(
 
       guard let documentView = documentView else { return }
 
-      // Use bounds (the scroll view's actual size), not contentSize (which is the document size)
-      let visibleWidth = bounds.width
-      let visibleHeight = bounds.height
+      // The viewport is the clip view, not this scroll view's own bounds:
+      // with legacy scrollers the clip view is narrower by the scroller
+      // width, and SwiftUI's ScrollView proposes that narrower extent, so
+      // centred content sits at the clip view's centre. `super.layout()` has
+      // tiled the clip view, so its bounds are current here.
+      let viewport = contentView.bounds.size
+      let visibleWidth = viewport.width
+      let visibleHeight = viewport.height
 
       let contentProposal: WuiProposalSize
       switch axis {
@@ -374,7 +379,7 @@ func scrollContentPlacement(
       // stretched so spacers can expand, and wider content is clipped on
       // both edges rather than scrolling sideways.
       let placement = scrollContentPlacement(
-        axis: axis, viewport: bounds.size, measured: measuredSize)
+        axis: axis, viewport: viewport, measured: measuredSize)
       documentView.frame = CGRect(origin: .zero, size: placement.scrollExtent)
       contentHostView.frame = placement.contentFrame
 
