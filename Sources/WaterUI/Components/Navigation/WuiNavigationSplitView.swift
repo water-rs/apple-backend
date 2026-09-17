@@ -83,9 +83,9 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
 
   #if canImport(UIKit)
     private let splitController: UISplitViewController
-    private let primaryController = UIViewController()
-    private let supplementaryController = UIViewController()
-    private let secondaryController = UIViewController()
+    private let primaryController = WuiSplitColumnPageController()
+    private let supplementaryController = WuiSplitColumnPageController()
+    private let secondaryController = WuiSplitColumnPageController()
     private var contentControllers = DestinationCache<WuiContentViewController>()
     private var detailControllers = DestinationCache<WuiContentViewController>()
   #elseif canImport(AppKit)
@@ -537,6 +537,24 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
 }
 
 #if canImport(UIKit)
+  /// A split column page that owns no navigation chrome.
+  ///
+  /// UIKit wraps every split column in a navigation controller, and its bar
+  /// reserves height in the column's safe area even when it draws nothing —
+  /// on a collapsed split the sidebar's content then starts a bar's height
+  /// below where SwiftUI's NavigationSplitView puts it. A chrome-less page
+  /// hides that bar while it is the stack's base page; pushed over the
+  /// sidebar — the way a collapsed split presents a detail or placeholder —
+  /// it keeps the bar for the back affordance.
+  @MainActor
+  final class WuiSplitColumnPageController: UIViewController {
+    override func viewWillAppear(_ animated: Bool) {
+      super.viewWillAppear(animated)
+      let isBasePage = navigationController?.viewControllers.first === self
+      navigationController?.setNavigationBarHidden(isBasePage, animated: animated)
+    }
+  }
+
   extension WuiNavigationSplitView: UISplitViewControllerDelegate {
     func splitViewController(
       _ splitViewController: UISplitViewController,
