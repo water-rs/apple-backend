@@ -4,41 +4,85 @@ import CWaterUI
   import UIKit
 #elseif canImport(AppKit)
   import AppKit
-
-  private final class WuiMenuButton: NSButton {
-    override func hitTest(_ point: NSPoint) -> NSView? {
-      bounds.contains(point) ? self : nil
-    }
-  }
 #endif
+
+@MainActor
+private func makeMenuLabelEnvironment(parent: WuiEnvironment) -> WuiEnvironment {
+  #if canImport(UIKit)
+    // SwiftUI tints a menu trigger's label with the accent colour, so the
+    // label resolves its Foreground slot from the theme accent.
+    guard let childPointer = waterui_clone_env(parent.inner) else {
+      fatalError("Failed to clone the WaterUI environment for a menu label")
+    }
+    let child = WuiEnvironment(childPointer)
+    guard let accent = waterui_theme_color(parent.inner, WuiColorSlot_Accent) else {
+      fatalError("WaterUI theme is missing required color slot \(WuiColorSlot_Accent.rawValue)")
+    }
+    waterui_theme_install_color(child.inner, WuiColorSlot_Foreground, accent)
+    return child
+  #elseif canImport(AppKit)
+    // SwiftUI's macOS menu trigger is a popup button whose title draws in the
+    // label colour — no tint.
+    return parent
+  #endif
+}
 
 @MainActor
 final class WuiMenu: PlatformView, WuiComponent {
   static var rawId: CWaterUI.WuiTypeId { waterui_menu_id() }
 
   private let labelView: any WuiComponent
-  private let env: WuiEnvironment
+  private let callAction: @MainActor (OpaquePointer) -> Void
+  private let accent: WuiComputed<WuiResolvedColor>
+  private var accentObservation: WuiComputedObservation<WuiResolvedColor>?
   private var tree: WuiMenuTree!
   private var accessibilityObservation: WuiComputedObservation<WuiStyledStr>?
 
   #if canImport(UIKit)
-    private let button = UIButton(type: .system)
+    let button = UIButton(type: .system)
   #elseif canImport(AppKit)
-    private let button = WuiMenuButton()
-    private let indicatorView = NSImageView()
-    private var nativeMenu = NSMenu()
+    /// SwiftUI's macOS menu trigger is a slim pull-down popup button —
+    /// `SwiftUIPopupButton` is an `NSPopUpButton` subclass.
+    let popUp = NSPopUpButton(frame: .zero, pullsDown: true)
   #endif
 
   var stretchAxis: WuiStretchAxis { .none }
 
-  required init(anyview: OpaquePointer, env: WuiEnvironment) {
+  // MARK: - WuiComponent Init
+
+  convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
     let menu = waterui_force_as_menu(anyview)
     guard let items = menu.items else {
       fatalError("WuiMenu.items is null")
     }
+    let labelEnv = makeMenuLabelEnvironment(parent: env)
+    let labelView = WuiAnyView.resolve(anyview: menu.label, env: labelEnv)
+    guard let accent = waterui_theme_color(env.inner, WuiColorSlot_Accent) else {
+      fatalError("WaterUI theme is missing required color slot \(WuiColorSlot_Accent.rawValue)")
+    }
+    self.init(
+      label: labelView,
+      accent: WuiComputed<WuiResolvedColor>(accent),
+      accessibilityLabel: menu.accessibility_label.map {
+        WuiComputed<WuiStyledStr>(OpaquePointer(UnsafeMutableRawPointer($0)))
+      },
+      items: items,
+      callAction: { waterui_call_shared_action($0, env.inner) }
+    )
+  }
 
-    self.env = env
-    self.labelView = WuiAnyView.resolve(anyview: menu.label, env: env)
+  // MARK: - Designated Init
+
+  init(
+    label: any WuiComponent,
+    accent: WuiComputed<WuiResolvedColor>,
+    accessibilityLabel: WuiComputed<WuiStyledStr>?,
+    items: OpaquePointer,
+    callAction: @escaping @MainActor (OpaquePointer) -> Void
+  ) {
+    self.labelView = label
+    self.accent = accent
+    self.callAction = callAction
     super.init(frame: .zero)
 
     tree = WuiMenuTree(consuming: items) { [weak self] metadata in
@@ -48,12 +92,11 @@ final class WuiMenu: PlatformView, WuiComponent {
       }
     }
     setupButton()
+    installAccentObservation()
     rebuildNativeMenu()
 
-    if let accessibilityLabel = menu.accessibility_label {
-      let observation = WuiComputedObservation(
-        WuiComputed<WuiStyledStr>(OpaquePointer(UnsafeMutableRawPointer(accessibilityLabel)))
-      ) { [weak self] value, _ in
+    if let accessibilityLabel {
+      let observation = WuiComputedObservation(accessibilityLabel) { [weak self] value, _ in
         self?.applySemanticAccessibilityLabel(value)
       }
       accessibilityObservation = observation
@@ -66,22 +109,37 @@ final class WuiMenu: PlatformView, WuiComponent {
     fatalError("init(coder:) has not been implemented")
   }
 
-  private func setupButton() {
-    button.translatesAutoresizingMaskIntoConstraints = false
-    labelView.translatesAutoresizingMaskIntoConstraints = false
-    addSubview(button)
-    button.addSubview(labelView)
+  private func installAccentObservation() {
+    accentObservation = WuiComputedObservation(accent) { [weak self] value, _ in
+      self?.applyAccent(value)
+    }
+    if let accent = accentObservation {
+      applyAccent(accent.value)
+    }
+  }
 
-    NSLayoutConstraint.activate([
-      button.leadingAnchor.constraint(equalTo: leadingAnchor),
-      button.trailingAnchor.constraint(equalTo: trailingAnchor),
-      button.topAnchor.constraint(equalTo: topAnchor),
-      button.bottomAnchor.constraint(equalTo: bottomAnchor),
-      labelView.topAnchor.constraint(equalTo: button.topAnchor, constant: 4),
-      labelView.bottomAnchor.constraint(equalTo: button.bottomAnchor, constant: -4),
-    ])
+  private func applyAccent(_ accent: WuiResolvedColor) {
+    #if canImport(UIKit)
+      // SwiftUI's menu trigger presents its label in the accent colour.
+      button.tintColor = accent.toUIColor()
+    #endif
+  }
+
+  private func setupButton() {
+    labelView.translatesAutoresizingMaskIntoConstraints = false
 
     #if canImport(UIKit)
+      button.translatesAutoresizingMaskIntoConstraints = false
+      addSubview(button)
+      button.addSubview(labelView)
+      NSLayoutConstraint.activate([
+        button.leadingAnchor.constraint(equalTo: leadingAnchor),
+        button.trailingAnchor.constraint(equalTo: trailingAnchor),
+        button.topAnchor.constraint(equalTo: topAnchor),
+        button.bottomAnchor.constraint(equalTo: bottomAnchor),
+        labelView.topAnchor.constraint(equalTo: button.topAnchor, constant: 4),
+        labelView.bottomAnchor.constraint(equalTo: button.bottomAnchor, constant: -4),
+      ])
       labelView.isUserInteractionEnabled = false
       // SwiftUI's Menu renders a plain accent-tinted label, not a filled
       // capsule.
@@ -92,33 +150,21 @@ final class WuiMenu: PlatformView, WuiComponent {
         labelView.trailingAnchor.constraint(equalTo: button.trailingAnchor, constant: -8),
       ])
     #elseif canImport(AppKit)
-      button.bezelStyle = .rounded
-      button.title = ""
-      button.target = self
-      button.action = #selector(showMenu)
-      // macOS menus are pull-downs: the trailing up/down chevron is part of
-      // the native control language and tells the user this pops a menu.
-      guard
-        let indicator = NSImage(
-          systemSymbolName: "chevron.up.chevron.down",
-          accessibilityDescription: nil
-        )
-      else {
-        fatalError("SF Symbol chevron.up.chevron.down is unavailable")
-      }
-      indicatorView.image = indicator
-      indicatorView.symbolConfiguration = NSImage.SymbolConfiguration(
-        pointSize: NSFont.smallSystemFontSize,
-        weight: .semibold
-      )
-      indicatorView.contentTintColor = .secondaryLabelColor
-      indicatorView.translatesAutoresizingMaskIntoConstraints = false
-      button.addSubview(indicatorView)
+      popUp.translatesAutoresizingMaskIntoConstraints = false
+      addSubview(popUp)
+      popUp.addSubview(labelView)
+      // The pull-down face keeps its title left-aligned 12 pt in and
+      // reserves ~36 pt on the right for the chevron — the same geometry
+      // `SwiftUIPopupButton` reports.
       NSLayoutConstraint.activate([
-        labelView.leadingAnchor.constraint(equalTo: button.leadingAnchor, constant: 8),
-        indicatorView.leadingAnchor.constraint(equalTo: labelView.trailingAnchor, constant: 4),
-        indicatorView.trailingAnchor.constraint(equalTo: button.trailingAnchor, constant: -8),
-        indicatorView.centerYAnchor.constraint(equalTo: button.centerYAnchor),
+        popUp.leadingAnchor.constraint(equalTo: leadingAnchor),
+        popUp.trailingAnchor.constraint(equalTo: trailingAnchor),
+        popUp.topAnchor.constraint(equalTo: topAnchor),
+        popUp.bottomAnchor.constraint(equalTo: bottomAnchor),
+        labelView.leadingAnchor.constraint(equalTo: popUp.leadingAnchor, constant: 12),
+        labelView.trailingAnchor.constraint(equalTo: popUp.trailingAnchor, constant: -36),
+        labelView.topAnchor.constraint(equalTo: popUp.topAnchor, constant: 4),
+        labelView.bottomAnchor.constraint(equalTo: popUp.bottomAnchor, constant: -4),
       ])
     #endif
   }
@@ -127,13 +173,17 @@ final class WuiMenu: PlatformView, WuiComponent {
     #if canImport(UIKit)
       button.menu = buildUIKitMenu(title: "", from: tree.nodes) { [weak self] command in
         guard let self else { return }
-        waterui_call_shared_action(command.action, self.env.inner)
+        self.callAction(command.action)
       }
     #elseif canImport(AppKit)
       let menu = NSMenu()
+      // A pull-down list takes its face title from the first item and never
+      // shows that item in the popped list — the overlay label draws the
+      // trigger, so the title slot stays empty.
+      menu.addItem(NSMenuItem(title: "", action: nil, keyEquivalent: ""))
       appendAppKitMenuItems(
         tree.nodes, to: menu, target: self, action: #selector(menuItemClicked(_:)))
-      nativeMenu = menu
+      popUp.menu = menu
     #endif
     invalidateCapturedRendering()
   }
@@ -144,21 +194,17 @@ final class WuiMenu: PlatformView, WuiComponent {
       button.accessibilityLabel = text
       button.isAccessibilityElement = true
     #elseif canImport(AppKit)
-      button.setAccessibilityLabel(text)
-      button.toolTip = text
+      popUp.setAccessibilityLabel(text)
+      popUp.toolTip = text
     #endif
   }
 
   #if canImport(AppKit)
-    @objc private func showMenu() {
-      nativeMenu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height), in: button)
-    }
-
     @objc private func menuItemClicked(_ sender: NSMenuItem) {
       guard let action = sender.representedObject as? MenuActionRef else {
         fatalError("WaterUI menu item has no semantic action")
       }
-      waterui_call_shared_action(action.command.action, env.inner)
+      callAction(action.command.action)
     }
   #endif
 
@@ -174,8 +220,9 @@ final class WuiMenu: PlatformView, WuiComponent {
     #if canImport(UIKit)
       let horizontalPadding: CGFloat = 16
     #elseif canImport(AppKit)
-      // Side padding plus the pull-down indicator and its spacing.
-      let horizontalPadding: CGFloat = 16 + indicatorView.intrinsicContentSize.width + 4
+      // The pull-down face's title area: 12 pt leading plus 36 pt for the
+      // chevron.
+      let horizontalPadding: CGFloat = 48
     #endif
     return (horizontalPadding, verticalPadding)
   }
