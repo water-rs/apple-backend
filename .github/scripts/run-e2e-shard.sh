@@ -11,6 +11,10 @@
 # broken example does not hide the state of the rest; the script exits nonzero
 # if any example failed.
 #
+# EXAMPLES (comma-separated) names an explicit example list instead of a shard
+# slice — the targeted e2e workflow uses it to re-run a fixed set; the nightly
+# leaves it unset and keeps the checksum sharding below.
+#
 # The shard measures the release package, never a debug `water run`: the
 # packaged artifact is what users ship, so size, startup, memory, and pixel
 # parity all describe the production binary.
@@ -69,12 +73,34 @@ declare -a shard_examples=()
 
 # The `${arr[@]+...}` form: under the system bash 3.2 an empty array expands to
 # an unbound-variable error, and shards legitimately assign no examples.
-for example in ${all_examples[@]+"${all_examples[@]}"}; do
-  checksum=$(printf '%s' "${example}" | cksum | awk '{print $1}')
-  if (( checksum % shard_total == shard_index )); then
+if [[ -n "${EXAMPLES:-}" ]]; then
+  # An explicit list selects exactly those examples; a name that discovery did
+  # not find is a typo, not an empty shard, so it fails the run fast.
+  IFS=',' read -ra requested_examples <<< "${EXAMPLES}"
+  for example in ${requested_examples[@]+"${requested_examples[@]}"}; do
+    example="$(printf '%s' "${example}" | tr -d '[:space:]')"
+    [[ -n "${example}" ]] || continue
+    known=0
+    for candidate in ${all_examples[@]+"${all_examples[@]}"}; do
+      if [[ "${candidate}" == "${example}" ]]; then
+        known=1
+        break
+      fi
+    done
+    if (( known == 0 )); then
+      echo "::error::Requested example '${example}' is not a runnable example under ${waterui_dir}/examples."
+      exit 1
+    fi
     shard_examples+=("${example}")
-  fi
-done
+  done
+else
+  for example in ${all_examples[@]+"${all_examples[@]}"}; do
+    checksum=$(printf '%s' "${example}" | cksum | awk '{print $1}')
+    if (( checksum % shard_total == shard_index )); then
+      shard_examples+=("${example}")
+    fi
+  done
+fi
 
 if (( ${#shard_examples[@]} == 0 )); then
   echo "Shard ${shard_index}/${shard_total} has no examples for ${platform}."
