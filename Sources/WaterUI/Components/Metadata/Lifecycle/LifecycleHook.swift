@@ -41,14 +41,39 @@ final class WuiLifecycleHook: PlatformView, WuiComponent {
   #if canImport(UIKit)
     override func didMoveToWindow() {
       super.didMoveToWindow()
-      handle(window == nil ? WuiLifecycle_Disappear : WuiLifecycle_Appear)
+      windowMembershipChanged()
     }
   #elseif canImport(AppKit)
     override func viewDidMoveToWindow() {
       super.viewDidMoveToWindow()
-      handle(window == nil ? WuiLifecycle_Disappear : WuiLifecycle_Appear)
+      windowMembershipChanged()
     }
   #endif
+
+  private func windowMembershipChanged() {
+    if window == nil {
+      handle(WuiLifecycle_Disappear)
+    } else {
+      scheduleAppear()
+    }
+  }
+
+  /// `Appear` means the view has been presented, so it fires after the
+  /// transaction that inserted the view into the window commits, never inside
+  /// it. Core Animation creates no implicit animation for a layer during the
+  /// transaction that adds it to the tree, so a hook that animates a property
+  /// away from its initial value — a snackbar fading in from opacity 0 and
+  /// sliding in from its hidden offset — ran its animation before the first
+  /// frame and landed on screen already at its end state, while the exit,
+  /// fired on a committed layer, animated. The completion block of the current
+  /// implicit transaction is the commit boundary itself.
+  private func scheduleAppear() {
+    guard lifecycle == WuiLifecycle_Appear, handler != nil else { return }
+    CATransaction.setCompletionBlock { [weak self] in
+      guard let self, self.window != nil else { return }
+      self.handle(WuiLifecycle_Appear)
+    }
+  }
 
   private func handle(_ event: WuiLifecycle) {
     guard lifecycle == event, let handler else { return }
