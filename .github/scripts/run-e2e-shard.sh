@@ -215,13 +215,12 @@ except Exception:
 }
 
 # `water package` emits `Packaged at <path>` on success; resolve the bundle it
-# names, falling back to the newest .app under the build cache.
+# names. There is deliberately no search fallback: the build cache under
+# `~/.water/build_cache` is shared by every example and survives across runs,
+# so "the first .app found" can be another example's bundle or a stale one.
 find_packaged_app() {
-  local log_file="$1" example_path="$2" app_path
+  local log_file="$1" app_path
   app_path="$(sed -n 's/.*Packaged at //p' "${log_file}" | tail -1 | sed 's/\x1b\[[0-9;]*m//g' | tr -d '\r')"
-  if [[ -z "${app_path}" || ! -d "${app_path}" ]]; then
-    app_path="$(find "${example_path}" "${HOME}/.water/build_cache" -name "*.app" -type d -print -quit 2>/dev/null || true)"
-  fi
   [[ -n "${app_path}" && -d "${app_path}" ]] && echo "${app_path}"
 }
 
@@ -285,7 +284,7 @@ for example in ${shard_examples[@]+"${shard_examples[@]}"}; do
 
   app_path=""
   if (( built == 1 )); then
-    app_path="$(find_packaged_app "${run_log}" "${example_path}")"
+    app_path="$(find_packaged_app "${run_log}")"
   fi
   if [[ -n "${app_path}" ]]; then
     app_bytes="$(find "${app_path}" -type f -exec stat -f%z {} + | awk '{s+=$1} END {print s}')"
