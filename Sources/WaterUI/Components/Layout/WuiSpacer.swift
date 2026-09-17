@@ -8,7 +8,8 @@
 //
 // // INTERNAL: Layout Contract for Backend Implementers
 // // - stretchAxis: .mainAxis (expands along parent's main axis)
-// // - sizeThatFits: Returns proposed size or 0 if unspecified
+// // - sizeThatFits: Returns the minimum length on both axes; the stack
+// //   hands the spacer its main-axis allocation at placement
 // // - Priority: Int32.min (flexible gap)
 
 import CWaterUI
@@ -58,11 +59,14 @@ final class WuiSpacer: PlatformView, WuiComponent {
         Int32.min
     }
 
+    /// A spacer measures as its minimum length on both axes — zero — the way
+    /// the framework's own `SpacerLayout` does. The stack expands it along its
+    /// main axis at placement because it stretches there; answering the
+    /// proposal here instead made every spacer report the offer on the cross
+    /// axis too, so a column holding `spacer().height(8)` measured as wide as
+    /// the offer and a content-sized card filled its whole slot.
     func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
-        CGSize(
-            width: proposal.width.map { CGFloat($0) } ?? 0,
-            height: proposal.height.map { CGFloat($0) } ?? 0
-        )
+        .zero
     }
 
     #if canImport(AppKit)
