@@ -35,7 +35,7 @@ final class WuiMenu: PlatformView, WuiComponent {
   private let callAction: @MainActor (OpaquePointer) -> Void
   private let accent: WuiComputed<WuiResolvedColor>
   private var accentObservation: WuiComputedObservation<WuiResolvedColor>?
-  private var tree: WuiMenuTree?
+  private var tree: WuiMenuTree!
   private var accessibilityObservation: WuiComputedObservation<WuiStyledStr>?
 
   #if canImport(UIKit)
@@ -77,7 +77,7 @@ final class WuiMenu: PlatformView, WuiComponent {
     label: any WuiComponent,
     accent: WuiComputed<WuiResolvedColor>,
     accessibilityLabel: WuiComputed<WuiStyledStr>?,
-    items: OpaquePointer?,
+    items: OpaquePointer,
     callAction: @escaping @MainActor (OpaquePointer) -> Void
   ) {
     self.labelView = label
@@ -85,12 +85,10 @@ final class WuiMenu: PlatformView, WuiComponent {
     self.callAction = callAction
     super.init(frame: .zero)
 
-    if let items {
-      tree = WuiMenuTree(consuming: items) { [weak self] metadata in
-        guard let self else { return }
-        withPlatformAnimation(metadata) {
-          self.rebuildNativeMenu()
-        }
+    tree = WuiMenuTree(consuming: items) { [weak self] metadata in
+      guard let self else { return }
+      withPlatformAnimation(metadata) {
+        self.rebuildNativeMenu()
       }
     }
     setupButton()
@@ -173,7 +171,7 @@ final class WuiMenu: PlatformView, WuiComponent {
 
   private func rebuildNativeMenu() {
     #if canImport(UIKit)
-      button.menu = buildUIKitMenu(title: "", from: tree?.nodes ?? []) { [weak self] command in
+      button.menu = buildUIKitMenu(title: "", from: tree.nodes) { [weak self] command in
         guard let self else { return }
         self.callAction(command.action)
       }
@@ -184,7 +182,7 @@ final class WuiMenu: PlatformView, WuiComponent {
       // trigger, so the title slot stays empty.
       menu.addItem(NSMenuItem(title: "", action: nil, keyEquivalent: ""))
       appendAppKitMenuItems(
-        tree?.nodes ?? [], to: menu, target: self, action: #selector(menuItemClicked(_:)))
+        tree.nodes, to: menu, target: self, action: #selector(menuItemClicked(_:)))
       popUp.menu = menu
     #endif
     invalidateCapturedRendering()
