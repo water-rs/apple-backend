@@ -44,10 +44,6 @@ final class WuiTextField: PlatformView, WuiComponent {
   private var isSyncingFromBinding = false
   private var bindingRenderer: WuiStyledStrRenderer?
   private var promptRenderer: WuiStyledStrRenderer?
-  #if canImport(UIKit)
-    private var borderColorObservation: WuiComputedObservation<WuiResolvedColor>?
-    private var fillColorObservation: WuiComputedObservation<WuiResolvedColor>?
-  #endif
   private var promptAlignmentObservation: WuiComputedObservation<WuiHorizontalAlignment>?
   private var bodyFontObservation: WuiComputedObservation<WuiResolvedFontValue>?
   private var accessibility: WuiControlAccessibility?
@@ -196,9 +192,8 @@ final class WuiTextField: PlatformView, WuiComponent {
       let minTextWidth: CGFloat = 100.0
       let proposedWidth = proposal.width.map(CGFloat.init) ?? minTextWidth
       let targetWidth = max(minTextWidth, max(labelSize.width, proposedWidth))
-      let textHeight = max(
-        36.0,
-        textView.sizeThatFits(CGSize(width: targetWidth, height: .greatestFiniteMagnitude)).height)
+      let textHeight =
+        textView.sizeThatFits(CGSize(width: targetWidth, height: .greatestFiniteMagnitude)).height
     #elseif canImport(AppKit)
       let textHeight = textField.intrinsicContentSize.height
     #endif
@@ -214,7 +209,18 @@ final class WuiTextField: PlatformView, WuiComponent {
     return CGSize(width: width, height: max(height, intrinsicHeight))
   }
 
-  #if canImport(AppKit)
+  #if canImport(UIKit)
+    /// SwiftUI's automatic text field style is plain on iOS: no border, no
+    /// fill, no padding, the field is exactly its text's line box (22 pt in
+    /// the body font). `TextFieldPlainMetricsTests` measures a hosted SwiftUI
+    /// `TextField` against a text view configured here.
+    static func configurePlainInput(_ textView: UITextView) {
+      textView.isScrollEnabled = false
+      textView.textContainerInset = .zero
+      textView.textContainer.lineFragmentPadding = 0
+      textView.backgroundColor = .clear
+    }
+  #elseif canImport(AppKit)
     nonisolated override var isFlipped: Bool { true }
   #endif
 
@@ -278,29 +284,11 @@ final class WuiTextField: PlatformView, WuiComponent {
       textView.keyboardType = keyboard.uiKeyboardType
       textView.delegate = self
       textView.installWuiFocusTarget(focusTarget)
-      textView.isScrollEnabled = false
+      Self.configurePlainInput(textView)
       // `lineLimit == 0` means no limit, which is also UITextView's encoding for
       // `maximumNumberOfLines`, so it maps straight through.
       textView.textContainer.maximumNumberOfLines = lineLimit
       textView.textContainer.lineBreakMode = isSingleLine ? .byTruncatingTail : .byWordWrapping
-      textView.textContainerInset = UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
-      textView.textContainer.lineFragmentPadding = 0
-      textView.layer.cornerRadius = 10
-      textView.layer.borderWidth = 1
-      borderColorObservation = WuiComputedObservation(
-        themeColor: WuiColorSlot_Border,
-        env: env
-      ) { [weak self] color, _ in
-        self?.textView.layer.borderColor = color.toUIColor().cgColor
-      }
-      textView.layer.borderColor = borderColorObservation?.value.toUIColor().cgColor
-      fillColorObservation = WuiComputedObservation(
-        themeColor: WuiColorSlot_SurfaceVariant,
-        env: env
-      ) { [weak self] color, _ in
-        self?.textView.backgroundColor = color.toUIColor()
-      }
-      textView.backgroundColor = fillColorObservation?.value.toUIColor()
       installBodyFont()
 
       placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
