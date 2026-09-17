@@ -57,10 +57,15 @@ permissions:
   # The baseline-publish job opens a pull request.
   pull-requests: write
 
-# One nightly at a time, and a running one is never cancelled: its value is
-# the complete report.
+# One nightly per ref at a time, and a running one is never cancelled: its
+# value is the complete report. The group is keyed by ref because a group
+# holds one running and one pending run — with a single global group a
+# dispatch on a topic branch queued behind the dev nightly, and the next
+# dispatch cancelled it (run 35281834319). Branch runs share nothing with
+# the dev run but the rust-cache key, and two savers of one key only race
+# harmlessly.
 concurrency:
-  group: nightly-e2e
+  group: nightly-e2e-${{ github.ref }}
   cancel-in-progress: false
 
 env:
