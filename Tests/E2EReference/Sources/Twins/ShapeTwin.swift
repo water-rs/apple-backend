@@ -89,32 +89,32 @@ struct ShapeTwin: View {
       VStack(spacing: 10) {
         Text("WaterUI Shape Examples").font(.system(size: 28))
         Text("Shapes and clipping demonstrations")
-        Divider()
+        wuiDivider()
         VStack(spacing: 10) {
           circleDemo
-          Divider()
+          wuiDivider()
           ellipseDemo
-          Divider()
+          wuiDivider()
           capsuleDemo
-          Divider()
+          wuiDivider()
           rectangleDemo
         }
         VStack(spacing: 10) {
-          Divider()
+          wuiDivider()
           roundedRectangleDemo
-          Divider()
+          wuiDivider()
           unevenRoundedRectangleDemo
-          Divider()
+          wuiDivider()
           customPathDemo
-          Divider()
+          wuiDivider()
           hdrDemo
         }
         VStack(spacing: 10) {
-          Divider()
+          wuiDivider()
           clipShowcase
-          Divider()
+          wuiDivider()
           morphDemo
-          Divider()
+          wuiDivider()
           layoutDemo
           Spacer(minLength: 32)
         }

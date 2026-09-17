@@ -68,13 +68,13 @@ struct MarkdownTwin: View {
                         Text("Backend").bold()
                         Text("Status").bold()
                     }
-                    Divider()
+                    wuiDivider()
                     GridRow { Text("iOS"); Text("SwiftUI"); Text("Ready") }
                     GridRow { Text("macOS"); Text("AppKit"); Text("Ready") }
                     GridRow { Text("Android"); Text("View"); Text("Ready") }
                 }
 
-                Divider()
+                wuiDivider()
 
                 Text("Visit [WaterUI on GitHub](https://github.com/water-rs/waterui) for more information.")
             }

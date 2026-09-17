@@ -24,24 +24,24 @@ struct FilterTwin: View {
       VStack(spacing: 10) {
         Text("WaterUI Filter Examples").font(.title)
         Text("Visual demonstrations of the filter system")
-        Divider()
+        wuiDivider()
         VStack(spacing: 10) {
           blurSection
-          Divider()
+          wuiDivider()
           brightnessSection
-          Divider()
+          wuiDivider()
           saturationSection
-          Divider()
+          wuiDivider()
           contrastSection
         }
         VStack(spacing: 10) {
-          Divider()
+          wuiDivider()
           hueSection
-          Divider()
+          wuiDivider()
           grayscaleSection
-          Divider()
+          wuiDivider()
           opacitySection
-          Divider()
+          wuiDivider()
           combinedSection
         }
       }

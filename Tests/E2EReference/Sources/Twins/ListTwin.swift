@@ -24,7 +24,7 @@ struct ListTwin: View {
           .foregroundStyle(.secondary)
       }
       .padding(14)
-      Divider()
+      wuiDivider()
       List(0 ..< datasetSize, id: \.self) { index in
         VStack(alignment: .leading, spacing: 10) {
           Text(String(format: "Record #%06d", index))

@@ -11,13 +11,13 @@ struct EdgeLayoutTwin: View {
         Text("Deep nesting, dense children, constraint edges")
           .font(.subheadline)
           .foregroundStyle(.secondary)
-        Divider()
+        wuiDivider()
         Text("Deep nesting (8 levels)").font(.subheadline)
         deepNest(8)
-        Divider()
+        wuiDivider()
         Text("Dense grid (160 eager children)").font(.subheadline)
         denseGrid
-        Divider()
+        wuiDivider()
         Text("Frame constraints").font(.subheadline)
         constraintEdges
         Spacer(minLength: 16)

@@ -11,7 +11,7 @@ struct DragDropTwin: View {
       VStack(spacing: 10) {
         Text("Fruit Basket").font(.title)
         Text("Drag fruits into the basket!")
-        Divider()
+        wuiDivider()
         VStack(spacing: 12) {
           Text("Drag these fruits").font(.system(size: 14))
           HStack(spacing: 12) {
