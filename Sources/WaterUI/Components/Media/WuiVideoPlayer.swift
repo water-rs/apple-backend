@@ -102,13 +102,15 @@ final class WuiVideoPlayer: PlatformView, WuiComponent {
   #endif
 
   init(anyview: OpaquePointer, env: WuiEnvironment) {
+    // `waterui_force_as_video_player` consumes the view; everything read
+    // from the view itself comes first.
+    stretchAxis = WuiStretchAxis(waterui_view_stretch_axis(anyview))
     let descriptor: CWaterUI.WuiVideoPlayer = waterui_force_as_video_player(anyview)
     guard descriptor.projection == CWaterUI.WuiVideoProjection_Rectilinear else {
       fatalError(
         "Apple's native AVPlayer realization does not support equirectangular projection; install the WaterKit self-drawn realization for spherical video"
       )
     }
-    stretchAxis = WuiStretchAxis(waterui_view_stretch_axis(anyview))
     playback = WuiVideoPlaybackCoordinator(descriptor.playbackDescriptor, loops: false)
     showControls = descriptor.show_controls
 
