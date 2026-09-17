@@ -136,7 +136,7 @@ struct RemindersTwin: View {
           userListRow(list)
         }
       }
-      Spacer()
+      Spacer(minLength: 0)
     }
     .padding(12)
     .frame(width: 300)
@@ -150,16 +150,16 @@ struct RemindersTwin: View {
         Image(systemName: dest.symbol)
           .foregroundStyle(.white)
           .frame(width: 20, height: 20)
-        Spacer()
+        Spacer(minLength: 0)
         Text("\(dest.count)")
           .font(.headline)
-          .bold()
+          .fontWeight(.bold)
           .foregroundStyle(.white)
       }
-      Spacer()
+      Spacer(minLength: 0)
       Text(dest.title)
         .font(.body)
-        .bold()
+        .fontWeight(.bold)
         .foregroundStyle(.white)
     }
     .padding(10)
@@ -178,7 +178,7 @@ struct RemindersTwin: View {
         .background(list.color)
         .clipShape(Circle())
       Text(list.name).font(.body).foregroundStyle(.primary)
-      Spacer()
+      Spacer(minLength: 0)
       Text("\(list.count)").font(.caption).foregroundStyle(.secondary)
     }
     .padding(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
@@ -191,14 +191,14 @@ struct RemindersTwin: View {
         // list's accent color, leading-aligned — no date line underneath.
         Text((selection ?? .today).title)
           .font(.system(size: 32))
-          .bold()
+          .fontWeight(.bold)
           .foregroundStyle((selection ?? .today).color)
           .frame(maxWidth: .infinity, alignment: .leading)
           .padding(EdgeInsets(top: 14, leading: 18, bottom: 12, trailing: 18))
         wuiDivider()
         reminderSection("Today", rows: todayRows)
         reminderSection("Upcoming", rows: upcomingRows)
-        Spacer()
+        Spacer(minLength: 0)
       }
       .background(.regularMaterial)
       .navigationTitle((selection ?? .today).title)
@@ -218,7 +218,7 @@ struct RemindersTwin: View {
     VStack(spacing: 10) {
       Text(title)
         .font(.caption)
-        .bold()
+        .fontWeight(.bold)
         .foregroundStyle(.secondary)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(EdgeInsets(top: 8, leading: 18, bottom: 0, trailing: 18))
@@ -233,13 +233,13 @@ struct RemindersTwin: View {
               Text(subtitle).font(.caption).foregroundStyle(.secondary)
             }
           }
-          Spacer()
+          Spacer(minLength: 0)
           if row.flagged {
             Image(systemName: "flag")
               .foregroundStyle(srgbHex(0xF28A34))
               .frame(width: 12, height: 12)
           } else {
-            Spacer().frame(width: 12)
+            Spacer(minLength: 0).frame(width: 12)
           }
         }
         .padding(.vertical, 10)

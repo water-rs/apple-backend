@@ -77,20 +77,20 @@ struct PickerTwin: View {
       Text("Picker Styles").font(.headline)
       Text("Choose from different picker presentation styles").font(.body)
       Spacer()
-      Text("Automatic (default)").bold()
+      Text("Automatic (default)").fontWeight(.bold)
       Picker("Automatic (default)", selection: $automatic) {
         ForEach(Fruit.allCases) { Text($0.rawValue).tag($0) }
       }
       selectionLabel(automatic)
       Spacer()
-      Text("Menu Style").bold()
+      Text("Menu Style").fontWeight(.bold)
       Picker("Menu Style", selection: $menu) {
         ForEach(Fruit.allCases) { Text($0.rawValue).tag($0) }
       }
       .pickerStyle(.menu)
       selectionLabel(menu)
       Spacer()
-      Text("Radio Style").bold()
+      Text("Radio Style").fontWeight(.bold)
       Picker("Radio Style", selection: $radio) {
         ForEach(Fruit.allCases) { Text($0.rawValue).tag($0) }
       }
@@ -157,7 +157,7 @@ struct PickerTwin: View {
 
   private func swatch(_ color: Color, _ label: String) -> some View {
     HStack(spacing: 10) {
-      Text(label).bold()
+      Text(label).fontWeight(.bold)
       Text(":")
       RoundedRectangle(cornerRadius: 0.1 * 32)
         .fill(color)
@@ -189,7 +189,7 @@ struct PickerTwin: View {
       Spacer()
       Button("Select Files") {}
       Spacer()
-      Text("Selected files:").bold()
+      Text("Selected files:").fontWeight(.bold)
       Text("No files selected")
     }
     .padding(12)

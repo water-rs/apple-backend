@@ -79,7 +79,7 @@ struct MenuTwin: View {
           Button("Delete") {}
         }
       } label: {
-        Text("Actions").bold()
+        Text("Actions").fontWeight(.bold)
       }
       Spacer().frame(height: 12)
       Text("No action yet").font(.caption).foregroundStyle(.secondary)
@@ -170,12 +170,12 @@ struct MenuTwin: View {
   private func toolbarButton(_ title: String, icon: String, iconOnly: Bool) -> some View {
     Button {} label: {
       if iconOnly {
-        Text(icon).font(.caption).bold()
+        Text(icon).font(.caption).fontWeight(.bold)
       } else {
         Label {
           Text(title)
         } icon: {
-          Text(icon).font(.caption).bold()
+          Text(icon).font(.caption).fontWeight(.bold)
         }
       }
     }

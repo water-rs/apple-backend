@@ -14,7 +14,10 @@
 //   .min_width/.min_height         -> .frame(minWidth:, minHeight:)
 //   text(...).title()/.headline()  -> .font(.title)/.font(.headline) ...
 //   text(...).size(n)              -> .font(.system(size: n))
-//   .bold()                        -> .bold()
+//   .bold()                        -> .fontWeight(.bold): WaterUI's bold is
+//                                    FontWeight::Bold (700), while SwiftUI's
+//                                    .bold() trait resolves to the semibold
+//                                    face on system fonts
 //   Srgb::from_hex("#RRGGBB")      -> Color(.sRGB, red:..., green:..., blue:...)
 //   ResolvedColor{...} / color()   -> linearSrgb(r, g, b) — ResolvedColor
 //                                    stores linear sRGB components; Color(.sRGB)
@@ -25,7 +28,9 @@
 //                                    inside Menu/contextMenu content a WaterUI
 //                                    Divider maps to a native menu separator,
 //                                    which stays `Divider()`)
-//   spacer() / spacer().height(n)  -> Spacer() / Spacer().frame(height: n)
+//   spacer() / spacer().height(n)  -> Spacer(minLength: 0) / the same framed;
+//                                    WaterUI's spacer has a zero minimum while
+//                                    SwiftUI's Spacer() defaults to ~8pt
 //   button("X").action(...)        -> Button("X") {}
 //   Toggle::new("X", &b)           -> Toggle("X", isOn:)
 //   TextField::new("X", &b)        -> label above + TextField, matching

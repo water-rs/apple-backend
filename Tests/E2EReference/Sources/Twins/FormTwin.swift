@@ -45,7 +45,7 @@ struct FormTwin: View {
         labeledSlider("Volume", value: 0)
       }
       wuiDivider()
-      Text("Live Preview:").bold()
+      Text("Live Preview:").fontWeight(.bold)
       Text("Name: ")
       Text("Email: ")
       Text("Age: 0")
@@ -68,7 +68,7 @@ struct FormTwin: View {
         toggle("Notifications Enabled", isOn: false)
       }
       wuiDivider()
-      Text("Current Settings:").bold()
+      Text("Current Settings:").fontWeight(.bold)
       HStack(spacing: 10) {
         Text("Dark Mode: ")
         Text("false")
@@ -92,7 +92,7 @@ struct FormTwin: View {
       labeledSlider("Progress", value: 0.5)
       ProgressView(value: 0.5)
       wuiDivider()
-      Text("Manual Controls Preview:").bold()
+      Text("Manual Controls Preview:").fontWeight(.bold)
       Text("Username: ")
       Text("Feature Enabled: false")
       Text("Count: 5")
