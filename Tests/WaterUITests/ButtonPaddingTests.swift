@@ -79,5 +79,5 @@ func borderlessButtonWidthParity() {
     ).fittingSize.width
   #endif
 
-  #expect(abs(waterUI - swiftUI) <= 0.5)
+  #expect(abs(waterUI - swiftUI) <= 0.5, "WaterUI \(waterUI) vs SwiftUI \(swiftUI)")
 }
