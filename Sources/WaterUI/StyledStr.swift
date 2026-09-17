@@ -75,8 +75,8 @@ final class WuiStyledStrRenderer {
       }
     }
 
-    func attributedString(defaultForeground: WuiResolvedColor?) -> NSAttributedString {
-      guard let foreground = foreground?.value ?? defaultForeground else {
+    func attributedString(defaultForeground: PlatformColor?) -> NSAttributedString {
+      guard let foreground = foreground?.value.toPlatformColor() ?? defaultForeground else {
         fatalError("Styled text chunk has no foreground color")
       }
       return chunk.toAttributedString(
@@ -88,16 +88,23 @@ final class WuiStyledStrRenderer {
   }
 
   private let defaultForeground: WuiComputedObservation<WuiResolvedColor>?
+  /// A platform-native default color (e.g. the placeholder color) applied to
+  /// chunks without an explicit foreground. Unlike a theme slot it carries a
+  /// live dynamic color, so it adapts to the resolved interface style at draw
+  /// time the way the platform's own control would.
+  private let defaultForegroundColor: PlatformColor?
   private var chunks: [ResolvedChunk]
 
   init(
     styled: WuiStyledStr,
     env: WuiEnvironment,
     defaultForegroundSlot: WuiColorSlot = WuiColorSlot_Foreground,
+    defaultForegroundColor: PlatformColor? = nil,
     onChange: @escaping () -> Void
   ) {
+    self.defaultForegroundColor = defaultForegroundColor
     defaultForeground =
-      styled.chunks.contains { $0.style.foreground == nil }
+      defaultForegroundColor == nil && styled.chunks.contains { $0.style.foreground == nil }
       ? WuiComputedObservation(
         themeColor: defaultForegroundSlot,
         env: env
@@ -117,7 +124,11 @@ final class WuiStyledStrRenderer {
   func attributedString() -> NSAttributedString {
     let result = NSMutableAttributedString()
     for chunk in chunks {
-      result.append(chunk.attributedString(defaultForeground: defaultForeground?.value))
+      result.append(
+        chunk.attributedString(
+          defaultForeground: defaultForeground?.value.toPlatformColor()
+            ?? defaultForegroundColor
+        ))
     }
     return result
   }
@@ -135,18 +146,14 @@ struct WuiStyledChunk {
 
   func toAttributedString(
     font resolvedFont: WuiResolvedFontValue,
-    foreground: WuiResolvedColor?,
+    foreground: PlatformColor?,
     background: WuiResolvedColor?
   ) -> NSAttributedString {
     let font = resolvedFont.toPlatformFont()
     var attributes: [NSAttributedString.Key: Any] = [.font: font]
 
     if let foreground {
-      #if canImport(UIKit)
-        attributes[.foregroundColor] = foreground.toUIColor()
-      #elseif canImport(AppKit)
-        attributes[.foregroundColor] = foreground.toNSColor()
-      #endif
+      attributes[.foregroundColor] = foreground
     }
 
     if let background {
