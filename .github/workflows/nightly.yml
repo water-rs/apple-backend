@@ -155,7 +155,6 @@ jobs:
           # follows its lockfile and a night whose dependencies moved writes a
           # fresh entry instead of skipping the save as "already cached".
           workspaces: waterui
-          cache-directories: ~/.water/build_cache/target
           # Every shard restores; only the scheduled run on dev saves, so the
           # warmed dir is written once a night for the next night.
           # Any run on dev writes (the concurrency group serialises them), so a
@@ -273,7 +272,6 @@ jobs:
           # follows its lockfile and a night whose dependencies moved writes a
           # fresh entry instead of skipping the save as "already cached".
           workspaces: waterui
-          cache-directories: ~/.water/build_cache/target
           # Any run on dev writes (the concurrency group serialises them), so a
           # dispatched re-test warms the cache as well as the schedule. Save
           # even when the shard fails: the build finished before the parity
@@ -376,7 +374,6 @@ jobs:
           # follows its lockfile and a night whose dependencies moved writes a
           # fresh entry instead of skipping the save as "already cached".
           workspaces: waterui
-          cache-directories: ~/.water/build_cache/target
           # Any run on dev writes (the concurrency group serialises them), so a
           # dispatched re-test warms the cache as well as the schedule. Save
           # even when the shard fails: the build finished before the parity
