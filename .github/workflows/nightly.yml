@@ -153,14 +153,17 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: nightly-e2e-ios
-          # `water package` builds into the CLI's shared target dir —
-          # `~/.water/build_cache/target` — not `waterui/target`, so the
-          # release units the shard spends ~35 min compiling have to ride
-          # the same cache entry.
           # The Cargo workspace is the staged framework checkout, so the key
           # follows its lockfile and a night whose dependencies moved writes a
           # fresh entry instead of skipping the save as "already cached".
           workspaces: waterui
+          # `water` (water-rs/cli#65) builds into its per-user shared target,
+          # `~/.water/build_cache/target/{static,shared,host}` — the release
+          # units for the platform and the dev-profile host rlib the CLI reads
+          # `waterui_meta_*` symbols from — not into `waterui/target`, so the
+          # ~30 min a shard spends compiling only rides the cache through this
+          # entry (#215 removed it against the pre-#65 layout).
+          cache-directories: ~/.water/build_cache/target
           # Every shard restores; only the scheduled run on dev saves, so the
           # warmed dir is written once a night for the next night.
           # Any run on dev writes (the concurrency group serialises them), so a
@@ -280,6 +283,9 @@ jobs:
           # follows its lockfile and a night whose dependencies moved writes a
           # fresh entry instead of skipping the save as "already cached".
           workspaces: waterui
+          # See the iOS shard: the `water` builds live in the CLI's shared
+          # target, not in `waterui/target`.
+          cache-directories: ~/.water/build_cache/target
           # Any run on dev writes (the concurrency group serialises them), so a
           # dispatched re-test warms the cache as well as the schedule. Save
           # even when the shard fails: the build finished before the parity
@@ -383,6 +389,7 @@ jobs:
           # follows its lockfile and a night whose dependencies moved writes a
           # fresh entry instead of skipping the save as "already cached".
           workspaces: waterui
+          cache-directories: ~/.water/build_cache/target
           # Any run on dev writes (the concurrency group serialises them), so a
           # dispatched re-test warms the cache as well as the schedule. Save
           # even when the shard fails: the build finished before the parity
@@ -542,6 +549,8 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: nightly-package-size
+          workspaces: waterui
+          cache-directories: ~/.water/build_cache/target
 
       - name: Install the water CLI
         uses: actions/download-artifact@v4
