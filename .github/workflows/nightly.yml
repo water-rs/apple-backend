@@ -128,12 +128,20 @@ jobs:
           # `~/.water/build_cache/target` — not `waterui/target`, so the
           # release units the shard spends ~35 min compiling have to ride
           # the same cache entry.
-          cache-directories: |
-            waterui/target
-            ~/.water/build_cache/target
+          # The Cargo workspace is the staged framework checkout, so the key
+          # follows its lockfile and a night whose dependencies moved writes a
+          # fresh entry instead of skipping the save as "already cached".
+          workspaces: waterui
+          cache-directories: ~/.water/build_cache/target
           # Every shard restores; only the scheduled run on dev saves, so the
           # warmed dir is written once a night for the next night.
-          save-if: ${{ github.event_name == 'schedule' && github.ref == 'refs/heads/dev' }}
+          # Any run on dev writes (the concurrency group serialises them), so a
+          # dispatched re-test warms the cache as well as the schedule. Save
+          # even when the shard fails: the build finished before the parity
+          # comparison, and a red parity result must not cost the next run a
+          # cold build.
+          save-if: ${{ github.ref == 'refs/heads/dev' }}
+          cache-on-failure: true
 
       - name: Install the water CLI
         uses: actions/download-artifact@v4
@@ -235,10 +243,18 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: nightly-e2e-macos
-          cache-directories: |
-            waterui/target
-            ~/.water/build_cache/target
-          save-if: ${{ github.event_name == 'schedule' && github.ref == 'refs/heads/dev' }}
+          # The Cargo workspace is the staged framework checkout, so the key
+          # follows its lockfile and a night whose dependencies moved writes a
+          # fresh entry instead of skipping the save as "already cached".
+          workspaces: waterui
+          cache-directories: ~/.water/build_cache/target
+          # Any run on dev writes (the concurrency group serialises them), so a
+          # dispatched re-test warms the cache as well as the schedule. Save
+          # even when the shard fails: the build finished before the parity
+          # comparison, and a red parity result must not cost the next run a
+          # cold build.
+          save-if: ${{ github.ref == 'refs/heads/dev' }}
+          cache-on-failure: true
 
       - name: Install the water CLI
         uses: actions/download-artifact@v4
@@ -327,10 +343,18 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: nightly-e2e-ios
-          cache-directories: |
-            waterui/target
-            ~/.water/build_cache/target
-          save-if: ${{ github.event_name == 'schedule' && github.ref == 'refs/heads/dev' }}
+          # The Cargo workspace is the staged framework checkout, so the key
+          # follows its lockfile and a night whose dependencies moved writes a
+          # fresh entry instead of skipping the save as "already cached".
+          workspaces: waterui
+          cache-directories: ~/.water/build_cache/target
+          # Any run on dev writes (the concurrency group serialises them), so a
+          # dispatched re-test warms the cache as well as the schedule. Save
+          # even when the shard fails: the build finished before the parity
+          # comparison, and a red parity result must not cost the next run a
+          # cold build.
+          save-if: ${{ github.ref == 'refs/heads/dev' }}
+          cache-on-failure: true
 
       - name: Install the water CLI
         uses: actions/download-artifact@v4
