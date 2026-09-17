@@ -638,16 +638,20 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       let flat = flatIndex(for: indexPath)
       let item = resolveListItem(from: contents, at: flat, env: env)
       let insets = WuiListCell.rowInsets
-      let width = tableView.bounds.width - insets.leading - insets.trailing
+      // A grouped row spans the table's readable width — the section's own
+      // inset region — and the cell insets its content inside that.
+      let width =
+        tableView.readableContentGuide.layoutFrame.width
+        - insets.leading - insets.trailing
       let proposal = WuiProposalSize(
         width: width > 0 ? Float(width) : nil,
         height: nil
       )
       let size = item.view.sizeThatFits(proposal)
-      // Apple's inset-grouped table style uses a 44pt minimum touch
-      // target — keep that floor when the measured content is shorter
-      // (single-line rows, dividers, etc).
-      return max(size.height + insets.top + insets.bottom, 44)
+      return max(
+        size.height + insets.top + insets.bottom,
+        WuiListCell.minimumRowHeight
+      )
     }
   }
 
@@ -697,16 +701,47 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
 
   // MARK: - WuiListCell
 
-  private final class WuiListCell: UITableViewCell {
+  final class WuiListCell: UITableViewCell {
     static let reuseIdentifier = "WuiListCell"
 
     private var contentWuiView: WuiAnyView?
     private var deletableObservation: WuiComputedObservation<Bool>?
     private var selectedObservation: WuiComputedObservation<Bool>?
 
-    /// SwiftUI's default inset-grouped row insets; the height measurement in
-    /// `heightForRowAt` must subtract/add exactly these values.
-    static let rowInsets = NSDirectionalEdgeInsets(top: 11, leading: 20, bottom: 11, trailing: 20)
+    /// The insets the platform wraps around a list row's content.
+    ///
+    /// `UIListContentConfiguration.cell()` publishes them — the same values a
+    /// live `UITableViewCell` reports through
+    /// `contentView.directionalLayoutMargins` once the table styles it, and
+    /// the same margins the `UICollectionViewListCell`s SwiftUI `List` rows
+    /// live in apply. The configuration's trailing margin is accessory
+    /// approach room rather than the row's edge — a real cell mirrors its
+    /// leading margin on the trailing side — so the trailing inset uses
+    /// `leading`. `heightForRowAt` must subtract/add exactly these values.
+    static let rowInsets: NSDirectionalEdgeInsets = {
+      let margins = UIListContentConfiguration.cell().directionalLayoutMargins
+      return NSDirectionalEdgeInsets(
+        top: margins.top,
+        leading: margins.leading,
+        bottom: margins.bottom,
+        trailing: margins.leading
+      )
+    }()
+
+    /// The shortest row the platform renders whatever the content.
+    ///
+    /// A stock cell's `systemLayoutSizeFitting` reports it — 52 pt on iOS 26 —
+    /// and SwiftUI `List` rows honor the same floor even for empty content,
+    /// so it is measured from the platform rather than assumed.
+    static let minimumRowHeight: CGFloat = {
+      UITableViewCell(style: .default, reuseIdentifier: nil)
+        .systemLayoutSizeFitting(
+          CGSize(width: 320, height: 0),
+          withHorizontalFittingPriority: .required,
+          verticalFittingPriority: .fittingSizeLevel
+        )
+        .height
+    }()
 
     /// Whether the row's content chain carries a navigation link's identity.
     ///
