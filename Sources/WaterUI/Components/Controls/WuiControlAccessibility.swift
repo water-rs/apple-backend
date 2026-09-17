@@ -10,7 +10,7 @@ import CWaterUI
 final class WuiControlAccessibility {
   private let label: WuiComputedObservation<WuiStyledStr>
 
-  init(
+  convenience init(
     consuming label: CWaterUI.WuiLabel,
     target: PlatformView,
     additionalTargets: [PlatformView] = [],
@@ -19,13 +19,25 @@ final class WuiControlAccessibility {
     guard let accessibilityLabel = label.accessibility_label else {
       fatalError("WaterUI control label has no accessibility signal")
     }
+    self.init(
+      label: WuiComputed<WuiStyledStr>(accessibilityLabel),
+      target: target,
+      additionalTargets: additionalTargets,
+      visualLabel: visualLabel
+    )
+  }
+
+  init(
+    label: WuiComputed<WuiStyledStr>,
+    target: PlatformView,
+    additionalTargets: [PlatformView] = [],
+    visualLabel: PlatformView
+  ) {
     var targets: [PlatformView] = []
     targets.reserveCapacity(additionalTargets.count + 1)
     targets.append(target)
     targets.append(contentsOf: additionalTargets)
-    let observation = WuiComputedObservation(
-      WuiComputed<WuiStyledStr>(accessibilityLabel)
-    ) { value, _ in
+    let observation = WuiComputedObservation(label) { value, _ in
       Self.apply(value.toString(), to: targets)
     }
     self.label = observation
