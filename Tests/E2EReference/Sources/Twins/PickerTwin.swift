@@ -42,8 +42,8 @@ struct PickerTwin: View {
 
   var body: some View {
     ScrollView {
-      VStack(alignment: .leading, spacing: 10) {
-        VStack(alignment: .leading, spacing: 10) {
+      VStack(spacing: 10) {
+        VStack(spacing: 10) {
           Text("Picker Gallery").font(.title)
           Text("Demonstrating WaterUI form and picker components").font(.body)
         }
@@ -59,7 +59,7 @@ struct PickerTwin: View {
         colorSection
         Divider()
         fileSection
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(spacing: 10) {
           Divider()
           Text("Built with WaterUI Picker Components").font(.caption)
         }
@@ -73,7 +73,7 @@ struct PickerTwin: View {
   }
 
   private var pickerStyles: some View {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(spacing: 10) {
       Text("Picker Styles").font(.headline)
       Text("Choose from different picker presentation styles").font(.body)
       Spacer()
@@ -106,7 +106,7 @@ struct PickerTwin: View {
   }
 
   private var datePickers: some View {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(spacing: 10) {
       Text("DatePicker").font(.headline)
       Text("Select dates and times with platform-native pickers").font(.body)
       Spacer()
@@ -123,7 +123,7 @@ struct PickerTwin: View {
   }
 
   private var calendarSection: some View {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(spacing: 10) {
       Text("Calendar").font(.headline)
       Text("Month-grid calendar with single-date selection and passive decorations").font(.body)
       Spacer()
@@ -137,7 +137,7 @@ struct PickerTwin: View {
   }
 
   private var multiDateSection: some View {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(spacing: 10) {
       Text("Multi-Date Picker").font(.headline)
       Text("Month-grid calendar for selecting multiple dates").font(.body)
       Spacer()
@@ -166,7 +166,7 @@ struct PickerTwin: View {
   }
 
   private var colorSection: some View {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(spacing: 10) {
       Text("ColorPicker").font(.headline)
       Text("Select colors with optional alpha and HDR support").font(.body)
       Spacer()
@@ -183,7 +183,7 @@ struct PickerTwin: View {
   }
 
   private var fileSection: some View {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(spacing: 10) {
       Text("FilePicker").font(.headline)
       Text("Select files from the device").font(.body)
       Spacer()

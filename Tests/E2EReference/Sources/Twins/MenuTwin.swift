@@ -34,6 +34,20 @@ struct MenuTwin: View {
       }
       .padding(16)
     }
+    // window_toolbar: the window's own actions — the same hstack of three
+    // semantic-label buttons the content section shows, which the backend
+    // splits into one NSToolbarItem per child at the toolbar's trailing edge.
+    .toolbar {
+      ToolbarItem(placement: .primaryAction) {
+        toolbarButton("Search", icon: "[S]", iconOnly: true)
+      }
+      ToolbarItem(placement: .primaryAction) {
+        toolbarButton("Compose", icon: "[+]", iconOnly: true)
+      }
+      ToolbarItem(placement: .primaryAction) {
+        toolbarButton("Settings", icon: "[=]", iconOnly: true)
+      }
+    }
   }
 
   private var menuSection: some View {

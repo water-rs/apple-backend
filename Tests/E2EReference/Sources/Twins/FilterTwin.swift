@@ -21,11 +21,11 @@ struct FilterTwin: View {
 
   var body: some View {
     ScrollView {
-      VStack(alignment: .leading, spacing: 10) {
+      VStack(spacing: 10) {
         Text("WaterUI Filter Examples").font(.title)
         Text("Visual demonstrations of the filter system")
         Divider()
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(spacing: 10) {
           blurSection
           Divider()
           brightnessSection
@@ -34,7 +34,7 @@ struct FilterTwin: View {
           Divider()
           contrastSection
         }
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(spacing: 10) {
           Divider()
           hueSection
           Divider()
@@ -74,7 +74,7 @@ struct FilterTwin: View {
   }
 
   private var blurSection: some View {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(spacing: 10) {
       Text("Blur").font(.headline)
       Text("Apply Gaussian blur to content")
       sample.blur(radius: blurRadius).frame(minHeight: 100)
@@ -85,7 +85,7 @@ struct FilterTwin: View {
   }
 
   private var brightnessSection: some View {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(spacing: 10) {
       Text("Brightness").font(.headline)
       Text("Adjust brightness (-1 to 1)")
       sample.brightness(brightness).frame(minHeight: 100)
@@ -96,7 +96,7 @@ struct FilterTwin: View {
   }
 
   private var saturationSection: some View {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(spacing: 10) {
       Text("Saturation").font(.headline)
       Text("Adjust color saturation (0 = grayscale)")
       sample.saturation(saturation).frame(minHeight: 100)
@@ -107,7 +107,7 @@ struct FilterTwin: View {
   }
 
   private var contrastSection: some View {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(spacing: 10) {
       Text("Contrast").font(.headline)
       Text("Adjust color contrast")
       sample.contrast(contrast).frame(minHeight: 100)
@@ -118,7 +118,7 @@ struct FilterTwin: View {
   }
 
   private var hueSection: some View {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(spacing: 10) {
       Text("Hue Rotation").font(.headline)
       Text("Rotate colors around the color wheel (0-360 degrees)")
       sample.hueRotation(.degrees(hue)).frame(minHeight: 100)
@@ -129,7 +129,7 @@ struct FilterTwin: View {
   }
 
   private var grayscaleSection: some View {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(spacing: 10) {
       Text("Grayscale").font(.headline)
       Text("Convert to grayscale (0 = color, 1 = grayscale)")
       sample.grayscale(grayscale).frame(minHeight: 100)
@@ -140,7 +140,7 @@ struct FilterTwin: View {
   }
 
   private var opacitySection: some View {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(spacing: 10) {
       Text("Opacity").font(.headline)
       Text("Adjust transparency (0 = invisible, 1 = opaque)")
       sample.opacity(opacity).frame(minHeight: 100)
@@ -151,7 +151,7 @@ struct FilterTwin: View {
   }
 
   private var combinedSection: some View {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(spacing: 10) {
       Text("Combined Filters").font(.headline)
       Text("Apply multiple filters with spring animations")
       sample
