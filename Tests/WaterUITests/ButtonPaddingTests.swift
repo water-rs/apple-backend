@@ -70,9 +70,12 @@ func borderlessButtonWidthParity() {
     .sizeThatFits(WuiProposalSize()).width
 
   #if canImport(UIKit)
+    // `sizeThatFits(in: .zero)` answers a zero proposal with zero on iOS;
+    // the hosting view's intrinsic size is SwiftUI's ideal size, the
+    // counterpart of `NSHostingView.fittingSize`.
     let swiftUI = UIHostingController(
       rootView: Button("x") {}.buttonStyle(.borderless)
-    ).sizeThatFits(in: UIView.layoutFittingCompressedSize).width
+    ).view.intrinsicContentSize.width
   #elseif canImport(AppKit)
     let swiftUI = NSHostingView(
       rootView: Button("x") {}.buttonStyle(.borderless)
