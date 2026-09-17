@@ -4,8 +4,9 @@
 // the equivalent hand-written SwiftUI tree — what a SwiftUI developer would
 // produce for the same content.
 //
-// Observed WaterUI markdown chrome reproduced here:
-//   # -> ~17pt bold, ## -> ~28pt bold, ### -> headline
+// WaterUI markdown chrome reproduced here (heading levels consume the
+// framework's semantic font slots, resolved to platform text styles):
+//   # -> .title bold, ## -> .headline bold, ### -> .body bold
 //   fenced blocks get a header row (language name + Copy) over a gray field
 
 import SwiftUI
@@ -14,7 +15,7 @@ struct MarkdownTwin: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
-                Text("WaterUI Markdown").font(.system(size: 17, weight: .bold))
+                Text("WaterUI Markdown").font(.title).bold()
                 Text("WaterUI supports rendering **Markdown** content natively across all platforms.")
 
                 heading("Text Formatting")
@@ -39,13 +40,13 @@ struct MarkdownTwin: View {
                     """)
 
                 heading("Lists")
-                Text("Unordered List").font(.headline)
+                Text("Unordered List").font(.body).bold()
                 VStack(alignment: .leading, spacing: 4) {
                     bullet("First item")
                     bullet("Second item")
                     bullet("Third item")
                 }
-                Text("Ordered List").font(.headline)
+                Text("Ordered List").font(.body).bold()
                 VStack(alignment: .leading, spacing: 4) {
                     numbered(1, "Step one")
                     numbered(2, "Step two")
@@ -83,7 +84,7 @@ struct MarkdownTwin: View {
     }
 
     private func heading(_ s: String) -> some View {
-        Text(s).font(.system(size: 28, weight: .bold))
+        Text(s).font(.headline).bold()
     }
 
     private func bullet(_ s: String) -> some View {
