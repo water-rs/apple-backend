@@ -136,7 +136,7 @@ struct RemindersTwin: View {
           userListRow(list)
         }
       }
-      Spacer()
+      Spacer(minLength: 0)
     }
     .padding(12)
     .frame(width: 300)
@@ -150,13 +150,13 @@ struct RemindersTwin: View {
         Image(systemName: dest.symbol)
           .foregroundStyle(.white)
           .frame(width: 20, height: 20)
-        Spacer()
+        Spacer(minLength: 0)
         Text("\(dest.count)")
           .font(.headline)
           .bold()
           .foregroundStyle(.white)
       }
-      Spacer()
+      Spacer(minLength: 0)
       Text(dest.title)
         .font(.body)
         .bold()
@@ -178,7 +178,7 @@ struct RemindersTwin: View {
         .background(list.color)
         .clipShape(Circle())
       Text(list.name).font(.body).foregroundStyle(.primary)
-      Spacer()
+      Spacer(minLength: 0)
       Text("\(list.count)").font(.caption).foregroundStyle(.secondary)
     }
     .padding(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
@@ -198,7 +198,7 @@ struct RemindersTwin: View {
         Divider()
         reminderSection("Today", rows: todayRows)
         reminderSection("Upcoming", rows: upcomingRows)
-        Spacer()
+        Spacer(minLength: 0)
       }
       .background(.regularMaterial)
       .navigationTitle((selection ?? .today).title)
@@ -233,13 +233,13 @@ struct RemindersTwin: View {
               Text(subtitle).font(.caption).foregroundStyle(.secondary)
             }
           }
-          Spacer()
+          Spacer(minLength: 0)
           if row.flagged {
             Image(systemName: "flag")
               .foregroundStyle(srgbHex(0xF28A34))
               .frame(width: 12, height: 12)
           } else {
-            Spacer().frame(width: 12)
+            Spacer(minLength: 0).frame(width: 12)
           }
         }
         .padding(.vertical, 10)
