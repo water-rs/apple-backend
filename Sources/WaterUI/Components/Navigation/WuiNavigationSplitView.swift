@@ -186,9 +186,12 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
     visibilityWatcher = columnVisibility.watch { [weak self] visibility, _ in
       self?.applyColumnVisibility(visibility)
     }
-    showPrimarySelection(primarySelection.value)
+    // The first application syncs content only: presenting the selection
+    // would decide the collapsed split's top column, which is the sidebar
+    // whether or not a destination is selected.
+    showPrimarySelection(primarySelection.value, present: false)
     if let secondarySelection {
-      showSecondarySelection(secondarySelection.value)
+      showSecondarySelection(secondarySelection.value, present: false)
     }
     applyColumnVisibility(columnVisibility.value)
   }
@@ -301,15 +304,15 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
     #endif
   }
 
-  private func showPrimarySelection(_ selected: Int32) {
+  private func showPrimarySelection(_ selected: Int32, present: Bool = true) {
     guard let contentHandle else {
-      showDetailSelection(selected)
+      showDetailSelection(selected, present: present)
       return
     }
     if selected == 0 {
       #if canImport(UIKit)
         splitController.setViewController(supplementaryController, for: .supplementary)
-        if splitController.isCollapsed { splitController.show(.primary) }
+        if present, splitController.isCollapsed { splitController.show(.primary) }
       #elseif canImport(AppKit)
         supplementaryController.view = emptyColumnView
       #endif
@@ -320,7 +323,7 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
       let controller = destinationController(
         for: selected, handle: contentHandle, cache: &contentControllers)
       splitController.setViewController(controller, for: .supplementary)
-      splitController.show(.supplementary)
+      if present { splitController.show(.supplementary) }
     #elseif canImport(AppKit)
       let content = destinationView(for: selected, handle: contentHandle, cache: &contentViews)
       content.setBackAction(nil)
@@ -328,16 +331,27 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
     #endif
   }
 
-  private func showSecondarySelection(_ selected: Int32) {
+  private func showSecondarySelection(_ selected: Int32, present: Bool = true) {
     guard secondarySelection != nil else { return }
-    showDetailSelection(selected)
+    showDetailSelection(selected, present: present)
   }
 
-  private func showDetailSelection(_ selected: Int32) {
+  /// Reconciles the detail column's content with a selection.
+  ///
+  /// `present` controls whether the destination column is also made the
+  /// split's visible column. A live selection change — the user tapping a
+  /// sidebar row — presents it, which on a collapsed split pushes the detail
+  /// over the sidebar the way SwiftUI's NavigationSplitView pushes a chosen
+  /// destination. The calls that merely keep the column's content in step
+  /// with the selection — first layout, collapse and expand re-syncs — pass
+  /// `false`: which column is on top at those moments is the split's own
+  /// decision, and re-presenting the selection there would cover the sidebar
+  /// the collapse just chose.
+  private func showDetailSelection(_ selected: Int32, present: Bool) {
     if selected == 0 {
       #if canImport(UIKit)
         splitController.setViewController(secondaryController, for: .secondary)
-        if splitController.isCollapsed {
+        if present, splitController.isCollapsed {
           splitController.show(contentHandle == nil ? .primary : .supplementary)
         }
       #elseif canImport(AppKit)
@@ -350,7 +364,7 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
       let controller = destinationController(
         for: selected, handle: detailHandle, cache: &detailControllers)
       splitController.setViewController(controller, for: .secondary)
-      splitController.show(.secondary)
+      if present { splitController.show(.secondary) }
     #elseif canImport(AppKit)
       let detail = destinationView(for: selected, handle: detailHandle, cache: &detailViews)
       detail.setBackAction(nil)
@@ -528,19 +542,28 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
       _ splitViewController: UISplitViewController,
       topColumnForCollapsingToProposedTopColumn proposedTopColumn: UISplitViewController.Column
     ) -> UISplitViewController.Column {
-      if let secondarySelection, secondarySelection.value != 0 { return .secondary }
-      if contentHandle != nil, primarySelection.value != 0 { return .supplementary }
-      return primarySelection.value == 0 ? .primary : .secondary
+      // SwiftUI collapses a NavigationSplitView onto its sidebar whatever the
+      // selection — the destination's row stays highlighted and the detail is
+      // where a tap goes from there, not what covers the sidebar at collapse.
+      .primary
     }
 
+    // The collapse and expand transitions re-sync each column's content with
+    // the selection but never present it: the split itself just chose which
+    // column is on top — the sidebar on collapse — and pushing the selected
+    // destination here would cover it.
     func splitViewControllerDidCollapse(_ splitViewController: UISplitViewController) {
-      showPrimarySelection(primarySelection.value)
-      if let secondarySelection { showSecondarySelection(secondarySelection.value) }
+      showPrimarySelection(primarySelection.value, present: false)
+      if let secondarySelection {
+        showSecondarySelection(secondarySelection.value, present: false)
+      }
     }
 
     func splitViewControllerDidExpand(_ splitViewController: UISplitViewController) {
-      showPrimarySelection(primarySelection.value)
-      if let secondarySelection { showSecondarySelection(secondarySelection.value) }
+      showPrimarySelection(primarySelection.value, present: false)
+      if let secondarySelection {
+        showSecondarySelection(secondarySelection.value, present: false)
+      }
     }
 
     func splitViewController(
