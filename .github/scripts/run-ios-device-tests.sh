@@ -76,7 +76,11 @@ if [[ ${status} -eq 0 && -n "${archive}" ]]; then
     exit 1
   }
   xctest_bin="${xctest_bundle}/$(basename "${xctest_bundle}" .xctest)"
-  nm -gU "${xctest_bin}" | grep -q ' _waterui_app$' || {
+  # `grep -q` exits on the first match and closes the pipe under nm, which
+  # then dies with "LLVM ERROR: IO failure on output stream: Broken pipe";
+  # with `pipefail` that reports a linked bundle as unlinked. Let grep read
+  # nm's whole output instead.
+  nm -gU "${xctest_bin}" | grep ' _waterui_app$' >/dev/null || {
     echo "error: waterui_app is not linked into ${xctest_bundle};" \
       "the archive-backed tests skipped" >&2
     exit 1
