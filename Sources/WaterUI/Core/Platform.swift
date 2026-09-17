@@ -19,6 +19,7 @@ import CWaterUI
   public typealias PlatformLabel = UILabel
   public typealias PlatformColor = UIColor
   public typealias PlatformFont = UIFont
+  public typealias PlatformTextStyle = UIFont.TextStyle
   public typealias PlatformImage = UIImage
   public typealias PlatformLayoutPriority = UILayoutPriority
 
@@ -38,6 +39,7 @@ import CWaterUI
   public typealias PlatformLabel = NSTextField
   public typealias PlatformColor = NSColor
   public typealias PlatformFont = NSFont
+  public typealias PlatformTextStyle = NSFont.TextStyle
   public typealias PlatformImage = NSImage
   public typealias PlatformLayoutPriority = NSLayoutConstraint.Priority
 

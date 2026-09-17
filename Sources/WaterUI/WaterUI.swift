@@ -719,17 +719,40 @@ public final class ThemeBridge {
     }
   #endif
 
+  /// The platform text style a WaterUI font slot resolves to — the
+  /// framework's type scale expressed in the platform's own terms, so themed
+  /// text (markdown headings consume these slots: `#` → `Headline`,
+  /// `##` → `Title`, `###` → `Subheadline`, …) lands on the system size for
+  /// its rung instead of a smaller same-named style.
+  static func textStyle(for slot: WuiFontSlot) -> PlatformTextStyle {
+    switch slot {
+    case WuiFontSlot_Headline:
+      .largeTitle
+    case WuiFontSlot_Title:
+      .title1
+    case WuiFontSlot_Subheadline:
+      .title2
+    case WuiFontSlot_Caption:
+      .title3
+    case WuiFontSlot_Footnote:
+      .headline
+    default:
+      .body
+    }
+  }
+
   private func installSystemFonts(env: WuiEnvironment) {
+    let slots: [WuiFontSlot] = [
+      WuiFontSlot_Body,
+      WuiFontSlot_Title,
+      WuiFontSlot_Headline,
+      WuiFontSlot_Subheadline,
+      WuiFontSlot_Caption,
+      WuiFontSlot_Footnote,
+    ]
     #if canImport(UIKit)
-      let slots: [(WuiFontSlot, UIFont.TextStyle)] = [
-        (WuiFontSlot_Body, .body),
-        (WuiFontSlot_Title, .title1),
-        (WuiFontSlot_Headline, .headline),
-        (WuiFontSlot_Subheadline, .subheadline),
-        (WuiFontSlot_Caption, .caption1),
-        (WuiFontSlot_Footnote, .footnote),
-      ]
-      fontSignalEntries = slots.map { slot, textStyle in
+      fontSignalEntries = slots.map { slot in
+        let textStyle = Self.textStyle(for: slot)
         let signal = installFontSlot(
           env: env,
           slot: slot,
@@ -747,19 +770,11 @@ public final class ThemeBridge {
         }
       }
     #elseif canImport(AppKit)
-      let slots: [(WuiFontSlot, NSFont.TextStyle)] = [
-        (WuiFontSlot_Body, .body),
-        (WuiFontSlot_Title, .title1),
-        (WuiFontSlot_Headline, .headline),
-        (WuiFontSlot_Subheadline, .subheadline),
-        (WuiFontSlot_Caption, .caption1),
-        (WuiFontSlot_Footnote, .footnote),
-      ]
-      fontSignals = slots.map { slot, textStyle in
+      fontSignals = slots.map { slot in
         installFontSlot(
           env: env,
           slot: slot,
-          font: NSFont.preferredFont(forTextStyle: textStyle, options: [:])
+          font: NSFont.preferredFont(forTextStyle: Self.textStyle(for: slot), options: [:])
         )
       }
     #endif
