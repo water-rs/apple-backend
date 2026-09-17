@@ -35,6 +35,7 @@ if [[ -z "${simulator_udid}" ]]; then
 fi
 
 ldflags="-Xlinker -undefined -Xlinker dynamic_lookup"
+archive=""
 
 if [[ $# -ge 1 ]]; then
   example="$1"
@@ -54,7 +55,32 @@ if [[ $# -ge 1 ]]; then
   ldflags="${ldflags} ${archive}"
 fi
 
+derived_data="${DERIVED_DATA_PATH:-$(mktemp -d)/DerivedData}"
+
+status=0
 xcodebuild test \
   -scheme WaterUITests \
   -destination "platform=iOS Simulator,id=${simulator_udid}" \
-  OTHER_LDFLAGS="${ldflags}"
+  -derivedDataPath "${derived_data}" \
+  OTHER_LDFLAGS="${ldflags}" || status=$?
+
+if [[ ${status} -eq 0 && -n "${archive}" ]]; then
+  # The DeviceHostedApp cases bind `waterui_app` through dynamic lookup, so a
+  # staging failure that drops the archive still produces a green suite —
+  # those tests simply skip. Assert the symbol actually landed in the built
+  # test bundle rather than trusting that OTHER_LDFLAGS was honoured.
+  xctest_bundle="$(find "${derived_data}/Build/Products" \
+    -maxdepth 2 -name '*.xctest' -print -quit)"
+  [[ -n "${xctest_bundle}" ]] || {
+    echo "error: no .xctest bundle under ${derived_data}/Build/Products" >&2
+    exit 1
+  }
+  xctest_bin="${xctest_bundle}/$(basename "${xctest_bundle}" .xctest)"
+  nm -gU "${xctest_bin}" | grep -q ' _waterui_app$' || {
+    echo "error: waterui_app is not linked into ${xctest_bundle};" \
+      "the archive-backed tests skipped" >&2
+    exit 1
+  }
+fi
+
+exit "${status}"

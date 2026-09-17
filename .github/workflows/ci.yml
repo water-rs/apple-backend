@@ -134,6 +134,54 @@ jobs:
         if: matrix.configuration == 'debug'
         run: periphery scan --config .periphery.yml
 
+  # The DeviceHostedApp tests (ListCellLayoutTests, CompactSplitTests) drive a
+  # real WaterUI application and only run when an example's Rust archive is
+  # linked into the test bundle — `swift test` in the build job binds nothing,
+  # so they skip there. This job packages the ios_test_host fixture with the
+  # water CLI against the same staged waterui checkout the e2e lane builds and
+  # runs the suite on an iOS simulator. The cargo cache shares the nightly
+  # e2e-ios key: the staged checkout is the same workspace, so the fixture
+  # build restores warm instead of recompiling waterui's dependency tree.
+  # The helper fails the run if the archive never lands in the test bundle,
+  # so a broken staging step cannot turn the check green by skipping.
+  ios-device-tests:
+    name: ios-device-tests
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: 0
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      # `cargo install` of the CLI and `water package` share one target dir so
+      # a single rust-cache entry covers both.
+      CARGO_TARGET_DIR: ${{ github.workspace }}/waterui/target
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare waterui with this backend
+        run: ./.github/scripts/setup-e2e.sh
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: aarch64-apple-ios-sim
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: nightly-e2e-ios
+          cache-directories: waterui/target
+
+      - name: Build the water CLI
+        run: cargo install --path "${WATER_CLI_DIR}" --locked --root cli-bin
+
+      - run: echo "${{ github.workspace }}/cli-bin/bin" >> "$GITHUB_PATH"
+
+      - name: Run archive-backed iOS tests
+        env:
+          WATERUI_DIR: ${{ github.workspace }}/waterui
+        run: ./.github/scripts/run-ios-device-tests.sh ios_test_host
+
   # A release is a merge into `main`, and `main` only accepts `dev`. The
   # nightly is the only run of the example e2e suite, so a `dev` it has not
   # passed must not be released: this check requires the newest completed
