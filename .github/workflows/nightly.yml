@@ -133,9 +133,6 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 120
     env:
-      # `water package` builds under ${CARGO_TARGET_DIR}/water-backends —
-      # waterui/target/water-backends — so the release units this job spends
-      # ~35 min compiling ride the waterui workspace's cache entry.
       CARGO_TARGET_DIR: ${{ github.workspace }}/waterui/target
     steps:
       - uses: actions/checkout@v4
@@ -160,6 +157,13 @@ jobs:
           # follows its lockfile and a night whose dependencies moved writes a
           # fresh entry instead of skipping the save as "already cached".
           workspaces: waterui
+          # `water` (water-rs/cli#65) builds into its per-user shared target,
+          # `~/.water/build_cache/target/{static,shared,host}` — the release
+          # units for the platform and the dev-profile host rlib the CLI reads
+          # `waterui_meta_*` symbols from — not into `waterui/target`, so the
+          # ~30 min this job spends compiling cold only rides the cache through
+          # this entry.
+          cache-directories: ~/.water/build_cache/target
           # Any run on dev writes (the concurrency group serialises them), so a
           # dispatched re-test warms the cache as well as the schedule. Save
           # even when the job fails: the build finished before the packaging
@@ -215,9 +219,6 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 120
     env:
-      # `water package` builds under ${CARGO_TARGET_DIR}/water-backends —
-      # waterui/target/water-backends — so the release units this job spends
-      # ~35 min compiling ride the waterui workspace's cache entry.
       CARGO_TARGET_DIR: ${{ github.workspace }}/waterui/target
     steps:
       - uses: actions/checkout@v4
@@ -241,6 +242,13 @@ jobs:
           # follows its lockfile and a night whose dependencies moved writes a
           # fresh entry instead of skipping the save as "already cached".
           workspaces: waterui
+          # `water` (water-rs/cli#65) builds into its per-user shared target,
+          # `~/.water/build_cache/target/{static,shared,host}` — the release
+          # units for the platform and the dev-profile host rlib the CLI reads
+          # `waterui_meta_*` symbols from — not into `waterui/target`, so the
+          # ~30 min this job spends compiling cold only rides the cache through
+          # this entry.
+          cache-directories: ~/.water/build_cache/target
           # Any run on dev writes (the concurrency group serialises them), so a
           # dispatched re-test warms the cache as well as the schedule. Save
           # even when the job fails: the build finished before the packaging
@@ -695,6 +703,8 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: nightly-package-size
+          workspaces: waterui
+          cache-directories: ~/.water/build_cache/target
 
       - name: Install the water CLI
         uses: actions/download-artifact@v4
