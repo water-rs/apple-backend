@@ -105,7 +105,7 @@ struct MarkdownTwin: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(lang).font(.headline).foregroundStyle(.secondary)
-                Spacer()
+                Spacer(minLength: 0)
                 Text("Copy").foregroundStyle(.blue)
             }
             Text(s)

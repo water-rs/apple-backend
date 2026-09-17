@@ -76,20 +76,20 @@ struct PickerTwin: View {
     VStack(spacing: 10) {
       Text("Picker Styles").font(.headline)
       Text("Choose from different picker presentation styles").font(.body)
-      Spacer()
+      Spacer(minLength: 0)
       Text("Automatic (default)").bold()
       Picker("Automatic (default)", selection: $automatic) {
         ForEach(Fruit.allCases) { Text($0.rawValue).tag($0) }
       }
       selectionLabel(automatic)
-      Spacer()
+      Spacer(minLength: 0)
       Text("Menu Style").bold()
       Picker("Menu Style", selection: $menu) {
         ForEach(Fruit.allCases) { Text($0.rawValue).tag($0) }
       }
       .pickerStyle(.menu)
       selectionLabel(menu)
-      Spacer()
+      Spacer(minLength: 0)
       Text("Radio Style").bold()
       Picker("Radio Style", selection: $radio) {
         ForEach(Fruit.allCases) { Text($0.rawValue).tag($0) }
@@ -109,13 +109,13 @@ struct PickerTwin: View {
     VStack(spacing: 10) {
       Text("DatePicker").font(.headline)
       Text("Select dates and times with platform-native pickers").font(.body)
-      Spacer()
+      Spacer(minLength: 0)
       DatePicker("Date Only", selection: $date, in: dateRange, displayedComponents: .date)
       Text("Selected date: \(date, format: .dateTime.year().month().day())")
-      Spacer()
+      Spacer(minLength: 0)
       DatePicker("Time Only", selection: $timeOnly, displayedComponents: .hourAndMinute)
       Text("Selected time: \(timeOnly, format: .dateTime.hour().minute().second())")
-      Spacer()
+      Spacer(minLength: 0)
       DatePicker("Date & Time", selection: $datetime, displayedComponents: [.date, .hourAndMinute])
       Text("Selected datetime: \(datetime, format: .dateTime.year().month().day().hour().minute().second())")
     }
@@ -126,7 +126,7 @@ struct PickerTwin: View {
     VStack(spacing: 10) {
       Text("Calendar").font(.headline)
       Text("Month-grid calendar with single-date selection and passive decorations").font(.body)
-      Spacer()
+      Spacer(minLength: 0)
       DatePicker(
         "Trip Date", selection: $calendarDate, in: dateRange, displayedComponents: .date
       )
@@ -140,7 +140,7 @@ struct PickerTwin: View {
     VStack(spacing: 10) {
       Text("Multi-Date Picker").font(.headline)
       Text("Month-grid calendar for selecting multiple dates").font(.body)
-      Spacer()
+      Spacer(minLength: 0)
       #if os(iOS)
         MultiDatePicker("Available Dates", selection: $multiDates, in: Self.day(2025, 1, 1) ..< Self.day(2026, 1, 1))
       #else
@@ -169,13 +169,13 @@ struct PickerTwin: View {
     VStack(spacing: 10) {
       Text("ColorPicker").font(.headline)
       Text("Select colors with optional alpha and HDR support").font(.body)
-      Spacer()
+      Spacer(minLength: 0)
       ColorPicker("Basic Color", selection: $basicColor)
       swatch(basicColor, "Basic")
-      Spacer()
+      Spacer(minLength: 0)
       ColorPicker("With Alpha", selection: $alphaColor, supportsOpacity: true)
       swatch(alphaColor, "Alpha")
-      Spacer()
+      Spacer(minLength: 0)
       ColorPicker("HDR Color", selection: $hdrColor, supportsOpacity: false)
       swatch(hdrColor, "HDR")
     }
@@ -186,9 +186,9 @@ struct PickerTwin: View {
     VStack(spacing: 10) {
       Text("FilePicker").font(.headline)
       Text("Select files from the device").font(.body)
-      Spacer()
+      Spacer(minLength: 0)
       Button("Select Files") {}
-      Spacer()
+      Spacer(minLength: 0)
       Text("Selected files:").bold()
       Text("No files selected")
     }

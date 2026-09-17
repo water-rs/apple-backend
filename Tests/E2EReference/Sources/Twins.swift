@@ -19,7 +19,10 @@
 //   .with_opacity(x)               -> .opacity(x) on the Color
 //   Foreground / MutedForeground   -> .primary / .secondary
 //   Divider                        -> Divider()
-//   spacer() / spacer().height(n)  -> Spacer() / Spacer().frame(height: n)
+//   spacer() / spacer().height(n)  -> Spacer(minLength: 0) /
+//                                    Spacer(minLength: 0).frame(height: n)
+//                                    (SwiftUI's bare Spacer() carries an 8pt
+//                                    minimum; WaterUI's spacer has none)
 //   button("X").action(...)        -> Button("X") {}
 //   Toggle::new("X", &b)           -> Toggle("X", isOn:)
 //   TextField::new("X", &b)        -> label above + TextField, matching
