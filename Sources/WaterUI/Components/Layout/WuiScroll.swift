@@ -15,7 +15,6 @@
 // // - Priority: 0 (default)
 
 import CWaterUI
-import os
 
 #if canImport(UIKit)
   import UIKit
@@ -72,6 +71,46 @@ private func scrollMinSize(
       width: minQuery.width ? 0 : proposedWidth,
       height: minQuery.height ? 0 : proposedHeight
     )
+  default:
+    fatalError("Unsupported WaterUI scroll axis: \(axis.rawValue)")
+  }
+}
+
+/// Measures scroll content, then measures it again under its own answer
+/// when the answer exceeds the viewport on the non-scrolling axis.
+///
+/// The content keeps the cross-axis extent it reports — wider content is
+/// centred and clipped on both edges rather than shrunk — but the first
+/// measurement ran under the viewport's tighter proposal, so its extent on
+/// the scrolling axis was computed for a size it will never occupy (wrapped
+/// content measures taller at narrower widths). The second pass measures
+/// under the content's own answer, which is the frame it is placed in, so
+/// the scrollable extent matches the layout that renders.
+func scrollMeasuredContent(
+  axis: WuiAxis, viewport: CGSize, measure: (WuiProposalSize) -> CGSize
+) -> CGSize {
+  switch axis {
+  case WuiAxis_Vertical:
+    var measured = measure(WuiProposalSize(width: Float(viewport.width), height: nil))
+    if measured.width > viewport.width {
+      measured = measure(WuiProposalSize(width: Float(measured.width), height: nil))
+    }
+    return measured
+  case WuiAxis_Horizontal:
+    var measured = measure(WuiProposalSize(width: nil, height: Float(viewport.height)))
+    if measured.height > viewport.height {
+      measured = measure(WuiProposalSize(width: nil, height: Float(measured.height)))
+    }
+    return measured
+  case WuiAxis_All:
+    var measured = measure(WuiProposalSize(width: nil, height: nil))
+    if measured.width > viewport.width {
+      measured = measure(WuiProposalSize(width: Float(measured.width), height: nil))
+    }
+    if measured.height > viewport.height {
+      measured = measure(WuiProposalSize(width: nil, height: Float(measured.height)))
+    }
+    return measured
   default:
     fatalError("Unsupported WaterUI scroll axis: \(axis.rawValue)")
   }
@@ -187,8 +226,9 @@ func scrollContentPlacement(
       // Do NOT manually adjust contentInset - trust UIKit's .automatic behavior
       // UIKit adds top inset for nav bar, bottom inset for home indicator automatically
 
-      // Measure content with the scroll view's width (for vertical scrolling)
-      // or height (for horizontal scrolling) as constraint
+      // The scroll axis stays unspecified in the offer — content bounds grow
+      // past the viewport, so the proposal it recursively lays out under is
+      // the constructed one, never the measured frame.
       let contentProposal: WuiProposalSize
       switch axis {
       case WuiAxis_Vertical:
@@ -200,18 +240,13 @@ func scrollContentPlacement(
       default:
         fatalError("Unsupported WaterUI scroll axis: \(axis.rawValue)")
       }
-
-      // The scroll axis stays unspecified in the offer — content bounds grow
-      // past the viewport, so the proposal it recursively lays out under is
-      // the constructed one, never the measured frame.
       contentView.setPlacementProposal(contentProposal)
-      let measuredSize = contentView.sizeThatFits(contentProposal)
+
+      let measuredSize = scrollMeasuredContent(axis: axis, viewport: bounds.size) {
+        contentView.sizeThatFits($0)
+      }
       let placement = scrollContentPlacement(
         axis: axis, viewport: bounds.size, measured: measuredSize)
-
-      Logger.waterui.info(
-        "wui-scroll bounds=\(NSCoder.string(for: self.bounds)) insets=\(NSCoder.string(for: self.safeAreaInsets)) adjusted=\(NSCoder.string(for: self.adjustedContentInset)) offset=\(NSCoder.string(for: self.contentOffset)) measured=\(NSCoder.string(for: measuredSize)) frame=\(NSCoder.string(for: placement.contentFrame))"
-      )
 
       // Only update frame when changed to avoid recursive layout loops
       if contentView.frame != placement.contentFrame {
@@ -376,6 +411,9 @@ func scrollContentPlacement(
       let visibleWidth = viewport.width
       let visibleHeight = viewport.height
 
+      // The scroll axis stays unspecified in the offer — content bounds grow
+      // past the viewport, so the proposal it recursively lays out under is
+      // the constructed one, never the measured frame.
       let contentProposal: WuiProposalSize
       switch axis {
       case WuiAxis_Vertical:
@@ -387,12 +425,11 @@ func scrollContentPlacement(
       default:
         fatalError("Unsupported WaterUI scroll axis: \(axis.rawValue)")
       }
-
-      // The scroll axis stays unspecified in the offer — content bounds grow
-      // past the viewport, so the proposal it recursively lays out under is
-      // the constructed one, never the measured frame.
       contentHostView.setPlacementProposal(contentProposal)
-      let measuredSize = contentHostView.sizeThatFits(contentProposal)
+
+      let measuredSize = scrollMeasuredContent(axis: axis, viewport: viewport) {
+        contentHostView.sizeThatFits($0)
+      }
 
       // The document is the scrollable extent and the content keeps its own
       // answer inside it, matching the UIKit path and SwiftUI's ScrollView:
