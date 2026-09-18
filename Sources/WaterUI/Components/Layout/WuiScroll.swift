@@ -210,7 +210,7 @@ func scrollContentPlacement(
         axis: axis, viewport: bounds.size, measured: measuredSize)
 
       Logger.waterui.info(
-        "wui-scroll bounds=\(self.bounds) insets=\(self.safeAreaInsets) adjusted=\(self.adjustedContentInset) offset=\(self.contentOffset) measured=\(measuredSize) frame=\(placement.contentFrame)"
+        "wui-scroll bounds=\(NSCoder.string(for: self.bounds)) insets=\(NSCoder.string(for: self.safeAreaInsets)) adjusted=\(NSCoder.string(for: self.adjustedContentInset)) offset=\(NSCoder.string(for: self.contentOffset)) measured=\(NSCoder.string(for: measuredSize)) frame=\(NSCoder.string(for: placement.contentFrame))"
       )
 
       // Only update frame when changed to avoid recursive layout loops
