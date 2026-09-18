@@ -42,7 +42,6 @@ final class TextMetricsTests: XCTestCase {
     #elseif canImport(AppKit)
       let view = WuiTextBase(initialText: "")
     #endif
-    view.setFont(font)
     view.setAttributedText(NSAttributedString(string: text, attributes: [.font: font]))
     #if canImport(AppKit)
       measurementWindow.contentView?.addSubview(view)
