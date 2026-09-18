@@ -46,13 +46,13 @@ struct ImageTwin: View {
       VStack(alignment: .leading, spacing: 10) {
         Text("GPU Image Processing").font(.title)
         Text("Demonstrating filtrate GPU filters on Image and Photo")
-        Divider()
+        wuiDivider()
         Text("Image Test").font(.headline)
         originalSection
-        Divider()
+        wuiDivider()
         Text("Photo Test").font(.headline)
         photoSection
-        Divider()
+        wuiDivider()
         customUrlSection
       }
       .padding(14)

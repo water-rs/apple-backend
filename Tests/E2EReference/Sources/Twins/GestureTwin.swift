@@ -17,18 +17,18 @@ struct GestureTwin: View {
       VStack(spacing: 10) {
         Text("WaterUI Gesture Examples").font(.title)
         Text("Demonstrating gesture recognition and handling")
-        Divider()
+        wuiDivider()
         Spacer(minLength: 0)
         tapSection
-        Divider()
+        wuiDivider()
         doubleTapSection
-        Divider()
+        wuiDivider()
         longPressSection
-        Divider()
+        wuiDivider()
         dragSection
-        Divider()
+        wuiDivider()
         chainedSection
-        Divider()
+        wuiDivider()
         onTapSection
       }
       .padding(16)

@@ -62,10 +62,15 @@ permissions:
   # The baseline-publish job opens a pull request.
   pull-requests: write
 
-# One nightly at a time, and a running one is never cancelled: its value is
-# the complete report.
+# One nightly per ref at a time, and a running one is never cancelled: its
+# value is the complete report. The group is keyed by ref because a group
+# holds one running and one pending run — with a single global group a
+# dispatch on a topic branch queued behind the dev nightly, and the next
+# dispatch cancelled it (run 35281834319). Branch runs share nothing with
+# the dev run but the rust-cache key, and two savers of one key only race
+# harmlessly.
 concurrency:
-  group: nightly-e2e
+  group: nightly-e2e-${{ github.ref }}
   cancel-in-progress: false
 
 env:
@@ -162,7 +167,7 @@ jobs:
           # units for the platform and the dev-profile host rlib the CLI reads
           # `waterui_meta_*` symbols from — not into `waterui/target`, so the
           # ~30 min this job spends compiling cold only rides the cache through
-          # this entry.
+          # this entry (#215 removed it against the pre-#65 layout).
           cache-directories: ~/.water/build_cache/target
           # Any run on dev writes (the concurrency group serialises them), so a
           # dispatched re-test warms the cache as well as the schedule. Save
@@ -532,6 +537,7 @@ jobs:
           # follows its lockfile and a night whose dependencies moved writes a
           # fresh entry instead of skipping the save as "already cached".
           workspaces: waterui
+          cache-directories: ~/.water/build_cache/target
           # Any run on dev writes (the concurrency group serialises them), so a
           # dispatched re-test warms the cache as well as the schedule. Save
           # even when the shard fails: the build finished before the parity

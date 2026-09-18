@@ -12,28 +12,28 @@ struct EdgeTextTwin: View {
         Text("Extreme text measurement and line breaking")
           .font(.subheadline)
           .foregroundStyle(.secondary)
-        Divider()
+        wuiDivider()
         VStack(alignment: .leading, spacing: 10) {
           section("Unbroken 160-char string") {
             Text(
               "abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789"
             )
           }
-          Divider()
+          wuiDivider()
           section("Combining marks") {
             Text("cafe\u{0301} nai\u{0308}ve a\u{0328} o\u{0323}\u{0302} Z\u{0350}")
           }
-          Divider()
+          wuiDivider()
           section("Emoji sequences") {
             Text("👨\u{200D}👩\u{200D}👧\u{200D}👦 🏳\u{FE0F}\u{200D}🌈 👍🏽 🇺🇳 1\u{FE0F}\u{20E3}")
           }
-          Divider()
+          wuiDivider()
           section("Mixed scripts") {
             Text("Latin 中文 العربية עברית 日本語 한국어 123")
           }
         }
         VStack(alignment: .leading, spacing: 10) {
-          Divider()
+          wuiDivider()
           section("Empty and whitespace") {
             VStack(alignment: .leading, spacing: 4) {
               HStack(spacing: 10) {
@@ -48,7 +48,7 @@ struct EdgeTextTwin: View {
               }
             }
           }
-          Divider()
+          wuiDivider()
           section("Size extremes") {
             HStack(alignment: .lastTextBaseline, spacing: 8) {
               Text("tiny 9").font(.system(size: 9))
@@ -56,7 +56,7 @@ struct EdgeTextTwin: View {
               Text("body").font(.body)
             }
           }
-          Divider()
+          wuiDivider()
           section("Wrapping paragraph") {
             Text(
               "The quick brown fox jumps over the lazy dog. Pack my box with five dozen liquor jugs. How vexingly quick daft zebras jump! Sphinx of black quartz, judge my vow. 敏捷的棕色狐狸跳过懒狗。素早い茶色のキツネが怠けた犬を飛び越える。"

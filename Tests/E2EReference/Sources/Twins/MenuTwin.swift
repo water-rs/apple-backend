@@ -15,20 +15,20 @@ struct MenuTwin: View {
         Text("Demonstrating popup menus, nested menus, and context menus")
           .font(.body)
           .foregroundStyle(.secondary)
-        Divider()
+        wuiDivider()
         Spacer().frame(height: 8)
         menuSection
-        Divider()
+        wuiDivider()
         styledMenuSection
-        Divider()
+        wuiDivider()
         contextMenuSection
-        Divider()
+        wuiDivider()
         VStack(spacing: 10) {
           contextMenuViewsSection
-          Divider()
+          wuiDivider()
           selectionMenuSection
         }
-        Divider()
+        wuiDivider()
         toolbarSceneSection
         Spacer().frame(height: 40)
       }
@@ -79,7 +79,7 @@ struct MenuTwin: View {
           Button("Delete") {}
         }
       } label: {
-        Text("Actions").bold()
+        Text("Actions").fontWeight(.bold)
       }
       Spacer().frame(height: 12)
       Text("No action yet").font(.caption).foregroundStyle(.secondary)
@@ -170,12 +170,12 @@ struct MenuTwin: View {
   private func toolbarButton(_ title: String, icon: String, iconOnly: Bool) -> some View {
     Button {} label: {
       if iconOnly {
-        Text(icon).font(.caption).bold()
+        Text(icon).font(.caption).fontWeight(.bold)
       } else {
         Label {
           Text(title)
         } icon: {
-          Text(icon).font(.caption).bold()
+          Text(icon).font(.caption).fontWeight(.bold)
         }
       }
     }

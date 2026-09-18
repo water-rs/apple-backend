@@ -15,7 +15,7 @@ struct FormTwin: View {
       VStack(spacing: 10) {
         Text("WaterUI Form Examples").font(.title)
         Text("Demonstrating form building with reactive data binding")
-        Divider()
+        wuiDivider()
         Spacer(minLength: 0)
         registrationSection
         Spacer(minLength: 0)
@@ -23,7 +23,7 @@ struct FormTwin: View {
         Spacer(minLength: 0)
         manualSection
         Spacer(minLength: 0)
-        Divider()
+        wuiDivider()
         Text("Built with WaterUI Form Components")
       }
       .padding(14)
@@ -44,8 +44,8 @@ struct FormTwin: View {
         toggle("Newsletter", isOn: false)
         labeledSlider("Volume", value: 0)
       }
-      Divider()
-      Text("Live Preview:").bold()
+      wuiDivider()
+      Text("Live Preview:").fontWeight(.bold)
       Text("Name: ")
       Text("Email: ")
       Text("Age: 0")
@@ -67,8 +67,8 @@ struct FormTwin: View {
         stepper("Auto Save Minutes", value: 0)
         toggle("Notifications Enabled", isOn: false)
       }
-      Divider()
-      Text("Current Settings:").bold()
+      wuiDivider()
+      Text("Current Settings:").fontWeight(.bold)
       HStack(spacing: 10) {
         Text("Dark Mode: ")
         Text("false")
@@ -91,8 +91,8 @@ struct FormTwin: View {
       stepper("Item Count", value: 5, range: 0 ... 100, step: 5)
       labeledSlider("Progress", value: 0.5)
       ProgressView(value: 0.5)
-      Divider()
-      Text("Manual Controls Preview:").bold()
+      wuiDivider()
+      Text("Manual Controls Preview:").fontWeight(.bold)
       Text("Username: ")
       Text("Feature Enabled: false")
       Text("Count: 5")

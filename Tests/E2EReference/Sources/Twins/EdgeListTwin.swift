@@ -15,7 +15,7 @@ struct EdgeListTwin: View {
           .foregroundStyle(.secondary)
       }
       .padding(14)
-      Divider()
+      wuiDivider()
       List(0 ..< rowCount, id: \.self) { index in
         row(index)
       }

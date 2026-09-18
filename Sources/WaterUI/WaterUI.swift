@@ -398,14 +398,30 @@ final class ReactiveColorSchemeSignal {
   }
 }
 
+/// The wire form of a natively published font: the face's own metrics,
+/// since the platform font object itself cannot cross the FFI boundary.
+private func wuiReactiveResolvedFont(
+  size: Float, weight: WuiFontWeight, lineHeight: Float
+) -> CWaterUI.WuiResolvedFont {
+  var font = waterui_resolved_font_new(size, weight)
+  font.line_height = lineHeight
+  return font
+}
+
 /// A native-controlled reactive font signal.
 @MainActor
 final class ReactiveFontSignal {
-  /// A font is published as size plus weight and resolved at notify time, the
-  /// same way the environment resolves one.
+  /// A font is published as size plus weight plus the face's line pitch and
+  /// resolved at notify time, the same way the environment resolves one.
+  ///
+  /// `lineHeight` is the face's full line pitch — `lineHeight + leading` —
+  /// because the resolved-font wire form carries no platform font object:
+  /// shipping only size and weight makes the reader rebuild a leading-less
+  /// `systemFont`, and every text loses the text style's inter-line leading.
   struct Spec {
     var size: Float
     var weight: WuiFontWeight
+    var lineHeight: Float
   }
 
   private typealias State = ReactiveWatcherList<Spec>
@@ -414,10 +430,13 @@ final class ReactiveFontSignal {
   private let statePtr: UnsafeMutableRawPointer
   private var computedPtr: OpaquePointer?
 
-  init(size: Float, weight: WuiFontWeight) {
+  init(size: Float, weight: WuiFontWeight, lineHeight: Float) {
     self.state = State(
-      value: Spec(size: size, weight: weight),
-      call: { waterui_call_watcher_resolved_font($0, waterui_resolved_font_new($1.size, $1.weight)) },
+      value: Spec(size: size, weight: weight, lineHeight: lineHeight),
+      call: {
+        waterui_call_watcher_resolved_font(
+          $0, wuiReactiveResolvedFont(size: $1.size, weight: $1.weight, lineHeight: $1.lineHeight))
+      },
       release: { waterui_drop_watcher_resolved_font($0) }
     )
     self.statePtr = Unmanaged.passRetained(state).toOpaque()
@@ -438,7 +457,8 @@ final class ReactiveFontSignal {
           }
           let spec = Unmanaged<State>.fromOpaque(UnsafeMutableRawPointer(mutating: ptr))
             .takeUnretainedValue().value
-          return waterui_resolved_font_new(spec.size, spec.weight)
+          return wuiReactiveResolvedFont(
+            size: spec.size, weight: spec.weight, lineHeight: spec.lineHeight)
         },
         { ptr, watcher -> OpaquePointer? in
           guard let ptr else {
@@ -470,10 +490,13 @@ final class ReactiveFontSignal {
   }
 
   #if canImport(UIKit)
-    func setValue(size: Float, weight: WuiFontWeight) {
+    func setValue(size: Float, weight: WuiFontWeight, lineHeight: Float) {
       let current = state.value
-      guard current.size != size || current.weight.rawValue != weight.rawValue else { return }
-      state.value = Spec(size: size, weight: weight)
+      guard
+        current.size != size || current.weight.rawValue != weight.rawValue
+          || current.lineHeight != lineHeight
+      else { return }
+      state.value = Spec(size: size, weight: weight, lineHeight: lineHeight)
       state.notifyWatchers()
     }
   #endif
@@ -772,7 +795,11 @@ public final class ThemeBridge {
       font: UIFont
     ) -> ReactiveFontSignal {
       let weight = fontWeight(font)
-      let signal = ReactiveFontSignal(size: Float(font.pointSize), weight: weight)
+      let signal = ReactiveFontSignal(
+        size: Float(font.pointSize),
+        weight: weight,
+        lineHeight: Float(font.naturalLinePitch)
+      )
       waterui_theme_install_font(env.inner, slot, signal.toComputed())
       return signal
     }
@@ -780,7 +807,11 @@ public final class ThemeBridge {
     private func updatePreferredFonts() {
       for entry in fontSignalEntries {
         let font = UIFont.preferredFont(forTextStyle: entry.textStyle)
-        entry.signal.setValue(size: Float(font.pointSize), weight: fontWeight(font))
+        entry.signal.setValue(
+          size: Float(font.pointSize),
+          weight: fontWeight(font),
+          lineHeight: Float(font.naturalLinePitch)
+        )
       }
     }
 
@@ -792,18 +823,23 @@ public final class ThemeBridge {
     }
 
     private func uiFontWeightToWuiFontWeight(_ weight: CGFloat) -> WuiFontWeight {
-      // UIFont.Weight ranges from -1.0 (ultra-light) to 1.0 (black), with 0.0 being regular
-      switch weight {
-      case ...(-0.8): return WuiFontWeight_Thin
-      case (-0.8) ... (-0.6): return WuiFontWeight_UltraLight
-      case (-0.6) ... (-0.4): return WuiFontWeight_Light
-      case (-0.4) ... (0.0): return WuiFontWeight_Normal
-      case (0.0) ... (0.23): return WuiFontWeight_Medium
-      case (0.23) ... (0.3): return WuiFontWeight_SemiBold
-      case (0.3) ... (0.5): return WuiFontWeight_Bold
-      case (0.5) ... (0.8): return WuiFontWeight_UltraBold
-      default: return WuiFontWeight_Black
-      }
+      // The canonical trait constants are float32-rounded — semibold is
+      // 0.30000001192092896 — so closed-interval bucketing on the decimal
+      // points misclassifies every named weight that lands an epsilon
+      // above its boundary (`.headline`'s semibold reads as Bold). Snap
+      // to the nearest canonical weight instead.
+      let canonical: [(UIFont.Weight, WuiFontWeight)] = [
+        (.ultraLight, WuiFontWeight_UltraLight),
+        (.thin, WuiFontWeight_Thin),
+        (.light, WuiFontWeight_Light),
+        (.regular, WuiFontWeight_Normal),
+        (.medium, WuiFontWeight_Medium),
+        (.semibold, WuiFontWeight_SemiBold),
+        (.bold, WuiFontWeight_Bold),
+        (.heavy, WuiFontWeight_UltraBold),
+        (.black, WuiFontWeight_Black),
+      ]
+      return canonical.min { abs($0.0.rawValue - weight) < abs($1.0.rawValue - weight) }!.1
     }
   #elseif canImport(AppKit)
     private func installFontSlot(
@@ -812,7 +848,11 @@ public final class ThemeBridge {
       font: NSFont
     ) -> ReactiveFontSignal {
       let weight = fontWeight(font)
-      let signal = ReactiveFontSignal(size: Float(font.pointSize), weight: weight)
+      let signal = ReactiveFontSignal(
+        size: Float(font.pointSize),
+        weight: weight,
+        lineHeight: Float(font.naturalLinePitch)
+      )
       waterui_theme_install_font(env.inner, slot, signal.toComputed())
       return signal
     }
@@ -825,18 +865,22 @@ public final class ThemeBridge {
     }
 
     private func nsFontWeightToWuiFontWeight(_ weight: CGFloat) -> WuiFontWeight {
-      // NSFont.Weight ranges from -1.0 to 1.0, similar to UIFont.Weight
-      switch weight {
-      case ...(-0.8): return WuiFontWeight_Thin
-      case (-0.8) ... (-0.6): return WuiFontWeight_UltraLight
-      case (-0.6) ... (-0.4): return WuiFontWeight_Light
-      case (-0.4) ... (0.0): return WuiFontWeight_Normal
-      case (0.0) ... (0.23): return WuiFontWeight_Medium
-      case (0.23) ... (0.3): return WuiFontWeight_SemiBold
-      case (0.3) ... (0.5): return WuiFontWeight_Bold
-      case (0.5) ... (0.8): return WuiFontWeight_UltraBold
-      default: return WuiFontWeight_Black
-      }
+      // The canonical trait constants are float32-rounded — semibold is
+      // 0.30000001192092896 — so closed-interval bucketing on the decimal
+      // points misclassifies every named weight that lands an epsilon
+      // above its boundary. Snap to the nearest canonical weight instead.
+      let canonical: [(NSFont.Weight, WuiFontWeight)] = [
+        (.ultraLight, WuiFontWeight_UltraLight),
+        (.thin, WuiFontWeight_Thin),
+        (.light, WuiFontWeight_Light),
+        (.regular, WuiFontWeight_Normal),
+        (.medium, WuiFontWeight_Medium),
+        (.semibold, WuiFontWeight_SemiBold),
+        (.bold, WuiFontWeight_Bold),
+        (.heavy, WuiFontWeight_UltraBold),
+        (.black, WuiFontWeight_Black),
+      ]
+      return canonical.min { abs($0.0.rawValue - weight) < abs($1.0.rawValue - weight) }!.1
     }
   #endif
 }
