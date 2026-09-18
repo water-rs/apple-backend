@@ -75,8 +75,8 @@ final class WuiStyledStrRenderer {
       }
     }
 
-    func attributedString(defaultForeground: WuiResolvedColor?) -> NSAttributedString {
-      guard let foreground = foreground?.value ?? defaultForeground else {
+    func attributedString(defaultForeground: PlatformColor?) -> NSAttributedString {
+      guard let foreground = foreground?.value.toPlatformColor() ?? defaultForeground else {
         fatalError("Styled text chunk has no foreground color")
       }
       return chunk.toAttributedString(
@@ -88,16 +88,23 @@ final class WuiStyledStrRenderer {
   }
 
   private let defaultForeground: WuiComputedObservation<WuiResolvedColor>?
+  /// A platform-native default color (e.g. the placeholder color) applied to
+  /// chunks without an explicit foreground. Unlike a theme slot it carries a
+  /// live dynamic color, so it adapts to the resolved interface style at draw
+  /// time the way the platform's own control would.
+  private let defaultForegroundColor: PlatformColor?
   private var chunks: [ResolvedChunk]
 
   init(
     styled: WuiStyledStr,
     env: WuiEnvironment,
     defaultForegroundSlot: WuiColorSlot = WuiColorSlot_Foreground,
+    defaultForegroundColor: PlatformColor? = nil,
     onChange: @escaping () -> Void
   ) {
+    self.defaultForegroundColor = defaultForegroundColor
     defaultForeground =
-      styled.chunks.contains { $0.style.foreground == nil }
+      defaultForegroundColor == nil && styled.chunks.contains { $0.style.foreground == nil }
       ? WuiComputedObservation(
         themeColor: defaultForegroundSlot,
         env: env
@@ -117,7 +124,11 @@ final class WuiStyledStrRenderer {
   func attributedString() -> NSAttributedString {
     let result = NSMutableAttributedString()
     for chunk in chunks {
-      result.append(chunk.attributedString(defaultForeground: defaultForeground?.value))
+      result.append(
+        chunk.attributedString(
+          defaultForeground: defaultForeground?.value.toPlatformColor()
+            ?? defaultForegroundColor
+        ))
     }
     return result
   }
@@ -135,18 +146,14 @@ struct WuiStyledChunk {
 
   func toAttributedString(
     font resolvedFont: WuiResolvedFontValue,
-    foreground: WuiResolvedColor?,
+    foreground: PlatformColor?,
     background: WuiResolvedColor?
   ) -> NSAttributedString {
     let font = resolvedFont.toPlatformFont()
     var attributes: [NSAttributedString.Key: Any] = [.font: font]
 
     if let foreground {
-      #if canImport(UIKit)
-        attributes[.foregroundColor] = foreground.toUIColor()
-      #elseif canImport(AppKit)
-        attributes[.foregroundColor] = foreground.toNSColor()
-      #endif
+      attributes[.foregroundColor] = foreground
     }
 
     if let background {
@@ -164,6 +171,34 @@ struct WuiStyledChunk {
     if style.strikethrough {
       attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
     }
+
+    if resolvedFont.letterSpacing != 0 {
+      attributes[.kern] = CGFloat(resolvedFont.letterSpacing)
+    }
+
+    let paragraphStyle = NSMutableParagraphStyle()
+    // On iOS, SwiftUI Text hyphenates only a run that cannot break at a
+    // word boundary; an ordinary word wraps whole. TextKit hyphenates a line
+    // whenever the width it fills at its last word boundary, as a fraction
+    // of the fragment width, falls below the factor — a run with no word
+    // boundary fills nothing at one, so the smallest positive factor keeps
+    // ordinary words whole and breaks overflow runs with a hyphen the way
+    // the iOS typesetter does. On macOS, SwiftUI never hyphenates: an
+    // overflow run wraps at the last glyph that fits, with no hyphen.
+    #if canImport(UIKit)
+      paragraphStyle.hyphenationFactor = .leastNormalMagnitude
+    #endif
+    // A resolved line height is the face's line pitch — line box plus
+    // leading. The platform font we can rebuild carries no leading, so the
+    // pitch is expressed as `lineSpacing` over the rebuilt face's natural
+    // line pitch: mixed-script lines keep their inflated metrics, and the
+    // declared pitch lands between lines the way the face's leading does.
+    // The closing line keeps its natural line box: SwiftUI's text height is
+    // the interior pitch times the line count less one, plus one line box.
+    if resolvedFont.lineHeight > 0 {
+      paragraphStyle.lineSpacing = CGFloat(resolvedFont.lineHeight) - font.naturalLinePitch
+    }
+    attributes[.paragraphStyle] = paragraphStyle
 
     var finalFont = font
     if style.italic {
@@ -251,18 +286,34 @@ private func fontFamilyCandidates(_ familyName: String) -> [String] {
     .filter { !$0.isEmpty }
 }
 
+extension PlatformFont {
+  /// The face's default line pitch — the distance TextKit puts between
+  /// baselines with no paragraph style: line box plus leading.
+  var naturalLinePitch: CGFloat {
+    ascender - descender + leading
+  }
+}
+
 struct WuiResolvedFontValue {
   let size: Float
   let weight: CWaterUI.WuiFontWeight
   let familyName: String
   /// Which of the system's own faces to use when no family is named.
   let design: CWaterUI.WuiFontDesign
+  /// Absolute line pitch in points; `0` keeps the platform face's natural
+  /// metrics. Theme faces publish their `lineHeight + leading` here because
+  /// the wire form cannot carry the platform font itself.
+  let lineHeight: Float
+  /// Additional spacing between adjacent glyphs in points.
+  let letterSpacing: Float
 
   init(consuming resolved: CWaterUI.WuiResolvedFont) {
     size = resolved.size
     weight = resolved.weight
     familyName = WuiStr(resolved.family).toString()
     design = resolved.design
+    lineHeight = resolved.line_height
+    letterSpacing = resolved.letter_spacing
   }
 
   #if canImport(UIKit)

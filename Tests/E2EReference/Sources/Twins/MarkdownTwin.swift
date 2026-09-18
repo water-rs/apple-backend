@@ -15,7 +15,7 @@ struct MarkdownTwin: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
-                Text("WaterUI Markdown").font(.title).bold()
+                Text("WaterUI Markdown").font(.title).fontWeight(.bold)
                 Text("WaterUI supports rendering **Markdown** content natively across all platforms.")
 
                 heading("Text Formatting")
@@ -40,13 +40,13 @@ struct MarkdownTwin: View {
                     """)
 
                 heading("Lists")
-                Text("Unordered List").font(.body).bold()
+                Text("Unordered List").font(.body).fontWeight(.bold)
                 VStack(alignment: .leading, spacing: 4) {
                     bullet("First item")
                     bullet("Second item")
                     bullet("Third item")
                 }
-                Text("Ordered List").font(.body).bold()
+                Text("Ordered List").font(.body).fontWeight(.bold)
                 VStack(alignment: .leading, spacing: 4) {
                     numbered(1, "Step one")
                     numbered(2, "Step two")
@@ -64,9 +64,9 @@ struct MarkdownTwin: View {
                 heading("Tables")
                 Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
                     GridRow {
-                        Text("Platform").bold()
-                        Text("Backend").bold()
-                        Text("Status").bold()
+                        Text("Platform").fontWeight(.bold)
+                        Text("Backend").fontWeight(.bold)
+                        Text("Status").fontWeight(.bold)
                     }
                     Divider()
                     GridRow { Text("iOS"); Text("SwiftUI"); Text("Ready") }
@@ -84,7 +84,7 @@ struct MarkdownTwin: View {
     }
 
     private func heading(_ s: String) -> some View {
-        Text(s).font(.headline).bold()
+        Text(s).font(.headline).fontWeight(.bold)
     }
 
     private func bullet(_ s: String) -> some View {
@@ -105,7 +105,7 @@ struct MarkdownTwin: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(lang).font(.headline).foregroundStyle(.secondary)
-                Spacer()
+                Spacer(minLength: 0)
                 Text("Copy").foregroundStyle(.blue)
             }
             Text(s)

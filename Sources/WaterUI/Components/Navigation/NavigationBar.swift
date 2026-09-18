@@ -74,7 +74,7 @@ final class WuiNavigationSearchCoordinator: NSObject {
       promptRenderer = WuiStyledStrRenderer(
         styled: prompt,
         env: search.env,
-        defaultForegroundSlot: WuiColorSlot_MutedForeground
+        defaultForegroundColor: UIColor.placeholderText
       ) { [weak self] in
         self?.applyRenderedPrompt()
       }
@@ -121,7 +121,7 @@ final class WuiNavigationSearchCoordinator: NSObject {
       promptRenderer = WuiStyledStrRenderer(
         styled: prompt,
         env: search.env,
-        defaultForegroundSlot: WuiColorSlot_MutedForeground
+        defaultForegroundColor: NSColor.placeholderTextColor
       ) { [weak self] in
         self?.applyRenderedPrompt()
       }

@@ -46,7 +46,7 @@ struct LiquidGlassTwin: View {
           HStack(spacing: 12) {
             Label("Play", systemImage: "play.fill")
             VStack(spacing: 1) {
-              Text("Now Playing").bold().font(.system(size: 15))
+              Text("Now Playing").fontWeight(.bold).font(.system(size: 15))
               Text("Liquid Glass — Surfaces").font(.system(size: 12))
             }
           }
@@ -77,9 +77,9 @@ struct LiquidGlassTwin: View {
             caption("The outline belongs to the glass, not to an outer clip.")
             card
             caption("The capsule follows the size of what it wraps.")
-            Text("Small").bold().font(.system(size: 13)).padding(8).glassEffect()
+            Text("Small").fontWeight(.bold).font(.system(size: 13)).padding(8).glassEffect()
             pill("Medium").glassEffect()
-            Text("Large").bold().font(.system(size: 24)).padding(20).glassEffect()
+            Text("Large").fontWeight(.bold).font(.system(size: 24)).padding(20).glassEffect()
           }
           .padding(14)
         }
@@ -147,12 +147,12 @@ struct LiquidGlassTwin: View {
   }
 
   private func pill(_ title: String) -> some View {
-    Text(title).bold().padding(14)
+    Text(title).fontWeight(.bold).padding(14)
   }
 
   private var card: some View {
     VStack(spacing: 6) {
-      Text("Rounded card").bold()
+      Text("Rounded card").fontWeight(.bold)
       Text("Text inside glass keeps its full contrast; the glass adapts to what is behind it.")
     }
     .padding(14)

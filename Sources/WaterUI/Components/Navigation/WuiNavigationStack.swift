@@ -367,9 +367,11 @@ final class WuiNavigationDestinationState {
       if let barColor = barState?.color {
         applyBarColor(barColor.value)
       }
-      if let barHidden = barState?.hidden {
-        applyBarHidden(barHidden.value, animated: animated)
-      }
+      // Bar visibility follows the page on top: a page that declares no
+      // hidden preference shows the bar, so appearing over a hidden-bar page
+      // — a split column's chrome-less page, an earlier destination — must
+      // restore it. A pushed page's back affordance lives in that bar.
+      applyBarHidden(barState?.hidden?.value ?? false, animated: animated)
       if let accent = accentObservation?.value {
         applyNavigationAccent(accent)
       }

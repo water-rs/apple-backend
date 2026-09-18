@@ -44,6 +44,12 @@ final class WuiSlider: PlatformView, WuiComponent {
   // Layout constants
   private let verticalSpacing: CGFloat = 4.0
   private let horizontalSpacing: CGFloat = 8.0
+  #if canImport(UIKit)
+    /// The height SwiftUI's `Slider` reports on iOS. `UISlider` draws the same
+    /// track and thumb centered in a 34pt frame, so the extra 3pt is pure
+    /// padding — the control is pinned to this height to match.
+    private static let trackHeight: CGFloat = 31.0
+  #endif
 
   // AutoLayout constraints (stored for dynamic updates)
   private var activeConstraints: [NSLayoutConstraint] = []
@@ -140,7 +146,14 @@ final class WuiSlider: PlatformView, WuiComponent {
     // unspecified proposal, so that is the offer their own layout
     // pass receives rather than their resolved frame.
     maxLabelView.setPlacementProposal(WuiProposalSize())
-    let sliderHeight = slider.intrinsicContentSize.height
+    #if canImport(UIKit)
+      // SwiftUI's slider is 31pt tall; a UISlider reports 34pt of intrinsic
+      // height for the same track and thumb, which pushed the whole labelled
+      // block ~3pt lower than the reference.
+      let sliderHeight = Self.trackHeight
+    #elseif canImport(AppKit)
+      let sliderHeight = slider.intrinsicContentSize.height
+    #endif
 
     // Slider row height: max of slider and labels
     let sliderRowHeight = max(sliderHeight, max(minLabelSize.height, maxLabelSize.height))
@@ -220,6 +233,10 @@ final class WuiSlider: PlatformView, WuiComponent {
       slider.trailingAnchor.constraint(
         equalTo: maxLabelView.leadingAnchor, constant: -horizontalSpacing),
     ])
+    #if canImport(UIKit)
+      constraints.append(
+        slider.heightAnchor.constraint(equalToConstant: Self.trackHeight))
+    #endif
 
     NSLayoutConstraint.activate(constraints)
     activeConstraints = constraints
