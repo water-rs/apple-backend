@@ -170,14 +170,17 @@ struct WuiStyledChunk {
     }
 
     let paragraphStyle = NSMutableParagraphStyle()
-    // SwiftUI Text hyphenates only a run that cannot break at a word
-    // boundary; an ordinary word wraps whole. TextKit hyphenates a line
+    // On iOS, SwiftUI Text hyphenates only a run that cannot break at a
+    // word boundary; an ordinary word wraps whole. TextKit hyphenates a line
     // whenever the width it fills at its last word boundary, as a fraction
     // of the fragment width, falls below the factor — a run with no word
     // boundary fills nothing at one, so the smallest positive factor keeps
     // ordinary words whole and breaks overflow runs with a hyphen the way
-    // the platform typesetter does.
-    paragraphStyle.hyphenationFactor = .leastNormalMagnitude
+    // the iOS typesetter does. On macOS, SwiftUI never hyphenates: an
+    // overflow run wraps at the last glyph that fits, with no hyphen.
+    #if canImport(UIKit)
+      paragraphStyle.hyphenationFactor = .leastNormalMagnitude
+    #endif
     // A resolved line height is the face's line pitch — line box plus
     // leading. The platform font we can rebuild carries no leading, so the
     // pitch is expressed as `lineSpacing` over the rebuilt face's natural
