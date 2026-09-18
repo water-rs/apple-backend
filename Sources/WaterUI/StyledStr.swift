@@ -165,6 +165,34 @@ struct WuiStyledChunk {
       attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
     }
 
+    if resolvedFont.letterSpacing != 0 {
+      attributes[.kern] = CGFloat(resolvedFont.letterSpacing)
+    }
+
+    let paragraphStyle = NSMutableParagraphStyle()
+    // On iOS, SwiftUI Text hyphenates only a run that cannot break at a
+    // word boundary; an ordinary word wraps whole. TextKit hyphenates a line
+    // whenever the width it fills at its last word boundary, as a fraction
+    // of the fragment width, falls below the factor — a run with no word
+    // boundary fills nothing at one, so the smallest positive factor keeps
+    // ordinary words whole and breaks overflow runs with a hyphen the way
+    // the iOS typesetter does. On macOS, SwiftUI never hyphenates: an
+    // overflow run wraps at the last glyph that fits, with no hyphen.
+    #if canImport(UIKit)
+      paragraphStyle.hyphenationFactor = .leastNormalMagnitude
+    #endif
+    // A resolved line height is the face's line pitch — line box plus
+    // leading. The platform font we can rebuild carries no leading, so the
+    // pitch is expressed as `lineSpacing` over the rebuilt face's natural
+    // line pitch: mixed-script lines keep their inflated metrics, and the
+    // declared pitch lands between lines the way the face's leading does.
+    // The closing line keeps its natural line box: SwiftUI's text height is
+    // the interior pitch times the line count less one, plus one line box.
+    if resolvedFont.lineHeight > 0 {
+      paragraphStyle.lineSpacing = CGFloat(resolvedFont.lineHeight) - font.naturalLinePitch
+    }
+    attributes[.paragraphStyle] = paragraphStyle
+
     var finalFont = font
     if style.italic {
       #if canImport(UIKit)
@@ -251,18 +279,34 @@ private func fontFamilyCandidates(_ familyName: String) -> [String] {
     .filter { !$0.isEmpty }
 }
 
+extension PlatformFont {
+  /// The face's default line pitch — the distance TextKit puts between
+  /// baselines with no paragraph style: line box plus leading.
+  var naturalLinePitch: CGFloat {
+    ascender - descender + leading
+  }
+}
+
 struct WuiResolvedFontValue {
   let size: Float
   let weight: CWaterUI.WuiFontWeight
   let familyName: String
   /// Which of the system's own faces to use when no family is named.
   let design: CWaterUI.WuiFontDesign
+  /// Absolute line pitch in points; `0` keeps the platform face's natural
+  /// metrics. Theme faces publish their `lineHeight + leading` here because
+  /// the wire form cannot carry the platform font itself.
+  let lineHeight: Float
+  /// Additional spacing between adjacent glyphs in points.
+  let letterSpacing: Float
 
   init(consuming resolved: CWaterUI.WuiResolvedFont) {
     size = resolved.size
     weight = resolved.weight
     familyName = WuiStr(resolved.family).toString()
     design = resolved.design
+    lineHeight = resolved.line_height
+    letterSpacing = resolved.letter_spacing
   }
 
   #if canImport(UIKit)
