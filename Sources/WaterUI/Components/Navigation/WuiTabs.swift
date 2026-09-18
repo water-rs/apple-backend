@@ -221,8 +221,9 @@ final class WuiTabs: PlatformView, WuiComponent {
 
     #elseif canImport(AppKit)
       // AppKit has no tab model with roles, and neither the toolbar segments
-      // nor the sidebar collapse on scroll: a search-role tab is presented as
-      // a regular one and the minimize behavior is ignored.
+      // nor the sidebar collapse on scroll: a search-role tab is a regular
+      // segment that shows the search symbol in place of its title, and the
+      // minimize behavior is ignored.
       for tab in tabs {
         tab.content.translatesAutoresizingMaskIntoConstraints = true
         tab.content.isHidden = true
@@ -256,6 +257,15 @@ final class WuiTabs: PlatformView, WuiComponent {
         action: #selector(segmentedControlChanged)
       )
       control.segmentStyle = .automatic
+      for (index, tab) in tabs.enumerated() where tab.role == WuiTabRole_Search {
+        // SwiftUI shows a search-role tab in the toolbar as its symbol alone —
+        // the label's own icon when it has one, the system search symbol
+        // otherwise — with the title reduced to the segment's tooltip.
+        control.setLabel("", forSegment: index)
+        control.setImage(tab.icon ?? Self.searchSymbol, forSegment: index)
+        control.setImageScaling(.scaleProportionallyDown, forSegment: index)
+        control.setToolTip(tab.title, forSegment: index)
+      }
       control.sizeToFit()
       // SwiftUI's toolbar tab picker gives every segment the same width: the
       // widest of the segments' natural widths — label plus 25pt, plus the
@@ -265,10 +275,12 @@ final class WuiTabs: PlatformView, WuiComponent {
       // and 76.5pt behind another tab). AppKit's own fit pads each label
       // separately, which puts every segment but the first in a different
       // place, and adds its dividers outside `setWidth`, so a segment after
-      // the first is set one point narrower than the cell it fills.
+      // the first is set one point narrower than the cell it fills. A
+      // search-role segment shows a symbol narrower than any label, so it
+      // never sets the width.
       let font = control.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
       let widestSegment =
-        tabs.enumerated().map { index, tab in
+        tabs.enumerated().filter { $0.element.role != WuiTabRole_Search }.map { index, tab in
           let label = (tab.title as NSString).size(withAttributes: [.font: font]).width
           return label + 25 + (index == 0 ? 0 : 1)
         }.max() ?? 0
@@ -331,6 +343,16 @@ final class WuiTabs: PlatformView, WuiComponent {
     }
 
     private static let sidebarColumn = NSUserInterfaceItemIdentifier("dev.waterui.tabs.sidebar")
+
+    /// The platform's search symbol, what a search-role tab shows when its
+    /// label carries no icon of its own.
+    private static var searchSymbol: NSImage {
+      guard let symbol = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)
+      else {
+        fatalError("The system search symbol is unavailable")
+      }
+      return symbol
+    }
 
     // The sidebar's table talks to this view through the extension below, which
     // cannot see private storage — these are its window onto it.
@@ -502,8 +524,11 @@ final class WuiTabs: PlatformView, WuiComponent {
     #elseif canImport(AppKit)
       // SwiftUI draws no badge on macOS toolbar tab segments; folding the
       // count into the label only widens the segment and pushes the toolbar
-      // into overflow. The segment keeps its plain title.
-      tabControl?.setLabel(tabs[index].title, forSegment: index)
+      // into overflow. The segment keeps its plain title, and a search-role
+      // segment keeps its symbol.
+      if tabs[index].role != WuiTabRole_Search {
+        tabControl?.setLabel(tabs[index].title, forSegment: index)
+      }
     #endif
   }
 
