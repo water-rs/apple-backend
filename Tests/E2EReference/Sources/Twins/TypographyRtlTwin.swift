@@ -14,11 +14,11 @@ struct TypographyRtlTwin: View {
         )
         .font(.body)
         .foregroundStyle(.secondary)
-        Divider()
+        wuiDivider()
         typeScale
-        Divider()
+        wuiDivider()
         cjkSpecimens
-        Divider()
+        wuiDivider()
         Text("Logical reading order").font(.title)
         panel(
           locale: "en",

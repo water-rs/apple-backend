@@ -30,11 +30,11 @@ struct LocaleTwin: View {
       VStack(spacing: 10) {
         Text("WaterUI World Fair").font(.system(size: 28)).fontWeight(.bold)
         Text("Live translations for a tiny world-fair kiosk").font(.system(size: 14))
-        Divider()
+        wuiDivider()
         languageBooth
-        Divider()
+        wuiDivider()
         localizedContent
-        Divider()
+        wuiDivider()
         formattedContent
       }
       .padding(16)
@@ -50,12 +50,12 @@ struct LocaleTwin: View {
       Text("Language Booth").font(.system(size: 16)).fontWeight(.bold)
       HStack {
         Text("Detected Locale:")
-        Spacer()
+        Spacer(minLength: 0)
         Text(detectedLocale)
       }
       HStack {
         Text("Chosen Language:")
-        Spacer()
+        Spacer(minLength: 0)
         Picker("", selection: $selection) {
           ForEach(Self.localeOptions, id: \.1) { name, code in
             Text(name).tag(code)
@@ -72,20 +72,20 @@ struct LocaleTwin: View {
         Text("Welcome Desk").font(.system(size: 16)).fontWeight(.bold)
         Text("Welcome to the World Fair!").font(.system(size: 24))
       }
-      Divider()
+      wuiDivider()
       VStack(spacing: 10) {
         Text("Human Rights - Article 1").font(.system(size: 16)).fontWeight(.bold)
         Text(
           "All human beings are born free and equal in dignity and rights. They are endowed with reason and conscience and should act towards one another in a spirit of brotherhood."
         ).font(.system(size: 14))
       }
-      Divider()
+      wuiDivider()
       VStack(spacing: 10) {
         Text("Local Flavor").font(.system(size: 16)).fontWeight(.bold)
-        HStack { Spacer(); Text("Color"); Spacer() }
-        HStack { Spacer(); Text("Favorite"); Spacer() }
+        HStack { Spacer(minLength: 0); Text("Color"); Spacer(minLength: 0) }
+        HStack { Spacer(minLength: 0); Text("Favorite"); Spacer(minLength: 0) }
       }
-      Divider()
+      wuiDivider()
       VStack(spacing: 10) {
         Text("Passport Stamps").font(.system(size: 16)).fontWeight(.bold)
         Text("I have 0 passport stamps")
@@ -109,31 +109,31 @@ struct LocaleTwin: View {
         Text("Festival Date (2006-03-20)").font(.system(size: 16)).fontWeight(.bold)
         HStack {
           Text("Short:")
-          Spacer()
+          Spacer(minLength: 0)
           Text(festivalDate, format: .dateTime.month(.twoDigits).day(.twoDigits).year(.twoDigits))
         }
         HStack {
           Text("Long:")
-          Spacer()
+          Spacer(minLength: 0)
           Text(festivalDate, format: .dateTime.month(.wide).day().year())
         }
         HStack {
           Text("Timezone:")
-          Spacer()
+          Spacer(minLength: 0)
           Text(TimeZone.current.identifier)
         }
         HStack {
           Text("Kickoff (TZ):")
-          Spacer()
+          Spacer(minLength: 0)
           Text(kickoffString)
         }
       }
-      Divider()
+      wuiDivider()
       VStack(spacing: 10) {
         Text("Distance Guide").font(.system(size: 16)).fontWeight(.bold)
         HStack {
           Text("City Walk:")
-          Spacer()
+          Spacer(minLength: 0)
           Text(
             Measurement(value: 1500, unit: UnitLength.meters)
               .formatted(.measurement(width: .abbreviated, usage: .road))
@@ -141,7 +141,7 @@ struct LocaleTwin: View {
         }
         HStack {
           Text("Marathon Route:")
-          Spacer()
+          Spacer(minLength: 0)
           Text(
             Measurement(value: 42.195, unit: UnitLength.kilometers)
               .formatted(.measurement(width: .abbreviated, usage: .road))

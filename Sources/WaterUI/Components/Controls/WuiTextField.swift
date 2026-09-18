@@ -33,6 +33,15 @@ final class WuiTextField: PlatformView, WuiComponent {
   #if canImport(UIKit)
     private let textView = UITextView()
     private let placeholderLabel = UILabel()
+    /// The region between the label and the field's bottom edge. The text
+    /// view is vertically centered inside it so the input sits where a
+    /// `UITextField` — and therefore a SwiftUI `TextField` — places its text.
+    private let inputRegion = UILayoutGuide()
+    /// `UITextField` is what SwiftUI's automatic text field measures: its
+    /// intrinsic height (22pt at a 17pt font, tracking the font upward) is
+    /// the reference height a plain field reports. A real field is kept
+    /// around so the metric follows whatever font the theme installs.
+    private let fieldMetrics = UITextField()
     private lazy var focusTarget = WuiUIKitFocusTarget(control: textView)
   #elseif canImport(AppKit)
     private let textField = WuiSelectionMenuTextField()
@@ -192,8 +201,15 @@ final class WuiTextField: PlatformView, WuiComponent {
       let minTextWidth: CGFloat = 100.0
       let proposedWidth = proposal.width.map(CGFloat.init) ?? minTextWidth
       let targetWidth = max(minTextWidth, max(labelSize.width, proposedWidth))
-      let textHeight =
-        textView.sizeThatFits(CGSize(width: targetWidth, height: .greatestFiniteMagnitude)).height
+      // A plain SwiftUI field is as tall as a UITextField for the same font —
+      // 22pt at 17pt, more at larger sizes — even when the text view's bare
+      // line box is shorter. Multi-line content can exceed that floor.
+      fieldMetrics.font = textView.font
+      let textHeight = max(
+        textView.sizeThatFits(CGSize(width: targetWidth, height: .greatestFiniteMagnitude))
+          .height,
+        fieldMetrics.intrinsicContentSize.height
+      )
     #elseif canImport(AppKit)
       let textHeight = textField.intrinsicContentSize.height
     #endif
@@ -231,9 +247,15 @@ final class WuiTextField: PlatformView, WuiComponent {
     #if canImport(UIKit)
       textView.translatesAutoresizingMaskIntoConstraints = false
       addSubview(textView)
-      inputTopToSelfConstraint = textView.topAnchor.constraint(equalTo: topAnchor)
-      inputTopToLabelConstraint = textView.topAnchor.constraint(
+      addLayoutGuide(inputRegion)
+      inputTopToSelfConstraint = inputRegion.topAnchor.constraint(equalTo: topAnchor)
+      inputTopToLabelConstraint = inputRegion.topAnchor.constraint(
         equalTo: labelView.bottomAnchor, constant: verticalSpacing)
+      NSLayoutConstraint.activate([
+        inputRegion.bottomAnchor.constraint(equalTo: bottomAnchor),
+        inputRegion.leadingAnchor.constraint(equalTo: leadingAnchor),
+        inputRegion.trailingAnchor.constraint(equalTo: trailingAnchor),
+      ])
     #elseif canImport(AppKit)
       textField.translatesAutoresizingMaskIntoConstraints = false
       addSubview(textField)
@@ -250,6 +272,9 @@ final class WuiTextField: PlatformView, WuiComponent {
         [
           labelTopConstraint,
           labelLeadingConstraint,
+          textView.centerYAnchor.constraint(equalTo: inputRegion.centerYAnchor),
+          textView.topAnchor.constraint(
+            greaterThanOrEqualTo: inputRegion.topAnchor),
           textView.leadingAnchor.constraint(equalTo: leadingAnchor),
           textView.trailingAnchor.constraint(equalTo: trailingAnchor),
         ].compactMap { $0 })
@@ -363,11 +388,22 @@ final class WuiTextField: PlatformView, WuiComponent {
     invalidateLayoutHierarchy()
   }
 
+  /// The color an unstyled prompt renders in — the same dynamic color
+  /// `UITextField`/`NSTextField` and therefore SwiftUI use for placeholder
+  /// text, so it tracks the resolved interface style like theirs does.
+  private static var placeholderColor: PlatformColor {
+    #if canImport(UIKit)
+      UIColor.placeholderText
+    #elseif canImport(AppKit)
+      NSColor.placeholderTextColor
+    #endif
+  }
+
   private func applyPrompt(_ styled: WuiStyledStr) {
     promptRenderer = WuiStyledStrRenderer(
       styled: styled,
       env: env,
-      defaultForegroundSlot: WuiColorSlot_MutedForeground
+      defaultForegroundColor: Self.placeholderColor
     ) { [weak self] in
       self?.applyResolvedPrompt()
     }
