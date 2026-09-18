@@ -412,20 +412,6 @@ final class WuiMetalViewCapture: @unchecked Sendable {
     prepareCaptureView(contentView)
     let layer = resolveCaptureLayer(from: contentView)
     let geometry = captureGeometry(for: targetTexture)
-    // E2E-DIAG: temporary geometry dump for the iOS filter crop investigation.
-    Logger.graphics.error(
-      """
-      E2EDIAG capture: contentView=\(type(of: self.contentView)) \
-      cbounds=\(String(describing: self.contentView.bounds)) \
-      cframe=\(String(describing: self.contentView.frame)) \
-      layer=\(type(of: layer)) lbounds=\(String(describing: layer.bounds)) \
-      lpos=\(String(describing: layer.position)) \
-      lanchor=\(String(describing: layer.anchorPoint)) \
-      ltransform=\(String(describing: layer.transform)) \
-      tex=\(targetTexture.width)x\(targetTexture.height) \
-      scale=\(geometry.scaleX)x\(geometry.scaleY)
-      """
-    )
     let snapshots = collectGpuSurfaceSnapshots(
       targetTexture: targetTexture,
       geometry: geometry
@@ -567,16 +553,18 @@ final class WuiMetalViewCapture: @unchecked Sendable {
   /// already carries.
   ///
   /// The scaled position is folded into the transform rather than written to
-  /// `layer.position`, because the captured layer is always view-backed and a
-  /// view owns its layer's position: UIKit re-derives it from the frame and
-  /// discards the scaled value before the `CARenderer` frame runs, while the
-  /// transform — the view's own `transform` property — survives. With
-  /// `position` fixed at `p`, the layer's rendered anchor lands at `p` instead
-  /// of `p·scale`, so the transform additionally translates by `p·(scale−1)`:
-  /// measured on iOS, the unscaled position left a 3× subtree rendered into the
-  /// top-left two thirds of its destination — the filter example captured its
-  /// swatch grid shifted `(-40pt, -26.7pt)` and showed only columns two and
-  /// three.
+  /// `layer.position`, so the only property this touches is one the host's
+  /// layout never writes; with `position` fixed at `p`, the layer's rendered
+  /// anchor lands at `p` instead of `p·scale`, so the transform additionally
+  /// translates by `p·(scale−1)`.
+  ///
+  /// Assigning the layer to the `CARenderer` removed it from its superlayer,
+  /// which leaves the host layer needing layout. That layout has to run before
+  /// the transform goes on: a UIKit host re-applies `contentView.frame` there,
+  /// and a frame written under a scale transform shrinks the bounds by that
+  /// scale — measured on iOS, a 3× capture then rendered only the top-left
+  /// third of the subtree, blown up to fill the texture. The pending layout is
+  /// flushed first, while the transform is still the view's own.
   ///
   /// The mutation is restored before this call returns, so no Core Animation
   /// commit ever sees the capture geometry — the same contract the surrounding
@@ -587,6 +575,7 @@ final class WuiMetalViewCapture: @unchecked Sendable {
     geometry: CaptureGeometry,
     _ body: () -> T
   ) -> T {
+    CATransaction.flush()
     let savedTransform = layer.transform
     let savedPosition = layer.position
 
@@ -605,7 +594,6 @@ final class WuiMetalViewCapture: @unchecked Sendable {
     )
     CATransaction.commit()
     CATransaction.flush()
-
     defer {
       CATransaction.begin()
       CATransaction.setDisableActions(true)
