@@ -443,3 +443,27 @@ extension CGRect {
       && size.height.isValidForLayout && size.width >= 0 && size.height >= 0
   }
 }
+
+extension PlatformView {
+  /// `frame`, in this view's coordinate space, with every edge on the backing
+  /// pixel grid — each edge to its nearest pixel, as SwiftUI places a view.
+  ///
+  /// The layout engine hands back fractional points: a centred leaf lands on a
+  /// quarter point whenever its measured width is an odd number of pixels. Left
+  /// unaligned, AppKit and UIKit draw the leaf's text from the pixel below the
+  /// fractional origin, one pixel off the position SwiftUI rounds the same
+  /// frame to — and one pixel is the whole difference between a blurred
+  /// parity diff and a clean one.
+  func pixelAligned(_ frame: CGRect) -> CGRect {
+    #if canImport(AppKit)
+      return backingAlignedRect(frame, options: .alignAllEdgesNearest)
+    #else
+      let scale = traitCollection.displayScale
+      let minX = (frame.minX * scale).rounded() / scale
+      let minY = (frame.minY * scale).rounded() / scale
+      let maxX = (frame.maxX * scale).rounded() / scale
+      let maxY = (frame.maxY * scale).rounded() / scale
+      return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    #endif
+  }
+}

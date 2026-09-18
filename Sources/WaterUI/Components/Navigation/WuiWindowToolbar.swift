@@ -160,13 +160,13 @@
 
     /// Whether the window title is painted in the titlebar.
     ///
-    /// The Mac's own full-height-sidebar apps — Mail, Notes, Reminders — show
-    /// no title text next to the traffic lights; the window title still exists
-    /// for the Window menu and Mission Control, it is just not drawn. A tab
-    /// control takes the title's place the same way.
+    /// A tab control takes the title's place, so the title is not drawn beside
+    /// it; the window title still exists for the Window menu and Mission
+    /// Control. A sidebar does not hide it: the tracking separator moves the
+    /// title into the detail column's section of the titlebar, which is where
+    /// SwiftUI's `NavigationSplitView` shows the detail's navigation title.
     private func updateTitleVisibility() {
-      window?.titleVisibility =
-        tabsView != nil || sidebarSplitViewController != nil ? .hidden : .visible
+      window?.titleVisibility = tabsView != nil ? .hidden : .visible
     }
 
     /// The sidebar's split view item, when a split owns the toolbar's leading
