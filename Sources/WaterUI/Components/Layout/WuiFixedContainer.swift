@@ -282,4 +282,3 @@ extension WuiFixedContainer: WuiPrimaryContentProviding {
     var wuiScrollSurfaceCandidates: [PlatformView] { childViews }
   }
 #endif
-
