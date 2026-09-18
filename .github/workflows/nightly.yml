@@ -160,6 +160,9 @@ jobs:
           toolchain: nightly-2026-09-17
           targets: aarch64-apple-ios-sim
 
+      - name: Install the Metal toolchain
+        uses: ./.github/actions/metal-toolchain
+
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
@@ -250,6 +253,9 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
         with:
           toolchain: nightly-2026-09-17
+
+      - name: Install the Metal toolchain
+        uses: ./.github/actions/metal-toolchain
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -547,6 +553,9 @@ jobs:
           toolchain: nightly-2026-09-17
           targets: aarch64-apple-ios-sim
 
+      - name: Install the Metal toolchain
+        uses: ./.github/actions/metal-toolchain
+
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
@@ -728,6 +737,9 @@ jobs:
         with:
           toolchain: nightly-2026-09-17
           targets: aarch64-apple-ios-sim
+
+      - name: Install the Metal toolchain
+        uses: ./.github/actions/metal-toolchain
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
