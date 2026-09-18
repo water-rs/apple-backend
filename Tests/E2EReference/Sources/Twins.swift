@@ -21,7 +21,10 @@
 //   Srgb::from_hex("#RRGGBB")      -> Color(.sRGB, red:..., green:..., blue:...)
 //   .with_opacity(x)               -> .opacity(x) on the Color
 //   Foreground / MutedForeground   -> .primary / .secondary
-//   Divider                        -> Divider()
+//   Divider                        -> wuiDivider() (stack separators only;
+//                                    inside Menu/contextMenu content a WaterUI
+//                                    Divider maps to a native menu separator,
+//                                    which stays `Divider()`)
 //   spacer() / spacer().height(n)  -> Spacer(minLength: 0) / the same framed;
 //                                    WaterUI's spacer has a zero minimum while
 //                                    SwiftUI's Spacer() defaults to ~8pt
@@ -72,6 +75,18 @@ struct TwinRoot: View {
 }
 
 // MARK: - Translation helpers
+
+/// WaterUI's `Divider` is a 1pt bar filled with the theme's Border slot —
+/// `UIColor.separator` / `NSColor.separatorColor` on this backend — that spans
+/// the stack's cross axis. SwiftUI's `Divider` is a different thing: a 1-pixel
+/// hairline in the opaque separator color, ~2px thinner at 3x.
+func wuiDivider() -> some View {
+  #if os(iOS)
+    return Color(uiColor: .separator).frame(height: 1)
+  #else
+    return Color(nsColor: .separatorColor).frame(height: 1)
+  #endif
+}
 
 /// `Color::srgb_hex("#RRGGBB")`
 func srgbHex(_ hex: UInt32) -> Color {

@@ -30,11 +30,11 @@ struct LocaleTwin: View {
       VStack(spacing: 10) {
         Text("WaterUI World Fair").font(.system(size: 28)).fontWeight(.bold)
         Text("Live translations for a tiny world-fair kiosk").font(.system(size: 14))
-        Divider()
+        wuiDivider()
         languageBooth
-        Divider()
+        wuiDivider()
         localizedContent
-        Divider()
+        wuiDivider()
         formattedContent
       }
       .padding(16)
@@ -72,20 +72,20 @@ struct LocaleTwin: View {
         Text("Welcome Desk").font(.system(size: 16)).fontWeight(.bold)
         Text("Welcome to the World Fair!").font(.system(size: 24))
       }
-      Divider()
+      wuiDivider()
       VStack(spacing: 10) {
         Text("Human Rights - Article 1").font(.system(size: 16)).fontWeight(.bold)
         Text(
           "All human beings are born free and equal in dignity and rights. They are endowed with reason and conscience and should act towards one another in a spirit of brotherhood."
         ).font(.system(size: 14))
       }
-      Divider()
+      wuiDivider()
       VStack(spacing: 10) {
         Text("Local Flavor").font(.system(size: 16)).fontWeight(.bold)
         HStack { Spacer(minLength: 0); Text("Color"); Spacer(minLength: 0) }
         HStack { Spacer(minLength: 0); Text("Favorite"); Spacer(minLength: 0) }
       }
-      Divider()
+      wuiDivider()
       VStack(spacing: 10) {
         Text("Passport Stamps").font(.system(size: 16)).fontWeight(.bold)
         Text("I have 0 passport stamps")
@@ -128,7 +128,7 @@ struct LocaleTwin: View {
           Text(kickoffString)
         }
       }
-      Divider()
+      wuiDivider()
       VStack(spacing: 10) {
         Text("Distance Guide").font(.system(size: 16)).fontWeight(.bold)
         HStack {

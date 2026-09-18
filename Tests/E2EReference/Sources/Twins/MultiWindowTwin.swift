@@ -10,7 +10,7 @@ struct MultiWindowTwin: View {
         Text("Multi-Window Gallery").font(.title).fontWeight(.bold)
         Text("Explore different window styles and backgrounds").font(.body)
         Spacer(minLength: 0).frame(height: 20)
-        Divider()
+        wuiDivider()
         Spacer(minLength: 0).frame(height: 20)
         VStack(spacing: 10) {
           windowSection(
@@ -40,7 +40,7 @@ struct MultiWindowTwin: View {
         }
         .padding(12)
         Spacer(minLength: 0)
-        Divider()
+        wuiDivider()
         Spacer(minLength: 0).frame(height: 12)
         Text("Built with WaterUI Multi-Window Support").font(.caption)
         Spacer(minLength: 0).frame(height: 12)
