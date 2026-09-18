@@ -34,6 +34,10 @@
       var titleView: NSView?
       var leading: WuiNavigationToolbarItem?
       var trailing: WuiNavigationToolbarItem?
+      /// The page's status item: informational, and centred on a Mac the way
+      /// SwiftUI centres a `.status` toolbar item, beside the tabs when there
+      /// are any.
+      var status: WuiNavigationToolbarItem?
       var search: WuiNavigationSearch?
       var onBack: (() -> Void)?
     }
@@ -43,6 +47,8 @@
     private static let leadingIdentifier = NSToolbarItem.Identifier("dev.waterui.navigation.leading")
     private static let trailingIdentifier = NSToolbarItem.Identifier(
       "dev.waterui.navigation.trailing")
+    private static let statusIdentifier = NSToolbarItem.Identifier(
+      "dev.waterui.navigation.status")
 
     private static let tabsIdentifier = NSToolbarItem.Identifier("dev.waterui.tabs")
     private static let windowItemPrefix = "dev.waterui.window.item."
@@ -223,7 +229,7 @@
       for (index, identifier) in currentIdentifiers.enumerated() {
         toolbar.insertItem(withItemIdentifier: identifier, at: index)
       }
-      toolbar.centeredItemIdentifiers = tabsView == nil ? [] : [Self.tabsIdentifier]
+      toolbar.centeredItemIdentifiers = centeredIdentifiers
       window?.title = content.title ?? window?.title ?? ""
       updateSearchAccessory()
     }
@@ -314,6 +320,16 @@
     /// whenever the page on screen contributes a different number of actions —
     /// which is not what a Mac does: the tabs stay put and the actions move
     /// around them.
+    /// The items the toolbar keeps at its centre, as one group: the tabs and
+    /// the page's status item share the slot, so the status text sits beside
+    /// the tab control rather than being pushed about by the actions.
+    private var centeredIdentifiers: Set<NSToolbarItem.Identifier> {
+      var identifiers: Set<NSToolbarItem.Identifier> = []
+      if tabsView != nil { identifiers.insert(Self.tabsIdentifier) }
+      if content.status != nil { identifiers.insert(Self.statusIdentifier) }
+      return identifiers
+    }
+
     private var currentIdentifiers: [NSToolbarItem.Identifier] {
       var identifiers: [NSToolbarItem.Identifier] = []
       if sidebarSplitViewController != nil {
@@ -328,6 +344,7 @@
       if content.leading != nil { identifiers.append(Self.leadingIdentifier) }
       if content.titleView != nil { identifiers.append(Self.titleIdentifier) }
       if tabsView != nil { identifiers.append(Self.tabsIdentifier) }
+      if content.status != nil { identifiers.append(Self.statusIdentifier) }
       identifiers.append(.flexibleSpace)
       // The window's own items sit outside the page's: the page's actions and
       // its search field stay together at the trailing edge, where the page
@@ -404,6 +421,9 @@
 
       case Self.trailingIdentifier:
         return actionItem(identifier: identifier, from: content.trailing)
+
+      case Self.statusIdentifier:
+        return hostingItem(identifier: identifier, view: content.status?.view)
 
       default:
         guard let index = Self.windowItemIndex(identifier) else { return nil }

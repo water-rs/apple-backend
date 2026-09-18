@@ -894,6 +894,7 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
       }
       content.leading = topBarState?.leadingItem
       content.trailing = topBarState?.trailingItem
+      content.status = topBarState?.statusItem
       content.search = topBarState?.search
       windowToolbar.setContent(content, owner: self)
     }

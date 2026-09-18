@@ -257,6 +257,10 @@ struct WuiNavigationBarState {
     }
   }
 
+  var statusItem: WuiNavigationToolbarItem? {
+    toolbar.first { $0.placement == WuiNavigationToolbarPlacement_Status }
+  }
+
   var leading: WuiAnyView? { leadingItem?.view }
 
   var trailing: WuiAnyView? { trailingItem?.view }
