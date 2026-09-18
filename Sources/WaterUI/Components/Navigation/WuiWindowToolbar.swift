@@ -285,7 +285,10 @@
         x: 0, y: 0, width: window?.frame.width ?? 0, height: Self.searchRowHeight)
       window?.addTitlebarAccessoryViewController(accessory)
       let coordinator = WuiNavigationSearchCoordinator(search: search)
-      coordinator.attach(searchField: field)
+      // SwiftUI's accessory-row field keeps the regular control size and
+      // 28pt height but sets its text and prompt in the small system font
+      // (11pt, read off the twin's field), not the 13pt body face.
+      coordinator.attach(searchField: field, font: .small)
       searchCoordinator = coordinator
       searchAccessory = accessory
       chargeSearchRowHeight(Self.searchRowHeight)

@@ -208,6 +208,13 @@ private func renderViewToRGBA(
 ///
 /// The result is a template image so the bar keeps tinting it with its own
 /// selection colour.
+///
+/// `maxSide` is the longest side the image may have in points, the size the
+/// bar draws its glyphs at. An icon view keeps its own size under a smaller
+/// proposal — a packaged icon is 24pt — so the view is rendered at the
+/// fraction of the display scale that lands its longer side on `maxSide`,
+/// and the image is that many pixels at the display scale: the glyph fills
+/// the bar's icon box without a resample.
 @preconcurrency @MainActor
 func renderViewToTemplateImage(
   _ view: WuiAnyView,
@@ -228,6 +235,7 @@ func renderViewToTemplateImage(
     proposedSize: CGSize(width: maxSide, height: maxSide),
     display: display,
     scale: scale,
+    longestSide: maxSide,
     dynamicRange: dynamicRange,
     background: background
   )
@@ -267,12 +275,18 @@ func renderViewToTemplateImage(
 
 /// Captures a view to RGBA pixel data.
 /// Returns the data along with actual pixel dimensions (width, height).
+///
+/// `longestSide` caps the capture at that many points on its longer side: a
+/// view that keeps its own size under a smaller proposal is rendered at the
+/// fraction of `scale` that lands it on the cap, so the bitmap is the capped
+/// size at `scale` without a resample.
 @preconcurrency @MainActor
 private func captureViewToRGBA(
   view: WuiAnyView,
   proposedSize: CGSize,
   display: WuiCaptureDisplay,
   scale: CGFloat,
+  longestSide: CGFloat? = nil,
   dynamicRange: WuiDynamicRangeMode,
   background: WuiResolvedColor
 ) async -> (Data, Int, Int) {
@@ -321,6 +335,14 @@ private func captureViewToRGBA(
   Logger.waterui.info(
     "ViewRenderer: proposedSize=\(proposedSize.width)x\(proposedSize.height), measuredSize=\(measuredSize.width)x\(measuredSize.height), actualSize=\(actualSize.width)x\(actualSize.height)"
   )
+
+  let actualLongestSide = max(actualSize.width, actualSize.height)
+  let scale =
+    if let longestSide, actualLongestSide > longestSide {
+      scale * longestSide / actualLongestSide
+    } else {
+      scale
+    }
 
   // Calculate pixel dimensions
   let width = Int(ceil(actualSize.width * scale))

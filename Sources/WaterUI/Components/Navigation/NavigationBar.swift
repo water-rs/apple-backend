@@ -88,9 +88,19 @@ final class WuiNavigationSearchCoordinator: NSObject {
       uiSearchBar.superview?.setNeedsLayout()
     }
   #elseif canImport(AppKit)
-    private weak var nsSearchField: NSSearchField?
+    /// The face a search field sets its text and prompt in.
+    enum FieldFont {
+      /// The theme's body font, followed as the theme changes.
+      case body
+      /// The small system font, which SwiftUI gives the search field in a
+      /// window's titlebar accessory row.
+      case small
+    }
 
-    func attach(searchField: NSSearchField) {
+    private weak var nsSearchField: NSSearchField?
+    private var fixedFont: NSFont?
+
+    func attach(searchField: NSSearchField, font: FieldFont = .body) {
       nsSearchField = searchField
       searchField.sendsSearchStringImmediately = true
       searchField.delegate = self
@@ -100,10 +110,17 @@ final class WuiNavigationSearchCoordinator: NSObject {
       promptWatcher = search.prompt.watch { [weak self] value, _ in
         self?.applyPrompt(value)
       }
-      bodyFontObservation = .bodyFont(env: search.env) { [weak self] font in
-        guard let field = self?.nsSearchField else { return }
-        field.font = font.toPlatformFont()
-        field.invalidateIntrinsicContentSize()
+      switch font {
+      case .body:
+        bodyFontObservation = .bodyFont(env: search.env) { [weak self] font in
+          guard let field = self?.nsSearchField else { return }
+          field.font = font.toPlatformFont()
+          field.invalidateIntrinsicContentSize()
+        }
+      case .small:
+        let font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+        fixedFont = font
+        searchField.font = font
       }
       applyText(search.text.value.toString())
       applyPrompt(search.prompt.value)
@@ -130,7 +147,13 @@ final class WuiNavigationSearchCoordinator: NSObject {
 
     private func applyRenderedPrompt() {
       guard let nsSearchField, let promptRenderer else { return }
-      nsSearchField.placeholderAttributedString = promptRenderer.attributedString()
+      let prompt = NSMutableAttributedString(attributedString: promptRenderer.attributedString())
+      if let fixedFont {
+        // The prompt keeps its colour and decorations but is set in the
+        // field's fixed face, as the field's own text is.
+        prompt.addAttribute(.font, value: fixedFont, range: NSRange(location: 0, length: prompt.length))
+      }
+      nsSearchField.placeholderAttributedString = prompt
       nsSearchField.invalidateIntrinsicContentSize()
       nsSearchField.superview?.needsLayout = true
     }
