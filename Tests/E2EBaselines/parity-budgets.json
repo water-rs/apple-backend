@@ -7,6 +7,7 @@
     "form": 0.02,
     "gesture": 0.02,
     "hover": 0.02,
+    "liquid_glass": 0.075,
     "list": 0.1,
     "markdown": 0.05,
     "menu": 0.02,
