@@ -12,6 +12,7 @@
 // // - Priority: 0 (default)
 
 import CWaterUI
+import os
 
 #if canImport(UIKit)
   import UIKit
@@ -185,6 +186,14 @@ final class WuiFixedContainer: PlatformView, WuiComponent {
       placements.count == childViews.count,
       "WuiFixedContainer layout returned \(placements.count) placements for \(childViews.count) children"
     )
+      #if canImport(UIKit)
+        let frames = placements.map {
+          "[\(String(format: "%.1f", $0.frame.minY)):\(String(format: "%.1f", $0.frame.height)) p:\(String(format: "%.1f", $0.proposal.height ?? -1))]"
+        }.joined()
+        Logger.waterui.info(
+          "wui-layout \(type(of: self)) bounds=\(self.bounds) insets=\(self.safeAreaInsets) safe=\(safeRect) sel=\(String(describing: self.selectedProposal)) n=\(childViews.count) frames=\(frames)"
+        )
+      #endif
     for (index, pair) in zip(childViews, placements).enumerated() {
       let (child, placement) = pair
       var frame = placement.frame

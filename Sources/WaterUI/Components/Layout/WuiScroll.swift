@@ -15,6 +15,7 @@
 // // - Priority: 0 (default)
 
 import CWaterUI
+import os
 
 #if canImport(UIKit)
   import UIKit
@@ -207,6 +208,10 @@ func scrollContentPlacement(
       let measuredSize = contentView.sizeThatFits(contentProposal)
       let placement = scrollContentPlacement(
         axis: axis, viewport: bounds.size, measured: measuredSize)
+
+      Logger.waterui.info(
+        "wui-scroll bounds=\(self.bounds) insets=\(self.safeAreaInsets) adjusted=\(self.adjustedContentInset) offset=\(self.contentOffset) measured=\(measuredSize) frame=\(placement.contentFrame)"
+      )
 
       // Only update frame when changed to avoid recursive layout loops
       if contentView.frame != placement.contentFrame {
