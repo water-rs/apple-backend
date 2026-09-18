@@ -14,8 +14,11 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        if xcrun metal --version >/dev/null 2>&1; then
+        # The stub Xcode ships without the toolchain answers `--version`; only
+        # a real compile tells whether shaders can be built.
+        probe="${{ github.action_path }}/probe.metal"
+        if xcrun metal -c "${probe}" -o "${RUNNER_TEMP}/probe.air" >/dev/null 2>&1; then
           exit 0
         fi
         xcodebuild -downloadComponent MetalToolchain
-        xcrun metal --version
+        xcrun metal -c "${probe}" -o "${RUNNER_TEMP}/probe.air"
