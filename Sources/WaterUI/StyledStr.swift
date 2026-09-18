@@ -75,8 +75,8 @@ final class WuiStyledStrRenderer {
       }
     }
 
-    func attributedString(defaultForeground: WuiResolvedColor?) -> NSAttributedString {
-      guard let foreground = foreground?.value ?? defaultForeground else {
+    func attributedString(defaultForeground: PlatformColor?) -> NSAttributedString {
+      guard let foreground = foreground?.value.toPlatformColor() ?? defaultForeground else {
         fatalError("Styled text chunk has no foreground color")
       }
       return chunk.toAttributedString(
@@ -88,16 +88,23 @@ final class WuiStyledStrRenderer {
   }
 
   private let defaultForeground: WuiComputedObservation<WuiResolvedColor>?
+  /// A platform-native default color (e.g. the placeholder color) applied to
+  /// chunks without an explicit foreground. Unlike a theme slot it carries a
+  /// live dynamic color, so it adapts to the resolved interface style at draw
+  /// time the way the platform's own control would.
+  private let defaultForegroundColor: PlatformColor?
   private var chunks: [ResolvedChunk]
 
   init(
     styled: WuiStyledStr,
     env: WuiEnvironment,
     defaultForegroundSlot: WuiColorSlot = WuiColorSlot_Foreground,
+    defaultForegroundColor: PlatformColor? = nil,
     onChange: @escaping () -> Void
   ) {
+    self.defaultForegroundColor = defaultForegroundColor
     defaultForeground =
-      styled.chunks.contains { $0.style.foreground == nil }
+      defaultForegroundColor == nil && styled.chunks.contains { $0.style.foreground == nil }
       ? WuiComputedObservation(
         themeColor: defaultForegroundSlot,
         env: env
@@ -117,7 +124,11 @@ final class WuiStyledStrRenderer {
   func attributedString() -> NSAttributedString {
     let result = NSMutableAttributedString()
     for chunk in chunks {
-      result.append(chunk.attributedString(defaultForeground: defaultForeground?.value))
+      result.append(
+        chunk.attributedString(
+          defaultForeground: defaultForeground?.value.toPlatformColor()
+            ?? defaultForegroundColor
+        ))
     }
     return result
   }
@@ -135,18 +146,14 @@ struct WuiStyledChunk {
 
   func toAttributedString(
     font resolvedFont: WuiResolvedFontValue,
-    foreground: WuiResolvedColor?,
+    foreground: PlatformColor?,
     background: WuiResolvedColor?
   ) -> NSAttributedString {
     let font = resolvedFont.toPlatformFont()
     var attributes: [NSAttributedString.Key: Any] = [.font: font]
 
     if let foreground {
-      #if canImport(UIKit)
-        attributes[.foregroundColor] = foreground.toUIColor()
-      #elseif canImport(AppKit)
-        attributes[.foregroundColor] = foreground.toNSColor()
-      #endif
+      attributes[.foregroundColor] = foreground
     }
 
     if let background {
@@ -170,14 +177,17 @@ struct WuiStyledChunk {
     }
 
     let paragraphStyle = NSMutableParagraphStyle()
-    // SwiftUI Text hyphenates only a run that cannot break at a word
-    // boundary; an ordinary word wraps whole. TextKit hyphenates a line
+    // On iOS, SwiftUI Text hyphenates only a run that cannot break at a
+    // word boundary; an ordinary word wraps whole. TextKit hyphenates a line
     // whenever the width it fills at its last word boundary, as a fraction
     // of the fragment width, falls below the factor — a run with no word
     // boundary fills nothing at one, so the smallest positive factor keeps
     // ordinary words whole and breaks overflow runs with a hyphen the way
-    // the platform typesetter does.
-    paragraphStyle.hyphenationFactor = .leastNormalMagnitude
+    // the iOS typesetter does. On macOS, SwiftUI never hyphenates: an
+    // overflow run wraps at the last glyph that fits, with no hyphen.
+    #if canImport(UIKit)
+      paragraphStyle.hyphenationFactor = .leastNormalMagnitude
+    #endif
     // Platform text views lay out with the standard break-strategy set,
     // which pushes a line's last word down to keep a single-word orphan
     // off the closing line. A paragraph style built from scratch defaults
