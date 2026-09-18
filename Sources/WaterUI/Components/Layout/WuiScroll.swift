@@ -32,7 +32,7 @@ private func proposalDimension(_ value: Float?) -> CGFloat {
   value.map(CGFloat.init) ?? 0
 }
 
-private func scrollMinSize(
+func scrollMinSize(
   axis: WuiAxis,
   proposal: WuiProposalSize,
   measureContent: (WuiProposalSize) -> CGSize
@@ -45,9 +45,19 @@ private func scrollMinSize(
     )
   }
 
-  let intrinsic = measureContent(WuiProposalSize(width: nil, height: nil))
-  let intrinsicWidth = intrinsic.width.isFinite ? max(0, intrinsic.width) : 0
-  let intrinsicHeight = intrinsic.height.isFinite ? max(0, intrinsic.height) : 0
+  // The cross-axis minimum is the content's answer to the same min query —
+  // zero on that axis, unspecified on the scroll axis — not its ideal extent:
+  // a vertical scroll over a paragraph is as narrow as the paragraph wraps,
+  // which is what the paragraph itself reports for a zero offer. Measuring
+  // the content unspecified on both axes returned the unwrapped line, and a
+  // stack trusting that floor pushed the whole row off the window.
+  func contentMinimum(_ contentProposal: WuiProposalSize) -> CGSize {
+    let minimum = measureContent(contentProposal)
+    return CGSize(
+      width: minimum.width.isFinite ? max(0, minimum.width) : 0,
+      height: minimum.height.isFinite ? max(0, minimum.height) : 0
+    )
+  }
 
   let proposedWidth = proposalDimension(proposal.width)
   let proposedHeight = proposalDimension(proposal.height)
@@ -56,14 +66,18 @@ private func scrollMinSize(
   case WuiAxis_Vertical:
     // Vertical scroll can compress on Y, but X should preserve content minimum.
     return CGSize(
-      width: minQuery.width ? intrinsicWidth : proposedWidth,
+      width: minQuery.width
+        ? contentMinimum(WuiProposalSize(width: 0, height: nil)).width
+        : proposedWidth,
       height: minQuery.height ? 0 : proposedHeight
     )
   case WuiAxis_Horizontal:
     // Horizontal scroll can compress on X, but Y should preserve content minimum.
     return CGSize(
       width: minQuery.width ? 0 : proposedWidth,
-      height: minQuery.height ? intrinsicHeight : proposedHeight
+      height: minQuery.height
+        ? contentMinimum(WuiProposalSize(width: nil, height: 0)).height
+        : proposedHeight
     )
   case WuiAxis_All:
     // Bi-directional scroll allows compression on both axes.
