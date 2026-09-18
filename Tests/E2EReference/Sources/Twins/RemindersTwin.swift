@@ -6,12 +6,9 @@
 // sections under small bold leading headers. Initial state: Today selected,
 // empty search, all rows visible.
 //
-// Material icons translate to their closest SF Symbols: calendar_today →
-// calendar, calendar_clock → calendar.badge.clock, inbox → tray, flag → flag,
-// bell_alert → bell.badge, check → checkmark, format_list_bulleted →
-// list.bullet, circle_outline → circle, plus → plus. The glyphs differ from
-// the Material SVGs the example draws; what the comparison checks is the tile
-// grid geometry, selection styling, and split-view chrome.
+// The example draws Material Design Icons; the twin draws the same glyphs
+// from their SVG paths through MaterialIcon — calendar_today, calendar_clock,
+// inbox, flag, bell_alert, check, format_list_bulleted, plus, circle_outline.
 
 import SwiftUI
 
@@ -29,14 +26,14 @@ private enum Destination: Hashable, CaseIterable {
     }
   }
 
-  var symbol: String {
+  var icon: MaterialIcon {
     switch self {
-    case .today: "calendar"
-    case .scheduled: "calendar.badge.clock"
-    case .all: "tray"
-    case .flagged: "flag"
-    case .urgent: "bell.badge"
-    case .completed: "checkmark"
+    case .today: .calendarToday
+    case .scheduled: .calendarClock
+    case .all: .inbox
+    case .flagged: .flag
+    case .urgent: .bellAlert
+    case .completed: .check
     }
   }
 
@@ -147,9 +144,8 @@ struct RemindersTwin: View {
     let isSelected = selection == dest
     return VStack(alignment: .leading, spacing: 4) {
       HStack {
-        Image(systemName: dest.symbol)
+        dest.icon.view(size: 20)
           .foregroundStyle(.white)
-          .frame(width: 20, height: 20)
         Spacer(minLength: 0)
         Text("\(dest.count)")
           .font(.headline)
@@ -171,9 +167,8 @@ struct RemindersTwin: View {
 
   private func userListRow(_ list: UserList) -> some View {
     HStack(spacing: 10) {
-      Image(systemName: "list.bullet")
+      MaterialIcon.formatListBulleted.view(size: 14)
         .foregroundStyle(.white)
-        .frame(width: 14, height: 14)
         .padding(6)
         .background(list.color)
         .clipShape(Circle())
@@ -206,7 +201,7 @@ struct RemindersTwin: View {
       .toolbar {
         ToolbarItem(placement: .primaryAction) {
           Button {} label: {
-            Image(systemName: "plus")
+            MaterialIcon.plus.view(size: 18)
           }
           .buttonStyle(.borderless)
         }
@@ -224,9 +219,8 @@ struct RemindersTwin: View {
         .padding(EdgeInsets(top: 8, leading: 18, bottom: 0, trailing: 18))
       List(rows) { row in
         HStack(spacing: 10) {
-          Image(systemName: "circle")
+          MaterialIcon.circleOutline.view(size: 16)
             .foregroundStyle(.secondary)
-            .frame(width: 16, height: 16)
           VStack(alignment: .leading, spacing: 2) {
             Text(row.title).font(.body).foregroundStyle(.primary)
             if let subtitle = row.subtitle {
@@ -235,9 +229,8 @@ struct RemindersTwin: View {
           }
           Spacer(minLength: 0)
           if row.flagged {
-            Image(systemName: "flag")
+            MaterialIcon.flag.view(size: 12)
               .foregroundStyle(srgbHex(0xF28A34))
-              .frame(width: 12, height: 12)
           } else {
             Spacer(minLength: 0).frame(width: 12)
           }

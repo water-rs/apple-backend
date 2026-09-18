@@ -69,7 +69,9 @@ struct PickerTwin: View {
   }
 
   private func selectionLabel(_ fruit: Fruit) -> some View {
-    HStack(spacing: 10) { Text("Selected:"); Text(fruit.rawValue) }
+    // `hstack(("Selected: ", text!("…")))` — the space is inside the first
+    // text, before the stack's spacing.
+    HStack(spacing: 10) { Text("Selected: "); Text(fruit.rawValue) }
   }
 
   private var pickerStyles: some View {
@@ -158,7 +160,8 @@ struct PickerTwin: View {
   private func swatch(_ color: Color, _ label: String) -> some View {
     HStack(spacing: 10) {
       Text(label).fontWeight(.bold)
-      Text(":")
+      // `text(": ")` — the example's space is inside the text.
+      Text(": ")
       RoundedRectangle(cornerRadius: 0.1 * 32)
         .fill(color)
         .frame(width: 64, height: 32)

@@ -88,6 +88,9 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
     private let secondaryController = WuiSplitColumnPageController()
     private var contentControllers = DestinationCache<WuiContentViewController>()
     private var detailControllers = DestinationCache<WuiContentViewController>()
+    /// The column the collapsed split last reported showing, so `didShow`
+    /// can tell a real return to a column from the show it opens with.
+    private var lastShownColumn: UISplitViewController.Column?
   #elseif canImport(AppKit)
     private let splitController = NSSplitViewController()
     private let primaryController = NSViewController()
@@ -618,6 +621,12 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
       // the FFI binding write, which cannot unwind. A cancelled pop never
       // reaches `didShow`, so a released-early gesture leaves the selection
       // untouched too.
+      defer { lastShownColumn = column }
+      // The column the split opens on arrives through this same callback, and
+      // it is the split's own choice — nothing returned to it — so the
+      // selection the app opened with must not be read as a pop-back. Only a
+      // return to a column that was actually covered clears the selection.
+      guard let lastShownColumn, lastShownColumn != column else { return }
       if column == .primary, primarySelection.value != 0 {
         primarySelection.set(0)
       } else if column == .supplementary,
