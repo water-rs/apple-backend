@@ -59,24 +59,15 @@ final class WuiMaterialBackground: PlatformView, WuiComponent {
     #endif
 
     // Add blur view first (behind content)
-    blurView.translatesAutoresizingMaskIntoConstraints = false
     addSubview(blurView)
 
     // Add content on top
-    contentView.translatesAutoresizingMaskIntoConstraints = false
     addSubview(contentView)
 
-    // Setup constraints
-    NSLayoutConstraint.activate([
-      blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
-      blurView.trailingAnchor.constraint(equalTo: trailingAnchor),
-      blurView.topAnchor.constraint(equalTo: topAnchor),
-      blurView.bottomAnchor.constraint(equalTo: bottomAnchor),
-      contentView.leadingAnchor.constraint(equalTo: leadingAnchor),
-      contentView.trailingAnchor.constraint(equalTo: trailingAnchor),
-      contentView.topAnchor.constraint(equalTo: topAnchor),
-      contentView.bottomAnchor.constraint(equalTo: bottomAnchor),
-    ])
+    // The blur tracks the content's frame, not the wrapper's — resolved in
+    // layout, where the negotiated size is known.
+    blurView.translatesAutoresizingMaskIntoConstraints = true
+    contentView.translatesAutoresizingMaskIntoConstraints = true
 
     Logger.waterui.debug(
       "MaterialBackground created with material: \(String(describing: metadata.material))")
@@ -132,6 +123,7 @@ final class WuiMaterialBackground: PlatformView, WuiComponent {
   /// Transparent for layout: the proposal selected for this
   /// wrapper is the proposal its content was negotiated with.
   func setPlacementProposal(_ proposal: WuiProposalSize) {
+    lastProposal = proposal
     contentView.setPlacementProposal(proposal)
   }
 
@@ -143,15 +135,51 @@ final class WuiMaterialBackground: PlatformView, WuiComponent {
     contentView.measure(proposal)
   }
 
+  /// The offer the parent selected for this wrapper, echoed back when the
+  /// host stamps the frame without delivering a proposal.
+  private var lastProposal = WuiProposalSize()
+
+  /// Places the blur and the content over the content's negotiated frame.
+  ///
+  /// `.background(material)` in SwiftUI covers exactly the view it backs: a
+  /// `width`-constrained content keeps its narrower material column while the
+  /// wrapper itself may be stamped wider by a parent that fills its offer.
+  /// The material is layout-transparent, so the content's own
+  /// `sizeThatFits` under the delivered proposal is the frame both get.
+  private func layoutContent() {
+    let size = contentView.sizeThatFits(
+      WuiProposalSize(
+        width: lastProposal.width ?? Float(bounds.width),
+        height: lastProposal.height ?? Float(bounds.height)
+      ))
+    let rect = CGRect(
+      x: (bounds.width - size.width) / 2,
+      y: (bounds.height - size.height) / 2,
+      width: size.width,
+      height: size.height
+    )
+    contentView.frame = rect
+    blurView.frame = rect
+  }
+
   #if canImport(UIKit)
     override func layoutSubviews() {
       super.layoutSubviews()
+      layoutContent()
     }
   #elseif canImport(AppKit)
     nonisolated override var isFlipped: Bool { true }
 
     override func layout() {
       super.layout()
+      layoutContent()
     }
   #endif
 }
+
+/// A material is chrome, not content: SwiftUI's `.background(material)`
+/// covers its view's whole frame — a sidebar's blur runs behind the status
+/// bar and the home indicator — while the view it backs keeps its own
+/// safe-area insets. Owning the insets makes the host stamp this wrapper the
+/// full bounds; the content view inside still gets the safe-area rect.
+extension WuiMaterialBackground: WuiSafeAreaManaging {}

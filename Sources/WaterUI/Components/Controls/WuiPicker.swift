@@ -347,7 +347,11 @@ final class WuiPicker: PlatformView, WuiComponent {
         configuration.titleTextAttributesTransformer = transformer
         menuButton.configuration = configuration
       }
-      wheelFont = platformFont
+      // The wheel renders its rows at the platform picker's own size, which
+      // is larger than body: SwiftUI's inline picker draws rows at ~21pt
+      // while a body-font row would come out visibly small. The themed face
+      // and weight still apply.
+      wheelFont = platformFont.withSize(21)
       wheel.reloadAllComponents()
     #elseif canImport(AppKit)
       segmentedControl.font = platformFont
@@ -574,7 +578,7 @@ final class WuiPicker: PlatformView, WuiComponent {
     ) -> UIView {
       let label = view as? UILabel ?? UILabel()
       label.textAlignment = .center
-      label.font = wheelFont ?? .preferredFont(forTextStyle: .body)
+      label.font = wheelFont ?? .systemFont(ofSize: 21)
       label.text = items[row].text
       return label
     }

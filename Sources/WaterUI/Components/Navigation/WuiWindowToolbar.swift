@@ -485,11 +485,25 @@
     /// exactly as a navigation action does. Any other child is hosted as the
     /// view it is.
     private func windowItem(identifier: NSToolbarItem.Identifier, view: NSView) -> NSToolbarItem? {
-      guard let button = view.firstButton, let symbol = button.systemIconName else {
+      guard let button = view.firstButton else {
         return hostingItem(identifier: identifier, view: view)
       }
       let item = NSToolbarItem(itemIdentifier: identifier)
-      item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+      if let symbol = button.systemIconName {
+        item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+      } else if let labelView = button.labelContentView {
+        // The icon isn't a platform symbol — a text glyph or a packaged icon —
+        // so it is rendered into a template image for the toolbar to tint like
+        // its own items; hosting the label's view would keep its content tint
+        // and draw it accent-coloured where a toolbar icon belongs in the
+        // window's neutral chrome. The item appears without one and gains it
+        // when the render lands.
+        Task { @MainActor [weak item] in
+          item?.image = await renderViewToTemplateImage(labelView, maxSide: 18)
+        }
+      } else {
+        return hostingItem(identifier: identifier, view: view)
+      }
       let label = button.semanticTitle
       item.label = label
       item.paletteLabel = label

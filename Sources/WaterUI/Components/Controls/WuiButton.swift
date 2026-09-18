@@ -507,6 +507,13 @@ final class WuiButton: PlatformView, WuiComponent {
       labelView.firstSystemIcon?.iconName
     }
 
+    /// The label's own view. Under the icon-only display mode a window
+    /// toolbar installs, this is the icon — what chrome that renders the
+    /// item as an image (rather than hosting the accent-tinted view) draws.
+    var labelContentView: WuiAnyView? {
+      labelView as? WuiAnyView
+    }
+
     /// Whether the button draws without a bezel — the borderless and link
     /// styles — so chrome presenting it as a toolbar item keeps it bare too.
     var isBorderless: Bool {
