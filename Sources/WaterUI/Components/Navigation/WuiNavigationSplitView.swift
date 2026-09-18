@@ -658,37 +658,26 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
   final class WuiSplitColumnContainer: NSView {
     nonisolated override var isFlipped: Bool { true }
 
+    private weak var hosted: NSView?
+
     /// Makes `view` the column's only content.
     func show(_ view: NSView) {
-      guard view.superview !== self else { return }
+      guard hosted !== view else { return }
       for existing in subviews {
         existing.removeFromSuperview()
       }
+      hosted = view
       view.removeFromSuperview()
-      view.frame = contentFrame
       view.autoresizingMask = [.width, .height]
       addSubview(view)
+      wuiPlacedContent(view, at: wuiContentFrame(of: view, in: self), in: self)
       needsLayout = true
     }
 
     override func layout() {
       super.layout()
-      for subview in subviews {
-        subview.frame = contentFrame
-      }
-    }
-
-    /// The column's bounds less its safe area: with a full-height sidebar the
-    /// window toolbar floats over the non-sidebar columns, and their contents
-    /// belong below it.
-    private var contentFrame: CGRect {
-      let insets = safeAreaInsets
-      return CGRect(
-        x: insets.left,
-        y: insets.top,
-        width: max(bounds.width - insets.left - insets.right, 0),
-        height: max(bounds.height - insets.top - insets.bottom, 0)
-      )
+      guard let hosted else { return }
+      wuiPlacedContent(hosted, at: wuiContentFrame(of: hosted, in: self), in: self)
     }
   }
 #endif

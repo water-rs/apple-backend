@@ -148,3 +148,196 @@ extension PlatformView {
 func wuiContentFrame(of content: PlatformView, in host: PlatformView) -> CGRect {
   wuiHandlesSafeArea(content) ? host.bounds : host.wuiSafeAreaRect
 }
+
+// MARK: - macOS page column and chrome clip
+
+#if canImport(AppKit)
+  /// A view that clips its content to the window's safe area.
+  ///
+  /// macOS scroll surfaces reach `y0` beneath the titlebar and unified
+  /// toolbar, where the `NSScrollPocket` and the toolbar's own material cover
+  /// what passes beneath. Everything beside them must stay inside the safe
+  /// area — a rule AppKit never enforces, because layer-backed content (an
+  /// offset circle, a shadow) paints wherever its layer lands. Hosting the
+  /// content in a view masked to the window's safe rect keeps its paint below
+  /// the chrome edge: the boundary SwiftUI's hosting enforces on every
+  /// non-scroll surface.
+  @MainActor
+  final class WuiSafeAreaClipView: NSView {
+    init() {
+      super.init(frame: .zero)
+      wantsLayer = true
+      layer?.masksToBounds = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+      fatalError("init(coder:) has not been implemented")
+    }
+
+    nonisolated override var isFlipped: Bool { true }
+
+    /// A clip view is not content: a hit none of its children claim belongs
+    /// to whatever is behind it.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+      let hit = super.hitTest(point)
+      return hit === self ? nil : hit
+    }
+  }
+
+  /// The window's safe-area rect in `host`'s coordinate space — the clip
+  /// boundary for content that must not paint under the titlebar and unified
+  /// toolbar. `nil` when the window has no chrome region, so nothing needs
+  /// clipping.
+  @MainActor
+  func wuiWindowSafeAreaRect(in host: PlatformView) -> CGRect? {
+    guard let contentView = host.window?.contentView else { return nil }
+    let rect = contentView.safeAreaRect
+    guard rect != contentView.bounds else { return nil }
+    return host.convert(rect, from: contentView)
+  }
+
+  /// The stretch axis a view claims for the page-column question.
+  ///
+  /// A scroll view's own axis is `.both` — it fills whatever it is given —
+  /// which says nothing about whether its page wants the window's width, so a
+  /// scroll answers with its content's axis instead: a `scroll` of hugging
+  /// content keeps an intrinsic width while a `scroll` of filling content
+  /// stays greedy. A layout container re-asks its layout with those effective
+  /// child axes, so a stack holding a scroll answers from what the scroll
+  /// wraps rather than the scroll's blanket `.both`. Wrappers forward through
+  /// to their content; everything else answers with its own axis.
+  @MainActor
+  private func wuiEffectiveStretchAxis(_ view: PlatformView) -> WuiStretchAxis {
+    var current = view
+    while true {
+      if let scroll = current as? WuiScroll {
+        current = scroll.contentHostView
+      } else if let anyView = current as? WuiAnyView,
+        let inner = anyView.wuiPrimaryContent
+      {
+        current = inner
+      } else if let component = current as? any WuiComponent,
+        isMetadataComponent(component),
+        let inner = (component as? WuiPrimaryContentProviding)?.wuiPrimaryContent
+      {
+        current = inner
+      } else {
+        break
+      }
+    }
+    if let container = current as? WuiFixedContainer {
+      return container.stretchAxis(
+        childAxes: container.childViews.map(wuiEffectiveStretchAxis))
+    }
+    return (current as? any WuiComponent)?.stretchAxis ?? .both
+  }
+
+  /// Whether the content a page host places wants the window's full width —
+  /// `.none` and `.vertical` keep an intrinsic width, the rest fill.
+  @MainActor
+  private func wuiPageFillsHorizontally(_ view: PlatformView) -> Bool {
+    switch wuiEffectiveStretchAxis(view) {
+    case .none, .vertical:
+      return false
+    case .horizontal, .both, .mainAxis, .crossAxis:
+      return true
+    }
+  }
+
+  /// The frame a macOS page host gives its content — SwiftUI's
+  /// `PlatformContainer`: the content's ideal width centred in the window,
+  /// filling only when the content stretches horizontally.
+  ///
+  /// `vertical` carries the host's already-resolved vertical placement —
+  /// `wuiContentFrame` where the safe-area rule applies, a bar-relative rect
+  /// under an in-content bar — so this function decides only the horizontal
+  /// answer. A non-greedy page is centred at its ideal width and may overflow
+  /// the window symmetrically, the way SwiftUI lets a wide ideal cross both
+  /// edges; a greedy page fills.
+  ///
+  /// The column only forms when the host spans the window's full content
+  /// width; a host inside a split column fills its own column instead.
+  @MainActor
+  func wuiPageColumnFrame(
+    of content: PlatformView, in host: PlatformView, vertical: CGRect
+  ) -> CGRect {
+    guard let contentView = host.window?.contentView,
+      abs(host.bounds.width - contentView.bounds.width) < 0.5,
+      !wuiPageFillsHorizontally(content),
+      let ideal = (content as? any WuiComponent)?.sizeThatFits(WuiProposalSize()).width,
+      ideal.isFinite, ideal > 0
+    else { return vertical }
+    return CGRect(
+      x: host.bounds.midX - ideal / 2,
+      y: vertical.minY,
+      width: ideal,
+      height: vertical.height
+    )
+  }
+
+  /// `wuiPageColumnFrame` with the safe-area rule as the vertical answer —
+  /// the frame a macOS page host gives its page content.
+  @MainActor
+  func wuiPageColumnFrame(of content: PlatformView, in host: PlatformView) -> CGRect {
+    wuiPageColumnFrame(
+      of: content, in: host, vertical: wuiContentFrame(of: content, in: host))
+  }
+
+  /// The `WuiSafeAreaClipView` hosting `content` inside `host`, preserving the
+  /// content's position among the host's subviews.
+  @MainActor
+  private func wuiClipWrapper(for content: PlatformView, in host: PlatformView)
+    -> WuiSafeAreaClipView
+  {
+    if let clip = content.superview as? WuiSafeAreaClipView { return clip }
+    let clip = WuiSafeAreaClipView()
+    var order = host.subviews
+    if let index = order.firstIndex(of: content) {
+      order[index] = clip
+    } else {
+      order.append(clip)
+    }
+    clip.addSubview(content)
+    host.subviews = order
+    return clip
+  }
+
+  /// Whether an ancestor `WuiSafeAreaClipView` already masks this subtree —
+  /// content inside one needs no clip of its own, the mask covers it.
+  @MainActor
+  private func wuiInsideSafeAreaClip(_ view: PlatformView) -> Bool {
+    sequence(first: view.superview, next: { $0?.superview }).contains {
+      $0 is WuiSafeAreaClipView
+    }
+  }
+
+  /// Places `content` at `frame` inside `host`, enforcing the chrome rule: a
+  /// view that manages the safe area is placed directly so its scroll
+  /// surfaces reach the titlebar and toolbar, while anything else is hosted
+  /// in a `WuiSafeAreaClipView` so layer-backed paint cannot enter the
+  /// window's chrome region. Content inside a scroll view is never wrapped —
+  /// it scrolls beneath the pocket, which is the scroll surface's own affair
+  /// — nor is content already masked by an ancestor clip.
+  @MainActor
+  func wuiPlacedContent(_ content: PlatformView, at frame: CGRect, in host: PlatformView) {
+    guard !wuiHandlesSafeArea(content),
+      host.enclosingScrollView == nil,
+      !wuiInsideSafeAreaClip(host),
+      let safeRect = wuiWindowSafeAreaRect(in: host)
+    else {
+      if let clip = content.superview as? WuiSafeAreaClipView {
+        // The content is placed directly again; its wrapper leaves the tree.
+        var order = host.subviews
+        if let index = order.firstIndex(of: clip) { order[index] = content }
+        host.addSubview(content)
+        host.subviews = order
+      }
+      content.frame = frame
+      return
+    }
+    let clip = wuiClipWrapper(for: content, in: host)
+    clip.frame = safeRect
+    content.frame = frame.offsetBy(dx: -safeRect.minX, dy: -safeRect.minY)
+  }
+#endif

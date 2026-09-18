@@ -46,3 +46,88 @@ struct ScrollContentPlacementTests {
     #expect(placement.scrollExtent == CGSize(width: 1200, height: 900))
   }
 }
+
+/// What a scroll answers a measurement proposal on each axis.
+///
+/// A specified axis is filled with exactly what was offered. An unspecified
+/// axis — `nil`, asking for the ideal, or `0`, asking for the minimum —
+/// answers `0` on the scroll axis, which has no intrinsic extent to report,
+/// and the content's own ideal on the cross axis. That cross-axis answer is
+/// the ideal width a macOS window centres its page column on and the minimum
+/// extent a minimum-size query keeps visible.
+struct ScrollMinSizeTests {
+  private let content = CGSize(width: 320, height: 480)
+
+  private func measure(_: WaterUI.WuiProposalSize) -> CGSize { content }
+
+  @Test func verticalScrollAnswersContentWidthAndZeroHeightWhenUnspecified() {
+    for proposal in [WaterUI.WuiProposalSize(), WaterUI.WuiProposalSize(width: 0, height: 0)] {
+      let size = scrollMinSize(
+        axis: WuiAxis_Vertical, proposal: proposal, measureContent: measure)
+      #expect(size == CGSize(width: 320, height: 0))
+    }
+  }
+
+  @Test func verticalScrollKeepsContentWidthUnderMinimumHeightQuery() {
+    let size = scrollMinSize(
+      axis: WuiAxis_Vertical, proposal: WaterUI.WuiProposalSize(width: nil, height: 0),
+      measureContent: measure)
+    #expect(size == CGSize(width: 320, height: 0))
+  }
+
+  @Test func verticalScrollFillsSpecifiedAxesOnly() {
+    #expect(
+      scrollMinSize(
+        axis: WuiAxis_Vertical, proposal: WaterUI.WuiProposalSize(width: nil, height: 600),
+        measureContent: measure) == CGSize(width: 320, height: 600))
+    #expect(
+      scrollMinSize(
+        axis: WuiAxis_Vertical, proposal: WaterUI.WuiProposalSize(width: 400, height: nil),
+        measureContent: measure) == CGSize(width: 400, height: 0))
+    #expect(
+      scrollMinSize(
+        axis: WuiAxis_Vertical, proposal: WaterUI.WuiProposalSize(width: 400, height: 600),
+        measureContent: measure) == CGSize(width: 400, height: 600))
+  }
+
+  @Test func horizontalScrollAnswersZeroWidthAndContentHeightWhenUnspecified() {
+    for proposal in [WaterUI.WuiProposalSize(), WaterUI.WuiProposalSize(width: 0, height: 0)] {
+      let size = scrollMinSize(
+        axis: WuiAxis_Horizontal, proposal: proposal, measureContent: measure)
+      #expect(size == CGSize(width: 0, height: 480))
+    }
+  }
+
+  @Test func horizontalScrollFillsSpecifiedAxesOnly() {
+    #expect(
+      scrollMinSize(
+        axis: WuiAxis_Horizontal, proposal: WaterUI.WuiProposalSize(width: nil, height: 600),
+        measureContent: measure) == CGSize(width: 0, height: 600))
+    #expect(
+      scrollMinSize(
+        axis: WuiAxis_Horizontal, proposal: WaterUI.WuiProposalSize(width: 400, height: nil),
+        measureContent: measure) == CGSize(width: 400, height: 480))
+  }
+
+  @Test func bidirectionalScrollCompressesOnBothAxes() {
+    #expect(
+      scrollMinSize(
+        axis: WuiAxis_All, proposal: WaterUI.WuiProposalSize(), measureContent: measure)
+      == .zero)
+    #expect(
+      scrollMinSize(
+        axis: WuiAxis_All, proposal: WaterUI.WuiProposalSize(width: nil, height: 600),
+        measureContent: measure) == CGSize(width: 0, height: 600))
+    #expect(
+      scrollMinSize(
+        axis: WuiAxis_All, proposal: WaterUI.WuiProposalSize(width: 400, height: 600),
+        measureContent: measure) == CGSize(width: 400, height: 600))
+  }
+
+  @Test func nonFiniteContentIdealAnswersZero() {
+    let size = scrollMinSize(
+      axis: WuiAxis_Vertical, proposal: WaterUI.WuiProposalSize(),
+      measureContent: { _ in CGSize(width: CGFloat.infinity, height: CGFloat.infinity) })
+    #expect(size == .zero)
+  }
+}

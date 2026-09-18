@@ -566,32 +566,15 @@ final class WuiNavigationView: PlatformView, WuiComponent {
     /// With the bar in the window toolbar there is nothing to draw here; the
     /// toolbar's height reaches this view as its top safe-area inset when the
     /// window supplies full-size content, and is zero when the view already
-    /// sits below the titlebar.
+    /// sits below the titlebar. Content that manages the safe area — a scroll
+    /// surface or a split, which hands the inset to its own columns — takes
+    /// the full height so the surface reaches `y0` beneath the toolbar;
+    /// anything else stays inside it, clipped to it. Horizontally the content
+    /// answers `wuiPageColumnFrame`: a greedy page fills, a hugging one is
+    /// centred at its ideal width.
     private func layoutContentBelowWindowChrome() {
-      let topInset = directlyHostsSplitView ? 0 : safeAreaInsets.top
-      contentView.frame = CGRect(
-        x: 0,
-        y: topInset,
-        width: bounds.width,
-        height: max(bounds.height - topInset, 0)
-      )
-    }
-
-    /// Whether the content is the split view itself, reached through
-    /// `WuiAnyView` wrappers only.
-    ///
-    /// The split hands the window's top inset to its own columns — that is what
-    /// lets the sidebar run the window's full height — so this view must not
-    /// consume the inset first. Content that wraps the split in anything else
-    /// (padding, say) has asked for a laid-out box and keeps the inset.
-    private var directlyHostsSplitView: Bool {
-      var node: NSView? = contentView
-      while let current = node {
-        if current is WuiNavigationSplitView { return true }
-        guard current is WuiAnyView else { return false }
-        node = current.subviews.first
-      }
-      return false
+      wuiPlacedContent(
+        contentView, at: wuiPageColumnFrame(of: contentView, in: self), in: self)
     }
 
     private func layoutAppKitBar() {
@@ -675,12 +658,16 @@ final class WuiNavigationView: PlatformView, WuiComponent {
       borderView.frame = CGRect(
         x: 0, y: barHeight - hairline, width: bounds.width, height: hairline)
 
-      contentView.frame = CGRect(
-        x: 0,
-        y: barHeight,
-        width: bounds.width,
-        height: max(bounds.height - barHeight, 0)
-      )
+      // The content sits below the in-content bar vertically; horizontally it
+      // answers the same page-column rule the window-chrome path applies.
+      wuiPlacedContent(
+        contentView,
+        at: wuiPageColumnFrame(
+          of: contentView, in: self,
+          vertical: CGRect(
+            x: 0, y: barHeight,
+            width: bounds.width, height: max(bounds.height - barHeight, 0))),
+        in: self)
     }
 
     private func measuredHeaderHeight() -> CGFloat {

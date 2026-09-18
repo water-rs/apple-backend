@@ -1343,12 +1343,15 @@ public final class WuiRootContext {
 
       // With a toolbar the window supplies full-size content, so the toolbar's
       // height reaches this view as its top safe-area inset. The root lays
-      // itself out against it (`wuiContentFrame`): a leaf is placed below the
-      // toolbar, and a stack or chrome container takes the whole view and
-      // insets its own content, extending the scroll surfaces and chrome
-      // that touch its edges, so the insets are applied natively and no
-      // layer pads itself again — the same rule the iOS root applies.
-      context.rootView.frame = wuiContentFrame(of: context.rootView, in: self)
+      // itself out against it (`wuiPageColumnFrame`): a leaf is placed below
+      // the toolbar, a stack or chrome container takes the whole view and
+      // insets its own content, and a hugging page is centred at its ideal
+      // width — SwiftUI's `PlatformContainer` — while a greedy one fills,
+      // so the insets are applied natively and no layer pads itself again —
+      // the same rule the iOS root applies.
+      wuiPlacedContent(
+        context.rootView, at: wuiPageColumnFrame(of: context.rootView, in: self),
+        in: self)
       context.rootView.needsLayout = true
       context.rootView.layoutSubtreeIfNeeded()
     }
