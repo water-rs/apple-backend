@@ -488,6 +488,19 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       return dequeueSectionChrome(text: label, kind: .header)
     }
 
+    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+      // SwiftUI's list is a UICollectionView compositional list layout, which
+      // reserves a 35pt header region above a label-less section. A plain
+      // `.insetGrouped` UITableView only leaves ~17.7pt above the first
+      // section, so the first card sat ~17pt higher than the reference.
+      // Sections past the first already total 35pt from the default
+      // header+footer spacing; only the leading one needs the space.
+      if section == 0 && sectionGroups[section].label == nil {
+        return 35
+      }
+      return UITableView.automaticDimension
+    }
+
     func tableView(_ tableView: UITableView, viewForFooterInSection section: Int) -> UIView? {
       guard let footer = sectionGroups[section].footer else { return nil }
       return dequeueSectionChrome(text: footer, kind: .footer)

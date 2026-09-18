@@ -244,3 +244,13 @@ class WuiColor {
     }
   }
 #endif
+
+extension WuiResolvedColor {
+  func toPlatformColor(allowHdr: Bool = true) -> PlatformColor {
+    #if canImport(UIKit)
+      return toUIColor(allowHdr: allowHdr)
+    #elseif canImport(AppKit)
+      return toNSColor(allowHdr: allowHdr)
+    #endif
+  }
+}
