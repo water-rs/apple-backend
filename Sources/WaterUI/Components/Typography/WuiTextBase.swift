@@ -239,33 +239,7 @@ class WuiTextBase: PlatformView {
     // on 3x displays (~2px per line of stack drift).
     let bounding = measuredText.boundingRect(
       with: constraintSize, options: [.usesLineFragmentOrigin], context: nil)
-    #if canImport(UIKit)
-      // Width comes from the label itself: UILabel snug-wraps — offered a
-      // wrap width it lays out the fewest lines, then draws the tightest
-      // break that keeps them, which is the answer SwiftUI Text gives.
-      // `boundingRect` instead reports the widest line of the greedy break
-      // at the proposal, so the view can come out wider than the text it
-      // renders and center the block off. `textRect(forBounds:)` answers
-      // the same snug geometry the label draws — as a pure query, which is
-      // what measuring here requires: an intrinsic-size read through
-      // `preferredMaxLayoutWidth`/`invalidateIntrinsicContentSize` mutates
-      // the label mid-measure, and every invalidation re-arms layout until
-      // the run loop never reaches first paint.
-      let measuredWidth: CGFloat
-      if wrapWidth.isFinite {
-        measuredWidth = label.textRect(
-          forBounds: CGRect(origin: .zero, size: constraintSize),
-          limitedToNumberOfLines: lineLimit
-        ).width
-      } else {
-        // No wrap width was proposed, so nothing wraps and the bounding
-        // rect already reports the unwrapped line.
-        measuredWidth = bounding.width
-      }
-    #else
-      let measuredWidth = bounding.width
-    #endif
-    let width = (measuredWidth * scale).rounded(.up) / scale
+    let width = (bounding.width * scale).rounded(.up) / scale
     let height = (bounding.height * scale).rounded(.up) / scale
     let size = CGSize(width: max(width, 0.0), height: max(height, 0.0))
 
