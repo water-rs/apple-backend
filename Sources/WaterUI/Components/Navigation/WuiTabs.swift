@@ -1,4 +1,5 @@
 import CWaterUI
+import OSLog
 
 #if canImport(UIKit)
   import UIKit
@@ -192,6 +193,21 @@ final class WuiTabs: PlatformView, WuiComponent {
     override func didMoveToWindow() {
       super.didMoveToWindow()
       wuiSyncControllerHierarchy(of: tabController)
+      // E2EDIAG (temporary): what the tab bar couples to once the page settled.
+      DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+        guard let self else { return }
+        let sel = self.tabController.selectedViewController
+        let bottom = sel?.contentScrollView(for: .bottom)
+        var scrolls: [String] = []
+        func walk(_ v: UIView) {
+          if let s = v as? UIScrollView {
+            scrolls.append("\(type(of: v)) frame=\(s.frame) adjusted=\(s.adjustedContentInset) offset=\(s.contentOffset) bottomEdge=\(String(describing: s.bottomEdgeEffect)) topEdge=\(String(describing: s.topEdgeEffect))")
+          }
+          for c in v.subviews { walk(c) }
+        }
+        if let w = self.window { walk(w) }
+        Logger.waterui.warning("E2EDIAG tabs selected=\(String(describing: sel.map { type(of: $0) })) children=\(sel?.children.map { String(describing: type(of: $0)) } ?? []) bottomScroll=\(String(describing: bottom)) tabBar=\(String(describing: self.tabController.tabBar.frame)) accessory=\(String(describing: self.tabController.bottomAccessory?.contentView.superview?.frame)) scrolls=\(scrolls)")
+      }
     }
   #endif
 
