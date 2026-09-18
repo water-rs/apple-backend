@@ -855,12 +855,12 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
 
     /// Publishes this stack's chrome to the window toolbar.
     ///
-    /// The items go through `NSToolbarItem` rather than titlebar accessory
-    /// views, which is what gives them the system's own appearance — the glass
-    /// capsule around a toolbar button, the search field's presentation, the
-    /// spacing between items. A window has one toolbar, so the stack claims it
-    /// while it is on screen and gives it back when it leaves; see
-    /// `WuiWindowToolbar`.
+    /// The items go through `NSToolbarItem`, which is what gives them the
+    /// system's own appearance — the glass capsule around a toolbar button and
+    /// the spacing between items — while the search field takes the titlebar
+    /// accessory row SwiftUI's `.searchable` uses. A window has one toolbar,
+    /// so the stack claims it while it is on screen and gives it back when it
+    /// leaves; see `WuiWindowToolbar`.
     private func updateTitlebarState() {
       guard let windowToolbar, chromeIsActive else { return }
 
