@@ -249,7 +249,10 @@
       searchAccessory = nil
       searchCoordinator = nil
 
-      guard let search = content.search else { return }
+      guard let search = content.search else {
+        chargeSearchRowHeight(0)
+        return
+      }
       let accessory = NSTitlebarAccessoryViewController()
       accessory.layoutAttribute = .bottom
       let container = NSView()
@@ -261,14 +264,46 @@
         field.centerYAnchor.constraint(equalTo: container.centerYAnchor),
         field.widthAnchor.constraint(equalTo: container.widthAnchor, multiplier: 0.41),
         field.heightAnchor.constraint(equalToConstant: 28),
-        container.heightAnchor.constraint(equalToConstant: 38),
+        container.heightAnchor.constraint(equalToConstant: Self.searchRowHeight),
       ])
       accessory.view = container
+      // The titlebar gives the row the height of the frame it is handed at
+      // insert; the height constraint alone is not consulted and the row
+      // settles a couple of points short. Assigning the view resets that
+      // frame, so it is written after the assignment.
+      accessory.view.frame = NSRect(
+        x: 0, y: 0, width: window?.frame.width ?? 0, height: Self.searchRowHeight)
       window?.addTitlebarAccessoryViewController(accessory)
       let coordinator = WuiNavigationSearchCoordinator(search: search)
       coordinator.attach(searchField: field)
       searchCoordinator = coordinator
       searchAccessory = accessory
+      chargeSearchRowHeight(Self.searchRowHeight)
+    }
+
+    /// The search row's height, measured off the SwiftUI window's accessory.
+    private static let searchRowHeight: CGFloat = 38
+
+    /// The row height currently charged to the window's frame.
+    private var chargedSearchRowHeight: CGFloat = 0
+
+    /// Spends or returns the search row's height in the window's frame.
+    ///
+    /// The row is chrome, so SwiftUI spends it from the window's height, not
+    /// the content's: its `.fullSizeContentView` collapse runs after the
+    /// accessory exists, and the reference window ends up exactly the row's
+    /// height shorter than a toolbar-only one. Here the flag is already in
+    /// place when the search arrives — an accessory added afterwards eats
+    /// content instead — so the frame absorbs the row directly.
+    private func chargeSearchRowHeight(_ height: CGFloat) {
+      guard let window else { return }
+      let delta = height - chargedSearchRowHeight
+      guard delta != 0 else { return }
+      chargedSearchRowHeight = height
+      guard window.styleMask.contains(.fullSizeContentView) else { return }
+      var frame = window.frame
+      frame.size.height -= delta
+      window.setFrame(frame, display: true)
     }
 
     /// The toolbar's items, in order.
