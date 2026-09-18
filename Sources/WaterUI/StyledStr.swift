@@ -149,6 +149,46 @@ struct WuiStyledChunk {
     foreground: PlatformColor?,
     background: WuiResolvedColor?
   ) -> NSAttributedString {
+    NSAttributedString.wui(
+      text.toString(),
+      font: resolvedFont,
+      foreground: foreground,
+      background: background,
+      decorations: WuiTextDecorations(
+        underline: style.underline,
+        strikethrough: style.strikethrough,
+        italic: style.italic
+      )
+    )
+  }
+
+  mutating func intoInner() -> CWaterUI.WuiStyledChunk {
+    CWaterUI.WuiStyledChunk(
+      text: text.intoInner(),
+      style: style.intoInner()
+    )
+  }
+}
+
+/// The inline decorations a text run carries on top of its resolved font.
+struct WuiTextDecorations {
+  var underline = false
+  var strikethrough = false
+  var italic = false
+}
+
+extension NSAttributedString {
+  /// The attributed form every WaterUI text leaf renders through — styled
+  /// chunks and plain strings alike — so the theme's line pitch, letter
+  /// spacing, hyphenation and break strategy apply to all of them.
+  @MainActor
+  static func wui(
+    _ string: String,
+    font resolvedFont: WuiResolvedFontValue,
+    foreground: PlatformColor?,
+    background: WuiResolvedColor?,
+    decorations: WuiTextDecorations = WuiTextDecorations()
+  ) -> NSAttributedString {
     let font = resolvedFont.toPlatformFont()
     var attributes: [NSAttributedString.Key: Any] = [.font: font]
 
@@ -164,11 +204,11 @@ struct WuiStyledChunk {
       #endif
     }
 
-    if style.underline {
+    if decorations.underline {
       attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
     }
 
-    if style.strikethrough {
+    if decorations.strikethrough {
       attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
     }
 
@@ -207,7 +247,7 @@ struct WuiStyledChunk {
     attributes[.paragraphStyle] = paragraphStyle
 
     var finalFont = font
-    if style.italic {
+    if decorations.italic {
       #if canImport(UIKit)
         if let descriptor = font.fontDescriptor.withSymbolicTraits(.traitItalic) {
           finalFont = UIFont(descriptor: descriptor, size: font.pointSize)
@@ -219,14 +259,7 @@ struct WuiStyledChunk {
       attributes[.font] = finalFont
     }
 
-    return NSAttributedString(string: text.toString(), attributes: attributes)
-  }
-
-  mutating func intoInner() -> CWaterUI.WuiStyledChunk {
-    CWaterUI.WuiStyledChunk(
-      text: text.intoInner(),
-      style: style.intoInner()
-    )
+    return NSAttributedString(string: string, attributes: attributes)
   }
 }
 

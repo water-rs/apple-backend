@@ -513,6 +513,12 @@ final class WuiButton: PlatformView, WuiComponent {
     var labelContentView: WuiAnyView? {
       labelView as? WuiAnyView
     }
+
+    /// Whether the button draws without a bezel — the borderless and link
+    /// styles — so chrome presenting it as a toolbar item keeps it bare too.
+    var isBorderless: Bool {
+      style == WuiButtonStyle_Borderless || style == WuiButtonStyle_Link
+    }
   #endif
 
   #if canImport(AppKit)

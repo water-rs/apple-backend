@@ -100,6 +100,14 @@ final class WuiPicker: PlatformView, WuiComponent {
     private let radioStack = NSStackView()
     private var popupItems: [Int32: NSMenuItem] = [:]
     private var radioButtons: [Int32: NSButton] = [:]
+    /// The picker's visible name, leading the control the way SwiftUI's
+    /// `Picker("Name", …)` shows it on the Mac. `nil` when the label is
+    /// declared hidden; iOS shows no picker label outside a form, so the
+    /// label there is spoken only.
+    private let labelView: WuiAnyView?
+    /// Keeps the label on the first radio row rather than the group's middle.
+    private var radioLabelAlignment: NSLayoutConstraint?
+    private let labelSpacing: CGFloat = 8
   #endif
 
   private var items: [PickerItemNode] { collection.ordered }
@@ -131,6 +139,15 @@ final class WuiPicker: PlatformView, WuiComponent {
     self.source = WuiAnyViews(items)
     self.selectionBinding = selection
     self.style = style
+    #if canImport(AppKit)
+      guard let labelContent = label.view else {
+        fatalError("WuiPicker label has no view")
+      }
+      self.labelView =
+        label.display_mode == WuiLabelDisplayMode_Hidden
+        ? nil
+        : WuiAnyView(anyview: labelContent, env: env)
+    #endif
     super.init(frame: .zero)
 
     configureSubviews()
@@ -179,6 +196,9 @@ final class WuiPicker: PlatformView, WuiComponent {
       setAccessibilityElement(true)
       setAccessibilityLabel(label)
       toolTip = label
+      // The control speaks its name itself; the visible label is chrome.
+      labelView?.setAccessibilityElement(false)
+      labelView?.setAccessibilityChildren([])
     #endif
   }
 
@@ -204,11 +224,34 @@ final class WuiPicker: PlatformView, WuiComponent {
       popupButton.target = self
       popupButton.action = #selector(popupChanged)
       radioStack.orientation = .vertical
-      radioStack.spacing = 8
+      // SwiftUI's `.radioGroup` stacks its rows flush left, 22pt apart with
+      // the regular control size (measured against the picker twin).
+      radioStack.alignment = .leading
+      radioStack.spacing = 6
     #endif
 
     activeControl.translatesAutoresizingMaskIntoConstraints = false
     addSubview(activeControl)
+    #if canImport(AppKit)
+      if let labelView {
+        labelView.translatesAutoresizingMaskIntoConstraints = false
+        labelView.setContentCompressionResistancePriority(.required, for: .horizontal)
+        labelView.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        addSubview(labelView)
+        NSLayoutConstraint.activate([
+          labelView.leadingAnchor.constraint(equalTo: leadingAnchor),
+          activeControl.leadingAnchor.constraint(
+            equalTo: labelView.trailingAnchor, constant: labelSpacing),
+          activeControl.trailingAnchor.constraint(equalTo: trailingAnchor),
+          activeControl.topAnchor.constraint(equalTo: topAnchor),
+          activeControl.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+        if style != .radio {
+          labelView.centerYAnchor.constraint(equalTo: activeControl.centerYAnchor).isActive = true
+        }
+        return
+      }
+    #endif
     NSLayoutConstraint.activate([
       activeControl.leadingAnchor.constraint(equalTo: leadingAnchor),
       activeControl.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -410,6 +453,14 @@ final class WuiPicker: PlatformView, WuiComponent {
         button.title = item.text
         radioStack.addArrangedSubview(button)
       }
+      // SwiftUI sits a radio group's label on its first row.
+      radioLabelAlignment?.isActive = false
+      radioLabelAlignment = nil
+      if let labelView, let first = radioStack.arrangedSubviews.first {
+        let alignment = labelView.centerYAnchor.constraint(equalTo: first.centerYAnchor)
+        alignment.isActive = true
+        radioLabelAlignment = alignment
+      }
     }
   #endif
 
@@ -462,14 +513,23 @@ final class WuiPicker: PlatformView, WuiComponent {
           height: wheel.intrinsicContentSize.height)
       }
     #elseif canImport(AppKit)
-      switch style {
-      case .automatic, .menu:
-        popupButton.intrinsicContentSize
-      case .segmented:
-        segmentedControl.intrinsicContentSize
-      case .radio:
-        radioStack.fittingSize
-      }
+      let control =
+        switch style {
+        case .automatic, .menu:
+          popupButton.intrinsicContentSize
+        case .segmented:
+          segmentedControl.intrinsicContentSize
+        case .radio:
+          radioStack.fittingSize
+        }
+      guard let labelView else { return control }
+      // Natively hosted: the label is measured under a fully unspecified
+      // proposal, so that is the offer its own layout pass receives.
+      let labelSize = labelView.sizeThatFits(WuiProposalSize())
+      labelView.setPlacementProposal(WuiProposalSize())
+      return CGSize(
+        width: labelSize.width + labelSpacing + control.width,
+        height: max(labelSize.height, control.height))
     #endif
   }
 

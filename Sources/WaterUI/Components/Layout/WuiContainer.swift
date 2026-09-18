@@ -430,7 +430,7 @@ final class WuiContainer: PlatformView, WuiComponent {
       // that lays out on the frame change already holds its selected
       // proposal, and a proposal change alone still marks it for relayout.
       child.setPlacementProposal(placement.proposal)
-      child.frame = frame
+      child.frame = pixelAligned(frame)
     }
   }
 
