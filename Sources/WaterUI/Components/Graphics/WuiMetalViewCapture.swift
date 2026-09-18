@@ -552,6 +552,20 @@ final class WuiMetalViewCapture: @unchecked Sendable {
   /// and concatenating onto the existing transform keeps any transform the view
   /// already carries.
   ///
+  /// The scaled position is folded into the transform rather than written to
+  /// `layer.position`, so the only property this touches is one the host's
+  /// layout never writes; with `position` fixed at `p`, the layer's rendered
+  /// anchor lands at `p` instead of `p·scale`, so the transform additionally
+  /// translates by `p·(scale−1)`.
+  ///
+  /// Assigning the layer to the `CARenderer` removed it from its superlayer,
+  /// which leaves the host layer needing layout. That layout has to run before
+  /// the transform goes on: a UIKit host re-applies `contentView.frame` there,
+  /// and a frame written under a scale transform shrinks the bounds by that
+  /// scale — measured on iOS, a 3× capture then rendered only the top-left
+  /// third of the subtree, blown up to fill the texture. The pending layout is
+  /// flushed first, while the transform is still the view's own.
+  ///
   /// The mutation is restored before this call returns, so no Core Animation
   /// commit ever sees the capture geometry — the same contract the surrounding
   /// `isHidden` dance relies on.
@@ -561,6 +575,7 @@ final class WuiMetalViewCapture: @unchecked Sendable {
     geometry: CaptureGeometry,
     _ body: () -> T
   ) -> T {
+    CATransaction.flush()
     let savedTransform = layer.transform
     let savedPosition = layer.position
 
@@ -568,20 +583,21 @@ final class WuiMetalViewCapture: @unchecked Sendable {
     CATransaction.setDisableActions(true)
     layer.transform = CATransform3DConcat(
       savedTransform,
-      CATransform3DMakeScale(geometry.scaleX, geometry.scaleY, 1)
-    )
-    layer.position = CGPoint(
-      x: savedPosition.x * geometry.scaleX,
-      y: savedPosition.y * geometry.scaleY
+      CATransform3DConcat(
+        CATransform3DMakeScale(geometry.scaleX, geometry.scaleY, 1),
+        CATransform3DMakeTranslation(
+          savedPosition.x * (geometry.scaleX - 1),
+          savedPosition.y * (geometry.scaleY - 1),
+          0
+        )
+      )
     )
     CATransaction.commit()
     CATransaction.flush()
-
     defer {
       CATransaction.begin()
       CATransaction.setDisableActions(true)
       layer.transform = savedTransform
-      layer.position = savedPosition
       CATransaction.commit()
       CATransaction.flush()
     }

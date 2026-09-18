@@ -212,7 +212,8 @@ final class WuiTabs: PlatformView, WuiComponent {
       uiTabs = tabs.map(Self.makeUITab)
       tabController.tabs = uiTabs
       if let bottomAccessory {
-        tabController.bottomAccessory = UITabAccessory(contentView: bottomAccessory)
+        tabController.bottomAccessory = UITabAccessory(
+          contentView: WuiTabAccessoryContent(bottomAccessory))
       }
       // The view is attached by `wuiSyncControllerHierarchy` at window time,
       // after the controller has a parent — see that helper for why the order
@@ -696,3 +697,55 @@ final class WuiTabs: PlatformView, WuiComponent {
 /// Tabs project into the platform's own tab container, which owns its bar and
 /// content insets; the window hands it the full bounds.
 extension WuiTabs: WuiSafeAreaManaging {}
+
+#if canImport(UIKit)
+  /// Hosts the bottom accessory's authored content in the capsule UIKit sizes.
+  ///
+  /// The accessory's content view is stretched to the capsule — the full bar
+  /// width when the tab bar is expanded, the slot beside it when the bar is
+  /// minimized. SwiftUI places `tabViewBottomAccessory` content at its ideal
+  /// size, centred in that capsule; a `WuiAnyView` placed directly would
+  /// hand the whole capsule to its content and a hugging stack would then
+  /// sit at the leading edge. The content fills only the axes it stretches
+  /// along.
+  private final class WuiTabAccessoryContent: UIView {
+    private let content: WuiAnyView
+
+    init(_ content: WuiAnyView) {
+      self.content = content
+      super.init(frame: .zero)
+      content.translatesAutoresizingMaskIntoConstraints = true
+      addSubview(content)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+      fatalError("init(coder:) has not been implemented")
+    }
+
+    override var intrinsicContentSize: CGSize {
+      content.sizeThatFits(WuiProposalSize())
+    }
+
+    override func layoutSubviews() {
+      super.layoutSubviews()
+      let ideal = content.sizeThatFits(
+        WuiProposalSize(width: Float(bounds.width), height: Float(bounds.height)))
+      let fillsWidth: Bool
+      let fillsHeight: Bool
+      // The capsule is a horizontal slot: its main axis is the width.
+      switch content.stretchAxis {
+      case .none: (fillsWidth, fillsHeight) = (false, false)
+      case .horizontal, .mainAxis: (fillsWidth, fillsHeight) = (true, false)
+      case .vertical, .crossAxis: (fillsWidth, fillsHeight) = (false, true)
+      case .both: (fillsWidth, fillsHeight) = (true, true)
+      }
+      let width = fillsWidth ? bounds.width : min(ideal.width, bounds.width)
+      let height = fillsHeight ? bounds.height : min(ideal.height, bounds.height)
+      content.frame = pixelAligned(
+        CGRect(
+          x: (bounds.width - width) / 2, y: (bounds.height - height) / 2,
+          width: width, height: height))
+    }
+  }
+#endif
