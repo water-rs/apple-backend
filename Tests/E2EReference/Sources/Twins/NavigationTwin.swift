@@ -1,7 +1,8 @@
 // Twin of examples/navigation: four toolbar tabs, the Inbox pane on screen —
-// a NavigationStack with a large title, a search field, an Edit leading item
-// and a Compose primary action, over a list of message rows. Only the settled
-// first screen is rendered, so routes and actions are inert.
+// a NavigationStack with a large title, an unread-count subtitle, a search
+// field, an Edit leading item, a Compose primary action, a Mark All Read
+// bottom-bar item and a status item, over a list of message rows. Only the
+// settled first screen is rendered, so routes and actions are inert.
 //
 // Material icons translate to their closest SF Symbols: inbox → tray,
 // image_album → photo.on.rectangle, view_gallery → square.grid.2x2,
@@ -144,6 +145,7 @@ struct NavigationTwin: View {
         }
       }
       .navigationTitle("Inbox")
+      .navigationSubtitle("\(unreadCount) unread")
       .searchable(text: $query, prompt: "Search mail")
       .toolbar {
         ToolbarItem(placement: .navigation) {
@@ -154,6 +156,19 @@ struct NavigationTwin: View {
           Button {} label: {
             Label("Compose", systemImage: "square.and.pencil")
           }
+        }
+        // The bottom toolbar is an iOS construct; on the Mac the example's
+        // bottom-bar item has no slot to land in and is not shown.
+        #if os(iOS)
+          ToolbarItem(placement: .bottomBar) {
+            Button("Mark All Read") {}
+              .buttonStyle(.plain)
+          }
+        #endif
+        ToolbarItem(placement: .status) {
+          Text("\(unreadCount) unread")
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
       }
       .navigationDestination(for: Int.self) { _ in
