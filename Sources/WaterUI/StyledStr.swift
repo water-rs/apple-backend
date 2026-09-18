@@ -188,6 +188,12 @@ struct WuiStyledChunk {
     #if canImport(UIKit)
       paragraphStyle.hyphenationFactor = .leastNormalMagnitude
     #endif
+    // Platform text views lay out with the standard break-strategy set,
+    // which pushes a line's last word down to keep a single-word orphan
+    // off the closing line. A paragraph style built from scratch defaults
+    // to no strategy, so attaching one without it would lose that orphan
+    // control and wrap greedily where UILabel and SwiftUI do not.
+    paragraphStyle.lineBreakStrategy = .standard
     // A resolved line height is the face's line pitch — line box plus
     // leading. The platform font we can rebuild carries no leading, so the
     // pitch is expressed as `lineSpacing` over the rebuilt face's natural

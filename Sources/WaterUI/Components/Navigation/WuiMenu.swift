@@ -137,8 +137,8 @@ final class WuiMenu: PlatformView, WuiComponent {
         button.trailingAnchor.constraint(equalTo: trailingAnchor),
         button.topAnchor.constraint(equalTo: topAnchor),
         button.bottomAnchor.constraint(equalTo: bottomAnchor),
-        labelView.topAnchor.constraint(equalTo: button.topAnchor, constant: 4),
-        labelView.bottomAnchor.constraint(equalTo: button.bottomAnchor, constant: -4),
+        labelView.topAnchor.constraint(equalTo: button.topAnchor),
+        labelView.bottomAnchor.constraint(equalTo: button.bottomAnchor),
       ])
       labelView.isUserInteractionEnabled = false
       // SwiftUI's Menu renders a plain accent-tinted label, not a filled
@@ -146,8 +146,8 @@ final class WuiMenu: PlatformView, WuiComponent {
       button.configuration = .plain()
       button.showsMenuAsPrimaryAction = true
       NSLayoutConstraint.activate([
-        labelView.leadingAnchor.constraint(equalTo: button.leadingAnchor, constant: 8),
-        labelView.trailingAnchor.constraint(equalTo: button.trailingAnchor, constant: -8),
+        labelView.leadingAnchor.constraint(equalTo: button.leadingAnchor),
+        labelView.trailingAnchor.constraint(equalTo: button.trailingAnchor),
       ])
     #elseif canImport(AppKit)
       popUp.translatesAutoresizingMaskIntoConstraints = false
@@ -216,15 +216,15 @@ final class WuiMenu: PlatformView, WuiComponent {
   private var selectedProposal: WuiProposalSize?
 
   private var labelPaddings: (horizontal: CGFloat, vertical: CGFloat) {
-    let verticalPadding: CGFloat = 8
     #if canImport(UIKit)
-      let horizontalPadding: CGFloat = 16
+      // SwiftUI's iOS menu trigger is the bare label — the view reports the
+      // label's own size and the label fills it edge to edge.
+      return (0, 0)
     #elseif canImport(AppKit)
       // The pull-down face's title area: 12 pt leading plus 36 pt for the
-      // chevron.
-      let horizontalPadding: CGFloat = 48
+      // chevron, and 4 pt of vertical air.
+      return (48, 8)
     #endif
-    return (horizontalPadding, verticalPadding)
   }
 
   /// The offer the embedded label is measured under — the menu's own
