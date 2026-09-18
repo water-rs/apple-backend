@@ -32,8 +32,15 @@ final class WuiFixedContainer: PlatformView, WuiComponent {
     wuiLayout.stretchAxis(childAxes: childViews.map { $0.stretchAxis })
   }
 
+  /// `stretchAxis` answered against caller-supplied child axes — the macOS
+  /// page-column question re-asks the layout with scroll-transparent axes, so
+  /// a scroll of hugging content does not make the page greedy.
+  func stretchAxis(childAxes: [WuiStretchAxis]) -> WuiStretchAxis {
+    wuiLayout.stretchAxis(childAxes: childAxes)
+  }
+
   private var wuiLayout: WuiLayout
-  private var childViews: [WuiAnyView]
+  private(set) var childViews: [WuiAnyView]
   private var cachedSubViews: CachedSubViewArray?
   private let bridge = NativeLayoutBridge()
 
@@ -208,7 +215,13 @@ final class WuiFixedContainer: PlatformView, WuiComponent {
       // that lays out on the frame change already holds its selected
       // proposal, and a proposal change alone still marks it for relayout.
       child.setPlacementProposal(placement.proposal)
-      child.frame = frame
+      #if canImport(UIKit)
+        child.frame = frame
+      #elseif canImport(AppKit)
+        // A non-safe-area child inside a full-bounds container is clip-wrapped
+        // so its paint cannot enter the window's chrome region.
+        wuiPlacedContent(child, at: frame, in: self)
+      #endif
     }
   }
 
@@ -238,6 +251,13 @@ final class WuiFixedContainer: PlatformView, WuiComponent {
 
   func setChildren(_ newChildren: [WuiAnyView]) {
     for child in childViews {
+      #if canImport(AppKit)
+        // A clip-wrapped child leaves with its wrapper.
+        if let clip = child.superview as? WuiSafeAreaClipView {
+          clip.removeFromSuperview()
+          continue
+        }
+      #endif
       child.removeFromSuperview()
     }
 

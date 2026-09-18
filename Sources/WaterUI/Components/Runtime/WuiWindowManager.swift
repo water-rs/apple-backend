@@ -444,9 +444,10 @@ func installWindowManager(env: OpaquePointer, services: WuiNativeServices) {
   ///
   /// With a toolbar the window supplies full-size content, so the toolbar's
   /// height reaches the container as its top safe-area inset. The content
-  /// lays itself out against it (`wuiContentFrame`): a leaf is placed below
-  /// the toolbar, and a stack or chrome container takes the whole window and
-  /// insets its own content, as the iOS root does.
+  /// lays itself out against it (`wuiPageColumnFrame`): a leaf is placed
+  /// below the toolbar, a stack or chrome container takes the whole window
+  /// and insets its own content, and a hugging page is centred at its ideal
+  /// width while a greedy one fills, as the iOS root does.
   @MainActor
   private final class WindowContentContainer: NSView {
     private let content: NSView
@@ -471,7 +472,7 @@ func installWindowManager(env: OpaquePointer, services: WuiNativeServices) {
 
     override func layout() {
       super.layout()
-      content.frame = wuiContentFrame(of: content, in: self)
+      wuiPlacedContent(content, at: wuiPageColumnFrame(of: content, in: self), in: self)
     }
   }
 

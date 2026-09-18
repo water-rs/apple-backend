@@ -1026,16 +1026,16 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
       super.layout()
       // The pages' chrome lives in the window toolbar, whose height reaches
       // this view as its top safe-area inset when the window supplies
-      // full-size content; the pages themselves sit below it.
-      let topInset = safeAreaInsets.top
-      let pageFrame = CGRect(
-        x: 0,
-        y: topInset,
-        width: bounds.width,
-        height: max(bounds.height - topInset, 0)
-      )
+      // full-size content. A page that manages the safe area — a scroll
+      // surface or a stack holding one — takes the full height so the
+      // surface reaches `y0` beneath the toolbar and its pocket covers the
+      // chrome, while anything else sits inside the safe area, clipped to
+      // it. Horizontally the pages answer `wuiPageColumnFrame`: a greedy
+      // page fills, a hugging one is centred at its ideal width, the way
+      // SwiftUI's `PlatformContainer` frames the same page.
       for entry in viewStack {
-        entry.view.frame = pageFrame
+        wuiPlacedContent(
+          entry.view, at: wuiPageColumnFrame(of: entry.view, in: self), in: self)
       }
     }
   #endif

@@ -529,13 +529,15 @@ final class WuiTabs: PlatformView, WuiComponent {
         splitController.view.frame = bounds
         if let host = sidebarContentHost {
           for tab in tabs {
-            tab.content.frame = host.bounds
+            wuiPlacedContent(
+              tab.content, at: wuiPageColumnFrame(of: tab.content, in: host), in: host)
           }
         }
         return
       }
       for tab in tabs {
-        tab.content.frame = bounds
+        wuiPlacedContent(
+          tab.content, at: wuiPageColumnFrame(of: tab.content, in: self), in: self)
       }
     }
 
@@ -561,11 +563,13 @@ final class WuiTabs: PlatformView, WuiComponent {
     private func showTab(at index: Int) {
       guard tabs.indices.contains(index) else { return }
       visibleIndex = index
-      let contentBounds = sidebarContentHost?.bounds ?? bounds
+      let contentHost = sidebarContentHost ?? self
       for (position, tab) in tabs.enumerated() {
         let isVisible = position == index
         tab.content.isHidden = !isVisible
-        tab.content.frame = contentBounds
+        wuiPlacedContent(
+          tab.content, at: wuiPageColumnFrame(of: tab.content, in: contentHost),
+          in: contentHost)
         // Every tab's content stays in the window whether or not it is showing,
         // so hiding it does not move it out of the window and nothing tells the
         // navigation stack inside it to stop contributing chrome. Say so

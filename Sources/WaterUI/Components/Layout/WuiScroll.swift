@@ -2,8 +2,10 @@
 // Scroll view component - merged UIKit and AppKit implementation
 //
 // # Layout Behavior
-// ScrollView fills available space when proposed, but reports 0 size when unconstrained.
-// This prevents ScrollView from forcing window/parent expansion.
+// ScrollView fills available space when proposed, but reports 0 on the scroll
+// axis when unconstrained. This prevents ScrollView from forcing window/parent
+// expansion along the axis it scrolls on, while the cross axis reports the
+// content's own ideal.
 // Content can exceed scroll view bounds and becomes scrollable along the axis.
 // On the non-scrolling axis the content keeps its measured extent and is
 // centred in the viewport, clipped on both edges when it is wider.
@@ -11,7 +13,8 @@
 //
 // // INTERNAL: Layout Contract for Backend Implementers
 // // - stretchAxis: .both (greedy, fills all available space)
-// // - sizeThatFits: Returns proposed size, or 0 if unspecified (no preferred size)
+// // - sizeThatFits: Fills a specified axis; an unspecified (nil or 0) axis
+// //   answers 0 on the scroll axis and the content's ideal on the cross axis.
 // // - Priority: 0 (default)
 
 import CWaterUI
@@ -22,58 +25,63 @@ import CWaterUI
   import AppKit
 #endif
 
-private func isMinSizeQuery(_ proposal: WuiProposalSize) -> (width: Bool, height: Bool) {
-  let widthMin = proposal.width.map { $0 == 0 } ?? false
-  let heightMin = proposal.height.map { $0 == 0 } ?? false
-  return (widthMin, heightMin)
-}
-
-private func proposalDimension(_ value: Float?) -> CGFloat {
-  value.map(CGFloat.init) ?? 0
-}
-
-private func scrollMinSize(
+/// A scroll view's answer to a measurement proposal.
+///
+/// Each axis answers independently:
+///
+/// - A specified dimension (a positive offer, including an unbounded one) is
+///   filled: the scroll answers exactly what it was offered.
+/// - An unspecified dimension — `nil`, asking for the ideal, or `0`, asking
+///   for the minimum — answers `0` on the scroll axis. A scroll view has no
+///   intrinsic extent along the axis it scrolls on: proposing nothing there
+///   must not inflate the parent.
+/// - An unspecified dimension on the cross axis answers the content's own
+///   size, measured under a fully unspecified proposal — the ideal width a
+///   macOS window centres its page column on, and the minimum extent a
+///   minimum-size query wants to keep visible.
+///
+/// So `(nil, nil)` answers `(content.width, 0)` for a vertical scroll,
+/// `(0, content.height)` for a horizontal one, and `(0, 0)` for a
+/// bidirectional one; `(nil, 600)` answers `(content.width, 600)` for a
+/// vertical scroll and `(0, 600)` for a horizontal one.
+func scrollMinSize(
   axis: WuiAxis,
   proposal: WuiProposalSize,
   measureContent: (WuiProposalSize) -> CGSize
 ) -> CGSize {
-  let minQuery = isMinSizeQuery(proposal)
-  if !minQuery.width && !minQuery.height {
-    return CGSize(
-      width: proposalDimension(proposal.width),
-      height: proposalDimension(proposal.height)
-    )
-  }
-
-  let intrinsic = measureContent(WuiProposalSize(width: nil, height: nil))
-  let intrinsicWidth = intrinsic.width.isFinite ? max(0, intrinsic.width) : 0
-  let intrinsicHeight = intrinsic.height.isFinite ? max(0, intrinsic.height) : 0
-
-  let proposedWidth = proposalDimension(proposal.width)
-  let proposedHeight = proposalDimension(proposal.height)
-
-  switch axis {
-  case WuiAxis_Vertical:
-    // Vertical scroll can compress on Y, but X should preserve content minimum.
-    return CGSize(
-      width: minQuery.width ? intrinsicWidth : proposedWidth,
-      height: minQuery.height ? 0 : proposedHeight
-    )
-  case WuiAxis_Horizontal:
-    // Horizontal scroll can compress on X, but Y should preserve content minimum.
-    return CGSize(
-      width: minQuery.width ? 0 : proposedWidth,
-      height: minQuery.height ? intrinsicHeight : proposedHeight
-    )
-  case WuiAxis_All:
-    // Bi-directional scroll allows compression on both axes.
-    return CGSize(
-      width: minQuery.width ? 0 : proposedWidth,
-      height: minQuery.height ? 0 : proposedHeight
-    )
-  default:
+  guard axis == WuiAxis_Vertical || axis == WuiAxis_Horizontal || axis == WuiAxis_All else {
     fatalError("Unsupported WaterUI scroll axis: \(axis.rawValue)")
   }
+
+  let unspecifiedWidth = proposal.width.map { $0 <= 0 } ?? true
+  let unspecifiedHeight = proposal.height.map { $0 <= 0 } ?? true
+  let scrollsHorizontally = axis == WuiAxis_Horizontal || axis == WuiAxis_All
+  let scrollsVertically = axis == WuiAxis_Vertical || axis == WuiAxis_All
+
+  // Content is measured only when an unspecified cross axis asks for its
+  // ideal — a specified proposal never consults it.
+  let needsIntrinsic =
+    (unspecifiedWidth && !scrollsHorizontally)
+    || (unspecifiedHeight && !scrollsVertically)
+  let intrinsic =
+    needsIntrinsic ? measureContent(WuiProposalSize(width: nil, height: nil)) : .zero
+
+  func answer(_ proposed: Float?, unspecified: Bool, scrollAxis: Bool, intrinsic: CGFloat)
+    -> CGFloat
+  {
+    guard unspecified else { return CGFloat(proposed ?? 0) }
+    guard !scrollAxis else { return 0 }
+    return intrinsic.isFinite ? max(0, intrinsic) : 0
+  }
+
+  return CGSize(
+    width: answer(
+      proposal.width, unspecified: unspecifiedWidth,
+      scrollAxis: scrollsHorizontally, intrinsic: intrinsic.width),
+    height: answer(
+      proposal.height, unspecified: unspecifiedHeight,
+      scrollAxis: scrollsVertically, intrinsic: intrinsic.height)
+  )
 }
 
 /// Where a scroll frames its content once the content has answered the
@@ -284,7 +292,7 @@ func scrollContentPlacement(
 
     private(set) var stretchAxis: WuiStretchAxis
 
-    private var contentHostView: WuiAnyView
+    private(set) var contentHostView: WuiAnyView
     private let axis: WuiAxis
     private var targetXObservation: WuiComputedObservation<Float>?
     private var targetYObservation: WuiComputedObservation<Float>?
