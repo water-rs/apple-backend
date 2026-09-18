@@ -46,3 +46,44 @@ struct ScrollContentPlacementTests {
     #expect(placement.scrollExtent == CGSize(width: 1200, height: 900))
   }
 }
+
+/// What a scroll answers a min-size (zero) query on its cross axis.
+///
+/// The content is asked the same question — zero on that axis, unspecified
+/// on the scroll axis — so the answer is how narrow the content can wrap,
+/// never its unwrapped ideal: the `reply` example's detail pane is a
+/// paragraph 2 200 pt wide unwrapped and 48 pt at its narrowest wrap, and a
+/// stack that trusted the former as the pane's floor pushed the whole row off
+/// the window.
+struct ScrollMinSizeTests {
+  /// A paragraph: unwrapped when unspecified, wrapped to the offer, and at
+  /// its longest word for a zero offer.
+  private func paragraph(_ proposal: WaterUI.WuiProposalSize) -> CGSize {
+    switch proposal.width {
+    case .none: CGSize(width: 2200, height: 20)
+    case .some(0): CGSize(width: 48, height: 900)
+    case .some(let width): CGSize(width: CGFloat(width), height: 20 * ceil(2200 / CGFloat(width)))
+    }
+  }
+
+  @Test func verticalScrollMinWidthIsTheContentsNarrowestWrap() {
+    let size = scrollMinSize(
+      axis: WuiAxis_Vertical, proposal: WaterUI.WuiProposalSize(width: 0, height: 600), measureContent: paragraph)
+    #expect(size == CGSize(width: 48, height: 600))
+  }
+
+  @Test func verticalScrollMinHeightIsZero() {
+    let size = scrollMinSize(
+      axis: WuiAxis_Vertical, proposal: WaterUI.WuiProposalSize(width: 402, height: 0), measureContent: paragraph)
+    #expect(size == CGSize(width: 402, height: 0))
+  }
+
+  @Test func horizontalScrollMinHeightIsTheContentsMinimum() {
+    let size = scrollMinSize(
+      axis: WuiAxis_Horizontal, proposal: WaterUI.WuiProposalSize(width: 402, height: 0)
+    ) { proposal in
+      proposal.height == 0 ? CGSize(width: 900, height: 32) : CGSize(width: 900, height: 200)
+    }
+    #expect(size == CGSize(width: 402, height: 32))
+  }
+}
