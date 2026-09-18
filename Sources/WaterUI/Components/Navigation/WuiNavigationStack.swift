@@ -84,6 +84,7 @@ final class WuiNavigationDestinationState {
     private var hiddenWatcher: WatcherGuard?
     private var titleWatcher: WatcherGuard?
     private var subtitleWatcher: WatcherGuard?
+    private var toolbarItemWatchers: [WatcherGuard] = []
     private var backgroundObservation: WuiComputedObservation<WuiResolvedColor>?
     private var foregroundObservation: WuiComputedObservation<WuiResolvedColor>?
     private var accentObservation: WuiComputedObservation<WuiResolvedColor>?
@@ -225,16 +226,16 @@ final class WuiNavigationDestinationState {
       }
 
       let semanticItems = barState?.toolbar ?? []
-      let leadingViews = semanticItems.filter {
+      let leadingItems = semanticItems.filter {
         $0.placement == WuiNavigationToolbarPlacement_Cancellation
           || $0.placement == WuiNavigationToolbarPlacement_TopBarLeading
-      }.map(\.view)
-      let trailingViews = semanticItems.filter {
+      }
+      let trailingItems = semanticItems.filter {
         $0.placement == WuiNavigationToolbarPlacement_PrimaryAction
           || $0.placement == WuiNavigationToolbarPlacement_SecondaryAction
           || $0.placement == WuiNavigationToolbarPlacement_Confirmation
           || $0.placement == WuiNavigationToolbarPlacement_TopBarTrailing
-      }.map(\.view)
+      }
       let principal = semanticItems.first {
         $0.placement == WuiNavigationToolbarPlacement_Principal
       }?.view
@@ -250,25 +251,16 @@ final class WuiNavigationDestinationState {
         navigationItem.titleView = principal
       }
 
-      if !leadingViews.isEmpty {
-        for view in leadingViews {
-          view.removeFromSuperview()
-          view.setPlacementProposal(WuiProposalSize())
-          view.frame = CGRect(origin: .zero, size: view.sizeThatFits(WuiProposalSize()))
-        }
+      toolbarItemWatchers = []
+      if !leadingItems.isEmpty {
         navigationItem.leftItemsSupplementBackButton = true
-        navigationItem.leftBarButtonItems = leadingViews.map(UIBarButtonItem.init(customView:))
+        navigationItem.leftBarButtonItems = leadingItems.map(barButtonItem(for:))
       } else {
         navigationItem.leftBarButtonItems = nil
       }
 
-      if !trailingViews.isEmpty {
-        for view in trailingViews {
-          view.removeFromSuperview()
-          view.setPlacementProposal(WuiProposalSize())
-          view.frame = CGRect(origin: .zero, size: view.sizeThatFits(WuiProposalSize()))
-        }
-        navigationItem.rightBarButtonItems = trailingViews.map(UIBarButtonItem.init(customView:))
+      if !trailingItems.isEmpty {
+        navigationItem.rightBarButtonItems = trailingItems.map(barButtonItem(for:))
       } else {
         navigationItem.rightBarButtonItems = nil
       }
@@ -289,13 +281,67 @@ final class WuiNavigationDestinationState {
       if let search = barState?.search {
         let (controller, coordinator) = makeNavigationSearchController(search)
         navigationItem.searchController = controller
-        navigationItem.hidesSearchBarWhenScrolling = false
+        // `hidesSearchBarWhenScrolling` stays at its default: SwiftUI's
+        // `.searchable` keeps it too, so pinning the drawer open would hold
+        // the bar expanded where the platform rests it collapsed — beside a
+        // subtitle it minimises to the thin pill.
         searchCoordinator = coordinator
         definesPresentationContext = true
       } else {
         navigationItem.searchController = nil
         searchCoordinator = nil
       }
+    }
+
+    /// The bar item for one semantic toolbar item.
+    ///
+    /// An item whose icon the declaration carries is drawn by the bar itself —
+    /// the icon alone inside the bar's capsule, the way SwiftUI's `Label`
+    /// renders in a toolbar — while the item's name becomes the accessibility
+    /// label. Hosting the label's view would draw the name beside the icon,
+    /// which no iOS bar does. An item with no icon is a text action like
+    /// "Edit" and keeps its own view.
+    private func barButtonItem(for item: WuiNavigationToolbarItem) -> UIBarButtonItem {
+      let button = item.view.firstButton
+      let invoke = UIAction { [weak button] _ in
+        button?.invokeAction()
+      }
+
+      if let systemIconName = item.systemIconName {
+        let barItem = UIBarButtonItem(
+          image: UIImage(systemName: systemIconName), primaryAction: invoke)
+        installBarItemLabel(item.title, on: barItem)
+        return barItem
+      }
+
+      if let iconView = item.iconView {
+        let barItem = UIBarButtonItem(primaryAction: invoke)
+        installBarItemLabel(item.title, on: barItem)
+        // Not a symbol the platform knows — a packaged icon set, say — so the
+        // icon is a view rendered into an image, as the tab bar does it.
+        Task { @MainActor [weak barItem] in
+          barItem?.image = await renderViewToTemplateImage(iconView, maxSide: 24)
+        }
+        return barItem
+      }
+
+      let view = item.view
+      view.removeFromSuperview()
+      view.setPlacementProposal(WuiProposalSize())
+      view.frame = CGRect(origin: .zero, size: view.sizeThatFits(WuiProposalSize()))
+      return UIBarButtonItem(customView: view)
+    }
+
+    /// The bar item's accessibility label follows its semantic title's signal
+    /// rather than freezing at first render, the way the bar's title does.
+    private func installBarItemLabel(
+      _ title: WuiComputed<WuiStyledStr>?, on item: UIBarButtonItem
+    ) {
+      guard let title else { return }
+      item.accessibilityLabel = title.value.toString()
+      toolbarItemWatchers.append(title.watch { [weak item] value, _ in
+        item?.accessibilityLabel = value.toString()
+      })
     }
 
     private func startWatching() {
@@ -814,12 +860,12 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
 
     /// Publishes this stack's chrome to the window toolbar.
     ///
-    /// The items go through `NSToolbarItem` rather than titlebar accessory
-    /// views, which is what gives them the system's own appearance — the glass
-    /// capsule around a toolbar button, the search field's presentation, the
-    /// spacing between items. A window has one toolbar, so the stack claims it
-    /// while it is on screen and gives it back when it leaves; see
-    /// `WuiWindowToolbar`.
+    /// The items go through `NSToolbarItem`, which is what gives them the
+    /// system's own appearance — the glass capsule around a toolbar button and
+    /// the spacing between items — while the search field takes the titlebar
+    /// accessory row SwiftUI's `.searchable` uses. A window has one toolbar,
+    /// so the stack claims it while it is on screen and gives it back when it
+    /// leaves; see `WuiWindowToolbar`.
     private func updateTitlebarState() {
       guard let windowToolbar, chromeIsActive else { return }
 
@@ -848,6 +894,7 @@ final class WuiNavigationStack: PlatformView, WuiComponent {
       }
       content.leading = topBarState?.leadingItem
       content.trailing = topBarState?.trailingItem
+      content.status = topBarState?.statusItem
       content.search = topBarState?.search
       windowToolbar.setContent(content, owner: self)
     }
@@ -1047,6 +1094,20 @@ private func navigationRestorationIdentifier(depth: Int) -> String {
 }
 
 #if canImport(UIKit)
+  extension UIView {
+    /// The first `WaterUI` button in this subtree.
+    ///
+    /// Chrome built from a label's semantics rather than its view still has to
+    /// run the action the caller attached to that label's button.
+    var firstButton: WuiButton? {
+      if let button = self as? WuiButton { return button }
+      for subview in subviews {
+        if let button = subview.firstButton { return button }
+      }
+      return nil
+    }
+  }
+
   extension WuiNavigationStack: UINavigationControllerDelegate, UIGestureRecognizerDelegate {
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
       guard gestureRecognizer === navController.interactivePopGestureRecognizer else {

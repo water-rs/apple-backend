@@ -19,9 +19,12 @@
   ///
   /// Going through `NSToolbarItem` rather than a titlebar accessory view is what
   /// gives the chrome its system appearance — the Liquid Glass capsule around a
-  /// toolbar button, the search field's own presentation, the spacing between
-  /// items and the overflow menu when the window is too narrow. None of that can
-  /// be painted by hand, and a bare view in a titlebar accessory gets none of it.
+  /// toolbar button, the spacing between items and the overflow menu when the
+  /// window is too narrow. None of that can be painted by hand, and a bare view
+  /// in a titlebar accessory gets none of it. The one exception is the search
+  /// field: SwiftUI's `.searchable` draws it in a titlebar accessory row below
+  /// the toolbar, so the search field lives there rather than between the
+  /// items.
   @MainActor
   final class WuiWindowToolbar: NSObject, NSToolbarDelegate {
     /// The toolbar contribution of one navigation stack.
@@ -31,6 +34,10 @@
       var titleView: NSView?
       var leading: WuiNavigationToolbarItem?
       var trailing: WuiNavigationToolbarItem?
+      /// The page's status item: informational, and centred on a Mac the way
+      /// SwiftUI centres a `.status` toolbar item, beside the tabs when there
+      /// are any.
+      var status: WuiNavigationToolbarItem?
       var search: WuiNavigationSearch?
       var onBack: (() -> Void)?
     }
@@ -40,7 +47,11 @@
     private static let leadingIdentifier = NSToolbarItem.Identifier("dev.waterui.navigation.leading")
     private static let trailingIdentifier = NSToolbarItem.Identifier(
       "dev.waterui.navigation.trailing")
-    private static let searchIdentifier = NSToolbarItem.Identifier("dev.waterui.navigation.search")
+    private static let statusIdentifier = NSToolbarItem.Identifier(
+      "dev.waterui.navigation.status")
+    private static let searchIdentifier = NSToolbarItem.Identifier(
+      "dev.waterui.navigation.search")
+
     private static let tabsIdentifier = NSToolbarItem.Identifier("dev.waterui.tabs")
     private static let windowItemPrefix = "dev.waterui.window.item."
     private static let sidebarSeparatorIdentifier = NSToolbarItem.Identifier(
@@ -83,7 +94,12 @@
     private weak var contentOwner: AnyObject?
     private var content = Content()
     private var searchCoordinator: WuiNavigationSearchCoordinator?
-    private var searchField: NSSearchField?
+    /// The accessory row showing the search field, while a search is offered.
+    private var searchAccessory: NSTitlebarAccessoryViewController?
+    /// Identity of the binding the accessory's coordinator is attached to, so a
+    /// rebuild that offers the same search keeps the field — and its focus —
+    /// instead of swapping it for a fresh one.
+    private var searchSource: ObjectIdentifier?
     /// What each action item runs, keyed by the item it belongs to.
     private var itemActions: [NSToolbarItem.Identifier: () -> Void] = [:]
 
@@ -202,7 +218,6 @@
       contentOwner = nil
       content = Content()
       searchCoordinator = nil
-      searchField = nil
       rebuild()
     }
 
@@ -216,8 +231,92 @@
       for (index, identifier) in currentIdentifiers.enumerated() {
         toolbar.insertItem(withItemIdentifier: identifier, at: index)
       }
-      toolbar.centeredItemIdentifiers = tabsView == nil ? [] : [Self.tabsIdentifier]
+      toolbar.centeredItemIdentifiers = centeredIdentifiers
       window?.title = content.title ?? window?.title ?? ""
+      updateSearchAccessory()
+    }
+
+    /// Keeps the search accessory row in step with the offered content.
+    ///
+    /// SwiftUI's `.searchable` on a Mac window is not a toolbar item: it is a
+    /// titlebar accessory row pinned to the bottom of the titlebar, 38 pt tall
+    /// with the field centered at 41% of the window's width — measured off the
+    /// SwiftUI reference window. Only a *different* search replaces the row;
+    /// rebuilding for the same one leaves it alone, so typing into the field
+    /// never loses focus to a toolbar rebuild.
+    private func updateSearchAccessory() {
+      let source = searchIsToolbarItem ? nil : content.search.map { ObjectIdentifier($0.text) }
+      guard source != searchSource else { return }
+      searchSource = source
+
+      if let accessory = searchAccessory,
+        let index = window?.titlebarAccessoryViewControllers.firstIndex(of: accessory)
+      {
+        window?.removeTitlebarAccessoryViewController(at: index)
+      }
+      searchAccessory = nil
+      // The coordinator is the accessory's; a toolbar search item makes and
+      // keeps its own.
+      if !searchIsToolbarItem { searchCoordinator = nil }
+
+      guard let search = content.search, !searchIsToolbarItem else {
+        chargeSearchRowHeight(0)
+        return
+      }
+      let accessory = NSTitlebarAccessoryViewController()
+      accessory.layoutAttribute = .bottom
+      let container = NSView()
+      let field = NSSearchField(frame: .zero)
+      field.translatesAutoresizingMaskIntoConstraints = false
+      container.addSubview(field)
+      NSLayoutConstraint.activate([
+        field.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+        field.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+        field.widthAnchor.constraint(equalTo: container.widthAnchor, multiplier: 0.41),
+        field.heightAnchor.constraint(equalToConstant: 28),
+        container.heightAnchor.constraint(equalToConstant: Self.searchRowHeight),
+      ])
+      accessory.view = container
+      // The titlebar gives the row the height of the frame it is handed at
+      // insert; the height constraint alone is not consulted and the row
+      // settles a couple of points short. Assigning the view resets that
+      // frame, so it is written after the assignment.
+      accessory.view.frame = NSRect(
+        x: 0, y: 0, width: window?.frame.width ?? 0, height: Self.searchRowHeight)
+      window?.addTitlebarAccessoryViewController(accessory)
+      let coordinator = WuiNavigationSearchCoordinator(search: search)
+      // SwiftUI's accessory-row field keeps the regular control size and
+      // 28pt height but sets its text and prompt in the small system font
+      // (11pt, read off the twin's field), not the 13pt body face.
+      coordinator.attach(searchField: field, font: .small)
+      searchCoordinator = coordinator
+      searchAccessory = accessory
+      chargeSearchRowHeight(Self.searchRowHeight)
+    }
+
+    /// The search row's height, measured off the SwiftUI window's accessory.
+    private static let searchRowHeight: CGFloat = 38
+
+    /// The row height currently charged to the window's frame.
+    private var chargedSearchRowHeight: CGFloat = 0
+
+    /// Spends or returns the search row's height in the window's frame.
+    ///
+    /// The row is chrome, so SwiftUI spends it from the window's height, not
+    /// the content's: its `.fullSizeContentView` collapse runs after the
+    /// accessory exists, and the reference window ends up exactly the row's
+    /// height shorter than a toolbar-only one. Here the flag is already in
+    /// place when the search arrives — an accessory added afterwards eats
+    /// content instead — so the frame absorbs the row directly.
+    private func chargeSearchRowHeight(_ height: CGFloat) {
+      guard let window else { return }
+      let delta = height - chargedSearchRowHeight
+      guard delta != 0 else { return }
+      chargedSearchRowHeight = height
+      guard window.styleMask.contains(.fullSizeContentView) else { return }
+      var frame = window.frame
+      frame.size.height -= delta
+      window.setFrame(frame, display: true)
     }
 
     /// The toolbar's items, in order.
@@ -228,6 +327,16 @@
     /// whenever the page on screen contributes a different number of actions —
     /// which is not what a Mac does: the tabs stay put and the actions move
     /// around them.
+    /// The items the toolbar keeps at its centre, as one group: the tabs and
+    /// the page's status item share the slot, so the status text sits beside
+    /// the tab control rather than being pushed about by the actions.
+    private var centeredIdentifiers: Set<NSToolbarItem.Identifier> {
+      var identifiers: Set<NSToolbarItem.Identifier> = []
+      if tabsView != nil { identifiers.insert(Self.tabsIdentifier) }
+      if content.status != nil { identifiers.insert(Self.statusIdentifier) }
+      return identifiers
+    }
+
     private var currentIdentifiers: [NSToolbarItem.Identifier] {
       var identifiers: [NSToolbarItem.Identifier] = []
       if sidebarSplitViewController != nil {
@@ -242,6 +351,7 @@
       if content.leading != nil { identifiers.append(Self.leadingIdentifier) }
       if content.titleView != nil { identifiers.append(Self.titleIdentifier) }
       if tabsView != nil { identifiers.append(Self.tabsIdentifier) }
+      if content.status != nil { identifiers.append(Self.statusIdentifier) }
       identifiers.append(.flexibleSpace)
       // The window's own items sit outside the page's: the page's actions and
       // its search field stay together at the trailing edge, where the page
@@ -250,9 +360,21 @@
         identifiers.append(Self.windowItemIdentifier(index))
       }
       if content.trailing != nil { identifiers.append(Self.trailingIdentifier) }
-      if content.search != nil { identifiers.append(Self.searchIdentifier) }
+      if searchIsToolbarItem { identifiers.append(Self.searchIdentifier) }
       return identifiers
     }
+
+    /// Where the page's search field goes: beside a sidebar SwiftUI keeps
+    /// `.searchable` as a toolbar item at the detail column's trailing edge;
+    /// without one it is the titlebar accessory row `updateSearchAccessory`
+    /// manages.
+    private var searchIsToolbarItem: Bool {
+      content.search != nil && sidebarSplitViewController != nil
+    }
+
+    /// The width SwiftUI gives the search toolbar item beside a sidebar,
+    /// measured off the reference window.
+    private static let searchItemWidth: CGFloat = 261
 
     // MARK: - NSToolbarDelegate
 
@@ -278,15 +400,6 @@
         item.isNavigational = true
         item.target = self
         item.action = #selector(backInvoked)
-        return item
-
-      case Self.searchIdentifier:
-        guard let search = content.search else { return nil }
-        let item = NSSearchToolbarItem(itemIdentifier: identifier)
-        let coordinator = WuiNavigationSearchCoordinator(search: search)
-        coordinator.attach(searchField: item.searchField)
-        searchCoordinator = coordinator
-        searchField = item.searchField
         return item
 
       case .toggleSidebar:
@@ -328,6 +441,18 @@
 
       case Self.trailingIdentifier:
         return actionItem(identifier: identifier, from: content.trailing)
+
+      case Self.statusIdentifier:
+        return hostingItem(identifier: identifier, view: content.status?.view)
+
+      case Self.searchIdentifier:
+        guard let search = content.search else { return nil }
+        let item = NSSearchToolbarItem(itemIdentifier: identifier)
+        item.preferredWidthForSearchField = Self.searchItemWidth
+        let coordinator = WuiNavigationSearchCoordinator(search: search)
+        coordinator.attach(searchField: item.searchField)
+        searchCoordinator = coordinator
+        return item
 
       default:
         guard let index = Self.windowItemIndex(identifier) else { return nil }
@@ -409,7 +534,9 @@
       item.label = label
       item.paletteLabel = label
       item.toolTip = label.isEmpty ? nil : label
-      item.isBordered = true
+      // A borderless button stays bare in the toolbar, as SwiftUI keeps a
+      // `.borderless` toolbar button out of the glass capsule.
+      item.isBordered = action.view.firstButton?.isBorderless != true
       item.target = self
       item.action = #selector(actionInvoked(_:))
       // The label's own button carries the handler, so the toolbar item runs

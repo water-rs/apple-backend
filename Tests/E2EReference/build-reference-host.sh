@@ -111,6 +111,19 @@ if [[ "$PLATFORM" == "ios" ]]; then
     -c "Add :UIDeviceFamily array" \
     -c "Add :UIDeviceFamily:0 integer 1" \
     "$PLIST"
+  # The scene manifest the CLI's scaffold declares: UIKit refuses to launch an
+  # app built with the iOS 27 SDK that still creates its window from the app
+  # delegate. The delegate is named by its Objective-C name (see
+  # ReferenceHost.swift) so the manifest needs no module name.
+  /usr/libexec/PlistBuddy \
+    -c "Add :UIApplicationSceneManifest dict" \
+    -c "Add :UIApplicationSceneManifest:UIApplicationSupportsMultipleScenes bool false" \
+    -c "Add :UIApplicationSceneManifest:UISceneConfigurations dict" \
+    -c "Add :UIApplicationSceneManifest:UISceneConfigurations:UIWindowSceneSessionRoleApplication array" \
+    -c "Add :UIApplicationSceneManifest:UISceneConfigurations:UIWindowSceneSessionRoleApplication:0 dict" \
+    -c "Add :UIApplicationSceneManifest:UISceneConfigurations:UIWindowSceneSessionRoleApplication:0:UISceneConfigurationName string Default" \
+    -c "Add :UIApplicationSceneManifest:UISceneConfigurations:UIWindowSceneSessionRoleApplication:0:UISceneDelegateClassName string SceneDelegate" \
+    "$PLIST"
 fi
 
 # Ad-hoc sign so the arm64 binary is launchable on Apple Silicon.
