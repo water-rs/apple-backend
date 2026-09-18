@@ -50,12 +50,12 @@ struct LocaleTwin: View {
       Text("Language Booth").font(.system(size: 16)).fontWeight(.bold)
       HStack {
         Text("Detected Locale:")
-        Spacer()
+        Spacer(minLength: 0)
         Text(detectedLocale)
       }
       HStack {
         Text("Chosen Language:")
-        Spacer()
+        Spacer(minLength: 0)
         Picker("", selection: $selection) {
           ForEach(Self.localeOptions, id: \.1) { name, code in
             Text(name).tag(code)
@@ -82,8 +82,8 @@ struct LocaleTwin: View {
       wuiDivider()
       VStack(spacing: 10) {
         Text("Local Flavor").font(.system(size: 16)).fontWeight(.bold)
-        HStack { Spacer(); Text("Color"); Spacer() }
-        HStack { Spacer(); Text("Favorite"); Spacer() }
+        HStack { Spacer(minLength: 0); Text("Color"); Spacer(minLength: 0) }
+        HStack { Spacer(minLength: 0); Text("Favorite"); Spacer(minLength: 0) }
       }
       wuiDivider()
       VStack(spacing: 10) {
@@ -109,22 +109,22 @@ struct LocaleTwin: View {
         Text("Festival Date (2006-03-20)").font(.system(size: 16)).fontWeight(.bold)
         HStack {
           Text("Short:")
-          Spacer()
+          Spacer(minLength: 0)
           Text(festivalDate, format: .dateTime.month(.twoDigits).day(.twoDigits).year(.twoDigits))
         }
         HStack {
           Text("Long:")
-          Spacer()
+          Spacer(minLength: 0)
           Text(festivalDate, format: .dateTime.month(.wide).day().year())
         }
         HStack {
           Text("Timezone:")
-          Spacer()
+          Spacer(minLength: 0)
           Text(TimeZone.current.identifier)
         }
         HStack {
           Text("Kickoff (TZ):")
-          Spacer()
+          Spacer(minLength: 0)
           Text(kickoffString)
         }
       }
@@ -133,7 +133,7 @@ struct LocaleTwin: View {
         Text("Distance Guide").font(.system(size: 16)).fontWeight(.bold)
         HStack {
           Text("City Walk:")
-          Spacer()
+          Spacer(minLength: 0)
           Text(
             Measurement(value: 1500, unit: UnitLength.meters)
               .formatted(.measurement(width: .abbreviated, usage: .road))
@@ -141,7 +141,7 @@ struct LocaleTwin: View {
         }
         HStack {
           Text("Marathon Route:")
-          Spacer()
+          Spacer(minLength: 0)
           Text(
             Measurement(value: 42.195, unit: UnitLength.kilometers)
               .formatted(.measurement(width: .abbreviated, usage: .road))
