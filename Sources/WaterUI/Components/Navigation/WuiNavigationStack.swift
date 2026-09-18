@@ -281,7 +281,10 @@ final class WuiNavigationDestinationState {
       if let search = barState?.search {
         let (controller, coordinator) = makeNavigationSearchController(search)
         navigationItem.searchController = controller
-        navigationItem.hidesSearchBarWhenScrolling = false
+        // `hidesSearchBarWhenScrolling` stays at its default: SwiftUI's
+        // `.searchable` keeps it too, so pinning the drawer open would hold
+        // the bar expanded where the platform rests it collapsed — beside a
+        // subtitle it minimises to the thin pill.
         searchCoordinator = coordinator
         definesPresentationContext = true
       } else {
