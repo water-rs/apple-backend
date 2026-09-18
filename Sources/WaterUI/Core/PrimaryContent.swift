@@ -252,9 +252,10 @@ func wuiContentFrame(of content: PlatformView, in host: PlatformView) -> CGRect 
   /// `vertical` carries the host's already-resolved vertical placement —
   /// `wuiContentFrame` where the safe-area rule applies, a bar-relative rect
   /// under an in-content bar — so this function decides only the horizontal
-  /// answer. A non-greedy page is centred at its ideal width and may overflow
-  /// the window symmetrically, the way SwiftUI lets a wide ideal cross both
-  /// edges; a greedy page fills.
+  /// answer. A non-greedy page is centred at its ideal width, bounded by the
+  /// window: the column's width is `min(ideal, window width)`, so a page
+  /// whose ideal meets or exceeds the window fills it rather than
+  /// overflowing symmetrically; a greedy page fills.
   ///
   /// The column only forms when the host spans the window's full content
   /// width; a host inside a split column fills its own column instead.
@@ -268,10 +269,11 @@ func wuiContentFrame(of content: PlatformView, in host: PlatformView) -> CGRect 
       let ideal = (content as? any WuiComponent)?.sizeThatFits(WuiProposalSize()).width,
       ideal.isFinite, ideal > 0
     else { return vertical }
+    let width = min(ideal, host.bounds.width)
     return CGRect(
-      x: host.bounds.midX - ideal / 2,
+      x: host.bounds.midX - width / 2,
       y: vertical.minY,
-      width: ideal,
+      width: width,
       height: vertical.height
     )
   }
