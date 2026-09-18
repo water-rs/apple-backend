@@ -15,5 +15,7 @@
     "snackbar": 0.035,
     "typography-rtl": 0.015
   },
-  "ios": {}
+  "ios": {
+    "navigation": 0.09
+  }
 }

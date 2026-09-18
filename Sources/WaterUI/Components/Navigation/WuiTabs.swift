@@ -256,6 +256,26 @@ final class WuiTabs: PlatformView, WuiComponent {
       )
       control.segmentStyle = .automatic
       control.sizeToFit()
+      // SwiftUI's toolbar tab picker gives every segment the same width: the
+      // widest of the segments' natural widths — label plus 25pt, plus the
+      // 1pt divider every segment after the first carries — rounded up to
+      // the half point (measured with a probe over two to five tabs and a
+      // dozen labels; "Settings" at 50.07pt makes 75.5pt segments in front
+      // and 76.5pt behind another tab). AppKit's own fit pads each label
+      // separately, which puts every segment but the first in a different
+      // place, and adds its dividers outside `setWidth`, so a segment after
+      // the first is set one point narrower than the cell it fills.
+      let font = control.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
+      let widestSegment =
+        tabs.enumerated().map { index, tab in
+          let label = (tab.title as NSString).size(withAttributes: [.font: font]).width
+          return label + 25 + (index == 0 ? 0 : 1)
+        }.max() ?? 0
+      let segmentWidth = (widestSegment * 2).rounded(.up) / 2
+      for index in 0 ..< control.segmentCount {
+        control.setWidth(segmentWidth - (index == 0 ? 0 : 1), forSegment: index)
+      }
+      control.sizeToFit()
       tabControl = control
 
       for tab in tabs {
