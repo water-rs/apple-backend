@@ -412,6 +412,20 @@ final class WuiMetalViewCapture: @unchecked Sendable {
     prepareCaptureView(contentView)
     let layer = resolveCaptureLayer(from: contentView)
     let geometry = captureGeometry(for: targetTexture)
+    // E2E-DIAG: temporary geometry dump for the iOS filter crop investigation.
+    Logger.graphics.error(
+      """
+      E2EDIAG capture: contentView=\(type(of: self.contentView)) \
+      cbounds=\(String(describing: self.contentView.bounds)) \
+      cframe=\(String(describing: self.contentView.frame)) \
+      layer=\(type(of: layer)) lbounds=\(String(describing: layer.bounds)) \
+      lpos=\(String(describing: layer.position)) \
+      lanchor=\(String(describing: layer.anchorPoint)) \
+      ltransform=\(String(describing: layer.transform)) \
+      tex=\(targetTexture.width)x\(targetTexture.height) \
+      scale=\(geometry.scaleX)x\(geometry.scaleY)
+      """
+    )
     let snapshots = collectGpuSurfaceSnapshots(
       targetTexture: targetTexture,
       geometry: geometry
