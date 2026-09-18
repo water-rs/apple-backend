@@ -6,10 +6,12 @@ name: E2E Targeted
 # release gate reads the Nightly workflow's conclusion, and a partial run must
 # never be able to mark a commit certified. The job shape mirrors nightly's:
 # `prepare` resolves the (backend, framework, CLI) triple once and builds the
-# `water` CLI, then one job per requested platform runs the named examples
+# `water` CLI and validates the example names, then one job per requested
+# example and platform packages, launches and captures that single example
 # through the same shard script with the same artifacts (shots, logs, and —
 # with `record_baselines` — captures uploaded for manual review; nothing here
-# publishes or promotes them).
+# publishes or promotes them). The examples fan out as a matrix so a run's
+# wall clock is one example's build, not the sum of the list.
 
 on:
   workflow_dispatch:
@@ -72,6 +74,7 @@ jobs:
       waterui_sha: ${{ steps.setup.outputs.waterui_sha }}
       cli_ref: ${{ steps.setup.outputs.cli_ref }}
       cli_sha: ${{ steps.setup.outputs.cli_sha }}
+      examples: ${{ steps.examples.outputs.examples }}
     env:
       CARGO_TARGET_DIR: ${{ github.workspace }}/water-cli/target
     steps:
@@ -83,6 +86,27 @@ jobs:
           WATERUI_REF: ${{ inputs.waterui_ref }}
           WATER_CLI_REF: ${{ inputs.cli_ref }}
         run: ./.github/scripts/setup-e2e.sh
+
+      # A name discovery does not know is a typo; fail the run here, once,
+      # instead of one matrix job per platform.
+      - name: Resolve the requested examples
+        id: examples
+        env:
+          WATERUI_DIR: ${{ github.workspace }}/waterui
+          REQUESTED: ${{ inputs.examples }}
+        run: |
+          set -euo pipefail
+          known="$(./.github/scripts/discover-examples.sh "${WATERUI_DIR}" | jq -R . | jq -cs .)"
+          examples="$(jq -cn --arg s "${REQUESTED}" --argjson known "${known}" '
+            $s | split(",") | map(gsub("\\s"; "")) | map(select(length > 0)) | unique
+            | if length == 0 then error("no examples requested") else . end
+            | . as $requested
+            | ($requested - $known) as $unknown
+            | if ($unknown | length) > 0
+              then error("not runnable examples under examples/: " + ($unknown | join(", ")))
+              else $requested end')"
+          echo "examples=${examples}" >> "${GITHUB_OUTPUT}"
+          echo "Examples: ${examples}"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -105,10 +129,14 @@ jobs:
           if-no-files-found: error
 
   e2e-ios:
-    name: e2e-ios
+    name: e2e-ios-${{ matrix.example }}
     if: inputs.platforms == 'ios' || inputs.platforms == 'both'
     needs: prepare
     runs-on: macos-26
+    strategy:
+      fail-fast: false
+      matrix:
+        example: ${{ fromJson(needs.prepare.outputs.examples) }}
     env:
       # The waterui checkout pins `stable` in its rust-toolchain.toml and the
       # water CLI builds every crate under the toolchain the project selects.
@@ -175,7 +203,7 @@ jobs:
           PLATFORM: ios
           SHARD_INDEX: 0
           SHARD_TOTAL: 1
-          EXAMPLES: ${{ inputs.examples }}
+          EXAMPLES: ${{ matrix.example }}
           WATERUI_DIR: ${{ github.workspace }}/waterui
           EXAMPLE_LOG_DIR: ${{ github.workspace }}/e2e-logs
           SHOTS_DIR: ${{ github.workspace }}/e2e-shots
@@ -187,7 +215,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-shots-ios-0
+          name: e2e-shots-ios-${{ matrix.example }}
           path: e2e-shots/
           retention-days: 14
 
@@ -195,7 +223,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: startup-times-ios-0
+          name: startup-times-ios-${{ matrix.example }}
           path: |
             e2e-logs/startup-times-*.json
             e2e-logs/memory-*.json
@@ -206,7 +234,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-logs-ios-0
+          name: e2e-logs-ios-${{ matrix.example }}
           path: e2e-logs/
           retention-days: 14
 
@@ -214,15 +242,19 @@ jobs:
         if: inputs.record_baselines == true
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-baselines-ios-0
+          name: e2e-baselines-ios-${{ matrix.example }}
           path: e2e-baselines/
           retention-days: 7
 
   e2e-macos:
-    name: e2e-macos
+    name: e2e-macos-${{ matrix.example }}
     if: inputs.platforms == 'macos' || inputs.platforms == 'both'
     needs: prepare
     runs-on: macos-26
+    strategy:
+      fail-fast: false
+      matrix:
+        example: ${{ fromJson(needs.prepare.outputs.examples) }}
     env:
       # The waterui checkout pins `stable` in its rust-toolchain.toml and the
       # water CLI builds every crate under the toolchain the project selects.
@@ -267,7 +299,7 @@ jobs:
           PLATFORM: macos
           SHARD_INDEX: 0
           SHARD_TOTAL: 1
-          EXAMPLES: ${{ inputs.examples }}
+          EXAMPLES: ${{ matrix.example }}
           WATERUI_DIR: ${{ github.workspace }}/waterui
           EXAMPLE_LOG_DIR: ${{ github.workspace }}/e2e-logs
           SHOTS_DIR: ${{ github.workspace }}/e2e-shots
@@ -279,7 +311,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-shots-macos-0
+          name: e2e-shots-macos-${{ matrix.example }}
           path: e2e-shots/
           retention-days: 14
 
@@ -287,7 +319,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: startup-times-macos-0
+          name: startup-times-macos-${{ matrix.example }}
           path: |
             e2e-logs/startup-times-*.json
             e2e-logs/memory-*.json
@@ -298,7 +330,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-logs-macos-0
+          name: e2e-logs-macos-${{ matrix.example }}
           path: e2e-logs/
           retention-days: 14
 
@@ -306,6 +338,6 @@ jobs:
         if: inputs.record_baselines == true
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-baselines-macos-0
+          name: e2e-baselines-macos-${{ matrix.example }}
           path: e2e-baselines/
           retention-days: 7
