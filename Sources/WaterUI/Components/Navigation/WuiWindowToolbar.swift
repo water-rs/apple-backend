@@ -352,7 +352,12 @@
       if content.titleView != nil { identifiers.append(Self.titleIdentifier) }
       if tabsView != nil { identifiers.append(Self.tabsIdentifier) }
       if content.status != nil { identifiers.append(Self.statusIdentifier) }
-      identifiers.append(.flexibleSpace)
+      // Beside a sidebar the detail section carries no flexible space of its
+      // own: AppKit keeps the items after the tracking separator at the
+      // trailing edge and lets the search item flex, exactly as SwiftUI's
+      // toolbar does. An explicit space in that section takes its minimum
+      // width away from the search field and shifts the actions with it.
+      if sidebarSplitViewController == nil { identifiers.append(.flexibleSpace) }
       // The window's own items sit outside the page's: the page's actions and
       // its search field stay together at the trailing edge, where the page
       // that owns them is used to finding them.
@@ -372,9 +377,12 @@
       content.search != nil && sidebarSplitViewController != nil
     }
 
-    /// The width SwiftUI gives the search toolbar item beside a sidebar,
-    /// measured off the reference window.
-    private static let searchItemWidth: CGFloat = 261
+    /// The widest search field SwiftUI gives the search toolbar item beside a
+    /// sidebar. Measured off the reference window at 800, 900, 1000 and 1200pt:
+    /// the field is 232, 307, 325 and 325pt — AppKit narrows it below this
+    /// preferred width as the detail section shrinks — and the same preferred
+    /// width here reproduces every one of those.
+    private static let searchItemWidth: CGFloat = 325
 
     // MARK: - NSToolbarDelegate
 
