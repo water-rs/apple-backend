@@ -41,9 +41,16 @@ final class WuiSlider: PlatformView, WuiComponent {
   private var disabledWatcher: WatcherGuard?
   private var accessibility: WuiControlAccessibility?
 
-  // Layout constants
+  // Layout constants. A label that measures empty — hidden through
+  // `LabelDisplayMode::Hidden`, or simply absent — contributes no spacing
+  // either: SwiftUI's `Slider(...).labelsHidden()` runs its track the full
+  // width and stands 31pt tall, not 8pt in from each end and 4pt lower.
   private let verticalSpacing: CGFloat = 4.0
   private let horizontalSpacing: CGFloat = 8.0
+
+  private func spacing(_ spacing: CGFloat, beside extent: CGFloat) -> CGFloat {
+    extent > 0 ? spacing : 0
+  }
   #if canImport(UIKit)
     /// The height SwiftUI's `Slider` reports on iOS. `UISlider` draws the same
     /// track and thumb centered in a 34pt frame, so the extra 3pt is pure
@@ -53,6 +60,12 @@ final class WuiSlider: PlatformView, WuiComponent {
 
   // AutoLayout constraints (stored for dynamic updates)
   private var activeConstraints: [NSLayoutConstraint] = []
+  /// The spacing constraints whose constants follow the labels' measured
+  /// extents: the row's offset below the label, and the track's gap to the
+  /// minimum and maximum labels.
+  private var labelSpacingConstraints: [NSLayoutConstraint] = []
+  private var minLabelSpacingConstraint: NSLayoutConstraint?
+  private var maxLabelSpacingConstraint: NSLayoutConstraint?
 
   // MARK: - WuiComponent Init
 
@@ -159,15 +172,18 @@ final class WuiSlider: PlatformView, WuiComponent {
     let sliderRowHeight = max(sliderHeight, max(minLabelSize.height, maxLabelSize.height))
 
     // Intrinsic height: label height + spacing + slider row height
-    let intrinsicHeight = labelSize.height + verticalSpacing + sliderRowHeight
+    let intrinsicHeight =
+      labelSize.height + spacing(verticalSpacing, beside: labelSize.height) + sliderRowHeight
 
     // For width: report MINIMUM usable size
     // The minimum width ensures labels fit and slider track is usable (at least 50pt)
     let minSliderTrackWidth: CGFloat = 50.0
     let minWidth = max(
       labelSize.width,
-      minLabelSize.width + horizontalSpacing + minSliderTrackWidth + horizontalSpacing
+      minLabelSize.width + spacing(horizontalSpacing, beside: minLabelSize.width)
+        + minSliderTrackWidth + spacing(horizontalSpacing, beside: maxLabelSize.width)
         + maxLabelSize.width)
+    syncSpacingConstraints(label: labelSize, minLabel: minLabelSize, maxLabel: maxLabelSize)
 
     // When width is proposed, use it (but not less than minimum)
     // When None, return minimum - isStretch:true will expand it to fill remaining space
@@ -213,8 +229,10 @@ final class WuiSlider: PlatformView, WuiComponent {
     // All vertically centered relative to each other, below label
 
     // Min label: leading, below label
+    let minLabelTop = minLabelView.topAnchor.constraint(
+      equalTo: labelView.bottomAnchor, constant: verticalSpacing)
     constraints.append(contentsOf: [
-      minLabelView.topAnchor.constraint(equalTo: labelView.bottomAnchor, constant: verticalSpacing),
+      minLabelTop,
       minLabelView.leadingAnchor.constraint(equalTo: leadingAnchor),
       minLabelView.centerYAnchor.constraint(equalTo: slider.centerYAnchor),
     ])
@@ -226,13 +244,16 @@ final class WuiSlider: PlatformView, WuiComponent {
     ])
 
     // Slider: between minLabel and maxLabel, below label
-    constraints.append(contentsOf: [
-      slider.topAnchor.constraint(equalTo: labelView.bottomAnchor, constant: verticalSpacing),
-      slider.leadingAnchor.constraint(
-        equalTo: minLabelView.trailingAnchor, constant: horizontalSpacing),
-      slider.trailingAnchor.constraint(
-        equalTo: maxLabelView.leadingAnchor, constant: -horizontalSpacing),
-    ])
+    let sliderTop = slider.topAnchor.constraint(
+      equalTo: labelView.bottomAnchor, constant: verticalSpacing)
+    let minLabelSpacing = slider.leadingAnchor.constraint(
+      equalTo: minLabelView.trailingAnchor, constant: horizontalSpacing)
+    let maxLabelSpacing = slider.trailingAnchor.constraint(
+      equalTo: maxLabelView.leadingAnchor, constant: -horizontalSpacing)
+    constraints.append(contentsOf: [sliderTop, minLabelSpacing, maxLabelSpacing])
+    labelSpacingConstraints = [minLabelTop, sliderTop]
+    minLabelSpacingConstraint = minLabelSpacing
+    maxLabelSpacingConstraint = maxLabelSpacing
     #if canImport(UIKit)
       constraints.append(
         slider.heightAnchor.constraint(equalToConstant: Self.trackHeight))
@@ -240,6 +261,26 @@ final class WuiSlider: PlatformView, WuiComponent {
 
     NSLayoutConstraint.activate(constraints)
     activeConstraints = constraints
+    syncSpacingConstraints(
+      label: labelView.sizeThatFits(WuiProposalSize()),
+      minLabel: minLabelView.sizeThatFits(WuiProposalSize()),
+      maxLabel: maxLabelView.sizeThatFits(WuiProposalSize()))
+  }
+
+  /// Collapses the spacing beside each label that measures empty.
+  private func syncSpacingConstraints(label: CGSize, minLabel: CGSize, maxLabel: CGSize) {
+    let labelSpacing = spacing(verticalSpacing, beside: label.height)
+    for constraint in labelSpacingConstraints where constraint.constant != labelSpacing {
+      constraint.constant = labelSpacing
+    }
+    let minSpacing = spacing(horizontalSpacing, beside: minLabel.width)
+    if let constraint = minLabelSpacingConstraint, constraint.constant != minSpacing {
+      constraint.constant = minSpacing
+    }
+    let maxSpacing = -spacing(horizontalSpacing, beside: maxLabel.width)
+    if let constraint = maxLabelSpacingConstraint, constraint.constant != maxSpacing {
+      constraint.constant = maxSpacing
+    }
   }
 
   // MARK: - Update Methods
