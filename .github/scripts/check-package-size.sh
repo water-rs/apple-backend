@@ -305,16 +305,27 @@ fi
 # Compare each measured metric against its baseline. Growth of more than
 # size_tolerance (a percentage, e.g. 0.05) fails the job; shrinkage only gets
 # reported — refreshing the baseline downward is a deliberate record run.
+# Renders a growth in hundredths of a percent as "+1.25%" / "-67.87%"; bash
+# integer division would print a shrink as "-67.-87%".
+format_growth() {
+    local growth_x100="$1" sign="+"
+    if (( growth_x100 < 0 )); then
+        sign="-"
+        growth_x100=$(( -growth_x100 ))
+    fi
+    printf '%s%d.%02d%%' "${sign}" $(( growth_x100 / 100 )) $(( growth_x100 % 100 ))
+}
+
 check_metric() {
     local platform="$1" metric="$2" measured="$3" baseline="$4"
     local limit growth_x100
     limit=$(( baseline + baseline / 20 ))
     growth_x100=$(( (measured - baseline) * 10000 / baseline ))
     if (( measured > limit )); then
-        echo "::error::${platform} ${metric} grew $((growth_x100 / 100)).$((growth_x100 % 100))% (${baseline} -> ${measured} bytes, allowed +5%)"
+        echo "::error::${platform} ${metric} grew $(format_growth "${growth_x100}") (${baseline} -> ${measured} bytes, allowed +5%)"
         return 1
     fi
-    echo "${platform} ${metric}: ${measured} bytes (baseline ${baseline}, $((growth_x100 / 100)).$((growth_x100 % 100))%)"
+    echo "${platform} ${metric}: ${measured} bytes (baseline ${baseline}, $(format_growth "${growth_x100}"))"
 }
 
 # The byte gate applies to hello-world only — it is the stable minimal-app
@@ -332,7 +343,7 @@ while read -r label platform app_bytes executable_bytes _app_path; do
 done < "${work_dir}/measured.txt"
 
 if [[ "${failed}" == 1 ]]; then
-    echo "Package size regression detected — refresh the baseline only if the growth is intended (record_baselines run)."
+    echo "Release metrics failed: see the errors above — a package that did not build, a runtime measurement that did not complete, or a size past its baseline (refresh the baseline only if the growth is intended: record_baselines run)."
     exit 1
 fi
 echo "Package sizes within baseline."
