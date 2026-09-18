@@ -3,7 +3,6 @@
     "animation": 0.03,
     "drag_drop": 0.15,
     "edge_layout": 0.02,
-    "edge_text": 0.03,
     "form": 0.02,
     "gesture": 0.02,
     "hover": 0.02,
