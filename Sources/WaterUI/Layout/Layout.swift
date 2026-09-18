@@ -445,25 +445,42 @@ extension CGRect {
 }
 
 extension PlatformView {
-  /// `frame`, in this view's coordinate space, with every edge on the backing
-  /// pixel grid — each edge to its nearest pixel, as SwiftUI places a view.
+  /// `frame`, in this view's coordinate space, on the backing pixel grid: the
+  /// origin at its nearest pixel, as SwiftUI places a view, and the size at
+  /// the pixel count the layout engine measured.
   ///
   /// The layout engine hands back fractional points: a centred leaf lands on a
-  /// quarter point whenever its measured width is an odd number of pixels. Left
+  /// half pixel whenever its measured width is an odd number of pixels. Left
   /// unaligned, AppKit and UIKit draw the leaf's text from the pixel below the
   /// fractional origin, one pixel off the position SwiftUI rounds the same
   /// frame to — and one pixel is the whole difference between a blurred
   /// parity diff and a clean one.
+  ///
+  /// The size is aligned on its own, never through the far edge: a measured
+  /// size is already a whole number of pixels (text rounds its line box up to
+  /// the grid), and rounding both edges of a half-pixel origin takes a pixel
+  /// off it half the time — under which a label that measured exactly its
+  /// text wraps its last word onto a hidden second line. A size that is off
+  /// the grid by more than floating-point noise rounds up, so a leaf is never
+  /// placed narrower than it measured.
   func pixelAligned(_ frame: CGRect) -> CGRect {
     #if canImport(AppKit)
-      return backingAlignedRect(frame, options: .alignAllEdgesNearest)
+      let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
     #else
       let scale = traitCollection.displayScale
-      let minX = (frame.minX * scale).rounded() / scale
-      let minY = (frame.minY * scale).rounded() / scale
-      let maxX = (frame.maxX * scale).rounded() / scale
-      let maxY = (frame.maxY * scale).rounded() / scale
-      return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     #endif
+    func pixels(_ points: CGFloat) -> CGFloat { points * scale }
+    func gridSize(_ points: CGFloat) -> CGFloat {
+      let raw = pixels(points)
+      let nearest = raw.rounded()
+      // 1e-3 px absorbs the noise of `points * scale` on a value that was
+      // produced by dividing a whole pixel count by the same scale.
+      return (abs(raw - nearest) < 1e-3 ? nearest : raw.rounded(.up)) / scale
+    }
+    return CGRect(
+      x: pixels(frame.minX).rounded() / scale,
+      y: pixels(frame.minY).rounded() / scale,
+      width: gridSize(frame.width),
+      height: gridSize(frame.height))
   }
 }
