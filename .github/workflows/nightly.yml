@@ -138,6 +138,12 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 120
     env:
+      # The waterui checkout pins `stable` in its rust-toolchain.toml and the
+      # water CLI builds every crate under the toolchain the project selects.
+      # This job builds under the dated nightly pinned below (the header
+      # explains why), and rustup ranks this variable above the project's
+      # file, so the pin reaches cargo through the CLI.
+      RUSTUP_TOOLCHAIN: nightly-2026-09-17
       CARGO_TARGET_DIR: ${{ github.workspace }}/waterui/target
     steps:
       - uses: actions/checkout@v4
@@ -224,6 +230,12 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 120
     env:
+      # The waterui checkout pins `stable` in its rust-toolchain.toml and the
+      # water CLI builds every crate under the toolchain the project selects.
+      # This job builds under the dated nightly pinned below (the header
+      # explains why), and rustup ranks this variable above the project's
+      # file, so the pin reaches cargo through the CLI.
+      RUSTUP_TOOLCHAIN: nightly-2026-09-17
       CARGO_TARGET_DIR: ${{ github.workspace }}/waterui/target
     steps:
       - uses: actions/checkout@v4
@@ -510,6 +522,12 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 60
     env:
+      # The waterui checkout pins `stable` in its rust-toolchain.toml and the
+      # water CLI builds every crate under the toolchain the project selects.
+      # This job builds under the dated nightly pinned below (the header
+      # explains why), and rustup ranks this variable above the project's
+      # file, so the pin reaches cargo through the CLI.
+      RUSTUP_TOOLCHAIN: nightly-2026-09-17
       # Packages the repository's own ios_test_host fixture in dev profile —
       # not one of the release examples build-ios packages — so it keeps its
       # own toolchain, cache and target dir.
@@ -687,6 +705,12 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.event.schedule == '23 5 * * 0'
     runs-on: macos-26
     env:
+      # The waterui checkout pins `stable` in its rust-toolchain.toml and the
+      # water CLI builds every crate under the toolchain the project selects.
+      # This job builds under the dated nightly pinned below (the header
+      # explains why), and rustup ranks this variable above the project's
+      # file, so the pin reaches cargo through the CLI.
+      RUSTUP_TOOLCHAIN: nightly-2026-09-17
       # Packages a generated hello-world playground rather than a discovered
       # example, so it keeps its own toolchain, cache and target dir.
       CARGO_TARGET_DIR: ${{ github.workspace }}/waterui/target
