@@ -235,14 +235,19 @@ extension NSAttributedString {
     // control and wrap greedily where UILabel and SwiftUI do not.
     paragraphStyle.lineBreakStrategy = .standard
     // A resolved line height is the face's line pitch — line box plus
-    // leading. The platform font we can rebuild carries no leading, so the
-    // pitch is expressed as `lineSpacing` over the rebuilt face's natural
-    // line pitch: mixed-script lines keep their inflated metrics, and the
-    // declared pitch lands between lines the way the face's leading does.
-    // The closing line keeps its natural line box: SwiftUI's text height is
-    // the interior pitch times the line count less one, plus one line box.
+    // leading. The platform font we can rebuild reports no leading, but the
+    // typesetter still bases each fragment on its own line height, which
+    // for the rebuilt system face already carries the hhea line gap — so
+    // the declared pitch is expressed as `lineSpacing` over that base, not
+    // `naturalLinePitch`: measuring against the leading-less metrics added
+    // the hidden gap a second time and pitched every wrapped line ~0.7pt
+    // long (body: 16.69pt where SwiftUI's is 16.0pt). Mixed-script lines
+    // keep their inflated metrics, and the closing line keeps its natural
+    // line box: SwiftUI's text height is the interior pitch times the line
+    // count less one, plus one line box.
     if resolvedFont.lineHeight > 0 {
-      paragraphStyle.lineSpacing = CGFloat(resolvedFont.lineHeight) - font.naturalLinePitch
+      paragraphStyle.lineSpacing =
+        CGFloat(resolvedFont.lineHeight) - font.typesetterLineHeight
     }
     attributes[.paragraphStyle] = paragraphStyle
 
@@ -326,10 +331,24 @@ private func fontFamilyCandidates(_ familyName: String) -> [String] {
 }
 
 extension PlatformFont {
-  /// The face's default line pitch — the distance TextKit puts between
-  /// baselines with no paragraph style: line box plus leading.
+  /// The face's declared line pitch — line box plus leading. Published to
+  /// the wire as a theme font's `lineHeight`; it is not the height the
+  /// typesetter gives a fragment, which is `typesetterLineHeight`.
   var naturalLinePitch: CGFloat {
     ascender - descender + leading
+  }
+
+  /// The height the typesetter gives a line fragment before paragraph-style
+  /// spacing — the base `lineSpacing` adds to. On macOS that is
+  /// `NSLayoutManager.defaultLineHeight(for:)`: for the rebuilt system face
+  /// it exceeds `naturalLinePitch` by the hhea line gap that `NSFont.leading`
+  /// reports as 0.
+  var typesetterLineHeight: CGFloat {
+    #if canImport(UIKit)
+      return lineHeight
+    #elseif canImport(AppKit)
+      return NSLayoutManager().defaultLineHeight(for: self)
+    #endif
   }
 }
 
