@@ -392,15 +392,6 @@ class WuiTextBase: PlatformView {
     invalidateLayout()
   }
 
-  func setFont(_ font: PlatformFont) {
-    #if canImport(UIKit)
-      label.font = font
-    #elseif canImport(AppKit)
-      textField.font = font
-    #endif
-    invalidateLayout()
-  }
-
   func invalidateLayout() {
     #if canImport(UIKit)
       label.invalidateIntrinsicContentSize()

@@ -13,6 +13,7 @@ import CWaterUI
 final class WuiPlain: WuiTextBase, WuiComponent {
   static var rawId: CWaterUI.WuiTypeId { waterui_plain_id() }
 
+  private let text: String
   private var bodyFontObservation: WuiComputedObservation<WuiResolvedFontValue>?
   private var foregroundObservation: WuiComputedObservation<WuiResolvedColor>?
 
@@ -27,11 +28,11 @@ final class WuiPlain: WuiTextBase, WuiComponent {
   // MARK: - Designated Init
 
   init(text: String, env: WuiEnvironment) {
+    self.text = text
     #if canImport(AppKit)
       super.init(initialText: text)
     #else
       super.init(frame: .zero)
-      label.text = text
     #endif
     installTheme(env)
   }
@@ -49,39 +50,34 @@ final class WuiPlain: WuiTextBase, WuiComponent {
       themeFont: WuiFontSlot_Body,
       env: env
     ) {
-      [weak self] font, _ in
-      self?.applyFont(font)
+      [weak self] _, _ in
+      self?.render()
     }
     let foreground = WuiComputedObservation(
       themeColor: WuiColorSlot_Foreground,
       env: env
-    ) { [weak self] color, _ in
-      self?.applyForeground(color)
+    ) { [weak self] _, _ in
+      self?.render()
     }
     bodyFontObservation = bodyFont
     foregroundObservation = foreground
-    applyFont(bodyFont.value)
-    applyForeground(foreground.value)
+    render()
   }
 
-  private func applyFont(_ resolved: WuiResolvedFontValue) {
-    #if canImport(UIKit)
-      let font = UIFont.systemFont(
-        ofSize: CGFloat(resolved.size), weight: resolved.weight.toUIFontWeight())
-    #elseif canImport(AppKit)
-      let font = NSFont.systemFont(
-        ofSize: CGFloat(resolved.size), weight: resolved.weight.toNSFontWeight())
-    #endif
-    setFont(font)
-    invalidateCapturedRendering()
-  }
-
-  private func applyForeground(_ color: WuiResolvedColor) {
-    #if canImport(UIKit)
-      label.textColor = color.toUIColor()
-    #elseif canImport(AppKit)
-      textField.textColor = color.toNSColor()
-    #endif
+  /// A plain string is body text in the foreground colour, rendered through
+  /// the same attributed form as styled text so the body slot's line pitch
+  /// and letter spacing reach it.
+  private func render() {
+    guard let bodyFontObservation, let foregroundObservation else {
+      fatalError("WuiPlain renders before its theme observations are installed")
+    }
+    setAttributedText(
+      NSAttributedString.wui(
+        text,
+        font: bodyFontObservation.value,
+        foreground: foregroundObservation.value.toPlatformColor(),
+        background: nil
+      ))
     invalidateCapturedRendering()
   }
 }
