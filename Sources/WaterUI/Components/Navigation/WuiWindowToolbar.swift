@@ -49,6 +49,8 @@
       "dev.waterui.navigation.trailing")
     private static let statusIdentifier = NSToolbarItem.Identifier(
       "dev.waterui.navigation.status")
+    private static let searchIdentifier = NSToolbarItem.Identifier(
+      "dev.waterui.navigation.search")
 
     private static let tabsIdentifier = NSToolbarItem.Identifier("dev.waterui.tabs")
     private static let windowItemPrefix = "dev.waterui.window.item."
@@ -243,7 +245,7 @@
     /// rebuilding for the same one leaves it alone, so typing into the field
     /// never loses focus to a toolbar rebuild.
     private func updateSearchAccessory() {
-      let source = content.search.map { ObjectIdentifier($0.text) }
+      let source = searchIsToolbarItem ? nil : content.search.map { ObjectIdentifier($0.text) }
       guard source != searchSource else { return }
       searchSource = source
 
@@ -253,9 +255,11 @@
         window?.removeTitlebarAccessoryViewController(at: index)
       }
       searchAccessory = nil
-      searchCoordinator = nil
+      // The coordinator is the accessory's; a toolbar search item makes and
+      // keeps its own.
+      if !searchIsToolbarItem { searchCoordinator = nil }
 
-      guard let search = content.search else {
+      guard let search = content.search, !searchIsToolbarItem else {
         chargeSearchRowHeight(0)
         return
       }
@@ -353,8 +357,21 @@
         identifiers.append(Self.windowItemIdentifier(index))
       }
       if content.trailing != nil { identifiers.append(Self.trailingIdentifier) }
+      if searchIsToolbarItem { identifiers.append(Self.searchIdentifier) }
       return identifiers
     }
+
+    /// Where the page's search field goes: beside a sidebar SwiftUI keeps
+    /// `.searchable` as a toolbar item at the detail column's trailing edge;
+    /// without one it is the titlebar accessory row `updateSearchAccessory`
+    /// manages.
+    private var searchIsToolbarItem: Bool {
+      content.search != nil && sidebarSplitViewController != nil
+    }
+
+    /// The width SwiftUI gives the search toolbar item beside a sidebar,
+    /// measured off the reference window.
+    private static let searchItemWidth: CGFloat = 261
 
     // MARK: - NSToolbarDelegate
 
@@ -424,6 +441,15 @@
 
       case Self.statusIdentifier:
         return hostingItem(identifier: identifier, view: content.status?.view)
+
+      case Self.searchIdentifier:
+        guard let search = content.search else { return nil }
+        let item = NSSearchToolbarItem(itemIdentifier: identifier)
+        item.preferredWidthForSearchField = Self.searchItemWidth
+        let coordinator = WuiNavigationSearchCoordinator(search: search)
+        coordinator.attach(searchField: item.searchField)
+        searchCoordinator = coordinator
+        return item
 
       default:
         guard let index = Self.windowItemIndex(identifier) else { return nil }
@@ -505,7 +531,9 @@
       item.label = label
       item.paletteLabel = label
       item.toolTip = label.isEmpty ? nil : label
-      item.isBordered = true
+      // A borderless button stays bare in the toolbar, as SwiftUI keeps a
+      // `.borderless` toolbar button out of the glass capsule.
+      item.isBordered = action.view.firstButton?.isBorderless != true
       item.target = self
       item.action = #selector(actionInvoked(_:))
       // The label's own button carries the handler, so the toolbar item runs
