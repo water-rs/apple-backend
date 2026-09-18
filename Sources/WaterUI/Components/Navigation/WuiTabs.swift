@@ -272,7 +272,7 @@ final class WuiTabs: PlatformView, WuiComponent {
           return label + 25 + (index == 0 ? 0 : 1)
         }.max() ?? 0
       let segmentWidth = (widestSegment * 2).rounded(.up) / 2
-      for index in 0..<control.segmentCount {
+      for index in 0 ..< control.segmentCount {
         control.setWidth(segmentWidth - (index == 0 ? 0 : 1), forSegment: index)
       }
       control.sizeToFit()
