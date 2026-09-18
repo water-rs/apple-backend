@@ -432,7 +432,7 @@ final class WuiTabs: PlatformView, WuiComponent {
     /// label has one.
     private static func makeUITab(for tab: WuiNativeTab) -> UITab {
       let provider: (UITab) -> UIViewController = { _ in
-        let controller = UIViewController()
+        let controller = WuiTabContentController()
         controller.view = tab.content
         return controller
       }
@@ -637,6 +637,27 @@ final class WuiTabs: PlatformView, WuiComponent {
 }
 
 #if canImport(UIKit)
+  /// The controller a tab's content is hosted by.
+  ///
+  /// The tab bar's scroll-coupled chrome — the bottom accessory, the bar's
+  /// scroll edge effect, the minimize-on-scroll behavior — is driven by the
+  /// selected controller's content scroll view. A plain controller answers
+  /// from its own view alone, and a WaterUI page is a wrapper view whose
+  /// navigation controller is embedded as a child when the view reaches the
+  /// window, so what UIKit found depended on when it asked: a page whose
+  /// scroll surface was attached after the query had no edge effect at all.
+  /// The answer is forwarded to the embedded navigation controller, whose
+  /// page controller registers its surface, and to the safe-area walk for a
+  /// page without one.
+  private final class WuiTabContentController: UIViewController {
+    override func contentScrollView(for edge: NSDirectionalRectEdge) -> UIScrollView? {
+      if let navigation = children.first(where: { $0 is UINavigationController }) {
+        return navigation.contentScrollView(for: edge)
+      }
+      return wuiScrollSurface(of: view)
+    }
+  }
+
   extension WuiTabs: UITabBarControllerDelegate {
     /// The WaterUI tab index of a platform tab.
     ///
