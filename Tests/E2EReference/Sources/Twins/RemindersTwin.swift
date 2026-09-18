@@ -198,7 +198,6 @@ struct RemindersTwin: View {
         wuiDivider()
         reminderSection("Today", rows: todayRows)
         reminderSection("Upcoming", rows: upcomingRows)
-        Spacer(minLength: 0)
       }
       .background(.regularMaterial)
       .navigationTitle((selection ?? .today).title)
