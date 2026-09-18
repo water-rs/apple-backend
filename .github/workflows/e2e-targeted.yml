@@ -109,6 +109,13 @@ jobs:
     if: inputs.platforms == 'ios' || inputs.platforms == 'both'
     needs: prepare
     runs-on: macos-26
+    env:
+      # The waterui checkout pins `stable` in its rust-toolchain.toml and the
+      # water CLI builds every crate under the toolchain the project selects.
+      # This job builds under the dated nightly pinned below (nightly.yml's
+      # header explains why), and rustup ranks this variable above the
+      # project's file, so the pin reaches cargo through the CLI.
+      RUSTUP_TOOLCHAIN: nightly-2026-09-17
     steps:
       - uses: actions/checkout@v4
 
@@ -213,6 +220,13 @@ jobs:
     if: inputs.platforms == 'macos' || inputs.platforms == 'both'
     needs: prepare
     runs-on: macos-26
+    env:
+      # The waterui checkout pins `stable` in its rust-toolchain.toml and the
+      # water CLI builds every crate under the toolchain the project selects.
+      # This job builds under the dated nightly pinned below (nightly.yml's
+      # header explains why), and rustup ranks this variable above the
+      # project's file, so the pin reaches cargo through the CLI.
+      RUSTUP_TOOLCHAIN: nightly-2026-09-17
     steps:
       - uses: actions/checkout@v4
 
