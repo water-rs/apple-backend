@@ -1,11 +1,13 @@
 // Twin of examples/navigation: four toolbar tabs, the Inbox pane on screen —
-// a NavigationStack with a large title, a search field, an Edit leading item
-// and a Compose primary action, over a list of message rows. Only the settled
-// first screen is rendered, so routes and actions are inert.
+// a NavigationStack with a large title, an unread-count subtitle, a search
+// field, an Edit leading item, a Compose primary action, a Mark All Read
+// bottom-bar item and a status item, over a list of message rows. Only the
+// settled first screen is rendered, so routes and actions are inert.
 //
-// Material icons translate to their closest SF Symbols: inbox → tray,
-// image_album → photo.on.rectangle, view_gallery → square.grid.2x2,
-// cog → gearshape, pencil → square.and.pencil, flag → flag.
+// The example's icons are Material Design Icons drawn from their SVG paths
+// (`MaterialIcon`): the backend rasterises them at 25 pt for tab items, 24 pt
+// for iOS bar buttons and 18 pt for the Mac toolbar, and inline content takes
+// the shape at the size the example frames it to.
 
 import SwiftUI
 
@@ -49,21 +51,49 @@ struct NavigationTwin: View {
     seedMessages.filter(\.unread).count
   }
 
+  /// The size the backend rasterises a navigation bar icon at: 24 pt for a
+  /// `UIBarButtonItem` image, 18 pt for an `NSToolbarItem` image.
+  private var composeIconSize: CGFloat {
+    #if os(iOS)
+      24
+    #else
+      18
+    #endif
+  }
+
   var body: some View {
     TabView(selection: $pane) {
-      Tab("Inbox", systemImage: "tray", value: .inbox) {
+      Tab(value: .inbox) {
         inboxPane
+      } label: {
+        tabLabel("Inbox", icon: .inbox)
       }
       .badge(unreadCount)
-      Tab("Library", systemImage: "photo.on.rectangle", value: .library) {
+      Tab(value: .library) {
         librarySplit
+      } label: {
+        tabLabel("Library", icon: .imageAlbum)
       }
-      Tab("Gallery", systemImage: "square.grid.2x2", value: .gallery) {
+      Tab(value: .gallery) {
         Text("Gallery")
+      } label: {
+        tabLabel("Gallery", icon: .viewGallery)
       }
-      Tab("Settings", systemImage: "gearshape", value: .settings) {
+      Tab(value: .settings) {
         Text("Settings")
+      } label: {
+        tabLabel("Settings", icon: .cog)
       }
+    }
+  }
+
+  /// A tab's label: the Material glyph the example declares, rasterised at
+  /// the 25 pt the backend gives a tab bar image.
+  private func tabLabel(_ title: String, icon: MaterialIcon) -> Label<Text, Image> {
+    Label {
+      Text(title)
+    } icon: {
+      icon.templateImage(size: 25)
     }
   }
 
@@ -90,11 +120,12 @@ struct NavigationTwin: View {
             Label {
               HStack {
                 Text(album.rawValue)
-                Spacer()
+                Spacer(minLength: 0)
                 Text("\(album.count)").foregroundStyle(.secondary)
               }
             } icon: {
-              Image(systemName: "photo.on.rectangle")
+              MaterialIcon.album.view(size: 20)
+                .foregroundStyle(Color.accentColor)
             }
             .tag(album)
           }
@@ -109,7 +140,7 @@ struct NavigationTwin: View {
           "On a wide window this is the trailing column beside the sidebar; on a phone the same declaration collapses into a pushed page with a back button."
         )
         .foregroundStyle(.secondary)
-        Spacer()
+        Spacer(minLength: 0)
       }
       .padding()
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -129,10 +160,9 @@ struct NavigationTwin: View {
             VStack(alignment: .leading, spacing: 2) {
               HStack(spacing: 6) {
                 Text(message.sender).font(.subheadline)
-                Spacer()
+                Spacer(minLength: 0)
                 if message.flagged {
-                  Image(systemName: "flag")
-                    .font(.system(size: 14))
+                  MaterialIcon.flag.view(size: 14)
                     .foregroundStyle(Color.accentColor)
                 }
               }
@@ -144,6 +174,7 @@ struct NavigationTwin: View {
         }
       }
       .navigationTitle("Inbox")
+      .navigationSubtitle("\(unreadCount) unread")
       .searchable(text: $query, prompt: "Search mail")
       .toolbar {
         ToolbarItem(placement: .navigation) {
@@ -152,8 +183,25 @@ struct NavigationTwin: View {
         }
         ToolbarItem(placement: .primaryAction) {
           Button {} label: {
-            Label("Compose", systemImage: "square.and.pencil")
+            Label {
+              Text("Compose")
+            } icon: {
+              MaterialIcon.pencil.templateImage(size: composeIconSize)
+            }
           }
+        }
+        // The bottom toolbar is an iOS construct; on the Mac the example's
+        // bottom-bar item has no slot to land in and is not shown.
+        #if os(iOS)
+          ToolbarItem(placement: .bottomBar) {
+            Button("Mark All Read") {}
+              .buttonStyle(.plain)
+          }
+        #endif
+        ToolbarItem(placement: .status) {
+          Text("\(unreadCount) unread")
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
       }
       .navigationDestination(for: Int.self) { _ in

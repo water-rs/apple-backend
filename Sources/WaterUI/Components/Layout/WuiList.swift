@@ -488,6 +488,19 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       return dequeueSectionChrome(text: label, kind: .header)
     }
 
+    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+      // SwiftUI's list is a UICollectionView compositional list layout, which
+      // reserves a 35pt header region above a label-less section. A plain
+      // `.insetGrouped` UITableView only leaves ~17.7pt above the first
+      // section, so the first card sat ~17pt higher than the reference.
+      // Sections past the first already total 35pt from the default
+      // header+footer spacing; only the leading one needs the space.
+      if section == 0 && sectionGroups[section].label == nil {
+        return 35
+      }
+      return UITableView.automaticDimension
+    }
+
     func tableView(_ tableView: UITableView, viewForFooterInSection section: Int) -> UIView? {
       guard let footer = sectionGroups[section].footer else { return nil }
       return dequeueSectionChrome(text: footer, kind: .footer)
@@ -1055,10 +1068,12 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     /// How far a row's content sits in from the *cell's* leading edge.
     ///
     /// `.fullWidth` table style already insets the cell view by 6pt, so the
-    /// content lands at 6 + 11 = 17pt from the list's leading edge — matching
-    /// the content inset a plain SwiftUI `List` row carries (measured: a bare
-    /// `Text` row's glyphs start at 17pt).
-    static let rowContentInset: CGFloat = 11
+    /// content lands at 6 + 10 = 16pt from the list's leading edge — the
+    /// content inset a plain SwiftUI `List` row carries, and the same 16pt the
+    /// separators are measured against (`listContentMargin`). Measured against
+    /// the `list` and `edge_list` twins: a row padded by 16pt starts its text
+    /// at 32pt, with the glyph's own side bearing on top.
+    static let rowContentInset: CGFloat = 10
 
     private enum TableLayoutEntry {
       case header(label: WuiComputed<WuiStyledStr>, sectionIndex: Int)

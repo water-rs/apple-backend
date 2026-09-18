@@ -216,11 +216,11 @@ final class WuiFixedContainer: PlatformView, WuiComponent {
       // proposal, and a proposal change alone still marks it for relayout.
       child.setPlacementProposal(placement.proposal)
       #if canImport(UIKit)
-        child.frame = frame
+        child.frame = pixelAligned(frame)
       #elseif canImport(AppKit)
         // A non-safe-area child inside a full-bounds container is clip-wrapped
         // so its paint cannot enter the window's chrome region.
-        wuiPlacedContent(child, at: frame, in: self)
+        wuiPlacedContent(child, at: pixelAligned(frame), in: self)
       #endif
     }
   }

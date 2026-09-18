@@ -75,8 +75,8 @@ final class WuiStyledStrRenderer {
       }
     }
 
-    func attributedString(defaultForeground: WuiResolvedColor?) -> NSAttributedString {
-      guard let foreground = foreground?.value ?? defaultForeground else {
+    func attributedString(defaultForeground: PlatformColor?) -> NSAttributedString {
+      guard let foreground = foreground?.value.toPlatformColor() ?? defaultForeground else {
         fatalError("Styled text chunk has no foreground color")
       }
       return chunk.toAttributedString(
@@ -88,16 +88,23 @@ final class WuiStyledStrRenderer {
   }
 
   private let defaultForeground: WuiComputedObservation<WuiResolvedColor>?
+  /// A platform-native default color (e.g. the placeholder color) applied to
+  /// chunks without an explicit foreground. Unlike a theme slot it carries a
+  /// live dynamic color, so it adapts to the resolved interface style at draw
+  /// time the way the platform's own control would.
+  private let defaultForegroundColor: PlatformColor?
   private var chunks: [ResolvedChunk]
 
   init(
     styled: WuiStyledStr,
     env: WuiEnvironment,
     defaultForegroundSlot: WuiColorSlot = WuiColorSlot_Foreground,
+    defaultForegroundColor: PlatformColor? = nil,
     onChange: @escaping () -> Void
   ) {
+    self.defaultForegroundColor = defaultForegroundColor
     defaultForeground =
-      styled.chunks.contains { $0.style.foreground == nil }
+      defaultForegroundColor == nil && styled.chunks.contains { $0.style.foreground == nil }
       ? WuiComputedObservation(
         themeColor: defaultForegroundSlot,
         env: env
@@ -117,7 +124,11 @@ final class WuiStyledStrRenderer {
   func attributedString() -> NSAttributedString {
     let result = NSMutableAttributedString()
     for chunk in chunks {
-      result.append(chunk.attributedString(defaultForeground: defaultForeground?.value))
+      result.append(
+        chunk.attributedString(
+          defaultForeground: defaultForeground?.value.toPlatformColor()
+            ?? defaultForegroundColor
+        ))
     }
     return result
   }
@@ -135,18 +146,54 @@ struct WuiStyledChunk {
 
   func toAttributedString(
     font resolvedFont: WuiResolvedFontValue,
-    foreground: WuiResolvedColor?,
+    foreground: PlatformColor?,
     background: WuiResolvedColor?
+  ) -> NSAttributedString {
+    NSAttributedString.wui(
+      text.toString(),
+      font: resolvedFont,
+      foreground: foreground,
+      background: background,
+      decorations: WuiTextDecorations(
+        underline: style.underline,
+        strikethrough: style.strikethrough,
+        italic: style.italic
+      )
+    )
+  }
+
+  mutating func intoInner() -> CWaterUI.WuiStyledChunk {
+    CWaterUI.WuiStyledChunk(
+      text: text.intoInner(),
+      style: style.intoInner()
+    )
+  }
+}
+
+/// The inline decorations a text run carries on top of its resolved font.
+struct WuiTextDecorations {
+  var underline = false
+  var strikethrough = false
+  var italic = false
+}
+
+extension NSAttributedString {
+  /// The attributed form every WaterUI text leaf renders through — styled
+  /// chunks and plain strings alike — so the theme's line pitch, letter
+  /// spacing, hyphenation and break strategy apply to all of them.
+  @MainActor
+  static func wui(
+    _ string: String,
+    font resolvedFont: WuiResolvedFontValue,
+    foreground: PlatformColor?,
+    background: WuiResolvedColor?,
+    decorations: WuiTextDecorations = WuiTextDecorations()
   ) -> NSAttributedString {
     let font = resolvedFont.toPlatformFont()
     var attributes: [NSAttributedString.Key: Any] = [.font: font]
 
     if let foreground {
-      #if canImport(UIKit)
-        attributes[.foregroundColor] = foreground.toUIColor()
-      #elseif canImport(AppKit)
-        attributes[.foregroundColor] = foreground.toNSColor()
-      #endif
+      attributes[.foregroundColor] = foreground
     }
 
     if let background {
@@ -157,11 +204,11 @@ struct WuiStyledChunk {
       #endif
     }
 
-    if style.underline {
+    if decorations.underline {
       attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
     }
 
-    if style.strikethrough {
+    if decorations.strikethrough {
       attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
     }
 
@@ -170,14 +217,23 @@ struct WuiStyledChunk {
     }
 
     let paragraphStyle = NSMutableParagraphStyle()
-    // SwiftUI Text hyphenates only a run that cannot break at a word
-    // boundary; an ordinary word wraps whole. TextKit hyphenates a line
+    // On iOS, SwiftUI Text hyphenates only a run that cannot break at a
+    // word boundary; an ordinary word wraps whole. TextKit hyphenates a line
     // whenever the width it fills at its last word boundary, as a fraction
     // of the fragment width, falls below the factor — a run with no word
     // boundary fills nothing at one, so the smallest positive factor keeps
     // ordinary words whole and breaks overflow runs with a hyphen the way
-    // the platform typesetter does.
-    paragraphStyle.hyphenationFactor = .leastNormalMagnitude
+    // the iOS typesetter does. On macOS, SwiftUI never hyphenates: an
+    // overflow run wraps at the last glyph that fits, with no hyphen.
+    #if canImport(UIKit)
+      paragraphStyle.hyphenationFactor = .leastNormalMagnitude
+    #endif
+    // Platform text views lay out with the standard break-strategy set,
+    // which pushes a line's last word down to keep a single-word orphan
+    // off the closing line. A paragraph style built from scratch defaults
+    // to no strategy, so attaching one without it would lose that orphan
+    // control and wrap greedily where UILabel and SwiftUI do not.
+    paragraphStyle.lineBreakStrategy = .standard
     // A resolved line height is the face's line pitch — line box plus
     // leading. The platform font we can rebuild carries no leading, so the
     // pitch is expressed as `lineSpacing` over the rebuilt face's natural
@@ -191,7 +247,7 @@ struct WuiStyledChunk {
     attributes[.paragraphStyle] = paragraphStyle
 
     var finalFont = font
-    if style.italic {
+    if decorations.italic {
       #if canImport(UIKit)
         if let descriptor = font.fontDescriptor.withSymbolicTraits(.traitItalic) {
           finalFont = UIFont(descriptor: descriptor, size: font.pointSize)
@@ -203,14 +259,7 @@ struct WuiStyledChunk {
       attributes[.font] = finalFont
     }
 
-    return NSAttributedString(string: text.toString(), attributes: attributes)
-  }
-
-  mutating func intoInner() -> CWaterUI.WuiStyledChunk {
-    CWaterUI.WuiStyledChunk(
-      text: text.intoInner(),
-      style: style.intoInner()
-    )
+    return NSAttributedString(string: string, attributes: attributes)
   }
 }
 

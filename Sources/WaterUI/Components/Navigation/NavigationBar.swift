@@ -50,7 +50,7 @@ final class WuiNavigationSearchCoordinator: NSObject {
         self?.applyPrompt(value)
       }
       bodyFontObservation = .bodyFont(env: search.env) { [weak self] font in
-        self?.uiSearchBar?.searchTextField.font = font.toPlatformFont()
+        self?.uiSearchBar?.searchTextField.font = font.toSearchTextFieldFont()
       }
       applyText(search.text.value.toString())
       applyPrompt(search.prompt.value)
@@ -74,7 +74,7 @@ final class WuiNavigationSearchCoordinator: NSObject {
       promptRenderer = WuiStyledStrRenderer(
         styled: prompt,
         env: search.env,
-        defaultForegroundSlot: WuiColorSlot_MutedForeground
+        defaultForegroundColor: UIColor.placeholderText
       ) { [weak self] in
         self?.applyRenderedPrompt()
       }
@@ -88,9 +88,19 @@ final class WuiNavigationSearchCoordinator: NSObject {
       uiSearchBar.superview?.setNeedsLayout()
     }
   #elseif canImport(AppKit)
-    private weak var nsSearchField: NSSearchField?
+    /// The face a search field sets its text and prompt in.
+    enum FieldFont {
+      /// The theme's body font, followed as the theme changes.
+      case body
+      /// The small system font, which SwiftUI gives the search field in a
+      /// window's titlebar accessory row.
+      case small
+    }
 
-    func attach(searchField: NSSearchField) {
+    private weak var nsSearchField: NSSearchField?
+    private var fixedFont: NSFont?
+
+    func attach(searchField: NSSearchField, font: FieldFont = .body) {
       nsSearchField = searchField
       searchField.sendsSearchStringImmediately = true
       searchField.delegate = self
@@ -100,10 +110,17 @@ final class WuiNavigationSearchCoordinator: NSObject {
       promptWatcher = search.prompt.watch { [weak self] value, _ in
         self?.applyPrompt(value)
       }
-      bodyFontObservation = .bodyFont(env: search.env) { [weak self] font in
-        guard let field = self?.nsSearchField else { return }
-        field.font = font.toPlatformFont()
-        field.invalidateIntrinsicContentSize()
+      switch font {
+      case .body:
+        bodyFontObservation = .bodyFont(env: search.env) { [weak self] font in
+          guard let field = self?.nsSearchField else { return }
+          field.font = font.toPlatformFont()
+          field.invalidateIntrinsicContentSize()
+        }
+      case .small:
+        let font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+        fixedFont = font
+        searchField.font = font
       }
       applyText(search.text.value.toString())
       applyPrompt(search.prompt.value)
@@ -121,7 +138,7 @@ final class WuiNavigationSearchCoordinator: NSObject {
       promptRenderer = WuiStyledStrRenderer(
         styled: prompt,
         env: search.env,
-        defaultForegroundSlot: WuiColorSlot_MutedForeground
+        defaultForegroundColor: NSColor.placeholderTextColor
       ) { [weak self] in
         self?.applyRenderedPrompt()
       }
@@ -130,7 +147,13 @@ final class WuiNavigationSearchCoordinator: NSObject {
 
     private func applyRenderedPrompt() {
       guard let nsSearchField, let promptRenderer else { return }
-      nsSearchField.placeholderAttributedString = promptRenderer.attributedString()
+      let prompt = NSMutableAttributedString(attributedString: promptRenderer.attributedString())
+      if let fixedFont {
+        // The prompt keeps its colour and decorations but is set in the
+        // field's fixed face, as the field's own text is.
+        prompt.addAttribute(.font, value: fixedFont, range: NSRange(location: 0, length: prompt.length))
+      }
+      nsSearchField.placeholderAttributedString = prompt
       nsSearchField.invalidateIntrinsicContentSize()
       nsSearchField.superview?.needsLayout = true
     }
@@ -191,6 +214,25 @@ func makeInlineNavigationSearchView(
     return (controller, coordinator)
   }
 
+  extension WuiResolvedFontValue {
+    /// The resolved font as the search field's own size class of font.
+    ///
+    /// `UISearchTextField` keys its capsule's metrics off the font's text-style
+    /// trait: a font built bare — `systemFont(ofSize:)`, which is what
+    /// `toPlatformFont()` returns — carries none, and iOS 26 draws the capsule
+    /// at its expanded size (~62 pt, versus the ~44 pt capsule SwiftUI's
+    /// `.searchable` shows). Reattaching the `.body` style — the slot this
+    /// value resolves from — keeps the compact capsule and dynamic-type
+    /// scaling while preserving the resolved size, weight and family.
+    func toSearchTextFieldFont() -> UIFont {
+      let font = toPlatformFont()
+      let descriptor = font.fontDescriptor.addingAttributes([
+        .textStyle: UIFont.TextStyle.body.rawValue
+      ])
+      return UIFont(descriptor: descriptor, size: 0)
+    }
+  }
+
   /// WaterUI's title display mode as UIKit's.
   ///
   /// UIKit's navigation bar has two title sizes, not three: there is no
@@ -236,6 +278,10 @@ struct WuiNavigationBarState {
         || $0.placement == WuiNavigationToolbarPlacement_Confirmation
         || $0.placement == WuiNavigationToolbarPlacement_TopBarTrailing
     }
+  }
+
+  var statusItem: WuiNavigationToolbarItem? {
+    toolbar.first { $0.placement == WuiNavigationToolbarPlacement_Status }
   }
 
   var leading: WuiAnyView? { leadingItem?.view }

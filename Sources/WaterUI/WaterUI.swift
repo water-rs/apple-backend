@@ -823,18 +823,23 @@ public final class ThemeBridge {
     }
 
     private func uiFontWeightToWuiFontWeight(_ weight: CGFloat) -> WuiFontWeight {
-      // UIFont.Weight ranges from -1.0 (ultra-light) to 1.0 (black), with 0.0 being regular
-      switch weight {
-      case ...(-0.8): return WuiFontWeight_Thin
-      case (-0.8) ... (-0.6): return WuiFontWeight_UltraLight
-      case (-0.6) ... (-0.4): return WuiFontWeight_Light
-      case (-0.4) ... (0.0): return WuiFontWeight_Normal
-      case (0.0) ... (0.23): return WuiFontWeight_Medium
-      case (0.23) ... (0.3): return WuiFontWeight_SemiBold
-      case (0.3) ... (0.5): return WuiFontWeight_Bold
-      case (0.5) ... (0.8): return WuiFontWeight_UltraBold
-      default: return WuiFontWeight_Black
-      }
+      // The canonical trait constants are float32-rounded — semibold is
+      // 0.30000001192092896 — so closed-interval bucketing on the decimal
+      // points misclassifies every named weight that lands an epsilon
+      // above its boundary (`.headline`'s semibold reads as Bold). Snap
+      // to the nearest canonical weight instead.
+      let canonical: [(UIFont.Weight, WuiFontWeight)] = [
+        (.ultraLight, WuiFontWeight_UltraLight),
+        (.thin, WuiFontWeight_Thin),
+        (.light, WuiFontWeight_Light),
+        (.regular, WuiFontWeight_Normal),
+        (.medium, WuiFontWeight_Medium),
+        (.semibold, WuiFontWeight_SemiBold),
+        (.bold, WuiFontWeight_Bold),
+        (.heavy, WuiFontWeight_UltraBold),
+        (.black, WuiFontWeight_Black),
+      ]
+      return canonical.min { abs($0.0.rawValue - weight) < abs($1.0.rawValue - weight) }!.1
     }
   #elseif canImport(AppKit)
     private func installFontSlot(
@@ -860,18 +865,22 @@ public final class ThemeBridge {
     }
 
     private func nsFontWeightToWuiFontWeight(_ weight: CGFloat) -> WuiFontWeight {
-      // NSFont.Weight ranges from -1.0 to 1.0, similar to UIFont.Weight
-      switch weight {
-      case ...(-0.8): return WuiFontWeight_Thin
-      case (-0.8) ... (-0.6): return WuiFontWeight_UltraLight
-      case (-0.6) ... (-0.4): return WuiFontWeight_Light
-      case (-0.4) ... (0.0): return WuiFontWeight_Normal
-      case (0.0) ... (0.23): return WuiFontWeight_Medium
-      case (0.23) ... (0.3): return WuiFontWeight_SemiBold
-      case (0.3) ... (0.5): return WuiFontWeight_Bold
-      case (0.5) ... (0.8): return WuiFontWeight_UltraBold
-      default: return WuiFontWeight_Black
-      }
+      // The canonical trait constants are float32-rounded — semibold is
+      // 0.30000001192092896 — so closed-interval bucketing on the decimal
+      // points misclassifies every named weight that lands an epsilon
+      // above its boundary. Snap to the nearest canonical weight instead.
+      let canonical: [(NSFont.Weight, WuiFontWeight)] = [
+        (.ultraLight, WuiFontWeight_UltraLight),
+        (.thin, WuiFontWeight_Thin),
+        (.light, WuiFontWeight_Light),
+        (.regular, WuiFontWeight_Normal),
+        (.medium, WuiFontWeight_Medium),
+        (.semibold, WuiFontWeight_SemiBold),
+        (.bold, WuiFontWeight_Bold),
+        (.heavy, WuiFontWeight_UltraBold),
+        (.black, WuiFontWeight_Black),
+      ]
+      return canonical.min { abs($0.0.rawValue - weight) < abs($1.0.rawValue - weight) }!.1
     }
   #endif
 }

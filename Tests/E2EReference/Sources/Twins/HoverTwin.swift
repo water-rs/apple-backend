@@ -30,14 +30,14 @@ struct HoverTwin: View {
       VStack(spacing: 10) {
         Text("WaterUI Hover & Cursor Examples").font(.title)
         Text("Demonstrating hover events, cursor styles, and lifecycle hooks")
-        Divider()
+        wuiDivider()
         Spacer(minLength: 0)
         hoverEvents
-        Divider()
+        wuiDivider()
         cursorStyles
-        Divider()
+        wuiDivider()
         reactiveCursor
-        Divider()
+        wuiDivider()
         interactiveButtons
         Spacer(minLength: 0)
       }

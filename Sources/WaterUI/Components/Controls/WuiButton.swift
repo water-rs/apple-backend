@@ -226,7 +226,10 @@ final class WuiButton: PlatformView, WuiComponent {
     private var chromeConfiguration: UIButton.Configuration? {
       switch style {
       case WuiButtonStyle_Bordered:
-        .tinted()
+        // SwiftUI's .bordered is the neutral gray capsule; .tinted() would
+        // dye the fill with the accent color, which borderedProminent
+        // already reserves for itself.
+        .gray()
       case WuiButtonStyle_BorderedProminent:
         .filled()
       case WuiButtonStyle_Glass:
@@ -391,9 +394,9 @@ final class WuiButton: PlatformView, WuiComponent {
     #if canImport(UIKit)
       button.tintColor = accent.toUIColor()
       // The native configurations are what SwiftUI's button styles resolve
-      // to on iOS: .bordered is the tinted fill, .borderedProminent the
-      // filled accent capsule. Insets stay zero because the WaterUI label
-      // view is overlaid and padded by this component.
+      // to on iOS: .bordered is the neutral gray capsule, .borderedProminent
+      // the filled accent capsule. Insets stay zero because the WaterUI
+      // label view is overlaid and padded by this component.
       var configuration = chromeConfiguration ?? .plain()
       configuration.contentInsets = .zero
       button.configuration = configuration
@@ -502,6 +505,12 @@ final class WuiButton: PlatformView, WuiComponent {
     /// The platform symbol the button's label draws, if its icon is one.
     var systemIconName: String? {
       labelView.firstSystemIcon?.iconName
+    }
+
+    /// Whether the button draws without a bezel — the borderless and link
+    /// styles — so chrome presenting it as a toolbar item keeps it bare too.
+    var isBorderless: Bool {
+      style == WuiButtonStyle_Borderless || style == WuiButtonStyle_Link
     }
   #endif
 

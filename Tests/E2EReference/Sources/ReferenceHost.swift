@@ -18,17 +18,33 @@ import SwiftUI
 
   @main
   class AppDelegate: UIResponder, UIApplicationDelegate {
-    var window: UIWindow?
-
     func application(
       _: UIApplication,
       didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
-      let window = UIWindow(frame: UIScreen.main.bounds)
+      true
+    }
+  }
+
+  // The window belongs to the scene, as in the scaffold: UIKit requires the
+  // scene life cycle from the iOS 27 SDK on, and the Info.plist the build
+  // script writes names this class by its Objective-C name.
+  @objc(SceneDelegate)
+  class SceneDelegate: UIResponder, UIWindowSceneDelegate {
+    var window: UIWindow?
+
+    func scene(
+      _ scene: UIScene,
+      willConnectTo _: UISceneSession,
+      options _: UIScene.ConnectionOptions
+    ) {
+      guard let windowScene = scene as? UIWindowScene else {
+        fatalError("The application scene is not a window scene: \(scene)")
+      }
+      let window = UIWindow(windowScene: windowScene)
       window.rootViewController = UIHostingController(rootView: TwinRoot())
       window.makeKeyAndVisible()
       self.window = window
-      return true
     }
   }
 #elseif os(macOS)
