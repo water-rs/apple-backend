@@ -102,6 +102,9 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
     private let supplementaryContainer = WuiSplitColumnContainer()
     private let secondaryContainer = WuiSplitColumnContainer()
     private var hasPlacedSidebar = false
+    #if canImport(AppKit)
+      private var sidebarItem: NSSplitViewItem?
+    #endif
     /// The window toolbar this split aligns with, when the window has one.
     private weak var windowToolbar: WuiWindowToolbar?
     /// Whether the pane containing this split is the one on screen.
@@ -266,8 +269,11 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
       // instead of painting a background over it.
       sidebarView.setIsSidebarContent(true)
       let sidebarItem = NSSplitViewItem(sidebarWithViewController: primaryController)
+      // The thickness bounds are re-derived in `layout()` once the column's
+      // own chrome is known; until then they bound the content itself.
       sidebarItem.minimumThickness = CGFloat(widths.min)
       sidebarItem.maximumThickness = CGFloat(widths.max)
+      self.sidebarItem = sidebarItem
       // The sidebar runs the whole height of the window, with the traffic
       // lights and the collapse control inside it — the arrangement every Mac
       // application with a sidebar uses. The window supplies full-size content
@@ -530,7 +536,20 @@ final class WuiNavigationSplitView: PlatformView, WuiComponent {
       // after that the divider is the reader's to move.
       if !hasPlacedSidebar, bounds.width > CGFloat(widths.ideal) {
         hasPlacedSidebar = true
-        splitController.splitView.setPosition(CGFloat(widths.ideal), ofDividerAt: 0)
+        // The declared widths are the sidebar *content's*: SwiftUI's column is
+        // the content plus whatever chrome the platform wraps around it — on
+        // macOS 26 the sidebar's glass container insets the content 8pt from
+        // the window's edge, and a 300pt ideal makes a 308pt column. The
+        // chrome is read off the laid-out column rather than assumed.
+        splitController.view.layoutSubtreeIfNeeded()
+        let column = splitController.splitView.arrangedSubviews[0]
+        let content = sidebarContainer.convert(sidebarContainer.bounds, to: column)
+        let chrome = max(column.bounds.width - content.width, 0)
+        if let sidebarItem {
+          sidebarItem.minimumThickness = CGFloat(widths.min) + chrome
+          sidebarItem.maximumThickness = CGFloat(widths.max) + chrome
+        }
+        splitController.splitView.setPosition(CGFloat(widths.ideal) + chrome, ofDividerAt: 0)
       }
     }
   #endif

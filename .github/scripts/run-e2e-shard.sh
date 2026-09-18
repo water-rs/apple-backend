@@ -15,6 +15,16 @@
 # slice — the targeted e2e workflow uses it to re-run a fixed set; the nightly
 # leaves it unset and keeps the checksum sharding below.
 #
+# PREBUILT_DIR names a directory of already-packaged bundles — the nightly's
+# per-platform build job packages every example once and hands the shards the
+# result as one artifact (#218). When it is set the shard skips `water
+# package` and the silence-wait entirely: app_path resolves to the bundle under
+# ${PREBUILT_DIR}/apps/<example>/ and the build job's package log is copied in
+# as the run log so the uploaded artifacts look as they did when the shard
+# packaged inline. Package-size recording moves to the build job with the
+# package; when PREBUILT_DIR is unset the script still packages inline and
+# records sizes itself (the targeted e2e workflow runs that way).
+#
 # The shard measures the release package, never a debug `water run`: the
 # packaged artifact is what users ship, so size, startup, memory, and pixel
 # parity all describe the production binary.
@@ -30,6 +40,7 @@ shots_dir="${SHOTS_DIR:-${workspace}/e2e-shots}"
 baselines_dir="${BASELINES_DIR:-${workspace}/Tests/E2EBaselines}"
 record_dir="${RECORD_DIR:-${workspace}/e2e-baselines}"
 record="${RECORD:-0}"
+prebuilt_dir="${PREBUILT_DIR:-}"
 parity_budgets="${PARITY_BUDGETS:-${baselines_dir}/parity-budgets.json}"
 reference_dir="${workspace}/Tests/E2EReference"
 
@@ -51,6 +62,10 @@ if [[ ! -d "${waterui_dir}" ]]; then
 fi
 if [[ "${platform}" == "ios" && -z "${SIMULATOR_UDID:-}" ]]; then
   echo "::error::SIMULATOR_UDID is required for iOS runs"
+  exit 1
+fi
+if [[ -n "${prebuilt_dir}" && ! -d "${prebuilt_dir}/apps" ]]; then
+  echo "::error::PREBUILT_DIR '${prebuilt_dir}' has no apps/ directory."
   exit 1
 fi
 
@@ -106,7 +121,9 @@ if (( ${#shard_examples[@]} == 0 )); then
   echo "Shard ${shard_index}/${shard_total} has no examples for ${platform}."
   echo "{}" > "${logs_dir}/startup-times-${platform}-${shard_index}.json"
   echo "{}" > "${logs_dir}/memory-${platform}-${shard_index}.json"
-  echo "{}" > "${logs_dir}/package-sizes-${platform}-${shard_index}.json"
+  if [[ -z "${prebuilt_dir}" ]]; then
+    echo "{}" > "${logs_dir}/package-sizes-${platform}-${shard_index}.json"
+  fi
   exit 0
 fi
 
@@ -272,46 +289,62 @@ for example in ${shard_examples[@]+"${shard_examples[@]}"}; do
   package_platform="macos"
   [[ "${platform}" == "ios" ]] && package_platform="ios-simulator"
 
-  : > "${run_log}"
   : > "${marker_log}"
-  water package --platform "${package_platform}" --backend apple --release \
-    --path "${example_path}" > "${run_log}" 2>&1 &
-  runner_pid=$!
-
-  # The wait covers `water package`'s cold release build, not just a launch:
-  # without a shared sccache a first-in-shard example compiles for tens of
-  # minutes, and release codegen runs longer than debug. The bound is
-  # therefore on *silence*, not duration — a build that is writing to the log
-  # or running compiler processes is making progress and must not be killed
-  # (#140). A dead runner still short-circuits, and a hard ceiling caps hung
-  # cases.
-  built=0
-  stuck=0
-  log_size=-1
-  silent_since=${SECONDS}
-  deadline=$((SECONDS + 2700))
-  while (( SECONDS < deadline )); do
-    if ! kill -0 "${runner_pid}" 2>/dev/null; then
-      if wait "${runner_pid}"; then built=1; fi
-      break
-    fi
-    new_size=$(stat -f%z "${run_log}" 2>/dev/null || echo -1)
-    if (( new_size != log_size )); then
-      log_size=${new_size}
-      silent_since=${SECONDS}
-    elif pgrep -f 'xcodebuild|swiftc|swift-frontend|cargo|rustc|clang' >/dev/null 2>&1; then
-      silent_since=${SECONDS}
-    elif (( SECONDS - silent_since > 300 )); then
-      stuck=1
-      break
-    fi
-    sleep 2
-  done
-
   app_path=""
-  if (( built == 1 )); then
-    app_path="$(find_packaged_app "${run_log}")"
+  runner_pid=""
+  stuck=0
+  if [[ -n "${prebuilt_dir}" ]]; then
+    # The build job packaged this example already; its package log stands in
+    # as the run log so the artifacts look as they did when the shard built
+    # inline, and a missing bundle keeps the same unsupported/skip semantics
+    # an inline failure produced.
+    if [[ -f "${prebuilt_dir}/logs/${platform}-${example}.log" ]]; then
+      cp "${prebuilt_dir}/logs/${platform}-${example}.log" "${run_log}"
+    else
+      : > "${run_log}"
+    fi
+    app_path="$(find "${prebuilt_dir}/apps/${example}" -mindepth 1 -maxdepth 1 \
+      -name '*.app' -type d -print -quit 2>/dev/null || true)"
+  else
+    : > "${run_log}"
+    water package --platform "${package_platform}" --backend apple --release \
+      --path "${example_path}" > "${run_log}" 2>&1 &
+    runner_pid=$!
+
+    # The wait covers `water package`'s cold release build, not just a launch:
+    # without a shared sccache a first-in-shard example compiles for tens of
+    # minutes, and release codegen runs longer than debug. The bound is
+    # therefore on *silence*, not duration — a build that is writing to the log
+    # or running compiler processes is making progress and must not be killed
+    # (#140). A dead runner still short-circuits, and a hard ceiling caps hung
+    # cases.
+    built=0
+    log_size=-1
+    silent_since=${SECONDS}
+    deadline=$((SECONDS + 2700))
+    while (( SECONDS < deadline )); do
+      if ! kill -0 "${runner_pid}" 2>/dev/null; then
+        if wait "${runner_pid}"; then built=1; fi
+        break
+      fi
+      new_size=$(stat -f%z "${run_log}" 2>/dev/null || echo -1)
+      if (( new_size != log_size )); then
+        log_size=${new_size}
+        silent_since=${SECONDS}
+      elif pgrep -f 'xcodebuild|swiftc|swift-frontend|cargo|rustc|clang' >/dev/null 2>&1; then
+        silent_since=${SECONDS}
+      elif (( SECONDS - silent_since > 300 )); then
+        stuck=1
+        break
+      fi
+      sleep 2
+    done
+
+    if (( built == 1 )); then
+      app_path="$(find_packaged_app "${run_log}")"
+    fi
   fi
+
   if [[ -n "${app_path}" ]]; then
     app_bytes="$(find "${app_path}" -type f -exec stat -f%z {} + | awk '{s+=$1} END {print s}')"
     if [[ "${platform}" == "macos" ]]; then
@@ -320,14 +353,16 @@ for example in ${shard_examples[@]+"${shard_examples[@]}"}; do
       executable="${app_path}/$(basename "${app_path}" .app)"
     fi
     executable_bytes="$(stat -f%z "${executable}")"
-    printf '  "%s": { "app_bytes": %s, "executable_bytes": %s },\n' \
-      "${example}" "${app_bytes}" "${executable_bytes}" >> "${size_entries}"
+    if [[ -z "${prebuilt_dir}" ]]; then
+      printf '  "%s": { "app_bytes": %s, "executable_bytes": %s },\n' \
+        "${example}" "${app_bytes}" "${executable_bytes}" >> "${size_entries}"
+    fi
     size_cell="$(awk -v b="${app_bytes}" 'BEGIN{printf "%.1f MB", b/1048576}')"
     echo "::notice::${example} packaged: .app=${app_bytes}B executable=${executable_bytes}B (${platform})"
   fi
 
   if [[ -z "${app_path}" ]]; then
-    if kill -0 "${runner_pid}" 2>/dev/null; then
+    if [[ -n "${runner_pid}" ]] && kill -0 "${runner_pid}" 2>/dev/null; then
       if (( stuck == 1 )); then
         echo "::error::No build progress for 5 minutes packaging ${example} (${platform}); declaring the runner stuck."
         failures+=("${example}: package stuck")
@@ -352,9 +387,13 @@ for example in ${shard_examples[@]+"${shard_examples[@]}"}; do
     fi
     printf '  "%s": null,\n' "${example}" >> "${startup_entries}"
     printf '  "%s": null,\n' "${example}" >> "${memory_entries}"
-    printf '  "%s": null,\n' "${example}" >> "${size_entries}"
+    if [[ -z "${prebuilt_dir}" ]]; then
+      printf '  "%s": null,\n' "${example}" >> "${size_entries}"
+    fi
     tail -n 120 "${run_log}" || true
-    wait "${runner_pid}" || true
+    if [[ -n "${runner_pid}" ]]; then
+      wait "${runner_pid}" || true
+    fi
     echo "::endgroup::"
     continue
   fi
@@ -570,11 +609,16 @@ rm -f "${startup_entries}"
 } > "${logs_dir}/memory-${platform}-${shard_index}.json"
 rm -f "${memory_entries}"
 
-{
-  echo "{"
-  sed '$ s/,$//' "${size_entries}"
-  echo "}"
-} > "${logs_dir}/package-sizes-${platform}-${shard_index}.json"
+# Package sizes are recorded by the build job in prebuilt mode — they are a
+# property of the package, and the per-platform file ships inside the
+# packaged-<platform> artifact.
+if [[ -z "${prebuilt_dir}" ]]; then
+  {
+    echo "{"
+    sed '$ s/,$//' "${size_entries}"
+    echo "}"
+  } > "${logs_dir}/package-sizes-${platform}-${shard_index}.json"
+fi
 rm -f "${size_entries}"
 
 {
