@@ -49,17 +49,19 @@ struct FilterTwin: View {
     }
   }
 
+  // The swatches are waterui's named colors (`Red`, `Green`, ...), which
+  // resolve to the material palette — not SwiftUI's system colors.
   private var sample: some View {
     VStack(spacing: 0) {
       HStack(spacing: 0) {
-        Color.red.frame(width: 40, height: 40)
-        Color.green.frame(width: 40, height: 40)
-        Color.blue.frame(width: 40, height: 40)
+        srgbHex(0xF44336).frame(width: 40, height: 40)
+        srgbHex(0x4CAF50).frame(width: 40, height: 40)
+        srgbHex(0x2196F3).frame(width: 40, height: 40)
       }
       HStack(spacing: 0) {
-        Color.yellow.frame(width: 40, height: 40)
-        Color.purple.frame(width: 40, height: 40)
-        Color.cyan.frame(width: 40, height: 40)
+        srgbHex(0xFFEB3B).frame(width: 40, height: 40)
+        srgbHex(0x9C27B0).frame(width: 40, height: 40)
+        srgbHex(0x00BCD4).frame(width: 40, height: 40)
       }
     }
     .frame(width: 120, height: 80)
