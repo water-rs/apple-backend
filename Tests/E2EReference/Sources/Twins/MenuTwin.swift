@@ -48,6 +48,10 @@ struct MenuTwin: View {
         toolbarButton("Settings", icon: "[=]", iconOnly: true)
       }
     }
+    // The example declares `Window::new("WaterUI Menu Examples", ...)`; the
+    // reference host would otherwise title the window after the Water.toml
+    // name ("Menu Example").
+    .navigationTitle("WaterUI Menu Examples")
   }
 
   private var menuSection: some View {

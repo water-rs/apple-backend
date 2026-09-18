@@ -272,6 +272,23 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       self.onMovePtr = ffiList.on_move
       super.init(frame: .zero, style: .insetGrouped)
 
+      // SwiftUI's inset-grouped list fixes its card margin at 16pt rather
+      // than following the readable content guide, which widens the inset
+      // on large phones. Opting cells out of readable-width margins makes
+      // them take the table's own layout margins, so the table states the
+      // same 16pt and the card edge matches SwiftUI's on every device.
+      cellLayoutMarginsFollowReadableWidth = false
+      directionalLayoutMargins = NSDirectionalEdgeInsets(
+        top: directionalLayoutMargins.top,
+        leading: 16,
+        bottom: directionalLayoutMargins.bottom,
+        trailing: 16
+      )
+      // Cells measure their separator inset from their own edges, which is
+      // where the row's leading alignment lands it — the default already,
+      // stated here because the value is load-bearing for the alignment.
+      separatorInsetReference = .fromCellEdges
+
       dataSource = self
       delegate = self
 
@@ -651,10 +668,13 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       let flat = flatIndex(for: indexPath)
       let item = resolveListItem(from: contents, at: flat, env: env)
       let insets = WuiListCell.rowInsets
-      // A grouped row spans the table's readable width — the section's own
-      // inset region — and the cell insets its content inside that.
+      // A grouped row spans the card's width — the table's bounds less its
+      // layout margins (which the cell insets itself by, safe-area inflation
+      // included) — and the cell insets its content inside that.
+      let margins = tableView.directionalLayoutMargins
       let width =
-        tableView.readableContentGuide.layoutFrame.width
+        tableView.bounds.width
+        - margins.leading - margins.trailing
         - insets.leading - insets.trailing
       let proposal = WuiProposalSize(
         width: width > 0 ? Float(width) : nil,
@@ -852,6 +872,61 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       guard let contentWuiView else { return }
       contentWuiView.setPlacementProposal(
         WuiProposalSize(width: Float(contentWuiView.frame.width), height: nil))
+      contentWuiView.layoutIfNeeded()
+      updateSeparatorInsets()
+    }
+
+    /// Aligns the separator the way SwiftUI's `List` does: its leading edge
+    /// lands on the row's leading alignment guide — the leftmost text-bearing
+    /// leaf, falling back to the leftmost content — and its trailing edge
+    /// stops the platform's separator inset short of the card edge. Both are
+    /// measured from the cell's edges so they stay put as the card margin
+    /// changes.
+    private func updateSeparatorInsets() {
+      guard let contentWuiView else { return }
+      let textLeaf = Self.leftmostTextX(of: contentWuiView)
+      let leaf =
+        textLeaf == .greatestFiniteMagnitude
+        ? Self.leftmostContentX(of: contentWuiView) : textLeaf
+      let leading = contentWuiView.convert(
+        CGPoint(x: leaf.isFinite ? leaf : 0, y: 0), to: self
+      ).x
+      separatorInset = UIEdgeInsets(
+        top: 0, left: leading, bottom: 0, right: Self.separatorTrailingInset)
+    }
+
+    /// The inset an inset-grouped separator keeps from the card's trailing
+    /// edge — the value UIKit's own rows use and the one a SwiftUI `List`
+    /// separator stops at.
+    private static let separatorTrailingInset: CGFloat = 16
+
+    /// The leftmost content `minX` among `view`'s descendants, in `view`'s
+    /// coordinate space — the x a SwiftUI leading alignment guide resolves to.
+    /// Only WaterUI-module views count: a leaf control's UIKit innards are
+    /// implementation detail, not alignment guides.
+    private static func leftmostContentX(of view: PlatformView) -> CGFloat {
+      var best = CGFloat.greatestFiniteMagnitude
+      for sub in view.subviews
+      where NSStringFromClass(type(of: sub)).hasPrefix("WaterUI.") {
+        best = min(best, sub.frame.minX + leftmostContentX(of: sub))
+      }
+      return best
+    }
+
+    /// The leftmost text-bearing `minX` among `view`'s descendants, in
+    /// `view`'s coordinate space — `greatestFiniteMagnitude` when the row has
+    /// no text. The walk crosses non-WaterUI wrappers but stops at the text
+    /// component's own frame rather than its UIKit innards.
+    private static func leftmostTextX(of view: PlatformView) -> CGFloat {
+      var best = CGFloat.greatestFiniteMagnitude
+      for sub in view.subviews {
+        if sub is WuiText || sub is WuiTextField || sub is WuiSecureField {
+          best = min(best, sub.frame.minX)
+        } else {
+          best = min(best, sub.frame.minX + leftmostTextX(of: sub))
+        }
+      }
+      return best
     }
 
     override func prepareForReuse() {

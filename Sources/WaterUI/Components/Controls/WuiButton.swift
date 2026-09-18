@@ -506,6 +506,13 @@ final class WuiButton: PlatformView, WuiComponent {
     var systemIconName: String? {
       labelView.firstSystemIcon?.iconName
     }
+
+    /// The label's own view. Under the icon-only display mode a window
+    /// toolbar installs, this is the icon — what chrome that renders the
+    /// item as an image (rather than hosting the accent-tinted view) draws.
+    var labelContentView: WuiAnyView? {
+      labelView as? WuiAnyView
+    }
   #endif
 
   #if canImport(AppKit)

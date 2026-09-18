@@ -663,11 +663,12 @@ public final class ThemeBridge {
     }
 
     /// The app's asset-catalog accent, the same source SwiftUI resolves for
-    /// its default tint. `UIColor.tintColor` is view-context dependent and
-    /// collapses to systemBlue when resolved outside a view hierarchy, which
-    /// is exactly how the theme table resolves colors.
+    /// its default tint. Without an asset catalog SwiftUI falls back to the
+    /// system accent, while `UIColor.tintColor` resolves to the display-P3
+    /// global tint — a different nominal blue — so the fallback states
+    /// `systemBlue` itself.
     private static func appAccentColor() -> UIColor {
-      UIColor(named: "AccentColor") ?? .tintColor
+      UIColor(named: "AccentColor") ?? .systemBlue
     }
 
     private static func installColorSignal(
