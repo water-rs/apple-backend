@@ -11,6 +11,13 @@
 //                                                against the card's shorter side
 //   Circle.fill(c).size(n, n).offset(x, y)    -> Circle().fill(c).frame(n).offset(x, y)
 //   .bottom_accessory(view)                   -> .tabViewBottomAccessory { view }
+//
+// The bottom scroll edge effect is hidden so the tab bar and accessory stay in
+// their default material: whether scroll content is registered under the bars
+// is evaluated asynchronously, and without the pin the bars nondeterministically
+// flip between the flat and the content-adaptive style (dark text on an opaque
+// capsule vs white text on translucent glass). WaterUI's accessory is authored
+// content, so it always renders the flat style the twin must match.
 
 import SwiftUI
 
@@ -83,6 +90,7 @@ struct LiquidGlassTwin: View {
           }
           .padding(14)
         }
+        .scrollEdgeEffectHidden(true, for: .bottom)
       }
       .navigationTitle("Surfaces")
     }
