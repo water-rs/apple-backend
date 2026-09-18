@@ -50,7 +50,7 @@ final class WuiNavigationSearchCoordinator: NSObject {
         self?.applyPrompt(value)
       }
       bodyFontObservation = .bodyFont(env: search.env) { [weak self] font in
-        self?.uiSearchBar?.searchTextField.font = font.toPlatformFont()
+        self?.uiSearchBar?.searchTextField.font = font.toSearchTextFieldFont()
       }
       applyText(search.text.value.toString())
       applyPrompt(search.prompt.value)
@@ -189,6 +189,25 @@ func makeInlineNavigationSearchView(
     let coordinator = WuiNavigationSearchCoordinator(search: search)
     coordinator.attach(searchController: controller)
     return (controller, coordinator)
+  }
+
+  extension WuiResolvedFontValue {
+    /// The resolved font as the search field's own size class of font.
+    ///
+    /// `UISearchTextField` keys its capsule's metrics off the font's text-style
+    /// trait: a font built bare — `systemFont(ofSize:)`, which is what
+    /// `toPlatformFont()` returns — carries none, and iOS 26 draws the capsule
+    /// at its expanded size (~62 pt, versus the ~44 pt capsule SwiftUI's
+    /// `.searchable` shows). Reattaching the `.body` style — the slot this
+    /// value resolves from — keeps the compact capsule and dynamic-type
+    /// scaling while preserving the resolved size, weight and family.
+    func toSearchTextFieldFont() -> UIFont {
+      let font = toPlatformFont()
+      let descriptor = font.fontDescriptor.addingAttributes([
+        .textStyle: UIFont.TextStyle.body.rawValue
+      ])
+      return UIFont(descriptor: descriptor, size: 0)
+    }
   }
 
   /// WaterUI's title display mode as UIKit's.
