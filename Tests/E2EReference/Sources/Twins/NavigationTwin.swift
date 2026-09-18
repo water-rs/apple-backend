@@ -90,7 +90,7 @@ struct NavigationTwin: View {
             Label {
               HStack {
                 Text(album.rawValue)
-                Spacer()
+                Spacer(minLength: 0)
                 Text("\(album.count)").foregroundStyle(.secondary)
               }
             } icon: {
@@ -109,7 +109,7 @@ struct NavigationTwin: View {
           "On a wide window this is the trailing column beside the sidebar; on a phone the same declaration collapses into a pushed page with a back button."
         )
         .foregroundStyle(.secondary)
-        Spacer()
+        Spacer(minLength: 0)
       }
       .padding()
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -129,7 +129,7 @@ struct NavigationTwin: View {
             VStack(alignment: .leading, spacing: 2) {
               HStack(spacing: 6) {
                 Text(message.sender).font(.subheadline)
-                Spacer()
+                Spacer(minLength: 0)
                 if message.flagged {
                   Image(systemName: "flag")
                     .font(.system(size: 14))
