@@ -67,31 +67,32 @@ struct GradientTwin: View {
         }
     }
 
+    // The example seeds the binding with compute_animated_colors(0.0), so t=0
+    // is the one phase both sides can agree on; a live TimelineView would put
+    // the reference on an unrelated wall clock and make the ref itself
+    // non-deterministic run to run.
     private var animatedBackgroundSection: some View {
         VStack(spacing: 12) {
             Text("Animated Mesh Gradient").font(.system(size: 20))
             Text("Automatic time-based fluid animation")
-            TimelineView(.animation) { ctx in
-                let t = ctx.date.timeIntervalSinceReferenceDate
-                MeshGradient(
-                    width: 3, height: 3,
-                    points: [
-                        [0, 0], [0.5, 0], [1, 0],
-                        [0, 0.5], [0.5, 0.5], [1, 0.5],
-                        [0, 1], [0.5, 1], [1, 1],
-                    ],
-                    colors: animatedColors(t.truncatingRemainder(dividingBy: 120))
-                )
-                .frame(width: 300, height: 200)
-                .overlay(
-                    VStack(spacing: 10) {
-                        Text("Fluid Background").font(.system(size: 24))
-                            .foregroundStyle(srgb(1, 1, 1))
-                        Text("Colors flow over time").foregroundStyle(srgb(200.0 / 255, 200.0 / 255, 1))
-                    }
-                    .padding(14)
-                )
-            }
+            MeshGradient(
+                width: 3, height: 3,
+                points: [
+                    [0, 0], [0.5, 0], [1, 0],
+                    [0, 0.5], [0.5, 0.5], [1, 0.5],
+                    [0, 1], [0.5, 1], [1, 1],
+                ],
+                colors: animatedColors(0)
+            )
+            .frame(width: 300, height: 200)
+            .overlay(
+                VStack(spacing: 10) {
+                    Text("Fluid Background").font(.system(size: 24))
+                        .foregroundStyle(srgb(1, 1, 1))
+                    Text("Colors flow over time").foregroundStyle(srgb(200.0 / 255, 200.0 / 255, 1))
+                }
+                .padding(14)
+            )
             .frame(width: 300, height: 200)
         }
         .padding(14)
