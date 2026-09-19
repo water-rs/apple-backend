@@ -209,30 +209,91 @@ build_reference_host() {
   fi
 }
 
-# Launches the reference host for `example`, settles, captures to $1, and
-# shuts it down again. The reference never runs concurrently with the example
-# under test, so the runner's single screen needs no window choreography.
+# Waits for the reference host to report that it has drawn its first frame,
+# reading the marker it logs on the `dev.waterui` subsystem.
+#
+# The capture used to follow a fixed `sleep 2`. A SwiftUI cold launch in the
+# simulator regularly needs longer than that, and `capture_settled` accepts two
+# consecutive frames that agree — which a not-yet-drawn blank screen does with
+# itself on the first iteration. The run then compared a blank twin against a
+# correct WaterUI render and reported it as a parity regression (multi_window
+# on iOS, 0.0490 against a 0.0200 budget, run 35406819126), the same shape as
+# the launch-failure bug #147 fixed above, one step later in the sequence.
+# Waiting on the host's own signal removes the race rather than widening the
+# constant.
+wait_for_reference_first_paint() {
+  local marker_log="$1"
+  for _ in $(seq 1 60); do
+    if grep -q "waterui_reference_first_paint_ms=" "${marker_log}" 2>/dev/null; then
+      return 0
+    fi
+    sleep 1
+  done
+  # A very fast first paint can still beat the stream attach; the marker is in
+  # the persisted log store, so replay the recent window before giving up.
+  if [[ "${platform}" == "ios" ]]; then
+    xcrun simctl spawn "${SIMULATOR_UDID}" log show --last 2m \
+      --predicate 'subsystem == "dev.waterui"' --style compact \
+      >> "${marker_log}" 2>/dev/null || true
+  else
+    log show --last 2m --predicate 'subsystem == "dev.waterui"' \
+      --style compact >> "${marker_log}" 2>/dev/null || true
+  fi
+  grep -q "waterui_reference_first_paint_ms=" "${marker_log}" 2>/dev/null
+}
+
+# Launches the reference host for `example`, waits for its first paint,
+# captures to $1, and shuts it down again. The reference never runs
+# concurrently with the example under test, so the runner's single screen needs
+# no window choreography.
 capture_reference() {
   local target="$1" example="$2" title="$3"
   build_reference_host || return 1
+  local ref_marker_log="${logs_dir}/${platform}-${example}-ref-marker.log"
+  : > "${ref_marker_log}"
   if [[ "${platform}" == "ios" ]]; then
     # A failed install/launch used to slide through and screenshot the home
     # screen — which then compared as a bogus ~95% parity regression (#147).
     xcrun simctl install "${SIMULATOR_UDID}" "${reference_app}" >/dev/null || return 1
+    xcrun simctl spawn "${SIMULATOR_UDID}" log stream --level info \
+      --predicate 'subsystem == "dev.waterui"' --style compact \
+      > "${ref_marker_log}" 2>/dev/null &
+    local ref_stream_pid=$!
+    sleep 1
     xcrun simctl launch "${SIMULATOR_UDID}" dev.waterui.E2EReference \
-      -E2EExample "${example}" -E2ETitle "${title}" >/dev/null || return 1
-    sleep 2
-    capture_settled "${target}"
-    local rc=$?
+      -E2EExample "${example}" -E2ETitle "${title}" >/dev/null || {
+      kill "${ref_stream_pid}" 2>/dev/null || true
+      return 1
+    }
+    local rc=0
+    if wait_for_reference_first_paint "${ref_marker_log}"; then
+      capture_settled "${target}"
+      rc=$?
+    else
+      echo "::error::${example}: the SwiftUI twin never reported a first paint on ios; refusing to compare against an unrendered reference."
+      rc=1
+    fi
+    kill "${ref_stream_pid}" 2>/dev/null || true
     xcrun simctl terminate "${SIMULATOR_UDID}" dev.waterui.E2EReference >/dev/null 2>&1 || true
     return ${rc}
   else
+    log stream --predicate 'subsystem == "dev.waterui"' --style compact \
+      > "${ref_marker_log}" 2>/dev/null &
+    local ref_stream_pid=$!
+    sleep 1
     "${reference_app}/Contents/MacOS/E2EReference" \
       -E2EExample "${example}" -E2ETitle "${title}" \
       >>"${logs_dir}/${platform}-${example}-ref.log" 2>&1 &
     local ref_pid=$!
-    capture_settled "${target}" "${ref_pid}"
-    local rc=$?
+    local rc=0
+    if wait_for_reference_first_paint "${ref_marker_log}"; then
+      capture_settled "${target}" "${ref_pid}"
+      rc=$?
+    else
+      echo "::error::${example}: the SwiftUI twin never reported a first paint on macos; refusing to compare against an unrendered reference."
+      rc=1
+    fi
+    kill "${ref_stream_pid}" 2>/dev/null || true
     kill "${ref_pid}" 2>/dev/null || true
     wait "${ref_pid}" 2>/dev/null || true
     return ${rc}

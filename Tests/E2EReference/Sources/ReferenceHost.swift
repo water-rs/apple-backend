@@ -12,6 +12,34 @@
 //   -E2ETitle <title>    window title; passed the example's Water.toml `name`
 
 import SwiftUI
+import os
+
+/// The twin's first-paint marker, on the same `dev.waterui` subsystem the
+/// example under test reports through.
+///
+/// The shard used to wait a fixed two seconds after launching this host and
+/// then capture. A SwiftUI cold launch in the simulator regularly needs
+/// longer, and a capture taken before the first frame is a blank screen —
+/// which agrees with the next blank frame, so the settle loop accepts it
+/// immediately and the run reports a parity regression against a correct
+/// WaterUI render. The host therefore says when it has actually drawn.
+private let wuiReferenceLog = Logger(subsystem: "dev.waterui", category: "Startup")
+private let wuiReferenceLaunchInstant = Date()
+
+/// Emits the marker once the initial render has been committed.
+@MainActor
+func wuiSignalReferenceFirstPaint() {
+  DispatchQueue.main.async {
+    CATransaction.begin()
+    CATransaction.setCompletionBlock {
+      let elapsed = Int(Date().timeIntervalSince(wuiReferenceLaunchInstant) * 1000)
+      // `notice` rather than `debug`: every `log stream` configuration the
+      // shard uses captures notice, while debug needs an explicit level.
+      wuiReferenceLog.notice("waterui_reference_first_paint_ms=\(elapsed, privacy: .public)")
+    }
+    CATransaction.commit()
+  }
+}
 
 #if os(iOS)
   import UIKit
@@ -45,6 +73,7 @@ import SwiftUI
       window.rootViewController = UIHostingController(rootView: TwinRoot())
       window.makeKeyAndVisible()
       self.window = window
+      wuiSignalReferenceFirstPaint()
     }
   }
 #elseif os(macOS)
@@ -79,6 +108,7 @@ import SwiftUI
       window.center()
       window.makeKeyAndOrderFront(nil)
       self.window = window
+      wuiSignalReferenceFirstPaint()
 
       // Mirror the chrome flags the WaterUI backend applies once a window has
       // a toolbar (WuiWindowToolbar): unified style + full-size content, which
