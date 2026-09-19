@@ -1142,13 +1142,14 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       hasVerticalScroller = true
       autohidesScrollers = true
       drawsBackground = false
-      // A SwiftUI List parks its first row ~10pt below the scroll area's top
+      // A SwiftUI List parks its first row ~10pt below the safe area's top
       // edge (measured: AXScrollArea top vs first AXRow top in a plain
       // `List`). The gap belongs to the content, so it scrolls away.
       // `automaticallyAdjustsContentInsets` would rewrite this from the safe
-      // area on every layout pass, so it must be disabled before assigning.
+      // area on every layout pass, so it must be disabled before assigning;
+      // the safe-area part of the inset is applied by hand in `layout()`.
       automaticallyAdjustsContentInsets = false
-      contentInsets = NSEdgeInsets(top: 10, left: 0, bottom: 0, right: 0)
+      contentInsets = NSEdgeInsets(top: Self.contentTopInset, left: 0, bottom: 0, right: 0)
 
       // Setup editing state if provided
       if let editingPtr = ffiList.editing {
@@ -1405,8 +1406,23 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
 
     nonisolated override var isFlipped: Bool { true }
 
+    /// The list's own top gap: SwiftUI's List parks its first row ~10pt below
+    /// the safe area's top edge.
+    private static let contentTopInset: CGFloat = 10
+
     override func layout() {
       super.layout()
+
+      // The scroll surface manages the safe area, so its frame reaches `y0`
+      // beneath the titlebar and toolbar where the rows would start inside
+      // the chrome. `safeAreaInsets` reports the obscured amount at the
+      // current placement — zero for a list that does not reach the chrome —
+      // and the 10pt content gap keeps its place below it.
+      let insets = safeAreaInsets
+      let wanted = NSEdgeInsets(
+        top: Self.contentTopInset + insets.top,
+        left: insets.left, bottom: insets.bottom, right: insets.right)
+      if !NSEdgeInsetsEqual(contentInsets, wanted) { contentInsets = wanted }
 
       let width = contentView.bounds.width
       guard width > 0, abs(width - lastColumnWidth) > 0.5 else { return }
