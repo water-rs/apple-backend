@@ -20,6 +20,11 @@
 # skipped, matching the shard's historical treatment. Any other packaging
 # failure is collected with its log tail and fails the job after every
 # example has been attempted.
+#
+# EXAMPLES (comma-separated) restricts the set to an explicit list — the
+# build matrix legs each pass their assigned group this way, the same
+# convention run-e2e-shard.sh honours (#252). Unset means every discovered
+# example.
 set -euo pipefail
 
 platform="${PLATFORM:?PLATFORM must be ios or macos}"
@@ -39,12 +44,55 @@ esac
 
 mkdir -p "${logs_dir}" "${out_dir}/apps" "${out_dir}/logs"
 
+# A failed discovery exits nonzero here — its ::error line was captured into
+# `discovered`, so reprint it before leaving. Reading through a substitution
+# instead of process substitution keeps the exit status; a `::error` line
+# captured as an example name would otherwise be packaged as one.
+if ! discovered="$("${workspace}/.github/scripts/discover-examples.sh" "${waterui_dir}")"; then
+  printf '%s\n' "${discovered}"
+  exit 1
+fi
+
 all_examples=()
 while IFS= read -r example; do
+  [[ -n "${example}" ]] || continue
   all_examples+=("${example}")
-done < <("${workspace}/.github/scripts/discover-examples.sh" "${waterui_dir}")
+done <<< "${discovered}"
 
-echo "Packaging ${#all_examples[@]} examples for ${platform}: ${all_examples[*]}"
+declare -a selected_examples=()
+if [[ -n "${EXAMPLES:-}" ]]; then
+  # An explicit list selects exactly those examples; a name discovery did
+  # not find is a typo, not an empty group, so it fails the job fast. Same
+  # contract the shard script applies to its EXAMPLES input.
+  IFS=',' read -ra requested_examples <<< "${EXAMPLES}"
+  for example in ${requested_examples[@]+"${requested_examples[@]}"}; do
+    example="$(printf '%s' "${example}" | tr -d '[:space:]')"
+    [[ -n "${example}" ]] || continue
+    known=0
+    for candidate in ${all_examples[@]+"${all_examples[@]}"}; do
+      if [[ "${candidate}" == "${example}" ]]; then
+        known=1
+        break
+      fi
+    done
+    if (( known == 0 )); then
+      echo "::error::Requested example '${example}' is not a runnable example under ${waterui_dir}/examples."
+      exit 1
+    fi
+    selected_examples+=("${example}")
+  done
+else
+  for example in ${all_examples[@]+"${all_examples[@]}"}; do
+    selected_examples+=("${example}")
+  done
+fi
+
+if (( ${#selected_examples[@]} == 0 )); then
+  echo "::error::No examples to package for ${platform}."
+  exit 1
+fi
+
+echo "Packaging ${#selected_examples[@]} examples for ${platform}: ${selected_examples[*]}"
 
 size_entries="${out_dir}/.size-${platform}.entries"
 : > "${size_entries}"
@@ -59,7 +107,7 @@ find_packaged_app() {
 
 declare -a failures=()
 
-for example in ${all_examples[@]+"${all_examples[@]}"}; do
+for example in ${selected_examples[@]+"${selected_examples[@]}"}; do
   example_path="${waterui_dir}/examples/${example}"
   run_log="${logs_dir}/${platform}-${example}.log"
 

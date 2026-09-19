@@ -15,13 +15,15 @@ name: Nightly E2E
 # Shape (#156, #218): `prepare` builds the water CLI once and hands it to
 # every job as an artifact — seventeen macOS jobs each running
 # `cargo install` cost ~110 macOS-minutes a night for one binary.
-# `build-ios`/`build-macos` then package every example once and upload the
-# .app bundles as one tarball per platform; the capture shards download it
-# and only launch, capture and compare. The shards used to each pay the same
-# ~32-minute cold release build — sixteen times a night for identical
-# artifacts. The release-metrics job (a single ~105-minute macOS job) is a
-# weekly signal, not a nightly one: it runs on the Sunday schedule and on
-# dispatch.
+# `build-ios`/`build-macos` then package the examples, fanned out over
+# PACKAGE_GROUP_TOTAL weight-balanced matrix legs per platform (#252 — the
+# serial packaging leg was ~90 of the run's ~102 minutes); each leg
+# uploads its bundles as its own tarball and the capture shards download
+# every leg's tarball, merge them, and only launch, capture and compare.
+# The shards used to each pay the same ~32-minute cold release build —
+# sixteen times a night for identical artifacts. The release-metrics job
+# (a single ~105-minute macOS job) is a weekly signal, not a nightly one:
+# it runs on the Sunday schedule and on dispatch.
 #
 # The e2e jobs pin a dated nightly rather than floating `nightly`: Cargo folds
 # `rustc -vV` into every unit fingerprint, so a toolchain that rotates daily
@@ -79,6 +81,7 @@ env:
   CARGO_PROFILE_DEV_DEBUG: "0"
   CARGO_PROFILE_TEST_DEBUG: "0"
   SHARD_TOTAL: 8
+  PACKAGE_GROUP_TOTAL: 5
 
 jobs:
   prepare:
@@ -93,6 +96,7 @@ jobs:
       waterui_sha: ${{ steps.setup.outputs.waterui_sha }}
       cli_ref: ${{ steps.setup.outputs.cli_ref }}
       cli_sha: ${{ steps.setup.outputs.cli_sha }}
+      package_groups: ${{ steps.groups.outputs.package_groups }}
     env:
       # The CLI's own target directory, cached under its own key: it shares
       # nothing with the framework builds the shards perform.
@@ -106,6 +110,18 @@ jobs:
           WATERUI_REF: ${{ inputs.waterui_ref }}
           WATER_CLI_REF: ${{ inputs.cli_ref }}
         run: ./.github/scripts/setup-e2e.sh
+
+      # The packaging legs fan out over a matrix of example groups; the
+      # partition is computed here, once, from the same discovered set the
+      # packaging script sees, so every leg certifies the same set and a
+      # new example joins the lightest group automatically. Greedy LPT
+      # over measured per-example packaging seconds (#252) — a count or
+      # checksum split leaves one leg holding the long tail.
+      - name: Partition examples into packaging groups
+        id: groups
+        env:
+          WATERUI_DIR: ${{ github.workspace }}/waterui
+        run: echo "package_groups=$(./.github/scripts/group-examples.sh)" >> "${GITHUB_OUTPUT}"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -127,16 +143,27 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-  # One build job per platform packages every example once and hands the
-  # capture shards the bundles as a tarball — the shards used to each pay the
-  # same ~32-minute cold release build, sixteen times a night for identical
-  # artifacts (#218). A package failure fails here with the example's log
-  # tail, and the shards never start.
+  # One build matrix per platform packages every example once and hands the
+  # capture shards the bundles as one tarball per group — the shards used to
+  # each pay the same ~32-minute cold release build, sixteen times a night
+  # for identical artifacts (#218), and the serial leg still packaged for
+  # ~90 of the run's ~102 minutes (#252). The legs share the platform's
+  # rust-cache key, so a warm night costs each leg only its own examples'
+  # builds; a cold night re-pays the framework build per leg but stays well
+  # under the serial wall clock. A package failure fails here with the
+  # example's log tail, and the shards never start.
   build-ios:
-    name: build-ios
+    name: build-ios-${{ matrix.group.i }}
     needs: prepare
     runs-on: macos-26
-    timeout-minutes: 120
+    # A group's share is ~10 min of thin-LTO packaging warm plus setup and
+    # upload; a cold-cache night adds one framework build to the leg's first
+    # example. 60 minutes keeps a wide margin over both.
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        group: ${{ fromJson(needs.prepare.outputs.package_groups) }}
     env:
       # The waterui checkout pins `stable` in its rust-toolchain.toml and the
       # water CLI builds every crate under the toolchain the project selects.
@@ -195,9 +222,19 @@ jobs:
           chmod +x cli-bin/bin/water
           echo "${{ github.workspace }}/cli-bin/bin" >> "$GITHUB_PATH"
 
-      - name: Package every iOS example
+      - name: Package this group's iOS examples
         env:
           PLATFORM: ios
+          EXAMPLES: ${{ matrix.group.examples }}
+          # These bundles exist to be screenshotted, not shipped: thin LTO
+          # with parallel codegen cut the per-example release link ~2.7x
+          # (76 s -> 29 s measured locally) while waterui's shipping
+          # [profile.release] stays untouched. Scoped to this step: the
+          # release-metrics job must keep measuring the shipped profile,
+          # and CARGO_* env vars fold into the rust-cache key by prefix, so
+          # job scope would fork the shared nightly-e2e-* entry.
+          CARGO_PROFILE_RELEASE_LTO: thin
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
           WATERUI_DIR: ${{ github.workspace }}/waterui
           EXAMPLE_LOG_DIR: ${{ github.workspace }}/e2e-logs
           PACKAGE_OUT_DIR: ${{ github.workspace }}/packaged-ios
@@ -205,33 +242,44 @@ jobs:
 
       # Bundles must survive the artifact round trip intact — symlinks,
       # permissions and the ad-hoc code signature — so they cross as a tar,
-      # not as a bare directory upload.
+      # not as a bare directory upload. Only apps/ and logs/ cross: every
+      # group writes its own package-sizes json and .size entries file, and
+      # identical paths inside merged tars would silently overwrite.
       - name: Archive packaged iOS apps
-        run: COPYFILE_DISABLE=1 tar -C "${{ github.workspace }}" -cf packaged-ios.tar packaged-ios
+        run: COPYFILE_DISABLE=1 tar -C "${{ github.workspace }}" -cf "packaged-ios-${{ matrix.group.i }}.tar" packaged-ios/apps packaged-ios/logs
 
       - name: Upload packaged iOS apps
         uses: actions/upload-artifact@v4
         with:
-          name: packaged-ios
-          path: packaged-ios.tar
+          name: packaged-ios-${{ matrix.group.i }}
+          path: packaged-ios-${{ matrix.group.i }}.tar
           retention-days: 1
           if-no-files-found: error
 
       # Separate from the bundle tar so startup-report can merge the numbers
-      # without downloading the apps.
+      # without downloading the apps. Every group uploads the same
+      # package-sizes-ios.json filename under its own artifact name; the
+      # report's sizes/*/package-sizes-*.json glob merges all of them.
       - name: Upload iOS package sizes
         uses: actions/upload-artifact@v4
         with:
-          name: package-sizes-ios
+          name: package-sizes-ios-${{ matrix.group.i }}
           path: packaged-ios/package-sizes-ios.json
           retention-days: 90
           if-no-files-found: error
 
   build-macos:
-    name: build-macos
+    name: build-macos-${{ matrix.group.i }}
     needs: prepare
     runs-on: macos-26
-    timeout-minutes: 120
+    # A group's share is ~10 min of thin-LTO packaging warm plus setup and
+    # upload; a cold-cache night adds one framework build to the leg's first
+    # example. 60 minutes keeps a wide margin over both.
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        group: ${{ fromJson(needs.prepare.outputs.package_groups) }}
     env:
       # The waterui checkout pins `stable` in its rust-toolchain.toml and the
       # water CLI builds every crate under the toolchain the project selects.
@@ -289,29 +337,48 @@ jobs:
           chmod +x cli-bin/bin/water
           echo "${{ github.workspace }}/cli-bin/bin" >> "$GITHUB_PATH"
 
-      - name: Package every macOS example
+      - name: Package this group's macOS examples
         env:
           PLATFORM: macos
+          EXAMPLES: ${{ matrix.group.examples }}
+          # These bundles exist to be screenshotted, not shipped: thin LTO
+          # with parallel codegen cut the per-example release link ~2.7x
+          # (76 s -> 29 s measured locally) while waterui's shipping
+          # [profile.release] stays untouched. Scoped to this step: the
+          # release-metrics job must keep measuring the shipped profile,
+          # and CARGO_* env vars fold into the rust-cache key by prefix, so
+          # job scope would fork the shared nightly-e2e-* entry.
+          CARGO_PROFILE_RELEASE_LTO: thin
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
           WATERUI_DIR: ${{ github.workspace }}/waterui
           EXAMPLE_LOG_DIR: ${{ github.workspace }}/e2e-logs
           PACKAGE_OUT_DIR: ${{ github.workspace }}/packaged-macos
         run: ./.github/scripts/package-examples.sh
 
+      # Bundles must survive the artifact round trip intact — symlinks,
+      # permissions and the ad-hoc code signature — so they cross as a tar,
+      # not as a bare directory upload. Only apps/ and logs/ cross: every
+      # group writes its own package-sizes json and .size entries file, and
+      # identical paths inside merged tars would silently overwrite.
       - name: Archive packaged macOS apps
-        run: COPYFILE_DISABLE=1 tar -C "${{ github.workspace }}" -cf packaged-macos.tar packaged-macos
+        run: COPYFILE_DISABLE=1 tar -C "${{ github.workspace }}" -cf "packaged-macos-${{ matrix.group.i }}.tar" packaged-macos/apps packaged-macos/logs
 
       - name: Upload packaged macOS apps
         uses: actions/upload-artifact@v4
         with:
-          name: packaged-macos
-          path: packaged-macos.tar
+          name: packaged-macos-${{ matrix.group.i }}
+          path: packaged-macos-${{ matrix.group.i }}.tar
           retention-days: 1
           if-no-files-found: error
 
+      # Separate from the bundle tar so startup-report can merge the numbers
+      # without downloading the apps. Every group uploads the same
+      # package-sizes-macos.json filename under its own artifact name; the
+      # report's sizes/*/package-sizes-*.json glob merges all of them.
       - name: Upload macOS package sizes
         uses: actions/upload-artifact@v4
         with:
-          name: package-sizes-macos
+          name: package-sizes-macos-${{ matrix.group.i }}
           path: packaged-macos/package-sizes-macos.json
           retention-days: 90
           if-no-files-found: error
@@ -349,10 +416,15 @@ jobs:
       - name: Download packaged iOS apps
         uses: actions/download-artifact@v4
         with:
-          name: packaged-ios
+          pattern: packaged-ios-*
           path: packaged-artifacts
+          merge-multiple: true
       - name: Unpack packaged iOS apps
-        run: tar -xf packaged-artifacts/packaged-ios.tar -C "${{ github.workspace }}"
+        run: |
+          set -euo pipefail
+          for archive in packaged-artifacts/packaged-ios-*.tar; do
+            tar -xf "${archive}" -C "${{ github.workspace }}"
+          done
 
       - name: Boot iOS simulator
         run: |
@@ -466,10 +538,15 @@ jobs:
       - name: Download packaged macOS apps
         uses: actions/download-artifact@v4
         with:
-          name: packaged-macos
+          pattern: packaged-macos-*
           path: packaged-artifacts
+          merge-multiple: true
       - name: Unpack packaged macOS apps
-        run: tar -xf packaged-artifacts/packaged-macos.tar -C "${{ github.workspace }}"
+        run: |
+          set -euo pipefail
+          for archive in packaged-artifacts/packaged-macos-*.tar; do
+            tar -xf "${archive}" -C "${{ github.workspace }}"
+          done
 
       - name: Run macOS e2e shard
         env:
