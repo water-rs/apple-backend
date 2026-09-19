@@ -156,9 +156,9 @@ jobs:
     name: build-ios-${{ matrix.group.i }}
     needs: prepare
     runs-on: macos-26
-    # A group's share is ~20 min of packaging warm plus setup and upload; a
-    # cold-cache night adds one framework build to the leg's first example.
-    # 60 minutes keeps a wide margin over both.
+    # A group's share is ~10 min of thin-LTO packaging warm plus setup and
+    # upload; a cold-cache night adds one framework build to the leg's first
+    # example. 60 minutes keeps a wide margin over both.
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -226,6 +226,15 @@ jobs:
         env:
           PLATFORM: ios
           EXAMPLES: ${{ matrix.group.examples }}
+          # These bundles exist to be screenshotted, not shipped: thin LTO
+          # with parallel codegen cut the per-example release link ~2.7x
+          # (76 s -> 29 s measured locally) while waterui's shipping
+          # [profile.release] stays untouched. Scoped to this step: the
+          # release-metrics job must keep measuring the shipped profile,
+          # and CARGO_* env vars fold into the rust-cache key by prefix, so
+          # job scope would fork the shared nightly-e2e-* entry.
+          CARGO_PROFILE_RELEASE_LTO: thin
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
           WATERUI_DIR: ${{ github.workspace }}/waterui
           EXAMPLE_LOG_DIR: ${{ github.workspace }}/e2e-logs
           PACKAGE_OUT_DIR: ${{ github.workspace }}/packaged-ios
@@ -263,9 +272,9 @@ jobs:
     name: build-macos-${{ matrix.group.i }}
     needs: prepare
     runs-on: macos-26
-    # A group's share is ~20 min of packaging warm plus setup and upload; a
-    # cold-cache night adds one framework build to the leg's first example.
-    # 60 minutes keeps a wide margin over both.
+    # A group's share is ~10 min of thin-LTO packaging warm plus setup and
+    # upload; a cold-cache night adds one framework build to the leg's first
+    # example. 60 minutes keeps a wide margin over both.
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -332,6 +341,15 @@ jobs:
         env:
           PLATFORM: macos
           EXAMPLES: ${{ matrix.group.examples }}
+          # These bundles exist to be screenshotted, not shipped: thin LTO
+          # with parallel codegen cut the per-example release link ~2.7x
+          # (76 s -> 29 s measured locally) while waterui's shipping
+          # [profile.release] stays untouched. Scoped to this step: the
+          # release-metrics job must keep measuring the shipped profile,
+          # and CARGO_* env vars fold into the rust-cache key by prefix, so
+          # job scope would fork the shared nightly-e2e-* entry.
+          CARGO_PROFILE_RELEASE_LTO: thin
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
           WATERUI_DIR: ${{ github.workspace }}/waterui
           EXAMPLE_LOG_DIR: ${{ github.workspace }}/e2e-logs
           PACKAGE_OUT_DIR: ${{ github.workspace }}/packaged-macos
