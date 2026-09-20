@@ -144,28 +144,48 @@ capture_frame() {
   fi
 }
 
-# Captures until two consecutive frames agree within the compare budget — the
-# app has settled once its output stops changing — or the deadline passes, in
-# which case the last frame is kept. Fails when no frame could be captured.
+# Captures until every frame across SETTLE_WINDOW_S seconds agrees with the
+# window's first frame within DIFF_BUDGET=0.01 — the app has settled once its
+# output stops changing — or the deadline passes, in which case the last
+# frame is kept. Fails when no frame could be captured.
+#
+# Two consecutive frames are not enough: SwiftUI materialises a glassEffect
+# in a second commit the render server lands after first paint, and the
+# intermediate state is pixel-static, so a short agreement check photographs
+# it mid-materialisation. Nightly run 35435178963 caught the liquid_glass
+# twin that way — two reference captures 3.6 s apart agreed while the media
+# card was still translucent, and the 0.1688 parity diff was entirely that
+# card (#256). Measured on an iPhone 18 Pro / iOS 27.0 simulator (frame every
+# ~0.5 s from launch): the glass reaches its final state ~1 s after the
+# first-paint marker is observed and the screen never changes again through
+# 30 s. 10 s is ~10x that measurement and ~2.7x the static plateau the
+# failing run demonstrated, while leaving the 90 s deadline untouched.
+SETTLE_WINDOW_S=10
 capture_settled() {
   local target="$1"
   local pid="${2:-}"
-  local previous=""
+  local anchor="${shots_dir}/.settle-anchor.png"
+  local window_start=0
   local deadline=$((SECONDS + 90))
+  rm -f "${anchor}"
   while (( SECONDS < deadline )); do
     if capture_frame "${target}" ${pid:+"${pid}"} && [[ -f "${target}" ]]; then
-      if [[ -n "${previous}" ]] && \
+      if [[ -f "${anchor}" ]] && \
          DIFF_BUDGET=0.01 swift "${workspace}/.github/scripts/compare-screenshots.swift" \
-           compare "${previous}" "${target}" "${shots_dir}/.settle-diff.png" >/dev/null 2>&1; then
-        rm -f "${previous}"
-        return 0
+           compare "${anchor}" "${target}" "${shots_dir}/.settle-diff.png" >/dev/null 2>&1; then
+        if (( SECONDS - window_start >= SETTLE_WINDOW_S )); then
+          rm -f "${anchor}"
+          return 0
+        fi
+      else
+        # First usable frame, or the screen changed: the window restarts here.
+        cp "${target}" "${anchor}"
+        window_start=${SECONDS}
       fi
-      [[ -z "${previous}" ]] && previous="$(mktemp -t e2e-settle).png"
-      cp "${target}" "${previous}"
     fi
     sleep 1
   done
-  rm -f "${previous}"
+  rm -f "${anchor}"
   if [[ ! -f "${target}" ]]; then
     return 1
   fi
