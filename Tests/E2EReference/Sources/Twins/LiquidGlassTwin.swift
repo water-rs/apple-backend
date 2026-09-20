@@ -21,6 +21,8 @@ private enum Pane: Hashable {
 struct LiquidGlassTwin: View {
   @State private var pane = Pane.surfaces
   @State private var query = ""
+  /// First-paint signal the host injects — see `body`.
+  @EnvironmentObject private var presentation: WuiReferencePresentation
 
   var body: some View {
     let tabs = TabView(selection: $pane) {
@@ -39,23 +41,42 @@ struct LiquidGlassTwin: View {
     }
     // The minimize behavior and bottom accessory exist only on iOS; on macOS
     // the tabs still render, which is what the twin's comparison needs.
+    //
+    // The accessory is inserted only after the host's first frame commits
+    // rather than in the launch commit: when its materialise transition lands
+    // inside the scene's own presentation on iOS 26 it can be dropped,
+    // leaving the capsule flat and translucent for the rest of the process —
+    // the iOS shard captured exactly that state twice as the 0.1688
+    // liquid_glass parity diff (#256). Inserting into the already-live tab
+    // bar is the path every real use of this API takes — a now-playing bar
+    // appearing while the app runs.
     #if os(iOS)
-      tabs
-        .tabBarMinimizeBehavior(.onScrollDown)
-        .tabViewBottomAccessory {
-          HStack(spacing: 12) {
-            Label("Play", systemImage: "play.fill")
-            VStack(spacing: 1) {
-              Text("Now Playing").fontWeight(.bold).font(.system(size: 15))
-              Text("Liquid Glass — Surfaces").font(.system(size: 12))
-            }
+      if presentation.painted {
+        tabs
+          .tabBarMinimizeBehavior(.onScrollDown)
+          .tabViewBottomAccessory {
+            nowPlaying
           }
-          .padding(.vertical, 6)
-          .padding(.horizontal, 16)
-        }
+      } else {
+        tabs
+          .tabBarMinimizeBehavior(.onScrollDown)
+      }
     #else
       tabs
     #endif
+  }
+
+  /// The now-playing row the tab bar carries in its bottom accessory slot.
+  private var nowPlaying: some View {
+    HStack(spacing: 12) {
+      Label("Play", systemImage: "play.fill")
+      VStack(spacing: 1) {
+        Text("Now Playing").fontWeight(.bold).font(.system(size: 15))
+        Text("Liquid Glass — Surfaces").font(.system(size: 12))
+      }
+    }
+    .padding(.vertical, 6)
+    .padding(.horizontal, 16)
   }
 
   private var surfacesPage: some View {

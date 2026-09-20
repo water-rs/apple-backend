@@ -68,12 +68,24 @@ private func wuiReferenceNowNanos() -> UInt64 {
   #endif
 }
 
+/// Shared "the first frame is on screen" signal for the twins. The host
+/// injects it at the root and flips `painted` from the same CATransaction
+/// completion that emits the first-paint marker, so observing it means the
+/// window and the view hierarchy are already presenting — the earliest
+/// moment a twin can safely mutate chrome that must survive the launch
+/// commit (see LiquidGlassTwin's bottom accessory).
+@MainActor
+final class WuiReferencePresentation: ObservableObject {
+  @Published var painted = false
+}
+
 /// Emits the marker once the initial render has been committed.
 @MainActor
-func wuiSignalReferenceFirstPaint() {
+func wuiSignalReferenceFirstPaint(presentation: WuiReferencePresentation) {
   DispatchQueue.main.async {
     CATransaction.begin()
     CATransaction.setCompletionBlock {
+      presentation.painted = true
       let elapsed = (wuiReferenceNowNanos() - wuiReferenceLaunchNanos) / 1_000_000
       // `notice` rather than `debug`: every `log stream` configuration the
       // shard uses captures notice, while debug needs an explicit level.
@@ -112,10 +124,12 @@ func wuiSignalReferenceFirstPaint() {
         fatalError("The application scene is not a window scene: \(scene)")
       }
       let window = UIWindow(windowScene: windowScene)
-      window.rootViewController = UIHostingController(rootView: TwinRoot())
+      let presentation = WuiReferencePresentation()
+      window.rootViewController = UIHostingController(
+        rootView: TwinRoot().environmentObject(presentation))
       window.makeKeyAndVisible()
       self.window = window
-      wuiSignalReferenceFirstPaint()
+      wuiSignalReferenceFirstPaint(presentation: presentation)
     }
   }
 #elseif os(macOS)
@@ -142,7 +156,8 @@ func wuiSignalReferenceFirstPaint() {
       if let title = UserDefaults.standard.string(forKey: "E2ETitle") {
         window.title = title
       }
-      let hostingView = NSHostingView(rootView: TwinRoot())
+      let presentation = WuiReferencePresentation()
+      let hostingView = NSHostingView(rootView: TwinRoot().environmentObject(presentation))
       // Do not let the SwiftUI content's ideal size drive the window size —
       // the waterui scaffold pins the content rect at 800×600 unconditionally.
       hostingView.sizingOptions = []
@@ -150,7 +165,7 @@ func wuiSignalReferenceFirstPaint() {
       window.center()
       window.makeKeyAndOrderFront(nil)
       self.window = window
-      wuiSignalReferenceFirstPaint()
+      wuiSignalReferenceFirstPaint(presentation: presentation)
 
       // Mirror the chrome flags the WaterUI backend applies once a window has
       // a toolbar (WuiWindowToolbar): unified style + full-size content, which
