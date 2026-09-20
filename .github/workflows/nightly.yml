@@ -56,6 +56,12 @@ on:
         description: water-rs/cli branch, tag, or full commit SHA (default dev)
         required: false
         type: string
+      # TEMPORARY — #256 diagnostic, removed before this branch's PR leaves
+      # draft. When set, every job below except `twin-probe` is skipped.
+      twin_probe:
+        description: Probe one twin's materialisation on an iOS simulator; skips every other job (temporary)
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -86,6 +92,7 @@ env:
 jobs:
   prepare:
     name: prepare
+    if: inputs.twin_probe == ''
     runs-on: macos-26
     timeout-minutes: 30
     # `prepare` is the only job allowed to resolve the waterui/cli refs; every
@@ -154,6 +161,7 @@ jobs:
   # example's log tail, and the shards never start.
   build-ios:
     name: build-ios-${{ matrix.group.i }}
+    if: inputs.twin_probe == ''
     needs: prepare
     runs-on: macos-26
     # A group's share is ~10 min of thin-LTO packaging warm plus setup and
@@ -270,6 +278,7 @@ jobs:
 
   build-macos:
     name: build-macos-${{ matrix.group.i }}
+    if: inputs.twin_probe == ''
     needs: prepare
     runs-on: macos-26
     # A group's share is ~10 min of thin-LTO packaging warm plus setup and
@@ -385,6 +394,7 @@ jobs:
 
   e2e-ios:
     name: e2e-ios-${{ matrix.shard }}
+    if: inputs.twin_probe == ''
     needs: [prepare, build-ios]
     runs-on: macos-26
     # ~7 examples × ~3 min of launch/settle/capture/twin/compare plus
@@ -507,6 +517,7 @@ jobs:
 
   e2e-macos:
     name: e2e-macos-${{ matrix.shard }}
+    if: inputs.twin_probe == ''
     needs: [prepare, build-macos]
     runs-on: macos-26
     # ~7 examples × ~3 min of launch/settle/capture/twin/compare plus the
@@ -608,6 +619,7 @@ jobs:
   # bundle, so a broken staging step cannot turn the check green by skipping.
   ios-device-tests:
     name: ios-device-tests
+    if: inputs.twin_probe == ''
     needs: prepare
     runs-on: macos-26
     timeout-minutes: 60
@@ -679,7 +691,7 @@ jobs:
   # build-macos built.
   startup-report:
     name: startup-report
-    if: always()
+    if: always() && inputs.twin_probe == ''
     needs: [prepare, build-ios, build-macos, e2e-ios, e2e-macos]
     runs-on: ubuntu-latest
     steps:
@@ -795,7 +807,7 @@ jobs:
     # Weekly (the Sunday schedule) and on dispatch: a ~105-minute macOS job
     # measuring release size, startup and memory is a trend series, not a
     # nightly gate, and on the other six nights its slot goes to the shards.
-    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '23 5 * * 0'
+    if: (github.event_name == 'workflow_dispatch' || github.event.schedule == '23 5 * * 0') && inputs.twin_probe == ''
     runs-on: macos-26
     env:
       # The waterui checkout pins `stable` in its rust-toolchain.toml and the
@@ -894,7 +906,7 @@ jobs:
   # human reviews every changed pixel.
   publish-baselines:
     name: publish-baselines
-    if: inputs.record_baselines == true
+    if: inputs.record_baselines == true && inputs.twin_probe == ''
     needs: [e2e-ios, e2e-macos, package-size]
     runs-on: ubuntu-latest
     permissions:
@@ -982,7 +994,7 @@ jobs:
   report:
     name: Report failure
     needs: [prepare, build-ios, build-macos, e2e-ios, e2e-macos, package-size, ios-device-tests]
-    if: failure() && inputs.record_baselines != true
+    if: failure() && inputs.record_baselines != true && inputs.twin_probe == ''
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -999,3 +1011,71 @@ jobs:
           filename: .github/NIGHTLY_FAILURE.md
           update_existing: true
           search_existing: open
+
+  # ────────────────────────────────────────────────────────────────────────
+  # TEMPORARY — #256 diagnostic, branch-only: this job and the `twin_probe`
+  # input are removed before the PR leaves draft. Dispatching with
+  # `twin_probe: <example>` skips every other job and runs only this one:
+  # build the SwiftUI reference host, boot the same simulator pick the iOS
+  # shards use, launch the host for that example with the marker stream
+  # attached, and photograph the screen once a second for 120 s. The artifact
+  # carries every frame, the marker log, and a timeline.tsv of per-frame
+  # diffs, so the twin's materialisation arc is measured on the runners that
+  # reproduce the failure — run 35475492529 showed first paint ~55 s after
+  # launch there against ~2 s locally.
+  twin-probe:
+    name: twin-probe
+    if: inputs.twin_probe != ''
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # Identical to the e2e-ios boot step: the frames are only comparable to
+      # the shards' captures under the same display conditions.
+      - name: Boot iOS simulator
+        run: |
+          set -euo pipefail
+          simulator_udid="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ {print $2; exit}')"
+          if [[ -z "${simulator_udid}" ]]; then
+            echo "::error::No available iPhone simulator found."
+            exit 1
+          fi
+          echo "SIMULATOR_UDID=${simulator_udid}" >> "${GITHUB_ENV}"
+          xcrun simctl boot "${simulator_udid}" || true
+          xcrun simctl bootstatus "${simulator_udid}" -b
+          # An iOS capture is the whole display (macOS captures the app's own
+          # window), so a SpringBoard notification banner lands in the frame and
+          # reads as a divergence from the app's own baseline and from the
+          # SwiftUI twin. Booting out the delivery daemon stops every banner for
+          # this boot; the device is created fresh per run, so nothing persists.
+          xcrun simctl spawn "${simulator_udid}" \
+            launchctl bootout system/com.apple.usernotificationsd 2>/dev/null || true
+          # The capture is compared pixel-by-pixel; pin the status bar so the
+          # clock and battery do not diff against the baseline.
+          xcrun simctl status_bar "${simulator_udid}" override \
+            --time "9:41" \
+            --batteryState charged \
+            --batteryLevel 100 \
+            --cellularMode active \
+            --cellularBars 4 \
+            --wifiBars 3
+
+      - name: Build the SwiftUI reference host
+        run: Tests/E2EReference/build-reference-host.sh ios twin-probe-host
+
+      - name: Probe the twin
+        env:
+          PROBE_EXAMPLE: ${{ inputs.twin_probe }}
+          PROBE_APP: ${{ github.workspace }}/twin-probe-host/E2EReference.app
+          PROBE_OUT: ${{ github.workspace }}/twin-probe-out
+        run: ./.github/scripts/twin-probe.sh
+
+      - name: Upload probe results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: twin-probe-${{ inputs.twin_probe }}
+          path: twin-probe-out/
+          retention-days: 14
+          if-no-files-found: error
