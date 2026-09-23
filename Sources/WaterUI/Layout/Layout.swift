@@ -378,17 +378,22 @@ final class SubViewProxy {
   let stretchAxis: WuiStretchAxis
   /// Layout priority (higher = measured first)
   let priority: Int32
+  /// Whether the child renders nothing — a semantic answer, not a measured
+  /// size. `true` excludes the child from stack membership (§4.4).
+  let isEmpty: Bool
   private var measurementCache: [ProposalCacheKey: WuiViewDimensions] = [:]
   private var activeMeasurements = Set<ProposalCacheKey>()
 
   init(
     stretchAxis: WuiStretchAxis = .none,
     priority: Int32 = 0,
+    isEmpty: Bool = false,
     measure: @escaping (WuiProposalSize) -> WuiViewDimensions
   ) {
     self.measure = measure
     self.stretchAxis = stretchAxis
     self.priority = priority
+    self.isEmpty = isEmpty
   }
 
   func toBorrowedWuiSubView() -> CWaterUI.WuiSubView {
@@ -408,7 +413,8 @@ final class SubViewProxy {
       context: Unmanaged.passUnretained(self).toOpaque(),
       vtable: vtable,
       stretch_axis: stretchAxis.ffiValue,
-      priority: priority
+      priority: priority,
+      is_empty: isEmpty
     )
   }
 

@@ -13,7 +13,8 @@ struct NativeLayoutBridge {
         let proxies = children.map { child in
             SubViewProxy(
                 stretchAxis: child.stretchAxis,
-                priority: child.layoutPriority()
+                priority: child.layoutPriority(),
+                isEmpty: child.rendersNothing
             ) { proposal in
                 measureChild(child, proposal)
             }
