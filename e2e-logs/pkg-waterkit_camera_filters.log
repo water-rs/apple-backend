@@ -1,0 +1,39 @@
+▶ Packaging waterkit-camera-filters-example for macOS via Apple (release)
+✓ Toolchain ready
+warning: patch `hydrolysis v0.3.0 (https://github.com/water-rs/hydrolysis?rev=1d88f06abd9acf727a19eaa2d3743670493f6547#1d88f06a)` was not used in the crate graph
+warning: patch `hydrolysis-m3 v0.3.0 (https://github.com/water-rs/hydrolysis-m3?rev=2ddf27c2a9f5d0c4a04c4d586462a429eefa8bd7#2ddf27c2)` was not used in the crate graph
+warning: patch `waterui-backend-core v0.1.2 (/Users/lexoliu/Coding/water-rs/apple-backend-worktrees/wt-parity-8/waterui/backends/core)` was not used in the crate graph
+warning: patch `waterui-barcode v0.3.0 (https://github.com/water-rs/barcode?rev=0a7efbf3b0f37de18f4e9da678f445d0b63bb28d#0a7efbf3)` was not used in the crate graph
+warning: patch `waterui-canvas v0.2.0 (https://github.com/water-rs/canvas?rev=fb4a1a1de3bae3b9da60cb475cb3a10e161e4525#fb4a1a1d)` was not used in the crate graph
+warning: patch `waterui-chart v0.3.0 (https://github.com/water-rs/chart?rev=b5ec25f94728d65755de959e01800d2b54326b89#b5ec25f9)` was not used in the crate graph
+warning: patch `waterui-map v0.1.2 (/Users/lexoliu/Coding/water-rs/apple-backend-worktrees/wt-parity-8/waterui/components/data/map)` was not used in the crate graph
+warning: patch `waterui-map-gpu v0.3.0 (https://github.com/water-rs/map-gpu?rev=fa83ba7be6feb932d15cd37f14810ab79653f4aa#fa83ba7b)` was not used in the crate graph
+warning: patch `waterui-math v0.2.0 (https://github.com/water-rs/math?rev=ffa8e42e4f04ffd2396bf0466eae46a2b9e00c53#ffa8e42e)` was not used in the crate graph
+warning: patch `waterui-particle v0.2.0 (https://github.com/water-rs/particle?rev=9bd736b9ecaef4b902b8a55680d214b385e4a186#9bd736b9)` was not used in the crate graph
+warning: patch `waterui-video-gpu v0.4.0 (https://github.com/water-rs/video-gpu?rev=e208a44b995883cfda7053f2cf12894e9f1a4ba9#e208a44b)` was not used in the crate graph
+warning: patch `waterui-webview v0.4.1 (/Users/lexoliu/Coding/water-rs/apple-backend-worktrees/wt-parity-8/waterui/components/platform/webview)` was not used in the crate graph
+warning: patch `waterui-backend-core v0.1.2 (/Users/lexoliu/Coding/water-rs/apple-backend-worktrees/wt-parity-8/waterui/backends/core)` was not used in the crate graph
+warning: patch `waterui-map v0.1.2 (/Users/lexoliu/Coding/water-rs/apple-backend-worktrees/wt-parity-8/waterui/components/data/map)` was not used in the crate graph
+warning: patch `waterui-webview v0.4.1 (/Users/lexoliu/Coding/water-rs/apple-backend-worktrees/wt-parity-8/waterui/components/platform/webview)` was not used in the crate graph
+help: Check that the patched package version and available features are compatible
+with the dependency requirements. If the patch has a different version from
+what is locked in the Cargo.lock file, run `cargo update` to use the new
+version. This may also occur with an optional dependency that is not enabled.
+Updating crates.io index
+   Compiling waterkit-camera v0.1.4 (1)
+   Compiling waterkit-permission v0.1.4 (2)
+   Compiling malloc_buf v0.0.6 (3)
+   Compiling core-graphics-types v0.2.0 (4)
+   Compiling waterkit-camera-filters-example v0.1.0 (5)
+   Compiling waterkit-camera-filters-example-ffi-c7908405 v0.1.0 (6)
+   Compiling objc v0.2.7 (7)
+Finished `release` profile [optimized] target(s) in 59.52s
+✓ Built Rust library
+   Compiling waterkit-permission v0.1.4 (1)
+   Compiling waterkit-camera v0.1.4 (2)
+   Compiling malloc_buf v0.0.6 (3)
+   Compiling core-graphics-types v0.2.0 (4)
+   Compiling waterkit-camera-filters-example v0.1.0 (5)
+   Compiling objc v0.2.7 (6)
+Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.63s
+✓ Packaged at /Users/lexoliu/.water/build_cache/Users/lexoliu/Coding/water-rs/apple-backend-worktrees/wt-parity-8/waterui/examples/waterkit_camera_filters/managed_backends/apple/DerivedData/Build/Products/Release/Waterkit Camera Filters.app

@@ -1,0 +1,3 @@
+Filtering the log data using "subsystem == "dev.waterui""
+Timestamp               Ty Process[PID:TID]
+2026-09-19 00:10:43.626 Df CEF WebView Example[77066:7220876] [dev.waterui:Startup] waterui_first_paint_ms=3385

@@ -1,0 +1,100 @@
+▶ Packaging reply-example for macOS via Apple (release)
+✓ Toolchain ready
+warning: patch `waterui-map v0.1.2 (/Users/lexoliu/Coding/water-rs/apple-backend-worktrees/wt-parity-8/waterui/components/data/map)` was not used in the crate graph
+warning: patch `waterui-webview v0.4.1 (/Users/lexoliu/Coding/water-rs/apple-backend-worktrees/wt-parity-8/waterui/components/platform/webview)` was not used in the crate graph
+warning: patch `block v0.1.6 (https://github.com/Dicklesworthstone/rust-block?rev=b39ae859d1ee8e8cb5eef6a516471f1578d26b96#b39ae859)` was not used in the crate graph
+warning: patch `hydrolysis v0.3.0 (https://github.com/water-rs/hydrolysis?rev=1d88f06abd9acf727a19eaa2d3743670493f6547#1d88f06a)` was not used in the crate graph
+warning: patch `waterui-barcode v0.3.0 (https://github.com/water-rs/barcode?rev=0a7efbf3b0f37de18f4e9da678f445d0b63bb28d#0a7efbf3)` was not used in the crate graph
+warning: patch `waterui-canvas v0.2.0 (https://github.com/water-rs/canvas?rev=fb4a1a1de3bae3b9da60cb475cb3a10e161e4525#fb4a1a1d)` was not used in the crate graph
+warning: patch `waterui-chart v0.3.0 (https://github.com/water-rs/chart?rev=b5ec25f94728d65755de959e01800d2b54326b89#b5ec25f9)` was not used in the crate graph
+warning: patch `waterui-map v0.1.2 (/Users/lexoliu/Coding/water-rs/apple-backend-worktrees/wt-parity-8/waterui/components/data/map)` was not used in the crate graph
+warning: patch `waterui-map-gpu v0.3.0 (https://github.com/water-rs/map-gpu?rev=fa83ba7be6feb932d15cd37f14810ab79653f4aa#fa83ba7b)` was not used in the crate graph
+warning: patch `waterui-math v0.2.0 (https://github.com/water-rs/math?rev=ffa8e42e4f04ffd2396bf0466eae46a2b9e00c53#ffa8e42e)` was not used in the crate graph
+warning: patch `waterui-particle v0.2.0 (https://github.com/water-rs/particle?rev=9bd736b9ecaef4b902b8a55680d214b385e4a186#9bd736b9)` was not used in the crate graph
+warning: patch `waterui-video-gpu v0.4.0 (https://github.com/water-rs/video-gpu?rev=e208a44b995883cfda7053f2cf12894e9f1a4ba9#e208a44b)` was not used in the crate graph
+warning: patch `waterui-webview v0.4.1 (/Users/lexoliu/Coding/water-rs/apple-backend-worktrees/wt-parity-8/waterui/components/platform/webview)` was not used in the crate graph
+help: Check that the patched package version and available features are compatible
+with the dependency requirements. If the patch has a different version from
+what is locked in the Cargo.lock file, run `cargo update` to use the new
+version. This may also occur with an optional dependency that is not enabled.
+Updating crates.io index
+   Compiling indexmap v2.14.0 (1)
+   Compiling prettyplease v0.2.37 (2)
+   Compiling seize v0.5.1 (3)
+   Compiling reply-example-ffi-57224164 v0.1.0 (4)
+   Compiling papaya v0.2.4 (5)
+   Compiling naga v29.0.4 (6)
+   Compiling bon-macros v3.9.3 (7)
+   Compiling bon v3.9.3 (8)
+   Compiling material-color-utils v0.1.3 (9)
+   Compiling wgpu-naga-bridge v29.0.4 (10)
+   Compiling wgpu-hal v29.0.4 (11)
+   Compiling wgpu-core-deps-apple v29.0.4 (12)
+   Compiling wgpu-core v29.0.4 (13)
+   Compiling wgpu v29.0.4 (14)
+   Compiling shaderloom v0.1.2 (15)
+   Compiling vello_hybrid v0.2.0 (16)
+   Compiling vello v0.9.0 (17)
+   Compiling waterkit-screen v0.1.4 (18)
+   Compiling filtrate v0.2.0 (19)
+   Compiling waterkit-codec v0.1.4 (20)
+   Compiling waterui-graphics v0.4.1 (21)
+   Compiling waterui-layout v0.3.2 (22)
+   Compiling waterui-shape v0.1.2 (23)
+   Compiling waterui-text v0.4.1 (24)
+   Compiling waterui-svg v0.4.0 (25)
+   Compiling waterui-image v0.5.0 (26)
+   Compiling waterui-icon v0.3.2 (27)
+   Compiling waterui-controls v0.3.2 (28)
+   Compiling waterui-icons-material-icon v0.1.2 (29)
+   Compiling waterui-media v0.3.2 (30)
+   Compiling waterui-navigation v0.3.2 (31)
+   Compiling waterui-form v0.3.2 (32)
+   Compiling waterui-assets v0.1.2 (33)
+   Compiling waterui-internal v0.4.1 (34)
+   Compiling waterui v0.4.1 (35)
+   Compiling waterui-backend-core v0.1.2 (36)
+   Compiling waterui-ffi v0.3.2 (37)
+   Compiling hydrolysis-m3 v0.3.0 (38)
+   Compiling reply-example v0.1.0 (39)
+Finished `release` profile [optimized] target(s) in 2m 05s
+✓ Built Rust library
+   Compiling indexmap v2.14.0 (1)
+   Compiling prettyplease v0.2.37 (2)
+   Compiling seize v0.5.1 (3)
+   Compiling papaya v0.2.4 (4)
+   Compiling naga v29.0.4 (5)
+   Compiling bon-macros v3.9.3 (6)
+   Compiling wgpu-naga-bridge v29.0.4 (7)
+   Compiling wgpu-hal v29.0.4 (8)
+   Compiling wgpu-core-deps-apple v29.0.4 (9)
+   Compiling wgpu-core v29.0.4 (10)
+   Compiling bon v3.9.3 (11)
+   Compiling material-color-utils v0.1.3 (12)
+   Compiling wgpu v29.0.4 (13)
+   Compiling shaderloom v0.1.2 (14)
+   Compiling vello v0.9.0 (15)
+   Compiling vello_hybrid v0.2.0 (16)
+   Compiling waterkit-screen v0.1.4 (17)
+   Compiling filtrate v0.2.0 (18)
+   Compiling waterui-graphics v0.4.1 (19)
+   Compiling waterui-layout v0.3.2 (20)
+   Compiling waterui-svg v0.4.0 (21)
+   Compiling waterui-text v0.4.1 (22)
+   Compiling waterkit-codec v0.1.4 (23)
+   Compiling waterui-shape v0.1.2 (24)
+   Compiling waterui-icon v0.3.2 (25)
+   Compiling waterui-controls v0.3.2 (26)
+   Compiling waterui-icons-material-icon v0.1.2 (27)
+   Compiling waterui-image v0.5.0 (28)
+   Compiling waterui-form v0.3.2 (29)
+   Compiling waterui-media v0.3.2 (30)
+   Compiling waterui-navigation v0.3.2 (31)
+   Compiling waterui-assets v0.1.2 (32)
+   Compiling waterui-internal v0.4.1 (33)
+   Compiling waterui v0.4.1 (34)
+   Compiling waterui-backend-core v0.1.2 (35)
+   Compiling hydrolysis-m3 v0.3.0 (36)
+   Compiling reply-example v0.1.0 (37)
+Finished `dev` profile [unoptimized + debuginfo] target(s) in 42.12s
+✓ Packaged at /Users/lexoliu/.water/build_cache/Users/lexoliu/Coding/water-rs/apple-backend-worktrees/wt-parity-8/waterui/examples/reply/managed_backends/apple/DerivedData/Build/Products/Release/Reply.app

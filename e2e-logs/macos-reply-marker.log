@@ -1,0 +1,3 @@
+Filtering the log data using "subsystem == "dev.waterui""
+Timestamp               Ty Process[PID:TID]
+2026-09-18 23:56:46.622 Df Reply[69450:720cfe7] [dev.waterui:Startup] waterui_first_paint_ms=867

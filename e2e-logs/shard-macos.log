@@ -1,0 +1,2254 @@
+Running 35 examples on macos: animation chromium drag_drop edge_layout edge_list edge_text filter flow_markdown form gallery gesture gradient hover icons liquid_glass list locale map markdown media_picker menu multi_window navigation picker reminders reply shape snackbar starfield stress typography-rtl video_player waterkit_camera_filters webview webview-cef
+::group::macos example animation
+::notice::animation packaged: .app=5980055B executable=5896320B (macos)
+::notice::animation first paint in 1375 ms (macos, release)
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+::error::Could not capture a screenshot for animation.
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 273: 15609 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+./.github/scripts/run-e2e-shard.sh: line 273: 15773 Terminated: 15          "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1
+::group::macos example chromium
+::notice::chromium packaged: .app=349312041B executable=6203168B (macos)
+::notice::chromium first paint in 3672 ms (macos, release)
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+::error::Could not capture a screenshot for chromium.
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 273: 18681 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+::group::macos example drag_drop
+::notice::drag_drop packaged: .app=5781387B executable=5697648B (macos)
+::notice::drag_drop first paint in 604 ms (macos, release)
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+::error::Could not capture a screenshot for drag_drop.
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 273: 20351 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+::group::macos example edge_layout
+./.github/scripts/run-e2e-shard.sh: line 273: 20381 Terminated: 15          "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1
+::notice::edge_layout packaged: .app=5764607B executable=5680896B (macos)
+::notice::edge_layout first paint in 681 ms (macos, release)
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+::error::Could not capture a screenshot for edge_layout.
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 273: 23926 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+::group::macos example edge_list
+./.github/scripts/run-e2e-shard.sh: line 273: 23942 Terminated: 15          "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1
+::notice::edge_list packaged: .app=5781287B executable=5697584B (macos)
+::notice::edge_list first paint in 988 ms (macos, release)
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+::error::Could not capture a screenshot for edge_list.
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 273: 25697 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+::group::macos example edge_text
+./.github/scripts/run-e2e-shard.sh: line 273: 25723 Terminated: 15          "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1
+::notice::edge_text packaged: .app=5764583B executable=5680880B (macos)
+::notice::edge_text first paint in 744 ms (macos, release)
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+::error::Could not capture a screenshot for edge_text.
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 273: 28043 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+./.github/scripts/run-e2e-shard.sh: line 273: 28075 Terminated: 15          "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1
+::group::macos example filter
+::notice::filter packaged: .app=6013083B executable=5929360B (macos)
+::notice::filter first paint in 1375 ms (macos, release)
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+::error::Could not capture a screenshot for filter.
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 273: 29724 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+::group::macos example flow_markdown
+./.github/scripts/run-e2e-shard.sh: line 273: 29734 Terminated: 15          "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1
+::notice::flow_markdown packaged: .app=9505504B executable=9421776B (macos)
+::notice::flow_markdown first paint in 756 ms (macos, release)
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+::error::Could not capture a screenshot for flow_markdown.
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 273: 31450 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+./.github/scripts/run-e2e-shard.sh: line 273: 31452 Terminated: 15          "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1
+::group::macos example form
+::notice::form packaged: .app=5831251B executable=5747536B (macos)
+::notice::form first paint in 763 ms (macos, release)
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+::error::Could not capture a screenshot for form.
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 273: 32907 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+::group::macos example gallery
+./.github/scripts/run-e2e-shard.sh: line 273: 32911 Terminated: 15          "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1
+::notice::gallery packaged: .app=7134687B executable=7050960B (macos)
+./.github/scripts/run-e2e-shard.sh: line 456: 34710 Trace/BPT trap: 5       "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1
+::warning::gallery did not report a first-paint time
+no on-screen window for pid 34710 within 30s
+screencapture: no file specified
+no on-screen window for pid 34710 within 30s
+screencapture: no file specified
+no on-screen window for pid 34710 within 30s
+screencapture: no file specified
+::error::Could not capture a screenshot for gallery.
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 273: 34707 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+::group::macos example gesture
+::notice::gesture packaged: .app=5797823B executable=5714096B (macos)
+::notice::gesture first paint in 655 ms (macos, release)
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+::error::Could not capture a screenshot for gesture.
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 273: 39218 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+./.github/scripts/run-e2e-shard.sh: line 273: 39250 Terminated: 15          "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1
+::group::macos example gradient
+::notice::gradient packaged: .app=5963027B executable=5879296B (macos)
+::notice::gradient first paint in 773 ms (macos, release)
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+::error::Could not capture a screenshot for gradient.
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 273: 41121 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+./.github/scripts/run-e2e-shard.sh: line 273: 41126 Terminated: 15          "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1
+::group::macos example hover
+::notice::hover packaged: .app=5797975B executable=5714256B (macos)
+::notice::hover first paint in 369 ms (macos, release)
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+::error::Could not capture a screenshot for hover.
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 273: 43894 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+./.github/scripts/run-e2e-shard.sh: line 273: 43899 Terminated: 15          "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1
+::group::macos example icons
+::notice::icons packaged: .app=7700015B executable=6918192B (macos)
+::notice::icons first paint in 887 ms (macos, release)
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+::error::Could not capture a screenshot for icons.
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 273: 46127 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+./.github/scripts/run-e2e-shard.sh: line 273: 46175 Terminated: 15          "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1
+::group::macos example liquid_glass
+::notice::liquid_glass packaged: .app=5781299B executable=5697584B (macos)
+::notice::liquid_glass first paint in 2047 ms (macos, release)
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+::error::Could not capture a screenshot for liquid_glass.
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 273: 49747 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+./.github/scripts/run-e2e-shard.sh: line 273: 49774 Terminated: 15          "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1
+::group::macos example list
+::notice::list packaged: .app=5814370B executable=5730656B (macos)
+::notice::list first paint in 891 ms (macos, release)
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+::error::Could not capture a screenshot for list.
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 273: 52663 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+./.github/scripts/run-e2e-shard.sh: line 273: 52667 Terminated: 15          "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1
+::group::macos example locale
+::notice::locale packaged: .app=7032139B executable=6948416B (macos)
+::notice::locale first paint in 877 ms (macos, release)
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+::error::Could not capture a screenshot for locale.
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 273: 57010 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+::group::macos example map
+./.github/scripts/run-e2e-shard.sh: line 273: 57045 Terminated: 15          "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1
+::notice::map packaged: .app=9832251B executable=9748432B (macos)
+::notice::map first paint in 1146 ms (macos, release)
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+no on-screen window for pid 59010 within 30s
+screencapture: no file specified
+could not create image from window
+could not create image from window
+could not create image from window
+::error::Could not capture a screenshot for map.
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 273: 58989 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+::group::macos example markdown
+./.github/scripts/run-e2e-shard.sh: line 273: 59010 Terminated: 15          "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1
+::notice::markdown packaged: .app=8960547B executable=8876816B (macos)
+::notice::markdown first paint in 1308 ms (macos, release)
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+::error::Could not capture a screenshot for markdown.
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 273: 60305 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+::group::macos example media_picker
+./.github/scripts/run-e2e-shard.sh: line 273: 60336 Terminated: 15          "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1
+::notice::media_picker packaged: .app=7624083B executable=7540336B (macos)
+::notice::media_picker first paint in 626 ms (macos, release)
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+::error::Could not capture a screenshot for media_picker.
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 273: 62834 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+./.github/scripts/run-e2e-shard.sh: line 273: 62836 Terminated: 15          "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1
+::group::macos example menu
+::notice::menu packaged: .app=5814579B executable=5730864B (macos)
+::notice::menu first paint in 922 ms (macos, release)
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+::error::Could not capture a screenshot for menu.
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 273: 64229 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+./.github/scripts/run-e2e-shard.sh: line 273: 64330 Terminated: 15          "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1
+::group::macos example multi_window
+::notice::multi_window packaged: .app=5797907B executable=5714160B (macos)
+::notice::multi_window first paint in 755 ms (macos, release)
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+::error::Could not capture a screenshot for multi_window.
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 273: 65627 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+./.github/scripts/run-e2e-shard.sh: line 273: 65643 Terminated: 15          "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1
+::group::macos example navigation
+::notice::navigation packaged: .app=7168035B executable=7084304B (macos)
+::notice::navigation first paint in 1099 ms (macos, release)
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+::error::Could not capture a screenshot for navigation.
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 273: 66766 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+./.github/scripts/run-e2e-shard.sh: line 273: 66768 Terminated: 15          "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1
+::group::macos example picker
+::notice::picker packaged: .app=6917659B executable=6833936B (macos)
+::notice::picker first paint in 1273 ms (macos, release)
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+::error::Could not capture a screenshot for picker.
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 273: 68223 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+::group::macos example reminders
+./.github/scripts/run-e2e-shard.sh: line 273: 68227 Terminated: 15          "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1
+::notice::reminders packaged: .app=7101287B executable=7017584B (macos)
+./.github/scripts/run-e2e-shard.sh: line 273: 69389 Trace/BPT trap: 5       "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1
+::error::reminders packaged app exited during launch (macos).
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 273: 69387 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+::group::macos example reply
+::notice::reply packaged: .app=73941823B executable=7777168B (macos)
+::notice::reply first paint in 867 ms (macos, release)
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+::error::Could not capture a screenshot for reply.
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 273: 69429 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+::group::macos example shape
+./.github/scripts/run-e2e-shard.sh: line 273: 69450 Terminated: 15          "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1
+::notice::shape packaged: .app=5930199B executable=5846480B (macos)
+::notice::shape first paint in 697 ms (macos, release)
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+::error::Could not capture a screenshot for shape.
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 273: 70672 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+./.github/scripts/run-e2e-shard.sh: line 273: 70674 Terminated: 15          "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1
+::group::macos example snackbar
+::notice::snackbar packaged: .app=6230563B executable=6146832B (macos)
+::notice::snackbar first paint in 609 ms (macos, release)
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+::error::Could not capture a screenshot for snackbar.
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 273: 71594 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+./.github/scripts/run-e2e-shard.sh: line 273: 71598 Terminated: 15          "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1
+::group::macos example starfield
+::notice::starfield packaged: .app=5896917B executable=5813184B (macos)
+::notice::starfield first paint in 565 ms (macos, release)
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+::error::Could not capture a screenshot for starfield.
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 273: 72489 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+./.github/scripts/run-e2e-shard.sh: line 273: 72491 Terminated: 15          "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1
+::group::macos example stress
+::notice::stress packaged: .app=6045739B executable=5962016B (macos)
+::notice::stress first paint in 1097 ms (macos, release)
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+::error::Could not capture a screenshot for stress.
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 273: 73206 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+::group::macos example typography-rtl
+./.github/scripts/run-e2e-shard.sh: line 273: 73210 Terminated: 15          "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1
+::notice::typography-rtl packaged: .app=5764683B executable=5680960B (macos)
+::notice::typography-rtl first paint in 724 ms (macos, release)
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+::error::Could not capture a screenshot for typography-rtl.
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 273: 73990 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+::group::macos example video_player
+./.github/scripts/run-e2e-shard.sh: line 273: 73993 Terminated: 15          "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1
+::notice::video_player packaged: .app=5942755B executable=5859008B (macos)
+::notice::video_player first paint in 1054 ms (macos, release)
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+::error::Could not capture a screenshot for video_player.
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 273: 74714 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+./.github/scripts/run-e2e-shard.sh: line 273: 74716 Terminated: 15          "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1
+::group::macos example waterkit_camera_filters
+::notice::waterkit_camera_filters packaged: .app=6172657B executable=6088784B (macos)
+::notice::waterkit_camera_filters first paint in 577 ms (macos, release)
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+::error::Could not capture a screenshot for waterkit_camera_filters.
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 273: 75543 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+::group::macos example webview
+./.github/scripts/run-e2e-shard.sh: line 273: 75548 Terminated: 15          "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1
+::notice::webview packaged: .app=6036287B executable=5952560B (macos)
+::notice::webview first paint in 764 ms (macos, release)
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+::error::Could not capture a screenshot for webview.
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 273: 76455 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+./.github/scripts/run-e2e-shard.sh: line 273: 76460 Terminated: 15          "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1
+::group::macos example webview-cef
+::notice::webview-cef packaged: .app=349377858B executable=6269168B (macos)
+::notice::webview-cef first paint in 3385 ms (macos, release)
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+could not create image from window
+::error::Could not capture a screenshot for webview-cef.
+::endgroup::
+./.github/scripts/run-e2e-shard.sh: line 597: 77061 Terminated: 15          log stream --predicate 'subsystem == "dev.waterui"' --style compact > "${marker_log}" 2> /dev/null
+::error::35 example(s) failed on macos: animation: capture chromium: capture drag_drop: capture edge_layout: capture edge_list: capture edge_text: capture filter: capture flow_markdown: capture form: capture gallery: capture gesture: capture gradient: capture hover: capture icons: capture liquid_glass: capture list: capture locale: capture map: capture markdown: capture media_picker: capture menu: capture multi_window: capture navigation: capture picker: capture reminders: launch reply: capture shape: capture snackbar: capture starfield: capture stress: capture typography-rtl: capture video_player: capture waterkit_camera_filters: capture webview: capture webview-cef: capture

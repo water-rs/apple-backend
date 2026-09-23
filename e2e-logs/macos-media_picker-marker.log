@@ -1,0 +1,4 @@
+Filtering the log data using "subsystem == "dev.waterui""
+Timestamp               Ty Process[PID:TID]
+2026-09-18 23:49:01.930 Df Media Picker Example[62836:7200856] [dev.waterui:Startup] waterui_first_paint_ms=626
+2026-09-18 23:49:26.166 Df play[63460:7201640] [dev.waterui:Startup] waterui_first_paint_ms=1173

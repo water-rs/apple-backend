@@ -1,0 +1,217 @@
+▶ Packaging webview-cef-example for macOS via Apple (release)
+✓ Toolchain ready
+warning: patch `waterui-backend-core v0.1.2 (/Users/lexoliu/Coding/water-rs/apple-backend-worktrees/wt-parity-8/waterui/backends/core)` was not used in the crate graph
+warning: patch `waterui-map v0.1.2 (/Users/lexoliu/Coding/water-rs/apple-backend-worktrees/wt-parity-8/waterui/components/data/map)` was not used in the crate graph
+warning: patch `block v0.1.6 (https://github.com/Dicklesworthstone/rust-block?rev=b39ae859d1ee8e8cb5eef6a516471f1578d26b96#b39ae859)` was not used in the crate graph
+warning: patch `hydrolysis v0.3.0 (https://github.com/water-rs/hydrolysis?rev=1d88f06abd9acf727a19eaa2d3743670493f6547#1d88f06a)` was not used in the crate graph
+warning: patch `hydrolysis-m3 v0.3.0 (https://github.com/water-rs/hydrolysis-m3?rev=2ddf27c2a9f5d0c4a04c4d586462a429eefa8bd7#2ddf27c2)` was not used in the crate graph
+warning: patch `waterui-backend-core v0.1.2 (/Users/lexoliu/Coding/water-rs/apple-backend-worktrees/wt-parity-8/waterui/backends/core)` was not used in the crate graph
+warning: patch `waterui-barcode v0.3.0 (https://github.com/water-rs/barcode?rev=0a7efbf3b0f37de18f4e9da678f445d0b63bb28d#0a7efbf3)` was not used in the crate graph
+warning: patch `waterui-canvas v0.2.0 (https://github.com/water-rs/canvas?rev=fb4a1a1de3bae3b9da60cb475cb3a10e161e4525#fb4a1a1d)` was not used in the crate graph
+warning: patch `waterui-chart v0.3.0 (https://github.com/water-rs/chart?rev=b5ec25f94728d65755de959e01800d2b54326b89#b5ec25f9)` was not used in the crate graph
+warning: patch `waterui-map v0.1.2 (/Users/lexoliu/Coding/water-rs/apple-backend-worktrees/wt-parity-8/waterui/components/data/map)` was not used in the crate graph
+warning: patch `waterui-map-gpu v0.3.0 (https://github.com/water-rs/map-gpu?rev=fa83ba7be6feb932d15cd37f14810ab79653f4aa#fa83ba7b)` was not used in the crate graph
+warning: patch `waterui-math v0.2.0 (https://github.com/water-rs/math?rev=ffa8e42e4f04ffd2396bf0466eae46a2b9e00c53#ffa8e42e)` was not used in the crate graph
+warning: patch `waterui-particle v0.2.0 (https://github.com/water-rs/particle?rev=9bd736b9ecaef4b902b8a55680d214b385e4a186#9bd736b9)` was not used in the crate graph
+warning: patch `waterui-video-gpu v0.4.0 (https://github.com/water-rs/video-gpu?rev=e208a44b995883cfda7053f2cf12894e9f1a4ba9#e208a44b)` was not used in the crate graph
+help: Check that the patched package version and available features are compatible
+with the dependency requirements. If the patch has a different version from
+what is locked in the Cargo.lock file, run `cargo update` to use the new
+version. This may also occur with an optional dependency that is not enabled.
+Updating crates.io index
+   Compiling objc2-metal v0.3.2 (1)
+   Compiling anstyle v1.0.14 (2)
+   Compiling utf8parse v0.2.2 (3)
+   Compiling colorchoice v1.0.5 (4)
+   Compiling portable-atomic v1.15.0 (5)
+   Compiling anstyle-query v1.1.5 (6)
+   Compiling is_terminal_polyfill v1.70.2 (7)
+   Compiling fs-err v3.3.1 (8)
+   Compiling clap_lex v1.1.0 (9)
+   Compiling anstyle-parse v1.0.0 (10)
+   Compiling socks v0.3.4 (11)
+   Compiling clap_derive v4.6.4 (12)
+   Compiling annotate-snippets v0.12.16 (13)
+   Compiling anstream v1.0.0 (14)
+   Compiling xattr v1.6.1 (15)
+   Compiling console v0.16.4 (16)
+   Compiling filetime v0.2.29 (17)
+   Compiling libbz2-rs-sys v0.2.5 (18)
+   Compiling clap_builder v4.6.6 (19)
+   Compiling wgsl-parse v0.4.0 (20)
+   Compiling unit-prefix v0.5.2 (21)
+   Compiling ureq v3.4.0 (22)
+   Compiling tar v0.4.46 (23)
+   Compiling indicatif v0.18.6 (24)
+   Compiling bzip2 v0.6.1 (25)
+   Compiling sha1_smol v1.0.1 (26)
+   Compiling semver v1.0.28 (27)
+   Compiling cmake v0.1.58 (28)
+   Compiling waterui-assets-planner v0.2.0 (29)
+   Compiling keycode_macro v1.0.0 (30)
+   Compiling waterui-browser-cef v0.2.1 (31)
+   Compiling libloading v0.9.0 (32)
+   Compiling arraydeque v0.5.1 (33)
+   Compiling waterui-ffi v0.3.2 (34)
+   Compiling webview-cef-example-ffi-6bff6744 v0.1.0 (35)
+   Compiling keycode v1.0.0 (36)
+   Compiling clap v4.6.6 (37)
+   Compiling waterui-assets-macros v0.1.2 (38)
+   Compiling download-cef v2.3.2 (39)
+   Compiling cef-dll-sys v150.2.1+150.0.14 (40)
+   Compiling objc2-quartz-core v0.3.2 (41)
+   Compiling objc2-core-graphics v0.3.2 (42)
+   Compiling raw-window-metal v1.1.0 (43)
+   Compiling wgpu-hal v29.0.4 (44)
+   Compiling objc2-core-video v0.3.2 (45)
+   Compiling objc2-app-kit v0.3.2 (46)
+   Compiling objc2-core-media v0.3.2 (47)
+   Compiling objc2-av-foundation v0.3.2 (48)
+   Compiling objc2-video-toolbox v0.3.2 (49)
+   Compiling wesl v0.4.0 (50)
+   Compiling wgpu-core-deps-apple v29.0.4 (51)
+   Compiling wgpu-core v29.0.4 (52)
+   Compiling vello_sparse_shaders v0.2.0 (53)
+   Compiling wgpu v29.0.4 (54)
+   Compiling shaderloom v0.1.2 (55)
+   Compiling vello v0.9.0 (56)
+   Compiling vello_hybrid v0.2.0 (57)
+   Compiling wgpu-external-frame v0.1.1 (58)
+   Compiling filtrate v0.2.0 (59)
+   Compiling waterkit-codec v0.1.4 (60)
+   Compiling waterui-graphics v0.4.1 (61)
+   Compiling waterui-layout v0.3.2 (62)
+   Compiling waterui-shape v0.1.2 (63)
+   Compiling waterui-image v0.5.0 (64)
+   Compiling waterui-webview v0.4.1 (65)
+   Compiling waterui-svg v0.4.0 (66)
+   Compiling arboard v3.6.1 (67)
+   Compiling rfd v0.17.2 (68)
+   Compiling xcap v0.9.8 (69)
+   Compiling robius-open v0.3.1 (70)
+   Compiling waterui-text v0.4.1 (71)
+   Compiling waterkit-dialog v0.1.4 (72)
+   Compiling waterkit-screen v0.1.4 (73)
+   Compiling waterui-icon v0.3.2 (74)
+   Compiling waterui-controls v0.3.2 (75)
+   Compiling waterui-media v0.3.2 (76)
+   Compiling waterui-navigation v0.3.2 (77)
+   Compiling waterui-form v0.3.2 (78)
+   Compiling waterui-assets v0.1.2 (79)
+   Compiling waterui-internal v0.4.1 (80)
+   Compiling waterui v0.4.1 (81)
+   Compiling webview-example v0.1.0 (82)
+   Compiling cef v150.2.1+150.0.14 (83)
+   Compiling webview-cef-example v0.1.0 (84)
+Finished `release` profile [optimized] target(s) in 2m 00s
+warning: patch `block v0.1.6 (https://github.com/Dicklesworthstone/rust-block?rev=b39ae859d1ee8e8cb5eef6a516471f1578d26b96#b39ae859)` was not used in the crate graph
+warning: patch `hydrolysis v0.3.0 (https://github.com/water-rs/hydrolysis?rev=1d88f06abd9acf727a19eaa2d3743670493f6547#1d88f06a)` was not used in the crate graph
+warning: patch `hydrolysis-m3 v0.3.0 (https://github.com/water-rs/hydrolysis-m3?rev=2ddf27c2a9f5d0c4a04c4d586462a429eefa8bd7#2ddf27c2)` was not used in the crate graph
+warning: patch `waterui-backend-core v0.1.2 (/Users/lexoliu/Coding/water-rs/apple-backend-worktrees/wt-parity-8/waterui/backends/core)` was not used in the crate graph
+warning: patch `waterui-barcode v0.3.0 (https://github.com/water-rs/barcode?rev=0a7efbf3b0f37de18f4e9da678f445d0b63bb28d#0a7efbf3)` was not used in the crate graph
+warning: patch `waterui-canvas v0.2.0 (https://github.com/water-rs/canvas?rev=fb4a1a1de3bae3b9da60cb475cb3a10e161e4525#fb4a1a1d)` was not used in the crate graph
+warning: patch `waterui-chart v0.3.0 (https://github.com/water-rs/chart?rev=b5ec25f94728d65755de959e01800d2b54326b89#b5ec25f9)` was not used in the crate graph
+warning: patch `waterui-map v0.1.2 (/Users/lexoliu/Coding/water-rs/apple-backend-worktrees/wt-parity-8/waterui/components/data/map)` was not used in the crate graph
+warning: patch `waterui-map-gpu v0.3.0 (https://github.com/water-rs/map-gpu?rev=fa83ba7be6feb932d15cd37f14810ab79653f4aa#fa83ba7b)` was not used in the crate graph
+warning: patch `waterui-math v0.2.0 (https://github.com/water-rs/math?rev=ffa8e42e4f04ffd2396bf0466eae46a2b9e00c53#ffa8e42e)` was not used in the crate graph
+warning: patch `waterui-particle v0.2.0 (https://github.com/water-rs/particle?rev=9bd736b9ecaef4b902b8a55680d214b385e4a186#9bd736b9)` was not used in the crate graph
+warning: patch `waterui-video-gpu v0.4.0 (https://github.com/water-rs/video-gpu?rev=e208a44b995883cfda7053f2cf12894e9f1a4ba9#e208a44b)` was not used in the crate graph
+warning: patch `waterui-backend-core v0.1.2 (/Users/lexoliu/Coding/water-rs/apple-backend-worktrees/wt-parity-8/waterui/backends/core)` was not used in the crate graph
+warning: patch `waterui-map v0.1.2 (/Users/lexoliu/Coding/water-rs/apple-backend-worktrees/wt-parity-8/waterui/components/data/map)` was not used in the crate graph
+help: Check that the patched package version and available features are compatible
+with the dependency requirements. If the patch has a different version from
+what is locked in the Cargo.lock file, run `cargo update` to use the new
+version. This may also occur with an optional dependency that is not enabled.
+Updating crates.io index
+   Compiling cef-dll-sys v150.2.1+150.0.14 (85)
+   Compiling webview-cef-example-ffi-6bff6744 v0.1.0 (86)
+   Compiling waterui-browser-cef v0.2.1 (87)
+   Compiling cef v150.2.1+150.0.14 (88)
+   Compiling webview-cef-example v0.1.0 (89)
+   Compiling waterui-ffi v0.3.2 (90)
+Finished `release` profile [optimized] target(s) in 58.64s
+✓ Built Rust library
+   Compiling objc2-metal v0.3.2 (1)
+   Compiling anstyle v1.0.14 (2)
+   Compiling utf8parse v0.2.2 (3)
+   Compiling portable-atomic v1.15.0 (4)
+   Compiling anstyle-query v1.1.5 (5)
+   Compiling colorchoice v1.0.5 (6)
+   Compiling is_terminal_polyfill v1.70.2 (7)
+   Compiling fs-err v3.3.1 (8)
+   Compiling anstyle-parse v1.0.0 (9)
+   Compiling clap_lex v1.1.0 (10)
+   Compiling clap_derive v4.6.4 (11)
+   Compiling socks v0.3.4 (12)
+   Compiling annotate-snippets v0.12.16 (13)
+   Compiling anstream v1.0.0 (14)
+   Compiling clap_builder v4.6.6 (15)
+   Compiling xattr v1.6.1 (16)
+   Compiling console v0.16.4 (17)
+   Compiling filetime v0.2.29 (18)
+   Compiling unit-prefix v0.5.2 (19)
+   Compiling libbz2-rs-sys v0.2.5 (20)
+   Compiling wgsl-parse v0.4.0 (21)
+   Compiling ureq v3.4.0 (22)
+   Compiling indicatif v0.18.6 (23)
+   Compiling bzip2 v0.6.1 (24)
+   Compiling tar v0.4.46 (25)
+   Compiling semver v1.0.28 (26)
+   Compiling sha1_smol v1.0.1 (27)
+   Compiling cmake v0.1.58 (28)
+   Compiling waterui-assets-planner v0.2.0 (29)
+   Compiling waterui-assets-macros v0.1.2 (30)
+   Compiling keycode_macro v1.0.0 (31)
+   Compiling waterui-browser-cef v0.2.1 (32)
+   Compiling libloading v0.9.0 (33)
+   Compiling arraydeque v0.5.1 (34)
+   Compiling keycode v1.0.0 (35)
+   Compiling objc2-quartz-core v0.3.2 (36)
+   Compiling objc2-core-graphics v0.3.2 (37)
+   Compiling raw-window-metal v1.1.0 (38)
+   Compiling wgpu-hal v29.0.4 (39)
+   Compiling objc2-core-video v0.3.2 (40)
+   Compiling objc2-app-kit v0.3.2 (41)
+   Compiling objc2-core-media v0.3.2 (42)
+   Compiling objc2-av-foundation v0.3.2 (43)
+   Compiling objc2-video-toolbox v0.3.2 (44)
+   Compiling clap v4.6.6 (45)
+   Compiling download-cef v2.3.2 (46)
+   Compiling wgpu-core-deps-apple v29.0.4 (47)
+   Compiling wgpu-core v29.0.4 (48)
+   Compiling cef-dll-sys v150.2.1+150.0.14 (49)
+   Compiling wesl v0.4.0 (50)
+   Compiling wgpu v29.0.4 (51)
+   Compiling shaderloom v0.1.2 (52)
+   Compiling filtrate v0.2.0 (53)
+   Compiling vello v0.9.0 (54)
+   Compiling waterkit-codec v0.1.4 (55)
+   Compiling wgpu-external-frame v0.1.1 (56)
+   Compiling arboard v3.6.1 (57)
+   Compiling rfd v0.17.2 (58)
+   Compiling waterkit-dialog v0.1.4 (59)
+   Compiling xcap v0.9.8 (60)
+   Compiling waterkit-screen v0.1.4 (61)
+   Compiling robius-open v0.3.1 (62)
+   Compiling vello_sparse_shaders v0.2.0 (63)
+   Compiling cef v150.2.1+150.0.14 (64)
+   Compiling vello_hybrid v0.2.0 (65)
+   Compiling waterui-graphics v0.4.1 (66)
+   Compiling waterui-layout v0.3.2 (67)
+   Compiling waterui-shape v0.1.2 (68)
+   Compiling waterui-text v0.4.1 (69)
+   Compiling waterui-image v0.5.0 (70)
+   Compiling waterui-webview v0.4.1 (71)
+   Compiling waterui-svg v0.4.0 (72)
+   Compiling waterui-icon v0.3.2 (73)
+   Compiling waterui-controls v0.3.2 (74)
+   Compiling waterui-media v0.3.2 (75)
+   Compiling waterui-assets v0.1.2 (76)
+   Compiling waterui-navigation v0.3.2 (77)
+   Compiling waterui-form v0.3.2 (78)
+   Compiling waterui-internal v0.4.1 (79)
+   Compiling waterui v0.4.1 (80)
+   Compiling webview-example v0.1.0 (81)
+   Compiling webview-cef-example v0.1.0 (82)
+Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 02s
+✓ Packaged at /Users/lexoliu/.water/build_cache/Users/lexoliu/Coding/water-rs/apple-backend-worktrees/wt-parity-8/waterui/examples/webview-cef/managed_backends/apple/DerivedData/Build/Products/Release/CEF WebView Example.app

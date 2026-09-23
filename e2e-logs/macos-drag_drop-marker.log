@@ -1,0 +1,4 @@
+Filtering the log data using "subsystem == "dev.waterui""
+Timestamp               Ty Process[PID:TID]
+2026-09-18 23:21:53.487 Df Drag Drop Example[20381:71bf6ff] [dev.waterui:Startup] waterui_first_paint_ms=604
+2026-09-18 23:22:34.004 Df Hover Example[21066:71c0b41] [dev.waterui:Startup] waterui_first_paint_ms=666

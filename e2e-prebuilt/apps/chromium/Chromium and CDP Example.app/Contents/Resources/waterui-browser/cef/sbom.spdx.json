@@ -1,0 +1,25 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "dataLicense": "CC0-1.0",
+  "spdxId": "SPDXRef-DOCUMENT",
+  "name": "WaterUI CEF runtime 150.0.14",
+  "documentNamespace": "https://waterui.dev/sbom/cef/150.0.14",
+  "creationInfo": {
+    "created": "2026-07-28T00:00:00Z",
+    "creators": [
+      "Tool: waterui-cli"
+    ]
+  },
+  "packages": [
+    {
+      "name": "Chromium Embedded Framework",
+      "spdxId": "SPDXRef-Package-CEF",
+      "versionInfo": "150.0.14",
+      "downloadLocation": "https://cef-builds.spotifycdn.com/",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "BSD-3-Clause",
+      "copyrightText": "NOASSERTION"
+    }
+  ]
+}

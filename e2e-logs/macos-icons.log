@@ -1,0 +1,84 @@
+▶ Packaging icons-example for macOS via Apple (release)
+✓ Toolchain ready
+warning: patch `waterui-backend-core v0.1.2 (/Users/lexoliu/Coding/water-rs/apple-backend-worktrees/wt-parity-8/waterui/backends/core)` was not used in the crate graph
+warning: patch `waterui-map v0.1.2 (/Users/lexoliu/Coding/water-rs/apple-backend-worktrees/wt-parity-8/waterui/components/data/map)` was not used in the crate graph
+warning: patch `waterui-webview v0.4.1 (/Users/lexoliu/Coding/water-rs/apple-backend-worktrees/wt-parity-8/waterui/components/platform/webview)` was not used in the crate graph
+warning: patch `block v0.1.6 (https://github.com/Dicklesworthstone/rust-block?rev=b39ae859d1ee8e8cb5eef6a516471f1578d26b96#b39ae859)` was not used in the crate graph
+warning: patch `hydrolysis v0.3.0 (https://github.com/water-rs/hydrolysis?rev=1d88f06abd9acf727a19eaa2d3743670493f6547#1d88f06a)` was not used in the crate graph
+warning: patch `hydrolysis-m3 v0.3.0 (https://github.com/water-rs/hydrolysis-m3?rev=2ddf27c2a9f5d0c4a04c4d586462a429eefa8bd7#2ddf27c2)` was not used in the crate graph
+warning: patch `waterui-backend-core v0.1.2 (/Users/lexoliu/Coding/water-rs/apple-backend-worktrees/wt-parity-8/waterui/backends/core)` was not used in the crate graph
+warning: patch `waterui-barcode v0.3.0 (https://github.com/water-rs/barcode?rev=0a7efbf3b0f37de18f4e9da678f445d0b63bb28d#0a7efbf3)` was not used in the crate graph
+warning: patch `waterui-canvas v0.2.0 (https://github.com/water-rs/canvas?rev=fb4a1a1de3bae3b9da60cb475cb3a10e161e4525#fb4a1a1d)` was not used in the crate graph
+warning: patch `waterui-chart v0.3.0 (https://github.com/water-rs/chart?rev=b5ec25f94728d65755de959e01800d2b54326b89#b5ec25f9)` was not used in the crate graph
+warning: patch `waterui-map v0.1.2 (/Users/lexoliu/Coding/water-rs/apple-backend-worktrees/wt-parity-8/waterui/components/data/map)` was not used in the crate graph
+warning: patch `waterui-map-gpu v0.3.0 (https://github.com/water-rs/map-gpu?rev=fa83ba7be6feb932d15cd37f14810ab79653f4aa#fa83ba7b)` was not used in the crate graph
+warning: patch `waterui-math v0.2.0 (https://github.com/water-rs/math?rev=ffa8e42e4f04ffd2396bf0466eae46a2b9e00c53#ffa8e42e)` was not used in the crate graph
+warning: patch `waterui-particle v0.2.0 (https://github.com/water-rs/particle?rev=9bd736b9ecaef4b902b8a55680d214b385e4a186#9bd736b9)` was not used in the crate graph
+warning: patch `waterui-video-gpu v0.4.0 (https://github.com/water-rs/video-gpu?rev=e208a44b995883cfda7053f2cf12894e9f1a4ba9#e208a44b)` was not used in the crate graph
+warning: patch `waterui-webview v0.4.1 (/Users/lexoliu/Coding/water-rs/apple-backend-worktrees/wt-parity-8/waterui/components/platform/webview)` was not used in the crate graph
+help: Check that the patched package version and available features are compatible
+with the dependency requirements. If the patch has a different version from
+what is locked in the Cargo.lock file, run `cargo update` to use the new
+version. This may also occur with an optional dependency that is not enabled.
+Updating crates.io index
+   Compiling ring v0.17.14 (1)
+   Compiling zstd-sys v2.0.16+zstd.1.5.7 (2)
+   Compiling lzma-sys v0.1.20 (3)
+   Compiling bzip2-sys v0.1.13+1.0.8 (4)
+   Compiling zstd-safe v6.0.6 (5)
+   Compiling waterkit-codec v0.1.4 (6)
+   Compiling webpki-roots v0.26.11 (7)
+   Compiling zip v0.6.6 (8)
+   Compiling waterui-icons-sf-symbol v0.1.2 (9)
+   Compiling icons-example-ffi-39122e63 v0.1.0 (10)
+   Compiling bzip2 v0.4.4 (11)
+   Compiling xz2 v0.1.7 (12)
+   Compiling rustls v0.23.45 (13)
+   Compiling rustls-webpki v0.103.14 (14)
+   Compiling zstd v0.12.4 (15)
+   Compiling waterui-image v0.5.0 (16)
+   Compiling waterui-media v0.3.2 (17)
+   Compiling ureq v3.4.0 (18)
+   Compiling ureq v2.12.1 (19)
+   Compiling waterui-assets v0.1.2 (20)
+   Compiling arkiv v0.7.0 (21)
+   Compiling waterui-internal v0.4.1 (22)
+   Compiling waterui-icons-codegen v0.1.1 (23)
+   Compiling waterui-icons-material-icon v0.1.2 (24)
+   Compiling waterui-icons-lucide v0.1.2 (25)
+   Compiling waterui-icons-fontawesome7 v0.2.1 (26)
+   Compiling waterui v0.4.1 (27)
+   Compiling waterui-ffi v0.3.2 (28)
+   Compiling icons-example v0.1.0 (29)
+Finished `release` profile [optimized] target(s) in 59.68s
+✓ Built Rust library
+   Compiling ring v0.17.14 (1)
+   Compiling pkg-config v0.3.34 (2)
+   Compiling zstd-safe v6.0.6 (3)
+   Compiling waterkit-codec v0.1.4 (4)
+   Compiling webpki-roots v0.26.11 (5)
+   Compiling zip v0.6.6 (6)
+   Compiling waterui-icons-sf-symbol v0.1.2 (7)
+   Compiling zstd-sys v2.0.16+zstd.1.5.7 (8)
+   Compiling lzma-sys v0.1.20 (9)
+   Compiling bzip2-sys v0.1.13+1.0.8 (10)
+   Compiling waterui-image v0.5.0 (11)
+   Compiling bzip2 v0.4.4 (12)
+   Compiling waterui-media v0.3.2 (13)
+   Compiling xz2 v0.1.7 (14)
+   Compiling waterui-assets v0.1.2 (15)
+   Compiling waterui-internal v0.4.1 (16)
+   Compiling rustls v0.23.45 (17)
+   Compiling rustls-webpki v0.103.14 (18)
+   Compiling waterui v0.4.1 (19)
+   Compiling ureq v3.4.0 (20)
+   Compiling ureq v2.12.1 (21)
+   Compiling zstd v0.12.4 (22)
+   Compiling waterui-icons-codegen v0.1.1 (23)
+   Compiling arkiv v0.7.0 (24)
+   Compiling waterui-icons-fontawesome7 v0.2.1 (25)
+   Compiling waterui-icons-lucide v0.1.2 (26)
+   Compiling waterui-icons-material-icon v0.1.2 (27)
+   Compiling icons-example v0.1.0 (28)
+Finished `dev` profile [unoptimized + debuginfo] target(s) in 15.67s
+✓ Packaged at /Users/lexoliu/.water/build_cache/Users/lexoliu/Coding/water-rs/apple-backend-worktrees/wt-parity-8/waterui/examples/icons/managed_backends/apple/DerivedData/Build/Products/Release/Icons Example.app
