@@ -47,3 +47,27 @@ final class WuiEmpty: PlatformView, WuiComponent {
         .zero
     }
 }
+
+extension PlatformView {
+    /// Whether this view is WaterUI's empty view `()`, possibly under
+    /// layout-transparent wrappers or hosted by a `Dynamic`.
+    ///
+    /// This is a semantic answer, not a measured size: a `Color` or `Spacer`
+    /// squeezed to zero still renders and still answers false, and so does a
+    /// `WuiFixedContainer` (a frame or nested stack explicitly claims its
+    /// slot — e.g. `().size(w, h)`). Transparent single-child hosts forward
+    /// the child's answer. A stack treats a view answering true as a
+    /// non-member (§4.4: no slot, no spacing).
+    var rendersNothing: Bool {
+        if self is WuiEmpty {
+            return true
+        }
+        if self is WuiFixedContainer {
+            return false
+        }
+        guard !subviews.isEmpty else {
+            return false
+        }
+        return subviews.allSatisfy { $0.rendersNothing }
+    }
+}
