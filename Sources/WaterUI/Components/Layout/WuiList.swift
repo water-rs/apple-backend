@@ -17,7 +17,6 @@ import CWaterUI
 private struct ResolvedListItem {
   let view: WuiAnyView
   let deletable: WuiComputed<Bool>?
-  let selected: WuiComputed<Bool>?
 }
 
 /// A section's header and footer as reactive text.
@@ -66,8 +65,7 @@ private func resolveListItem(
 
   return ResolvedListItem(
     view: WuiAnyView(anyview: contentPtr, env: env),
-    deletable: listItem.deletable.map { WuiComputed<Bool>($0) },
-    selected: listItem.selected.map { WuiComputed<Bool>($0) }
+    deletable: listItem.deletable.map { WuiComputed<Bool>($0) }
   )
 }
 
@@ -84,9 +82,6 @@ private func resolveListItemDeletable(
   let listItem = waterui_force_as_list_item(viewPtr)
   if let contentPtr = listItem.content {
     waterui_drop_anyview(contentPtr)
-  }
-  if let selectedPtr = listItem.selected {
-    _ = WuiComputed<Bool>(selectedPtr)
   }
   dropListItemSection(listItem)
 
@@ -115,9 +110,6 @@ private func peekListItemSection(
   if let deletablePtr = listItem.deletable {
     _ = WuiComputed<Bool>(deletablePtr)
   }
-  if let selectedPtr = listItem.selected {
-    _ = WuiComputed<Bool>(selectedPtr)
-  }
 
   guard listItem.section.has_value else {
     dropListItemSection(listItem)
@@ -127,6 +119,118 @@ private func peekListItemSection(
     label: listItem.section.label.map { WuiComputed<WuiStyledStr>($0) },
     footer: listItem.section.footer.map { WuiComputed<WuiStyledStr>($0) }
   )
+}
+
+/// The list-level selection contract, unpacked from `WuiList.selection`.
+///
+/// Rows are keyed by the erased ids `contents` reports — native input writes
+/// those ids straight back into the binding, never its own numbering.
+/// `single` carries the one selected id (`0` means none), `multiple` the
+/// whole set; slots the mode doesn't name are null and stay untouched.
+///
+/// The binding is the state: pointer, keyboard, and accessibility input
+/// writes it through `write`, and its notifications drive the table's
+/// selected rows — a click and a Rust-side update land identically. Writes
+/// issued while `applyToTable` runs are the table echoing the applied value
+/// back, and are dropped so the binding is not restated.
+@MainActor
+final class WuiListSelectionController {
+  enum Mode {
+    case none
+    case single
+    case multiple
+  }
+
+  let mode: Mode
+  private let single: WuiBinding<Int32>?
+  private let multiple: WuiBinding<[WuiId]>?
+  private var watcher: WatcherGuard?
+  private var applying = false
+
+  /// Called with the new erased-id set when the binding reports a selection
+  /// change; assigning it installs the watch. Set after construction so a
+  /// platform list can form the callback once `self` exists.
+  var onChange: ((Set<Int32>) -> Void)? {
+    didSet {
+      guard watcher == nil else { return }
+      switch mode {
+      case .none:
+        break
+      case .single:
+        watcher = single?.watch { [weak self] id, _ in
+          self?.onChange?(id == 0 ? [] : [id])
+        }
+      case .multiple:
+        watcher = multiple?.watch { [weak self] ids, _ in
+          self?.onChange?(Set(ids.map(\.inner)))
+        }
+      }
+    }
+  }
+
+  /// The erased ids the binding currently marks selected.
+  var selectedIds: Set<Int32> {
+    switch mode {
+    case .none:
+      return []
+    case .single:
+      let id = single?.value ?? 0
+      return id == 0 ? [] : [id]
+    case .multiple:
+      return Set(multiple?.value.map(\.inner) ?? [])
+    }
+  }
+
+  init(
+    mode: Mode,
+    single: WuiBinding<Int32>? = nil,
+    multiple: WuiBinding<[WuiId]>? = nil
+  ) {
+    self.mode = mode
+    self.single = single
+    self.multiple = multiple
+  }
+
+  /// Takes ownership of the binding pointers `ffiSelection` names.
+  convenience init(_ ffiSelection: CWaterUI.WuiListSelection) {
+    switch ffiSelection.mode {
+    case WuiListSelectionMode_Single:
+      self.init(
+        mode: .single,
+        single: WuiBinding<Int32>(ffiSelection.single!)
+      )
+    case WuiListSelectionMode_Multiple:
+      self.init(
+        mode: .multiple,
+        multiple: WuiBinding<[WuiId]>(ffiSelection.multiple!)
+      )
+    default:
+      self.init(mode: .none)
+    }
+  }
+
+  /// Writes the erased ids a native gesture produced into the binding.
+  func write(_ ids: Set<Int32>) {
+    guard !applying else { return }
+    switch mode {
+    case .none:
+      break
+    case .single:
+      single?.set(ids.sorted().first ?? 0)
+    case .multiple:
+      multiple?.set(ids.sorted().map { WuiId(inner: $0) })
+    }
+  }
+
+  /// Applies binding-provided ids through `apply`. The table's selection
+  /// callback re-reports the applied ids while it runs, and writing them back
+  /// would only restate the binding's own value, so writes are swallowed for
+  /// the duration.
+  func applyToTable(_ ids: Set<Int32>, _ apply: (Set<Int32>) -> Void) {
+    applying = true
+    defer { applying = false }
+    apply(ids)
+  }
 }
 
 /// Computed grouping derived from the per-item section markers.
@@ -240,6 +344,7 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     private let env: WuiEnvironment
     private let contents: WuiAnyViews
     private let usesSections: Bool
+    private let selection: WuiListSelectionController
     private var contentsWatcher: WatcherGuard?
     private var itemIds: [Int32] = []
     private var sectionGroups: [ListSectionGroup] = [
@@ -270,7 +375,11 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       self.usesSections = ffiList.uses_sections
       self.onDeletePtr = ffiList.on_delete
       self.onMovePtr = ffiList.on_move
+      self.selection = WuiListSelectionController(ffiList.selection)
       super.init(frame: .zero, style: .insetGrouped)
+      selection.onChange = { [weak self] ids in
+        self?.applyBindingSelection(ids)
+      }
 
       // SwiftUI's inset-grouped list fixes its card margin at 16pt rather
       // than following the readable content guide, which widens the inset
@@ -327,6 +436,11 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
         editingObservation = observation
         setEditing(observation.value, animated: false)
       }
+
+      // Selection is the binding's: the table mirrors whatever it holds, and
+      // the mode decides whether tapping can change it at all.
+      allowsSelection = selection.mode != .none
+      allowsMultipleSelection = selection.mode == .multiple
 
       // Initial load + watch structural changes.
       installContentsWatch()
@@ -405,12 +519,15 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
             )
           }
         }
+        // Rows may have moved or vanished; re-anchor the selection on ids.
+        applyBindingSelection(selection.selectedIds)
         return
       }
 
       itemIds = ids
       sectionGroups = newGroups
       reloadData()
+      applyBindingSelection(selection.selectedIds)
     }
 
     // Translates a `(section, row)` index path back to the position in the
@@ -548,8 +665,15 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       let flat = flatIndex(for: indexPath)
       let item = resolveListItem(from: contents, at: flat, env: env)
       let itemId = itemIds[flat]
-      cell.configure(with: item.view, deletable: item.deletable, selected: item.selected) {
-        [weak self] metadata in
+      cell.configure(
+        with: item.view,
+        deletable: item.deletable,
+        onActivate: selection.mode == .none
+          ? nil
+          : { [weak self] in
+            self?.toggleSelectionFromAccessibility(id: itemId)
+          }
+      ) { [weak self] metadata in
         guard let self else { return }
         guard let updatedFlat = self.itemIds.firstIndex(of: itemId),
           let updatedPath = self.indexPath(forFlat: updatedFlat)
@@ -662,6 +786,77 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
         ? .delete : .none
     }
 
+    // MARK: - Selection
+    //
+    // The binding is the selection state: taps write it here, and its
+    // notifications come back through `applyBindingSelection`, so an
+    // app-initiated change lands identically to a click.
+
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+      let flat = flatIndex(for: indexPath)
+      // `List(selection:)` toggles a selected row off on re-tap; UIKit only
+      // toggles in editing mode, so multi-mode toggling lives here.
+      if selection.mode == .multiple, selection.selectedIds.contains(itemIds[flat]) {
+        deselectRow(at: indexPath, animated: true)
+      }
+      writeSelectionFromTable()
+    }
+
+    func tableView(_ tableView: UITableView, didDeselectRowAt indexPath: IndexPath) {
+      writeSelectionFromTable()
+    }
+
+    /// VoiceOver activation follows the same path as a tap: it toggles the
+    /// row in the binding, and the binding's notification redraws the row.
+    private func toggleSelectionFromAccessibility(id: Int32) {
+      var ids = selection.selectedIds
+      switch selection.mode {
+      case .none:
+        return
+      case .single:
+        ids = [id]
+      case .multiple:
+        if ids.contains(id) {
+          ids.remove(id)
+        } else {
+          ids.insert(id)
+        }
+      }
+      selection.write(ids)
+    }
+
+    /// The table's selected index paths are the user's truth; convert them
+    /// to the erased item ids and write the whole set into the binding.
+    private func writeSelectionFromTable() {
+      var ids = Set<Int32>()
+      for path in indexPathsForSelectedRows ?? [] {
+        ids.insert(itemIds[flatIndex(for: path)])
+      }
+      selection.write(ids)
+    }
+
+    /// Mirrors the binding's erased ids into the table's selection. Writes
+    /// the callback produces while this runs are the table reporting the
+    /// applied value back, and `applyToTable` swallows them.
+    private func applyBindingSelection(_ ids: Set<Int32>) {
+      selection.applyToTable(ids) { ids in
+        var target = Set<IndexPath>()
+        for id in ids {
+          guard let flat = itemIds.firstIndex(of: id),
+            let path = indexPath(forFlat: flat)
+          else { continue }
+          target.insert(path)
+        }
+        let current = Set(indexPathsForSelectedRows ?? [])
+        for path in current.subtracting(target) {
+          deselectRow(at: path, animated: false)
+        }
+        for path in target.subtracting(current) {
+          selectRow(at: path, animated: false, scrollPosition: .none)
+        }
+      }
+    }
+
     // MARK: - UITableViewDelegate
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
@@ -739,7 +934,11 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
 
     private var contentWuiView: WuiAnyView?
     private var deletableObservation: WuiComputedObservation<Bool>?
-    private var selectedObservation: WuiComputedObservation<Bool>?
+
+    /// Accessibility activation takes the same path as a tap — nil when the
+    /// list is not selectable, which is also what makes
+    /// `accessibilityActivate` report no action.
+    var onActivate: (() -> Void)?
 
     /// The insets the platform wraps around a list row's content.
     ///
@@ -806,13 +1005,13 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     func configure(
       with view: WuiAnyView,
       deletable: WuiComputed<Bool>?,
-      selected: WuiComputed<Bool>?,
+      onActivate: (() -> Void)?,
       onDeletableChange: @escaping (WuiWatcherMetadata) -> Void
     ) {
       // Remove previous content
       contentWuiView?.removeFromSuperview()
       deletableObservation = nil
-      selectedObservation = nil
+      self.onActivate = onActivate
 
       // Add new content
       contentWuiView = view
@@ -849,19 +1048,33 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
           onDeletableChange(metadata)
         }
       }
+    }
 
-      selectedObservation = selected.map { signal in
-        WuiComputedObservation(signal) { [weak self] value, _ in
-          self?.applySelected(value)
-        }
-      }
-      applySelected(selectedObservation?.value ?? false)
+    /// The table drives the selected flag now — the list-level binding is
+    /// the state, and the row chrome follows whatever it applies.
+    override func setSelected(_ selected: Bool, animated: Bool) {
+      super.setSelected(selected, animated: animated)
+      applySelected(selected)
+    }
+
+    /// VoiceOver activation lands on the row's own select path.
+    override func accessibilityActivate() -> Bool {
+      guard let onActivate else { return false }
+      onActivate()
+      return true
     }
 
     /// A selected row fills with the system's selection gray, as a SwiftUI
     /// `List(selection:)` row does; the card color returns when it clears.
+    /// The `.selected` trait mirrors it so assistive technologies can both
+    /// read and (through `accessibilityActivate`) change the state.
     private func applySelected(_ selected: Bool) {
       backgroundColor = selected ? .systemGray4 : .secondarySystemGroupedBackground
+      if selected {
+        accessibilityTraits.insert(.selected)
+      } else {
+        accessibilityTraits.remove(.selected)
+      }
     }
 
     /// Once constraints resolve, the row's content width is the offer it was
@@ -934,7 +1147,7 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       contentWuiView?.removeFromSuperview()
       contentWuiView = nil
       deletableObservation = nil
-      selectedObservation = nil
+      onActivate = nil
       applySelected(false)
     }
   }
@@ -1030,23 +1243,19 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     private var contentWuiView: WuiAnyView?
     private var deleteButton: NSButton?
     private var deletableObservation: WuiComputedObservation<Bool>?
-    private var selectedObservation: WuiComputedObservation<Bool>?
 
     func configure(
       with view: WuiAnyView,
       itemId: Int32,
       deletable: WuiComputed<Bool>?,
-      selected: WuiComputed<Bool>?,
       showsDeleteControl: Bool,
       target: AnyObject?,
       action: Selector?,
-      onDeletableChange: @escaping (WuiWatcherMetadata) -> Void,
-      onSelectedChange: @escaping (Bool) -> Void
+      onDeletableChange: @escaping (WuiWatcherMetadata) -> Void
     ) {
       contentWuiView?.removeFromSuperview()
       deleteButton?.removeFromSuperview()
       deletableObservation = nil
-      selectedObservation = nil
 
       let observation = deletable.map { signal in
         WuiComputedObservation(signal) { _, metadata in
@@ -1054,12 +1263,6 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
         }
       }
       deletableObservation = observation
-
-      selectedObservation = selected.map { signal in
-        WuiComputedObservation(signal) { value, _ in
-          onSelectedChange(value)
-        }
-      }
 
       contentWuiView = view
       view.translatesAutoresizingMaskIntoConstraints = false
@@ -1116,6 +1319,7 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     private let env: WuiEnvironment
     private let contents: WuiAnyViews
     private let usesSections: Bool
+    private let selection: WuiListSelectionController
     private var contentsWatcher: WatcherGuard?
     private var itemIds: [Int32] = []
     private var sectionGroups: [ListSectionGroup] = []
@@ -1172,8 +1376,13 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       self.onDeletePtr = ffiList.on_delete
       self.onMovePtr = ffiList.on_move
       self.tableView = NSTableView()
+      self.selection = WuiListSelectionController(ffiList.selection)
 
       super.init(frame: .zero)
+
+      selection.onChange = { [weak self] ids in
+        self?.applyBindingSelection(ids)
+      }
 
       // Configure table view to look like SwiftUI List. The column's real
       // width is driven from the content width on every layout pass.
@@ -1205,6 +1414,10 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       // known.
       tableView.backgroundColor = .textBackgroundColor
       tableView.selectionHighlightStyle = .regular
+      // Selection is the binding's: the table mirrors whatever it holds.
+      // `none` stays unselectable through `shouldSelectRow`; `multiple`
+      // additionally opens shift/cmd range-and-toggle selection.
+      tableView.allowsMultipleSelection = selection.mode == .multiple
 
       // Enable drag-and-drop if move callback exists
       if onMovePtr != nil {
@@ -1356,6 +1569,8 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
           tableView.insertRows(at: IndexSet(diff.inserts), withAnimation: animation)
         }
         tableView.endUpdates()
+        // Rows may have moved or vanished; re-anchor the selection on ids.
+        applyBindingSelection(selection.selectedIds)
         return
       }
 
@@ -1363,6 +1578,7 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       sectionGroups = newGroups
       rebuildFlatLayout()
       tableView.reloadData()
+      applyBindingSelection(selection.selectedIds)
     }
 
     private static func buildFlatLayout(from groups: [ListSectionGroup]) -> [TableLayoutEntry] {
@@ -1615,7 +1831,6 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
           with: item.view,
           itemId: itemId,
           deletable: item.deletable,
-          selected: item.selected,
           showsDeleteControl: isInEditMode && onDeletePtr != nil,
           target: self,
           action: #selector(deleteButtonClicked(_:)),
@@ -1628,34 +1843,48 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
               forRowIndexes: IndexSet(integer: reloadFlat),
               columnIndexes: IndexSet(integer: 0)
             )
-          },
-          onSelectedChange: { [weak self] value in
-            self?.applyRowSelection(itemId: itemId, selected: value)
           }
         )
-        if item.selected?.value == true {
-          // The table is mid-update while this row materializes; the selection
-          // lands once the update completes.
-          DispatchQueue.main.async { [weak self] in
-            self?.applyRowSelection(itemId: itemId, selected: true)
-          }
-        }
         return containerView
       }
     }
 
-    /// Mirrors a row's `selected` signal into the table's own selection, which
-    /// is what draws the platform's highlight — the rounded inset panel in a
-    /// sidebar. Selection state lives in the app; the pointer only reaches it
-    /// through the row's own tap handling, never through the table.
-    private func applyRowSelection(itemId: Int32, selected: Bool) {
-      guard let itemIndex = itemIds.firstIndex(of: itemId),
-        let flat = flatRow(forItemIndex: itemIndex)
-      else { return }
-      if selected {
-        tableView.selectRowIndexes(IndexSet(integer: flat), byExtendingSelection: false)
-      } else if tableView.selectedRowIndexes.contains(flat) {
-        tableView.deselectRow(flat)
+    /// The table's selected rows are the user's truth — pointer clicks get
+    /// here once `shouldSelectRow` allows them, keyboard and shift/cmd
+    /// selection alongside. Convert them to the erased item ids and write
+    /// the whole set into the binding.
+    func tableViewSelectionDidChange(_ notification: Notification) {
+      var ids = Set<Int32>()
+      for row in tableView.selectedRowIndexes {
+        guard let itemIndex = itemIndex(forFlatRow: row) else { continue }
+        ids.insert(itemIds[itemIndex])
+      }
+      selection.write(ids)
+    }
+
+    /// Mirrors the binding's erased ids into `selectedRowIndexes`, which is
+    /// what draws the platform's highlight — the rounded inset panel in a
+    /// sidebar. Applying re-fires `tableViewSelectionDidChange`; the
+    /// controller swallows that echo so the binding is not written back.
+    /// Row views expose the state to accessibility automatically once the
+    /// table's selection is enabled.
+    private func applyBindingSelection(_ ids: Set<Int32>) {
+      selection.applyToTable(ids) { ids in
+        var target = IndexSet()
+        for id in ids {
+          guard let itemIndex = itemIds.firstIndex(of: id),
+            let flat = flatRow(forItemIndex: itemIndex)
+          else { continue }
+          target.insert(flat)
+        }
+        let current = tableView.selectedRowIndexes
+        for row in current.subtracting(target) {
+          tableView.deselectRow(row)
+        }
+        let added = target.subtracting(current)
+        if !added.isEmpty {
+          tableView.selectRowIndexes(added, byExtendingSelection: true)
+        }
       }
     }
 
@@ -1724,13 +1953,14 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     /// laid-out content by it on both sides.
     static let rowVerticalInset: CGFloat = 4
 
-    /// The pointer never drives the table's selection directly: selection state
-    /// lives in the app, a click reaches it through the row content's own tap
-    /// handling, and the resulting `selected` signal comes back through
-    /// `applyRowSelection`. Letting the table select on click as well would
-    /// paint a highlight the app never agreed to.
+    /// Selection belongs to the list-level binding: the table may select
+    /// only when the mode allows it, and only content rows — section headers
+    /// and footers are never selectable. Once this returns true, NSTableView
+    /// provides keyboard and shift/cmd selection for free.
     func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
-      false
+      guard selection.mode != .none else { return false }
+      guard row >= 0, row < flatLayout.count, case .row = flatLayout[row] else { return false }
+      return true
     }
   }
 

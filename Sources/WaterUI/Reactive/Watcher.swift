@@ -550,6 +550,25 @@ func makeIdWatcher(_ f: @escaping (WuiId, WuiWatcherMetadata) -> Void) -> Opaque
 }
 
 @MainActor
+func makeIdVecWatcher(_ f: @escaping (CWaterUI.WuiArray_WuiId, WuiWatcherMetadata) -> Void)
+  -> OpaquePointer
+{
+  let data = wrap(f)
+  let call:
+    @convention(c) (UnsafeMutableRawPointer?, CWaterUI.WuiArray_WuiId, OpaquePointer?) -> Void = {
+      data, value, metadata in
+      callWrapper(data, value, metadata)
+    }
+  let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
+    dropWrapper($0, CWaterUI.WuiArray_WuiId.self)
+  }
+  guard let watcher = waterui_new_watcher_id_vec(data, call, drop) else {
+    fatalError("Failed to create id-vec watcher")
+  }
+  return watcher
+}
+
+@MainActor
 func makeDateTimeWatcher(_ f: @escaping (CWaterUI.WuiDateTime, WuiWatcherMetadata) -> Void)
   -> OpaquePointer
 {

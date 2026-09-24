@@ -218,6 +218,30 @@ extension WuiBinding where T == WuiId {
   }
 }
 
+extension WuiBinding where T == [WuiId] {
+  convenience init(_ inner: OpaquePointer) {
+    self.init(
+      inner: inner,
+      read: { inner in
+        WuiArray<WuiId>(waterui_read_binding_id_vec(inner)).toArray()
+      },
+      watch: { inner, f in
+        let watcher = makeIdVecWatcher { value, metadata in
+          f(WuiArray<WuiId>(value).toArray(), metadata)
+        }
+        guard let g = waterui_watch_binding_id_vec(inner, watcher) else {
+          fatalError("Failed to watch id-vec binding")
+        }
+        return WatcherGuard(g)
+      },
+      set: { inner, value in
+        waterui_set_binding_id_vec(inner, WuiArray(array: value).intoWuiIdArray())
+      },
+      drop: waterui_drop_binding_id_vec
+    )
+  }
+}
+
 extension WuiBinding where T == CWaterUI.WuiDateTime {
   convenience init(_ inner: OpaquePointer) {
     self.init(
