@@ -451,42 +451,51 @@ extension CGRect {
 }
 
 extension PlatformView {
-  /// `frame`, in this view's coordinate space, on the backing pixel grid: the
-  /// origin at its nearest pixel, as SwiftUI places a view, and the size at
-  /// the pixel count the layout engine measured.
+  /// `frame`, in this view's coordinate space, on the backing pixel grid.
   ///
-  /// The layout engine hands back fractional points: a centred leaf lands on a
-  /// half pixel whenever its measured width is an odd number of pixels. Left
-  /// unaligned, AppKit and UIKit draw the leaf's text from the pixel below the
-  /// fractional origin, one pixel off the position SwiftUI rounds the same
-  /// frame to — and one pixel is the whole difference between a blurred
-  /// parity diff and a clean one.
-  ///
-  /// The size is aligned on its own, never through the far edge: a measured
-  /// size is already a whole number of pixels (text rounds its line box up to
-  /// the grid), and rounding both edges of a half-pixel origin takes a pixel
-  /// off it half the time — under which a label that measured exactly its
-  /// text wraps its last word onto a hidden second line. A size that is off
-  /// the grid by more than floating-point noise rounds up, so a leaf is never
-  /// placed narrower than it measured.
+  /// The origin snaps to its nearest pixel. A size that is already a whole
+  /// number of pixels keeps that count exactly — a label that measured
+  /// exactly its text keeps the width it wrapped for, even on the half-pixel
+  /// origins a centred leaf lands on at fractional scales. Any other size
+  /// comes from the far edge's own snap, so siblings that shared an edge in
+  /// the layout engine's fractional answer land on the same pixel and tile
+  /// without a seam or an overflow — snapping each size on its own, rounded
+  /// up, pushed three equal fills a point past a 100 pt host at scale 1 and
+  /// overlapped them half a point at scale 2 (the layout-twins a13 cells;
+  /// SwiftUI keeps the fractional frame).
   func pixelAligned(_ frame: CGRect) -> CGRect {
     #if canImport(AppKit)
       let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
     #else
       let scale = traitCollection.displayScale
     #endif
-    func pixels(_ points: CGFloat) -> CGFloat { points * scale }
-    func gridSize(_ points: CGFloat) -> CGFloat {
-      let raw = pixels(points)
-      let nearest = raw.rounded()
-      // 1e-3 px absorbs the noise of `points * scale` on a value that was
-      // produced by dividing a whole pixel count by the same scale.
-      return (abs(raw - nearest) < 1e-3 ? nearest : raw.rounded(.up)) / scale
-    }
-    return CGRect(
-      x: pixels(frame.minX).rounded() / scale,
-      y: pixels(frame.minY).rounded() / scale,
-      width: gridSize(frame.width),
-      height: gridSize(frame.height))
+    return pixelSnapped(frame, scale: scale)
   }
+}
+
+/// `frame` snapped to a `scale`-times pixel grid.
+///
+/// The origin snaps to its nearest pixel. A size that is already a whole
+/// number of pixels — within 1e-3, absorbing the noise of `points * scale`
+/// on a value produced by dividing a whole pixel count by the same scale —
+/// keeps that count exactly: a centred leaf can sit on a half pixel where
+/// `x * scale` and `(x + w) * scale` fall on opposite sides of .5 by 1e-12,
+/// and rounding both edges would take a pixel off a label that measured
+/// exactly its text, wrapping its last word onto a hidden line. Any other
+/// size falls out of the far edge's own snap, so siblings that shared an
+/// edge in the engine's fractional answer keep sharing a pixel.
+func pixelSnapped(_ frame: CGRect, scale: CGFloat) -> CGRect {
+  func snap(_ points: CGFloat) -> CGFloat { (points * scale).rounded() / scale }
+  func snappedEdge(_ origin: CGFloat, _ extent: CGFloat) -> (origin: CGFloat, size: CGFloat) {
+    let snappedOrigin = snap(origin)
+    let raw = extent * scale
+    let nearest = raw.rounded()
+    guard abs(raw - nearest) >= 1e-3 else {
+      return (snappedOrigin, nearest / scale)
+    }
+    return (snappedOrigin, snap(origin + extent) - snappedOrigin)
+  }
+  let x = snappedEdge(frame.minX, frame.width)
+  let y = snappedEdge(frame.minY, frame.height)
+  return CGRect(x: x.origin, y: y.origin, width: x.size, height: y.size)
 }
