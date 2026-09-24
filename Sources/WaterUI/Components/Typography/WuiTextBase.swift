@@ -151,12 +151,15 @@ class WuiTextBase: PlatformView {
     #endif
   }
 
+  /// The attributed text the renderer handed this view. The platform label's
+  /// own copy cannot be measured: UIKit folds `label.lineBreakMode` and
+  /// `numberOfLines` into the stored string's paragraph style, so under a
+  /// truncating break mode it bounds to the one displayed line instead of
+  /// the wrapped content.
+  private var sourceText = NSAttributedString()
+
   private func currentAttributedText() -> NSAttributedString {
-    #if canImport(UIKit)
-      return label.attributedText ?? NSAttributedString(string: label.text ?? "")
-    #elseif canImport(AppKit)
-      return textField.attributedStringValue
-    #endif
+    sourceText
   }
 
   private func textMeasurement(_ proposal: WuiProposalSize) -> (
@@ -355,6 +358,7 @@ class WuiTextBase: PlatformView {
   // MARK: - Text Updates
 
   func setAttributedText(_ attributed: NSAttributedString) {
+    sourceText = attributed
     #if canImport(UIKit)
       label.attributedText = attributed
     #elseif canImport(AppKit)
