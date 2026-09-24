@@ -174,6 +174,10 @@ extension WuiArray where T == CWaterUI.WuiId {
     let raw = unsafeBitCast(inner, to: CWaterUI.WuiArray.self)
     self.init(c: raw)
   }
+
+  func intoWuiIdArray() -> CWaterUI.WuiArray_WuiId {
+    unsafeBitCast(inner.intoInner(), to: CWaterUI.WuiArray_WuiId.self)
+  }
 }
 
 extension WuiArray where T == CWaterUI.WuiDate {
