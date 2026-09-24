@@ -86,4 +86,22 @@ struct ScrollMinSizeTests {
     }
     #expect(size == CGSize(width: 402, height: 32))
   }
+
+  /// An unspecified axis asks for the ideal extent, which §2 orders at or
+  /// above the minimum — a `0` answer under a `nil` proposal (the layout-
+  /// twins a11 cell, where a vertical scroll under `(nil, 80)` collapsed to
+  /// `0×80` while SwiftUI answered `60×80`) makes the ideal smaller than the
+  /// content's `48` floor. The scroll answers the content's intrinsic
+  /// extent on that axis and still claims the finite offer on the other.
+  @Test func unspecifiedAxisAnswersTheContentsIntrinsicExtent() {
+    let size = scrollMinSize(
+      axis: WuiAxis_Vertical, proposal: WaterUI.WuiProposalSize(width: nil, height: 80),
+      measureContent: paragraph)
+    #expect(size == CGSize(width: 2200, height: 80))
+
+    let twin = scrollMinSize(
+      axis: WuiAxis_Vertical, proposal: WaterUI.WuiProposalSize(width: nil, height: 80)
+    ) { _ in CGSize(width: 60, height: 300) }
+    #expect(twin == CGSize(width: 60, height: 80))
+  }
 }

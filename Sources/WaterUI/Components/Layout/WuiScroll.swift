@@ -39,9 +39,23 @@ func scrollMinSize(
 ) -> CGSize {
   let minQuery = isMinSizeQuery(proposal)
   if !minQuery.width && !minQuery.height {
+    // A finite proposal is claimed. An unspecified axis asks for the ideal
+    // extent, which §2 orders above the minimum — so it answers the
+    // content's intrinsic extent, not `0`. On the scrolling axis the
+    // content's extent is what the surface would hug without a bound; on
+    // the non-scrolling axis a `0` floor makes an intrinsic `0` illegal.
+    // The measure runs only when an axis is actually unspecified: a fully
+    // finite proposal never reads the answer.
+    if proposal.width != nil && proposal.height != nil {
+      return CGSize(
+        width: proposalDimension(proposal.width),
+        height: proposalDimension(proposal.height)
+      )
+    }
+    let intrinsic = measureContent(WuiProposalSize(width: nil, height: nil))
     return CGSize(
-      width: proposalDimension(proposal.width),
-      height: proposalDimension(proposal.height)
+      width: proposal.width.map(CGFloat.init) ?? intrinsic.width,
+      height: proposal.height.map(CGFloat.init) ?? intrinsic.height
     )
   }
 
