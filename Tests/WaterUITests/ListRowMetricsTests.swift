@@ -8,6 +8,7 @@
 // conversion, the absent-means-theme fallbacks, and the content-plus-insets
 // pitch floored at the resolved minimum.
 
+import CWaterUI
 import Foundation
 import Testing
 
