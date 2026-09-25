@@ -40,6 +40,8 @@ final class WuiMenuCommandNode {
   let action: OpaquePointer
   let iconName: String?
   let shortcut: MenuShortcutData?
+  let subtitle: String?
+  let isDestructive: Bool
 
   private let labelObservation: WuiSemanticTextObservation
   private let disabledObservation: WuiComputedObservation<Bool>
@@ -67,6 +69,10 @@ final class WuiMenuCommandNode {
     }
 
     self.action = OpaquePointer(UnsafeRawPointer(action))
+    self.isDestructive = item.role == WuiCommandRole_Destructive
+    self.subtitle = item.subtitle.map { subtitle in
+      WuiStr(waterui_menu_item_take_subtitle(subtitle)).toString()
+    }
     self.iconName = item.icon.map { icon in
       WuiStr(waterui_menu_item_take_icon(icon).name).toString()
     }
@@ -192,6 +198,18 @@ final class WuiMenuTree {
 }
 
 #if canImport(UIKit)
+  /// The `UIMenuElement` attributes a command maps to: disabled state and the
+  /// destructive role. Both are element attributes, so a disabled destructive
+  /// command keeps both.
+  func wuiMenuElementAttributes(isDisabled: Bool, isDestructive: Bool)
+    -> UIMenuElement.Attributes
+  {
+    var attributes: UIMenuElement.Attributes = []
+    if isDisabled { attributes.insert(.disabled) }
+    if isDestructive { attributes.insert(.destructive) }
+    return attributes
+  }
+
   @MainActor
   func buildUIKitMenuElements(
     from nodes: [WuiMenuNode],
@@ -234,10 +252,12 @@ final class WuiMenuTree {
       case .command(let command):
         return UIAction(
           title: command.label,
+          subtitle: command.subtitle,
           image: uiMenuImage(named: command.iconName),
           identifier: nil,
           discoverabilityTitle: nil,
-          attributes: command.isDisabled ? [.disabled] : [],
+          attributes: wuiMenuElementAttributes(
+            isDisabled: command.isDisabled, isDestructive: command.isDestructive),
           state: command.isSelected ? .on : .off
         ) { _ in
           handler(command)
@@ -301,6 +321,28 @@ final class WuiMenuTree {
 #endif
 
 #if canImport(AppKit)
+  /// AppKit has no role concept on `NSMenuItem`: a destructive command is drawn
+  /// the way AppKit apps draw it, with the system-red title. The subtitle sits
+  /// under the standard title — set it on the plain title, never on
+  /// `attributedTitle`, which macOS draws instead of a subtitle.
+  @MainActor
+  func wuiApplyCommandPresentation(
+    _ item: NSMenuItem,
+    title: String,
+    subtitle: String?,
+    isDestructive: Bool
+  ) {
+    if let subtitle {
+      item.subtitle = subtitle
+    }
+    if isDestructive {
+      item.attributedTitle = NSAttributedString(
+        string: title,
+        attributes: [.foregroundColor: NSColor.systemRed]
+      )
+    }
+  }
+
   @MainActor
   final class MenuActionRef: NSObject {
     let command: WuiMenuCommandNode
@@ -332,6 +374,12 @@ final class WuiMenuTree {
         item.state = command.isSelected ? .on : .off
         item.keyEquivalentModifierMask = command.shortcut?.modifierMask ?? []
         item.image = appKitMenuImage(named: command.iconName)
+        wuiApplyCommandPresentation(
+          item,
+          title: command.label,
+          subtitle: command.subtitle,
+          isDestructive: command.isDestructive
+        )
         item.representedObject = MenuActionRef(command: command)
         menu.addItem(item)
       case .menu(let submenu):
