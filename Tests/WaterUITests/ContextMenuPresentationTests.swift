@@ -144,7 +144,7 @@ struct ContextMenuPresentationTests {
         item, title: "Copy", subtitle: nil, isDestructive: false)
       #expect(item.attributedTitle == nil)
       #expect(item.title == "Copy")
-      #expect(item.subtitle == "")
+      #expect(item.subtitle == nil)
     }
   #endif
 
