@@ -7,6 +7,7 @@
 // Supports swipe-to-delete when items have delete handlers.
 
 import CWaterUI
+import Foundation
 
 #if canImport(UIKit)
   import UIKit
@@ -14,9 +15,46 @@ import CWaterUI
   import AppKit
 #endif
 
+/// A row's resolved content insets in points — the directional set the FFI's
+/// `WuiEdgeInsets` carries, in the host platform's `CGFloat`.
+struct WuiListRowInsets: Equatable {
+  var top: CGFloat
+  var leading: CGFloat
+  var bottom: CGFloat
+  var trailing: CGFloat
+
+  init(top: CGFloat, leading: CGFloat, bottom: CGFloat, trailing: CGFloat) {
+    self.top = top
+    self.leading = leading
+    self.bottom = bottom
+    self.trailing = trailing
+  }
+
+  init(_ ffi: CWaterUI.WuiEdgeInsets) {
+    self.init(
+      top: CGFloat(ffi.top), leading: CGFloat(ffi.leading),
+      bottom: CGFloat(ffi.bottom), trailing: CGFloat(ffi.trailing))
+  }
+}
+
+/// The list's `min_row_height` replaces the platform's floor when present;
+/// `0` removes it and rows size to content plus insets.
+func wuiListMinRowHeight(hasValue: Bool, value: Float, theme: CGFloat) -> CGFloat {
+  hasValue ? CGFloat(value) : theme
+}
+
+/// The height a row reports: its content plus the resolved vertical insets,
+/// floored at the resolved minimum.
+func wuiListRowHeight(
+  contentHeight: CGFloat, insets: WuiListRowInsets, minRowHeight: CGFloat
+) -> CGFloat {
+  max(contentHeight + insets.top + insets.bottom, minRowHeight)
+}
+
 private struct ResolvedListItem {
   let view: WuiAnyView
   let deletable: WuiComputed<Bool>?
+  let insets: CWaterUI.WuiEdgeInsets?
 }
 
 /// A section's header and footer as reactive text.
@@ -45,6 +83,19 @@ private func dropListItemSection(_ listItem: CWaterUI.WuiListItem) {
   }
 }
 
+/// Reads and releases the owned insets handle a `WuiListItem` carries; `nil`
+/// defers to the theme's row insets. Every fetch path owns the handle, so a
+/// path that does not use it still has to release it.
+@MainActor
+private func takeListItemInsets(_ listItem: CWaterUI.WuiListItem)
+  -> CWaterUI.WuiEdgeInsets?
+{
+  guard let ptr = listItem.insets else { return nil }
+  let value = ptr.pointee
+  waterui_drop_edge_insets(ptr)
+  return value
+}
+
 @MainActor
 private func resolveListItem(
   from contents: WuiAnyViews,
@@ -65,7 +116,8 @@ private func resolveListItem(
 
   return ResolvedListItem(
     view: WuiAnyView(anyview: contentPtr, env: env),
-    deletable: listItem.deletable.map { WuiComputed<Bool>($0) }
+    deletable: listItem.deletable.map { WuiComputed<Bool>($0) },
+    insets: takeListItemInsets(listItem)
   )
 }
 
@@ -84,6 +136,7 @@ private func resolveListItemDeletable(
     waterui_drop_anyview(contentPtr)
   }
   dropListItemSection(listItem)
+  _ = takeListItemInsets(listItem)
 
   guard let deletablePtr = listItem.deletable else {
     return defaultValue
@@ -110,6 +163,7 @@ private func peekListItemSection(
   if let deletablePtr = listItem.deletable {
     _ = WuiComputed<Bool>(deletablePtr)
   }
+  _ = takeListItemInsets(listItem)
 
   guard listItem.section.has_value else {
     dropListItemSection(listItem)
@@ -350,6 +404,9 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     private var sectionGroups: [ListSectionGroup] = [
       ListSectionGroup(label: nil, footer: nil, itemIndices: [])
     ]
+    /// The list's own row-height floor — the theme's when the FFI carries
+    /// none, `0` when rows size to their content.
+    private let minRowHeight: CGFloat
 
     // Edit mode state
     private var editingObservation: WuiComputedObservation<Bool>?
@@ -376,6 +433,11 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       self.onDeletePtr = ffiList.on_delete
       self.onMovePtr = ffiList.on_move
       self.selection = WuiListSelectionController(ffiList.selection)
+      self.minRowHeight = wuiListMinRowHeight(
+        hasValue: ffiList.has_min_row_height,
+        value: ffiList.min_row_height,
+        theme: WuiListCell.minimumRowHeight
+      )
       super.init(frame: .zero, style: .insetGrouped)
       selection.onChange = { [weak self] ids in
         self?.applyBindingSelection(ids)
@@ -667,6 +729,7 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       let itemId = itemIds[flat]
       cell.configure(
         with: item.view,
+        insets: item.insets,
         deletable: item.deletable,
         onActivate: selection.mode == .none
           ? nil
@@ -862,7 +925,7 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
       let flat = flatIndex(for: indexPath)
       let item = resolveListItem(from: contents, at: flat, env: env)
-      let insets = WuiListCell.rowInsets
+      let insets = item.insets.map(WuiListRowInsets.init) ?? WuiListCell.themeRowInsets
       // A grouped row spans the card's width — the table's bounds less its
       // layout margins (which the cell insets itself by, safe-area inflation
       // included) — and the cell insets its content inside that.
@@ -876,10 +939,8 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
         height: nil
       )
       let size = item.view.sizeThatFits(proposal)
-      return max(
-        size.height + insets.top + insets.bottom,
-        WuiListCell.minimumRowHeight
-      )
+      return wuiListRowHeight(
+        contentHeight: size.height, insets: insets, minRowHeight: minRowHeight)
     }
   }
 
@@ -960,6 +1021,15 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       )
     }()
 
+    /// `rowInsets` as the platform-neutral `WuiListRowInsets` — the theme's
+    /// set when a row carries none of its own.
+    static let themeRowInsets = WuiListRowInsets(
+      top: rowInsets.top,
+      leading: rowInsets.leading,
+      bottom: rowInsets.bottom,
+      trailing: rowInsets.trailing
+    )
+
     /// The shortest row the platform renders whatever the content.
     ///
     /// A stock cell's `systemLayoutSizeFitting` reports it — 52 pt on iOS 26 —
@@ -1004,6 +1074,7 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
 
     func configure(
       with view: WuiAnyView,
+      insets: CWaterUI.WuiEdgeInsets?,
       deletable: WuiComputed<Bool>?,
       onActivate: (() -> Void)?,
       onDeletableChange: @escaping (WuiWatcherMetadata) -> Void
@@ -1024,9 +1095,10 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       // no such affordance, so the AppKit list does nothing with the hint.
       accessoryType = Self.containsNavigationLink(view) ? .disclosureIndicator : .none
 
-      // Content sits inside SwiftUI's default row insets instead of running
-      // flush to the card edge.
-      let insets = Self.rowInsets
+      // Content sits inside the row's insets — its own when it carries
+      // them, the theme's otherwise — instead of running flush to the card
+      // edge.
+      let insets = insets.map(WuiListRowInsets.init) ?? Self.themeRowInsets
       NSLayoutConstraint.activate([
         view.leadingAnchor.constraint(
           equalTo: contentView.leadingAnchor, constant: insets.leading),
@@ -1246,6 +1318,7 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
 
     func configure(
       with view: WuiAnyView,
+      insets: WuiListRowInsets,
       itemId: Int32,
       deletable: WuiComputed<Bool>?,
       showsDeleteControl: Bool,
@@ -1278,11 +1351,11 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
 
         NSLayoutConstraint.activate([
           view.leadingAnchor.constraint(
-            equalTo: leadingAnchor, constant: WuiList.rowContentInset),
+            equalTo: leadingAnchor, constant: insets.leading),
           view.topAnchor.constraint(
-            equalTo: topAnchor, constant: WuiList.rowVerticalInset),
+            equalTo: topAnchor, constant: insets.top),
           view.bottomAnchor.constraint(
-            equalTo: bottomAnchor, constant: -WuiList.rowVerticalInset),
+            equalTo: bottomAnchor, constant: -insets.bottom),
 
           button.leadingAnchor.constraint(equalTo: view.trailingAnchor, constant: 8),
           button.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
@@ -1294,17 +1367,18 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
         // one edge. Without it the text sat flush against the window while the
         // header appeared indented, which is what made the two look reversed.
         // Vertically the content keeps the ~4pt breathing room a SwiftUI row
-        // adds beyond its content (`rowVerticalInset` is part of heightOfRow,
-        // so the row is already taller by that amount on both sides).
+        // adds beyond its content (the resolved insets are part of
+        // heightOfRow, so the row is already taller by that amount on both
+        // sides).
         NSLayoutConstraint.activate([
           view.leadingAnchor.constraint(
-            equalTo: leadingAnchor, constant: WuiList.rowContentInset),
+            equalTo: leadingAnchor, constant: insets.leading),
           view.trailingAnchor.constraint(
-            equalTo: trailingAnchor, constant: -WuiList.rowContentInset),
+            equalTo: trailingAnchor, constant: -insets.trailing),
           view.topAnchor.constraint(
-            equalTo: topAnchor, constant: WuiList.rowVerticalInset),
+            equalTo: topAnchor, constant: insets.top),
           view.bottomAnchor.constraint(
-            equalTo: bottomAnchor, constant: -WuiList.rowVerticalInset),
+            equalTo: bottomAnchor, constant: -insets.bottom),
         ])
       }
     }
@@ -1354,6 +1428,19 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     /// at 32pt, with the glyph's own side bearing on top.
     static let rowContentInset: CGFloat = 10
 
+    /// The theme's row insets as one `WuiListRowInsets` — the set a row
+    /// without its own insets keeps.
+    static let themeRowInsets = WuiListRowInsets(
+      top: rowVerticalInset,
+      leading: rowContentInset,
+      bottom: rowVerticalInset,
+      trailing: rowContentInset
+    )
+
+    /// The list's own row-height floor — the theme's when the FFI carries
+    /// none, `0` when rows size to their content.
+    private let minRowHeight: CGFloat
+
     private enum TableLayoutEntry {
       case header(label: WuiComputed<WuiStyledStr>, sectionIndex: Int)
       case row(itemIndex: Int)
@@ -1377,6 +1464,11 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
       self.onMovePtr = ffiList.on_move
       self.tableView = NSTableView()
       self.selection = WuiListSelectionController(ffiList.selection)
+      self.minRowHeight = wuiListMinRowHeight(
+        hasValue: ffiList.has_min_row_height,
+        value: ffiList.min_row_height,
+        theme: Self.minimumRowHeight
+      )
 
       super.init(frame: .zero)
 
@@ -1808,11 +1900,19 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
         // Materializing the row is also when its real height becomes known;
         // the table was told an estimate for it in `heightOfRow`. Correct the
         // span asynchronously — noting mid-tile would re-enter layout.
-        let measuredHeight = max(
-          item.view.sizeThatFits(
-            WuiProposalSize(width: Float(tableView.bounds.width), height: nil)
-          ).height + Self.rowVerticalInset * 2,
-          Self.minimumRowHeight)
+        let insets = item.insets.map(WuiListRowInsets.init) ?? Self.themeRowInsets
+        // A row with its own insets is measured at the width its content
+        // really gets; the theme path keeps the table's historical probe.
+        let contentWidth =
+          item.insets == nil
+          ? tableView.bounds.width
+          : tableView.bounds.width - insets.leading - insets.trailing
+        let measuredHeight = wuiListRowHeight(
+          contentHeight: item.view.sizeThatFits(
+            WuiProposalSize(width: Float(contentWidth), height: nil)
+          ).height,
+          insets: insets,
+          minRowHeight: minRowHeight)
         // Natively hosted: the row's selected proposal is the width-bounded
         // offer it was just measured under — its height stays unspecified so
         // its own layout pass does not see the resolved row height as a bound.
@@ -1829,6 +1929,7 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
         containerView.translatesAutoresizingMaskIntoConstraints = true
         containerView.configure(
           with: item.view,
+          insets: insets,
           itemId: itemId,
           deletable: item.deletable,
           showsDeleteControl: isInEditMode && onDeletePtr != nil,
@@ -1915,7 +2016,7 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
       // AppKit can probe rows transiently during insert/remove animations
       // before `flatLayout` catches up; answer with the minimum row height.
-      guard row >= 0, row < flatLayout.count else { return Self.minimumRowHeight }
+      guard row >= 0, row < flatLayout.count else { return minRowHeight }
       switch flatLayout[row] {
       case .header:
         return 38
