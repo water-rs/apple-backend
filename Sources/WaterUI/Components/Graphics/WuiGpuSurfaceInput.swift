@@ -343,6 +343,7 @@
     ]
 
     /// The W3C `KeyboardEvent.code` of the physical key this press came from.
+    @MainActor
     func wuiSurfaceCode(_ key: UIKey) -> String {
       guard let code = wuiHidUsageCodes[key.keyCode.rawValue] else {
         gpuSurfaceInputLogger.debug(
@@ -353,6 +354,7 @@
     }
 
     /// The W3C `KeyboardEvent.key` this press produces.
+    @MainActor
     func wuiSurfaceKey(_ key: UIKey) -> String {
       if let named = wuiHidUsageKeys[key.keyCode.rawValue] {
         return named
