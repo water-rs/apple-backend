@@ -83,6 +83,18 @@ final class WuiGesture: PlatformView, WuiComponent {
         addGestureRecognizer(recognizer)
     }
 
+    /// Applies the gesture's `WATERUI_POINTER_BUTTON_*` mask to the platform
+    /// recognizer. Both platforms follow DOM `buttons` bit order — bit 0
+    /// primary, 1 secondary, 2 middle, 3 back, 4 forward — so the mask applies
+    /// verbatim; bits the OS does not distinguish are ignored.
+    private func applyButtonMask(_ buttons: UInt8, to recognizer: PlatformGestureRecognizer) {
+        #if canImport(UIKit)
+        recognizer.buttonMaskRequired = UIEvent.ButtonMask(rawValue: numericCast(buttons))
+        #elseif canImport(AppKit)
+        recognizer.buttonMask = Int(buttons)
+        #endif
+    }
+
     private func attachGesture(_ gesture: CWaterUI.WuiGesture, onRecognized: @escaping () -> Void) {
         switch gesture.tag {
         case WuiGesture_Tap:
@@ -90,6 +102,7 @@ final class WuiGesture: PlatformView, WuiComponent {
             #if canImport(UIKit)
             let recognizer = UITapGestureRecognizer()
             recognizer.numberOfTapsRequired = max(taps, 1)
+            applyButtonMask(gesture.tap.buttons, to: recognizer)
             registerGestureRecognizer(recognizer) { recognizer in
                 guard recognizer.state == .ended else { return }
                 onRecognized()
@@ -97,6 +110,7 @@ final class WuiGesture: PlatformView, WuiComponent {
             #elseif canImport(AppKit)
             let recognizer = NSClickGestureRecognizer()
             recognizer.numberOfClicksRequired = max(taps, 1)
+            applyButtonMask(gesture.tap.buttons, to: recognizer)
             registerGestureRecognizer(recognizer) { recognizer in
                 guard recognizer.state == .ended else { return }
                 onRecognized()
@@ -107,6 +121,7 @@ final class WuiGesture: PlatformView, WuiComponent {
             #if canImport(UIKit)
             let recognizer = UILongPressGestureRecognizer()
             recognizer.minimumPressDuration = TimeInterval(gesture.long_press.duration) / 1000.0
+            applyButtonMask(gesture.long_press.buttons, to: recognizer)
             registerGestureRecognizer(recognizer) { recognizer in
                 guard recognizer.state == .began else { return }
                 onRecognized()
@@ -114,6 +129,7 @@ final class WuiGesture: PlatformView, WuiComponent {
             #elseif canImport(AppKit)
             let recognizer = NSPressGestureRecognizer()
             recognizer.minimumPressDuration = TimeInterval(gesture.long_press.duration) / 1000.0
+            applyButtonMask(gesture.long_press.buttons, to: recognizer)
             registerGestureRecognizer(recognizer) { recognizer in
                 guard recognizer.state == .began else { return }
                 onRecognized()
@@ -123,12 +139,14 @@ final class WuiGesture: PlatformView, WuiComponent {
         case WuiGesture_Drag:
             #if canImport(UIKit)
             let recognizer = UIPanGestureRecognizer()
+            applyButtonMask(gesture.drag.buttons, to: recognizer)
             registerGestureRecognizer(recognizer) { recognizer in
                 guard recognizer.state == .ended else { return }
                 onRecognized()
             }
             #elseif canImport(AppKit)
             let recognizer = NSPanGestureRecognizer()
+            applyButtonMask(gesture.drag.buttons, to: recognizer)
             registerGestureRecognizer(recognizer) { recognizer in
                 guard recognizer.state == .ended else { return }
                 onRecognized()
