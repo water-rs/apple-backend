@@ -16,6 +16,8 @@ final class WuiShadow: PlatformView, WuiComponent {
   private let contentView: any WuiComponent
   private let shadowStyle: WuiShadow_Struct
   private let shadowColor: WuiColor
+  private let silhouetteKind: WuiShapeKind
+  private let silhouetteCommands: [WuiPathCommand]
   private var colorObservation: WuiComputedObservation<WuiResolvedColor>?
 
   var stretchAxis: WuiStretchAxis {
@@ -31,6 +33,8 @@ final class WuiShadow: PlatformView, WuiComponent {
     self.contentView = WuiAnyView.resolve(anyview: metadata.content, env: env)
     self.shadowStyle = metadata.value
     self.shadowColor = WuiColor(shadowColor)
+    self.silhouetteKind = metadata.value.silhouette.kind
+    self.silhouetteCommands = WuiShapePath.commands(from: metadata.value.silhouette.commands)
 
     super.init(frame: .zero)
 
@@ -96,10 +100,26 @@ final class WuiShadow: PlatformView, WuiComponent {
     contentView.measure(proposal)
   }
 
+  /// Without a `shadowPath` Core Animation derives the silhouette from the
+  /// rendered content every frame, which is both slower and ignores the
+  /// declared caster shape; the silhouette resolves through the same builder
+  /// the clip uses.
+  private func updateShadowPath() {
+    guard !bounds.isEmpty else { return }
+    let path = WuiShapePath.makePath(
+      kind: silhouetteKind, commands: silhouetteCommands, in: bounds)
+    #if canImport(UIKit)
+      layer.shadowPath = path
+    #elseif canImport(AppKit)
+      layer?.shadowPath = path
+    #endif
+  }
+
   #if canImport(UIKit)
     override func layoutSubviews() {
       super.layoutSubviews()
       contentView.frame = bounds
+      updateShadowPath()
     }
   #elseif canImport(AppKit)
     nonisolated override var isFlipped: Bool { true }
@@ -107,6 +127,7 @@ final class WuiShadow: PlatformView, WuiComponent {
     override func layout() {
       super.layout()
       contentView.frame = bounds
+      updateShadowPath()
     }
   #endif
 }
