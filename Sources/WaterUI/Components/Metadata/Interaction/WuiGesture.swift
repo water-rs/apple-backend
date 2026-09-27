@@ -8,6 +8,27 @@ import AppKit
 private typealias PlatformGestureRecognizer = NSGestureRecognizer
 #endif
 
+#if canImport(UIKit)
+/// Rejects events whose `UIEvent.buttonMask` does not intersect the
+/// gesture's `WATERUI_POINTER_BUTTON_*` mask, for recognizers that cannot
+/// carry the mask themselves: `UIGestureRecognizer.buttonMask` is read-only
+/// and only `UITapGestureRecognizer` exposes `buttonMaskRequired`. Touches
+/// report `.primary`, so a PRIMARY mask still accepts a finger. Mask bits
+/// follow DOM `buttons` order, the same order `UIEvent.ButtonMask` uses.
+@MainActor
+private final class ButtonMaskDelegate: NSObject, UIGestureRecognizerDelegate {
+    private let buttons: UInt8
+
+    init(buttons: UInt8) {
+        self.buttons = buttons
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive event: UIEvent) -> Bool {
+        event.buttonMask.rawValue & Int(buttons) != 0
+    }
+}
+#endif
+
 @MainActor
 private final class GestureTarget: NSObject {
     private let handler: (PlatformGestureRecognizer) -> Void
@@ -35,6 +56,9 @@ final class WuiGesture: PlatformView, WuiComponent {
     private let actionPtr: OpaquePointer
     private let gesture: CWaterUI.WuiGesture
     private var gestureTargets: [GestureTarget] = []
+    #if canImport(UIKit)
+    private var buttonMaskDelegates: [ButtonMaskDelegate] = []
+    #endif
 
     var stretchAxis: WuiStretchAxis {
         contentView.stretchAxis
@@ -83,17 +107,27 @@ final class WuiGesture: PlatformView, WuiComponent {
         addGestureRecognizer(recognizer)
     }
 
-    /// Applies the gesture's `WATERUI_POINTER_BUTTON_*` mask to the platform
-    /// recognizer. Both platforms follow DOM `buttons` bit order — bit 0
-    /// primary, 1 secondary, 2 middle, 3 back, 4 forward — so the mask applies
-    /// verbatim; bits the OS does not distinguish are ignored.
-    private func applyButtonMask(_ buttons: UInt8, to recognizer: PlatformGestureRecognizer) {
-        #if canImport(UIKit)
-        recognizer.buttonMaskRequired = UIEvent.ButtonMask(rawValue: numericCast(buttons))
-        #elseif canImport(AppKit)
+    #if canImport(AppKit)
+    /// Applies the gesture's `WATERUI_POINTER_BUTTON_*` mask to the
+    /// recognizer. `NSGestureRecognizer.buttonMask` is settable on every
+    /// recognizer and follows DOM `buttons` bit order — bit 0 primary,
+    /// 1 secondary, 2 middle, 3 back, 4 forward — so the mask applies
+    /// verbatim.
+    private func applyButtonMask(_ buttons: UInt8, to recognizer: NSGestureRecognizer) {
         recognizer.buttonMask = Int(buttons)
-        #endif
     }
+    #endif
+
+    #if canImport(UIKit)
+    /// Filters the recognizer's incoming events to the gesture's
+    /// `WATERUI_POINTER_BUTTON_*` mask through the recognizer delegate —
+    /// nothing else sets a delegate on these recognizers.
+    private func applyButtonMask(_ buttons: UInt8, to recognizer: UIGestureRecognizer) {
+        let delegate = ButtonMaskDelegate(buttons: buttons)
+        buttonMaskDelegates.append(delegate)
+        recognizer.delegate = delegate
+    }
+    #endif
 
     private func attachGesture(_ gesture: CWaterUI.WuiGesture, onRecognized: @escaping () -> Void) {
         switch gesture.tag {
@@ -102,7 +136,7 @@ final class WuiGesture: PlatformView, WuiComponent {
             #if canImport(UIKit)
             let recognizer = UITapGestureRecognizer()
             recognizer.numberOfTapsRequired = max(taps, 1)
-            applyButtonMask(gesture.tap.buttons, to: recognizer)
+            recognizer.buttonMaskRequired = UIEvent.ButtonMask(rawValue: numericCast(gesture.tap.buttons))
             registerGestureRecognizer(recognizer) { recognizer in
                 guard recognizer.state == .ended else { return }
                 onRecognized()
