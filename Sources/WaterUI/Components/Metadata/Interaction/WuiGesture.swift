@@ -109,11 +109,10 @@ final class WuiGesture: PlatformView, WuiComponent {
 
     #if canImport(AppKit)
     /// Applies the gesture's `WATERUI_POINTER_BUTTON_*` mask to the
-    /// recognizer. `NSGestureRecognizer.buttonMask` is settable on every
-    /// recognizer and follows DOM `buttons` bit order — bit 0 primary,
-    /// 1 secondary, 2 middle, 3 back, 4 forward — so the mask applies
-    /// verbatim.
-    private func applyButtonMask(_ buttons: UInt8, to recognizer: NSGestureRecognizer) {
+    /// recognizer. `buttonMask` follows DOM `buttons` bit order — bit 0
+    /// primary, 1 secondary, 2 middle, 3 back, 4 forward — so the mask
+    /// applies verbatim.
+    private func applyButtonMask(_ buttons: UInt8, to recognizer: some ButtonMaskedRecognizer) {
         recognizer.buttonMask = Int(buttons)
     }
     #endif
@@ -344,3 +343,15 @@ final class WuiGesture: PlatformView, WuiComponent {
     }
     #endif
 }
+
+#if canImport(AppKit)
+/// The AppKit recognizers that filter by pointer button: `buttonMask` is
+/// declared on each of these concrete classes, not on `NSGestureRecognizer`.
+private protocol ButtonMaskedRecognizer: NSGestureRecognizer {
+    var buttonMask: Int { get set }
+}
+
+extension NSClickGestureRecognizer: ButtonMaskedRecognizer {}
+extension NSPressGestureRecognizer: ButtonMaskedRecognizer {}
+extension NSPanGestureRecognizer: ButtonMaskedRecognizer {}
+#endif
