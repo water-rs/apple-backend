@@ -55,7 +55,7 @@ if [[ $# -ge 1 ]]; then
   # profile, whereas a search of a shared target directory can return another
   # example's archive once a restored cache holds several.
   package_log="$(mktemp)"
-  water package --platform ios-simulator --backend apple --path "${example_path}" \
+  water package --platform ios-simulator --backend apple --debug --path "${example_path}" \
     2>&1 | tee "${package_log}"
   app_path="$(sed -n 's/.*Packaged at //p' "${package_log}" | tail -n 1 \
     | sed 's/\x1b\[[0-9;]*m//g' | tr -d '\r')"
