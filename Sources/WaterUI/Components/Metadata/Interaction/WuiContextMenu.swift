@@ -273,6 +273,11 @@ final class WuiContextMenu: PlatformView, WuiComponent {
         addSubview(platter)
       }
 
+      @available(*, unavailable)
+      required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+      }
+
       func present(accessory: WuiAnyView, previewFrame: CGRect) {
         platter.present(accessory: accessory, previewFrame: previewFrame)
       }
