@@ -107,6 +107,28 @@ jobs:
           swift build --configuration ${{ matrix.configuration }}
           --scratch-path .build-shapes/nogpu
           -Xswiftc -warnings-as-errors -Xswiftc -DWATERUI_NO_GPU
+      # iOS leg: the package's UIKit-only code never type-checks in the macOS
+      # `swift build` shapes above — a UIWindow subclass shipped a missing
+      # `init(coder:)` that only an iOS destination rejects (93b23d3). Both
+      # destinations are build-only: no simulator boots and the device leg
+      # signs nothing, since the product is a library. Derived data goes into
+      # the cached shape dirs. Debug only: release adds nothing a compile can
+      # observe, same as the test step.
+      - name: Build (ios-simulator)
+        if: matrix.configuration == 'debug'
+        run: >-
+          xcodebuild build -scheme WaterUI
+          -destination 'generic/platform=iOS Simulator'
+          -derivedDataPath .build-shapes/ios-sim
+          SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
+      - name: Build (ios-device)
+        if: matrix.configuration == 'debug'
+        run: >-
+          xcodebuild build -scheme WaterUI
+          -destination 'generic/platform=iOS'
+          -derivedDataPath .build-shapes/ios-device
+          SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
+          CODE_SIGNING_ALLOWED=NO
       # The unit suite exercises the closure-based machinery around the FFI
       # surface — signal subscriptions, watcher plumbing, the layout bridge's
       # SubView vtable — with the Rust library absent: `waterui_*` symbols only
