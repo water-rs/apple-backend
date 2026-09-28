@@ -2,6 +2,7 @@ import CWaterUI
 
 #if canImport(UIKit)
   import UIKit
+  import UniformTypeIdentifiers
 #elseif canImport(AppKit)
   import AppKit
 #endif
@@ -11,6 +12,9 @@ import CWaterUI
 /// Component for Metadata<DropDestination>.
 ///
 /// Makes the wrapped view a drop destination for drag and drop operations.
+/// The destination's accepted `WuiTransferKind` selects which pasteboard types
+/// it registers for and which dropped values it delivers; `InProcess`
+/// destinations accept only same-process drags carrying a payload handle.
 /// On macOS, uses NSDraggingDestination protocol.
 /// On iOS, uses UIDropInteraction.
 @MainActor
@@ -19,6 +23,7 @@ final class WuiDropDestination: PlatformView, WuiComponent {
 
   private let contentView: any WuiComponent
   private let dropDest: CWaterUI.WuiDropDestination
+  private let acceptedKind: CWaterUI.WuiTransferKind
   private let env: WuiEnvironment
 
   var stretchAxis: WuiStretchAxis {
@@ -30,6 +35,7 @@ final class WuiDropDestination: PlatformView, WuiComponent {
 
     self.env = env
     self.dropDest = metadata.value
+    self.acceptedKind = metadata.value.accepted_kind
     self.contentView = WuiAnyView.resolve(anyview: metadata.content, env: env)
 
     super.init(frame: .zero)
@@ -43,8 +49,21 @@ final class WuiDropDestination: PlatformView, WuiComponent {
       self.addInteraction(dropInteraction)
       self.isUserInteractionEnabled = true
     #elseif canImport(AppKit)
-      // macOS: Register as drop destination (including file URLs)
-      registerForDraggedTypes([.string, .URL, .fileURL])
+      // macOS: Register for the pasteboard types the accepted kind maps to. An
+      // `InProcess` destination registers for the private marker only: its
+      // payload never takes pasteboard form.
+      switch acceptedKind {
+      case WuiTransferKind_Text:
+        registerForDraggedTypes([.string])
+      case WuiTransferKind_Url:
+        registerForDraggedTypes([.URL])
+      case WuiTransferKind_Files:
+        registerForDraggedTypes([.fileURL])
+      case WuiTransferKind_InProcess:
+        registerForDraggedTypes([NSPasteboard.PasteboardType(wuiInProcessPasteboardType)])
+      default:
+        break
+      }
     #endif
   }
 
@@ -58,11 +77,39 @@ final class WuiDropDestination: PlatformView, WuiComponent {
     waterui_drop_drop_destination(&mutableDest)
   }
 
-  private func callDropHandler(tag: WuiDragDataTag, value: String) {
+  /// Whether `payload` is accepted; the check includes `InProcess` type
+  /// identity, so same-process payload handles must go through it.
+  private func accepts(_ payload: OpaquePointer) -> Bool {
     var mutableDest = dropDest
-    value.withCString { cString in
-      waterui_call_drop_handler(&mutableDest, env.inner, tag, cString)
-    }
+    return waterui_drop_destination_accepts(&mutableDest, payload)
+  }
+
+  /// Delivers a payload the destination accepts; the caller keeps ownership.
+  private func deliver(_ payload: OpaquePointer) {
+    var mutableDest = dropDest
+    waterui_call_drop_handler(&mutableDest, env.inner, payload)
+  }
+
+  /// Delivers an owning payload built from dropped platform data, releasing it
+  /// afterwards.
+  private func deliverOwned(_ payload: OpaquePointer) {
+    deliver(payload)
+    waterui_drop_drag_payload(payload)
+  }
+
+  private func deliverText(_ text: String) {
+    deliverOwned(waterui_drag_payload_from_text(WuiStr(string: text).intoInner()))
+  }
+
+  private func deliverURL(_ url: URL) {
+    deliverOwned(waterui_drag_payload_from_url(WuiStr(string: url.absoluteString).intoInner()))
+  }
+
+  private func deliverFiles(_ urls: [URL]) {
+    let strings = urls.map { WuiStr(string: $0.absoluteString).intoInner() }
+    deliverOwned(
+      waterui_drag_payload_from_files(
+        WuiArray<CWaterUI.WuiStr>(array: strings).intoWuiStrArray()))
   }
 
   private func callEnterHandler() {
@@ -108,86 +155,174 @@ final class WuiDropDestination: PlatformView, WuiComponent {
 
     // MARK: - macOS Drop Destination
 
+    /// Whether the drag over this view is acceptable. A drag from a WaterUI
+    /// draggable in the same process carries its payload handle on the source
+    /// view — the FFI check then also discriminates `InProcess` type identity.
+    /// Any other drag is judged by the pasteboard types it offers.
+    private func isAccepted(_ sender: any NSDraggingInfo) -> Bool {
+      if let source = sender.draggingSource as? WuiDraggable,
+        let box = source.activePayload
+      {
+        return accepts(box.payload)
+      }
+
+      let types = sender.draggingPasteboard.types ?? []
+      switch acceptedKind {
+      case WuiTransferKind_Text:
+        return types.contains(.string)
+      case WuiTransferKind_Url:
+        return types.contains(.URL)
+      case WuiTransferKind_Files:
+        return types.contains(.fileURL)
+      case WuiTransferKind_InProcess:
+        return false
+      default:
+        return false
+      }
+    }
+
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+      guard isAccepted(sender) else { return [] }
       callEnterHandler()
       return .copy
     }
 
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+      return isAccepted(sender) ? .copy : []
+    }
+
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+      guard let sender, isAccepted(sender) else { return }
       callExitHandler()
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+      // A same-process drag delivers its payload handle directly: the typed
+      // value reaches the handler unserialized.
+      if let source = sender.draggingSource as? WuiDraggable,
+        let box = source.activePayload,
+        accepts(box.payload)
+      {
+        deliver(box.payload)
+        return true
+      }
+
       let pasteboard = sender.draggingPasteboard
-
-      // Try file URL first (for dropped files)
-      if let fileURL = pasteboard.string(forType: .fileURL) {
-        callDropHandler(tag: WuiDragDataTag_Url, value: fileURL)
+      switch acceptedKind {
+      case WuiTransferKind_Files:
+        guard
+          let urls = pasteboard.readObjects(
+            forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
+          !urls.isEmpty
+        else { return false }
+        deliverFiles(urls)
         return true
-      }
-
-      // Try URL
-      if let url = pasteboard.string(forType: .URL) {
-        callDropHandler(tag: WuiDragDataTag_Url, value: url)
+      case WuiTransferKind_Url:
+        guard let value = pasteboard.string(forType: .URL), let url = URL(string: value)
+        else { return false }
+        deliverURL(url)
         return true
-      }
-
-      // Fall back to string
-      if let string = pasteboard.string(forType: .string) {
-        callDropHandler(tag: WuiDragDataTag_Text, value: string)
+      case WuiTransferKind_Text:
+        guard let string = pasteboard.string(forType: .string) else { return false }
+        deliverText(string)
         return true
+      case WuiTransferKind_InProcess:
+        // Only a same-process drag can produce this kind; handled above.
+        return false
+      default:
+        return false
       }
-
-      return false
     }
   #endif
 }
 
 #if canImport(UIKit)
   extension WuiDropDestination: UIDropInteractionDelegate {
+    /// The payload of an accepted same-process drag item, if any. Other
+    /// applications' drags carry no `WuiDragPayloadBox`.
+    private func acceptedLocalPayload(in session: any UIDropSession) -> OpaquePointer? {
+      session.localDragSession?.items.lazy
+        .compactMap { ($0.localObject as? WuiDragPayloadBox)?.payload }
+        .first(where: { accepts($0) })
+    }
+
+    private func isAcceptable(_ session: any UIDropSession) -> Bool {
+      if acceptedLocalPayload(in: session) != nil {
+        return true
+      }
+      switch acceptedKind {
+      case WuiTransferKind_Text:
+        return session.canLoadObjects(ofClass: NSString.self)
+      case WuiTransferKind_Url:
+        return session.canLoadObjects(ofClass: NSURL.self)
+      case WuiTransferKind_Files:
+        return session.hasItemsConforming(toTypeIdentifiers: [UTType.fileURL.identifier])
+      case WuiTransferKind_InProcess:
+        // No pasteboard type can produce this kind.
+        return false
+      default:
+        return false
+      }
+    }
+
     func dropInteraction(_ interaction: UIDropInteraction, canHandle session: any UIDropSession)
       -> Bool
     {
-      return session.canLoadObjects(ofClass: NSString.self)
-        || session.canLoadObjects(ofClass: NSURL.self)
+      return isAcceptable(session)
     }
 
     func dropInteraction(
       _ interaction: UIDropInteraction, sessionDidUpdate session: any UIDropSession
     ) -> UIDropProposal {
-      return UIDropProposal(operation: .copy)
+      return UIDropProposal(operation: isAcceptable(session) ? .copy : .forbidden)
     }
 
     func dropInteraction(
       _ interaction: UIDropInteraction, sessionDidEnter session: any UIDropSession
     ) {
+      guard isAcceptable(session) else { return }
       callEnterHandler()
     }
 
     func dropInteraction(
       _ interaction: UIDropInteraction, sessionDidExit session: any UIDropSession
     ) {
+      guard isAcceptable(session) else { return }
       callExitHandler()
     }
 
     func dropInteraction(_ interaction: UIDropInteraction, performDrop session: any UIDropSession) {
-      // Try to load URL first
-      if session.canLoadObjects(ofClass: NSURL.self) {
-        _ = session.loadObjects(ofClass: NSURL.self) { [weak self] objects in
-          if let url = objects.first as? URL {
-            self?.callDropHandler(tag: WuiDragDataTag_Url, value: url.absoluteString)
-          }
-        }
+      // A same-process drag delivers its payload handle directly.
+      if let payload = acceptedLocalPayload(in: session) {
+        deliver(payload)
         return
       }
 
-      // Fall back to string
-      if session.canLoadObjects(ofClass: NSString.self) {
-        _ = session.loadObjects(ofClass: NSString.self) { [weak self] objects in
-          if let string = objects.first as? String {
-            self?.callDropHandler(tag: WuiDragDataTag_Text, value: string)
-          }
+      switch acceptedKind {
+      case WuiTransferKind_Files:
+        guard session.hasItemsConforming(toTypeIdentifiers: [UTType.fileURL.identifier])
+        else { return }
+        _ = session.loadObjects(ofClass: NSURL.self) { [weak self] objects in
+          let urls = objects.compactMap { $0 as? URL }.filter { $0.isFileURL }
+          guard !urls.isEmpty else { return }
+          self?.deliverFiles(urls)
         }
+      case WuiTransferKind_Url:
+        guard session.canLoadObjects(ofClass: NSURL.self) else { return }
+        _ = session.loadObjects(ofClass: NSURL.self) { [weak self] objects in
+          guard let url = objects.first as? URL else { return }
+          self?.deliverURL(url)
+        }
+      case WuiTransferKind_Text:
+        guard session.canLoadObjects(ofClass: NSString.self) else { return }
+        _ = session.loadObjects(ofClass: NSString.self) { [weak self] objects in
+          guard let string = objects.first as? String else { return }
+          self?.deliverText(string)
+        }
+      case WuiTransferKind_InProcess:
+        break
+      default:
+        break
       }
     }
   }

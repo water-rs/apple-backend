@@ -240,6 +240,11 @@ extension WuiArray<CWaterUI.WuiStyledChunk> {
 }
 
 extension WuiArray<CWaterUI.WuiStr> {
+  init(_ inner: CWaterUI.WuiArray_WuiStr) {
+    let raw = unsafeBitCast(inner, to: CWaterUI.WuiArray.self)
+    self.init(c: raw)
+  }
+
   func intoWuiStrArray() -> CWaterUI.WuiArray_WuiStr {
     unsafeBitCast(inner.intoInner(), to: CWaterUI.WuiArray_WuiStr.self)
   }
