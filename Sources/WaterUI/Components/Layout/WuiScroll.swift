@@ -387,7 +387,6 @@ func scrollContentPlacement(
     private var scrollGenerationObservation: WuiComputedObservation<Int32>?
     private var offsetXBinding: WuiBinding<Float>?
     private var offsetYBinding: WuiBinding<Float>?
-    private var boundsObserver: NSObjectProtocol?
     /// The clip view size the content was last laid out against.
     private var laidOutViewport: CGSize = .zero
 
@@ -557,15 +556,18 @@ func scrollContentPlacement(
       // The clip view's bounds origin is the content offset; it changes on
       // every scroll, whether from the user or a controller request.
       contentView.postsBoundsChangedNotifications = true
-      boundsObserver = NotificationCenter.default.addObserver(
-        forName: NSView.boundsDidChangeNotification,
-        object: contentView,
-        queue: .main
-      ) { [weak self] _ in
-        MainActor.assumeIsolated {
-          self?.reportOffset()
-        }
-      }
+      // A selector observer is released with `self`, so no `deinit`
+      // bookkeeping touches main-actor state.
+      NotificationCenter.default.addObserver(
+        self,
+        selector: #selector(clipBoundsDidChange(_:)),
+        name: NSView.boundsDidChangeNotification,
+        object: contentView
+      )
+      reportOffset()
+    }
+
+    @objc private func clipBoundsDidChange(_: Notification) {
       reportOffset()
     }
 
@@ -577,12 +579,6 @@ func scrollContentPlacement(
       let origin = contentView.bounds.origin
       offsetXBinding?.set(Float(origin.x))
       offsetYBinding?.set(Float(origin.y))
-    }
-
-    deinit {
-      if let boundsObserver {
-        NotificationCenter.default.removeObserver(boundsObserver)
-      }
     }
 
     override var intrinsicContentSize: NSSize {
