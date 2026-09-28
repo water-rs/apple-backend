@@ -1205,7 +1205,10 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     private static func leftmostTextX(of view: PlatformView) -> CGFloat {
       var best = CGFloat.greatestFiniteMagnitude
       for sub in view.subviews {
-        if sub is WuiText || sub is WuiTextField || sub is WuiSecureField {
+        // `CocoaUiLabel` is the Rust-rendered text leaf that replaced `WuiText`.
+        if sub is WuiTextField || sub is WuiSecureField
+          || NSStringFromClass(type(of: sub)) == "CocoaUiLabel"
+        {
           best = min(best, sub.frame.minX)
         } else {
           best = min(best, sub.frame.minX + leftmostTextX(of: sub))
@@ -1301,7 +1304,10 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
     private func leftmostTextX(of view: NSView) -> CGFloat {
       var best = CGFloat.greatestFiniteMagnitude
       for sub in view.subviews {
-        if sub is WuiText || sub is WuiTextField || sub is WuiSecureField {
+        // `CocoaUiLabel` is the Rust-rendered text leaf that replaced `WuiText`.
+        if sub is WuiTextField || sub is WuiSecureField
+          || NSStringFromClass(type(of: sub)) == "CocoaUiLabel"
+        {
           best = min(best, sub.frame.minX)
         } else {
           best = min(best, sub.frame.minX + leftmostTextX(of: sub))

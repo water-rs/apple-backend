@@ -10,8 +10,12 @@ import CWaterUI
 private final class WuiTableColumnNode {
   let id: Int32
   let rows: WuiStableViewCollection
+  private let env: WuiEnvironment
   #if canImport(UIKit)
-    let label: WuiText
+    let label: UILabel
+    private var labelContentObservation: WuiComputedObservation<WuiStyledStr>?
+    private var labelAlignmentObservation: WuiComputedObservation<WuiHorizontalAlignment>?
+    private var labelRenderer: WuiStyledStrRenderer?
   #elseif canImport(AppKit)
     // The native header cell renders plain text; the styled label reduces to
     // its string. Paragraph alignment is not representable in an
@@ -37,12 +41,11 @@ private final class WuiTableColumnNode {
       fatalError("Table column label has no paragraph-alignment signal")
     }
     self.id = id
+    self.env = env
     #if canImport(UIKit)
-      self.label = WuiText(
-        content: WuiComputed<WuiStyledStr>(labelContent),
-        paragraphAlignment: WuiComputed<WuiHorizontalAlignment>(labelAlignment),
-        env: env
-      )
+      let label = UILabel()
+      label.numberOfLines = 0
+      self.label = label
     #elseif canImport(AppKit)
       self.labelObservation = WuiComputedObservation(
         WuiComputed<WuiStyledStr>(labelContent)
@@ -58,9 +61,48 @@ private final class WuiTableColumnNode {
       onChange: onRowsChange
     )
     #if canImport(UIKit)
-      self.label.onIntrinsicContentChange = onContentChange
+      labelContentObservation = WuiComputedObservation(
+        WuiComputed<WuiStyledStr>(labelContent)
+      ) { [weak self] _, _ in
+        self?.refreshHeaderLabel()
+        onContentChange()
+      }
+      labelAlignmentObservation = WuiComputedObservation(
+        WuiComputed<WuiHorizontalAlignment>(labelAlignment)
+      ) { [weak self] value, _ in
+        self?.applyHeaderAlignment(value)
+      }
+      if let alignmentObservation = labelAlignmentObservation {
+        applyHeaderAlignment(alignmentObservation.value)
+      }
+      refreshHeaderLabel()
     #endif
   }
+
+  #if canImport(UIKit)
+    private func refreshHeaderLabel() {
+      guard let labelContentObservation else { return }
+      labelRenderer = WuiStyledStrRenderer(styled: labelContentObservation.value, env: env)
+        { [weak self] in
+          self?.label.attributedText = self?.labelRenderer?.attributedString()
+        }
+      label.attributedText = labelRenderer?.attributedString()
+    }
+
+    private func applyHeaderAlignment(_ alignment: WuiHorizontalAlignment) {
+      let direction = UIView.userInterfaceLayoutDirection(for: label.semanticContentAttribute)
+      switch alignment {
+      case WuiHorizontalAlignment_Leading:
+        label.textAlignment = .natural
+      case WuiHorizontalAlignment_Trailing:
+        label.textAlignment = direction == .rightToLeft ? .left : .right
+      case WuiHorizontalAlignment_Center:
+        label.textAlignment = .center
+      default:
+        fatalError("Unsupported WaterUI paragraph alignment: \(alignment.rawValue)")
+      }
+    }
+  #endif
 }
 
 @MainActor
@@ -231,7 +273,11 @@ final class WuiTable: PlatformView, WuiComponent {
     columns.map { column in
       #if canImport(UIKit)
         let headerWidth =
-          column.label.sizeThatFits(WuiProposalSize()).width + horizontalPadding * 2
+          column.label.sizeThatFits(
+            CGSize(
+              width: CGFloat.greatestFiniteMagnitude,
+              height: CGFloat.greatestFiniteMagnitude)
+          ).width + horizontalPadding * 2
       #elseif canImport(AppKit)
         // The native header cell measures its own title (padding included).
         let headerWidth = nativeColumns[column.id]!.headerCell.cellSize.width
@@ -252,7 +298,13 @@ final class WuiTable: PlatformView, WuiComponent {
     #if canImport(UIKit)
       return max(
         28,
-        (columns.map { $0.label.sizeThatFits(WuiProposalSize()).height }.max() ?? 0)
+        (columns.map {
+          $0.label.sizeThatFits(
+            CGSize(
+              width: CGFloat.greatestFiniteMagnitude,
+              height: CGFloat.greatestFiniteMagnitude)
+          ).height
+        }.max() ?? 0)
           + verticalPadding * 2
       )
     #elseif canImport(AppKit)
@@ -289,9 +341,6 @@ final class WuiTable: PlatformView, WuiComponent {
       let rowHeights = rowHeights()
       var x: CGFloat = 0
       for (index, column) in columns.enumerated() {
-        // Natively hosted: measured under a fully unspecified proposal, so the
-        // cell's recursive layout must not infer bounds from its frame.
-        column.label.setPlacementProposal(WuiProposalSize())
         column.label.frame = CGRect(x: x, y: 0, width: widths[index], height: headerHeight)
         x += widths[index]
       }

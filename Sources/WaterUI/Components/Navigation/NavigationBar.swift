@@ -375,7 +375,10 @@ private func makeNavigationTitle(from titlePtr: OpaquePointer, env: WuiEnvironme
 {
   let titleView = WuiAnyView(anyview: titlePtr, env: env)
   let (text, isPlainText) = extractNavigationTitleText(from: titleView)
-  let textSignal = (wuiResolvedPrimaryContent(of: titleView) as? WuiText)?.semanticContent
+  // The live text signal belongs to the rendered leaf: once `text` renders
+  // through the Rust backend, no Swift-side computed remains to read it back.
+  // The navigation port restores live title updates Rust-side.
+  let textSignal: WuiComputed<WuiStyledStr>? = nil
   return WuiNavigationTitle(
     view: titleView, text: text, isPlainText: isPlainText, textSignal: textSignal)
 }

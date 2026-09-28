@@ -27,4 +27,5 @@ pub mod contract;
 pub mod dispatch;
 pub mod seam;
 
+pub(crate) mod components;
 pub(crate) mod registry;

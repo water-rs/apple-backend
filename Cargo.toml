@@ -19,17 +19,23 @@ waterui-backend-core = { git = "https://github.com/water-rs/waterui", rev = "1b8
 cocoa-ui = { git = "https://github.com/water-rs/cocoa-ui", rev = "73a5357b64ecfe9186963c1078f5f8c830206a64" }
 objc2 = "0.6"
 
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "NSAttributedString",
+] }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-app-kit = { version = "0.3", default-features = false, features = [
     "std",
     "NSView",
     "NSViewController",
+    "NSText",
 ] }
 
 [target.'cfg(target_os = "ios")'.dependencies]
 objc2-ui-kit = { version = "0.3", default-features = false, features = [
     "std",
     "UIView",
+    "NSText",
 ] }
 
 # The framework's own `[patch.crates-io]`, translated for this consumer the

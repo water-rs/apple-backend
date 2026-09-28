@@ -53,9 +53,6 @@ impl Dispatcher {
     /// Claims `Native<C>`: a native payload the handler renders into a
     /// platform view.
     ///
-    /// Called by [`crate::registry`]; unused until the first port lands.
-    #[expect(dead_code, reason = "the registration table fills as ports land")]
-    ///
     /// The handler receives the payload itself — the wrapper is downcast and
     /// unwrapped for it. Registering `C` here is how a component port owns a
     /// leaf: `TextField`'s `Native<ResolvedTextFieldConfig>`,
