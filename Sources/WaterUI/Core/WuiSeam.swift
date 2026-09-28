@@ -476,7 +476,7 @@ private func verticalAlignmentTag(_ alignment: CWaterUI.WuiVerticalAlignment) ->
 /// owned by the caller, its `view` +1.
 @_cdecl("waterui_swift_render")
 @MainActor
-private func wateruiSwiftRender(
+func wateruiSwiftRender(
   _ view: OpaquePointer?, _ env: OpaquePointer?
 ) -> WateruiLeaf {
   guard let view, let env else { return unclaimedLeaf() }
@@ -488,7 +488,7 @@ private func wateruiSwiftRender(
 /// is borrowed for the call; `callback` runs on the main thread once
 /// everything is installed.
 @_cdecl("waterui_swift_prepare_env")
-private func wateruiSwiftPrepareEnv(
+func wateruiSwiftPrepareEnv(
   _ env: OpaquePointer?,
   context: UnsafeMutableRawPointer?,
   callback: @convention(c) (UnsafeMutableRawPointer?) -> Void
@@ -531,7 +531,7 @@ private func wateruiSwiftPrepareEnv(
 /// Runs `callback` on the main thread once `view` — a fallback-produced
 /// platform view — reports its first frame ready. The view is borrowed.
 @_cdecl("waterui_swift_when_ready")
-private func wateruiSwiftWhenReady(
+func wateruiSwiftWhenReady(
   _ view: UnsafeMutableRawPointer?,
   context: UnsafeMutableRawPointer?,
   callback: @convention(c) (UnsafeMutableRawPointer?) -> Void
@@ -568,7 +568,7 @@ private func wateruiSwiftWhenReady(
   /// toolbar host on `window`. Both `content` and `env` are consumed.
   @_cdecl("waterui_swift_install_toolbar")
   @MainActor
-  private func wateruiSwiftInstallToolbar(
+  func wateruiSwiftInstallToolbar(
     _ content: OpaquePointer?, _ env: OpaquePointer?, _ window: UnsafeMutableRawPointer?
   ) {
     guard let content, let env, let window else {
@@ -585,7 +585,7 @@ private func wateruiSwiftWhenReady(
 /// otherwise the leaf's safe-area-inset rect. `view` is borrowed.
 @_cdecl("waterui_swift_content_frame")
 @MainActor
-private func wateruiSwiftContentFrame(
+func wateruiSwiftContentFrame(
   _ view: UnsafeMutableRawPointer?, bounds: WateruiRect
 ) -> WateruiRect {
   guard let view else { return bounds }
@@ -610,7 +610,7 @@ private func wateruiSwiftContentFrame(
   /// debug-time disjointness check.
   @_cdecl("waterui_swift_claims")
   @MainActor
-  private func wateruiSwiftClaims() -> WateruiOwnedArray {
+  func wateruiSwiftClaims() -> WateruiOwnedArray {
     registerBuiltinComponentsIfNeeded()
     let ids = Array(componentRegistry.keys)
     guard !ids.isEmpty else {
