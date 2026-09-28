@@ -195,6 +195,8 @@ func scrollContentPlacement(
     private var targetXObservation: WuiComputedObservation<Float>?
     private var targetYObservation: WuiComputedObservation<Float>?
     private var scrollGenerationObservation: WuiComputedObservation<Int32>?
+    private var offsetXBinding: WuiBinding<Float>?
+    private var offsetYBinding: WuiBinding<Float>?
 
     // MARK: - WuiComponent Init
 
@@ -204,6 +206,7 @@ func scrollContentPlacement(
       let contentView = WuiAnyView(anyview: ffiScroll.content, env: env)
       self.init(stretchAxis: stretchAxis, content: contentView, axis: ffiScroll.axis)
       installScrollController(ffiScroll)
+      installOffsetReporting(ffiScroll)
     }
 
     // MARK: - Designated Init
@@ -339,6 +342,31 @@ func scrollContentPlacement(
       setContentOffset(point, animated: false)
     }
 
+    private func installOffsetReporting(_ descriptor: CWaterUI.WuiScrollView) {
+      if let offsetX = descriptor.offset_x {
+        offsetXBinding = WuiBinding<Float>(offsetX)
+      }
+      if let offsetY = descriptor.offset_y {
+        offsetYBinding = WuiBinding<Float>(offsetY)
+      }
+      reportOffset()
+    }
+
+    /// `report_offset`: writes the content offset, in points, into the
+    /// connected bindings — the inset-adjusted `contentOffset`, so a rest
+    /// position reports zero and a `scroll_to` target reports its own
+    /// coordinate.
+    private func reportOffset() {
+      offsetXBinding?.set(Float(contentOffset.x + adjustedContentInset.left))
+      offsetYBinding?.set(Float(contentOffset.y + adjustedContentInset.top))
+    }
+
+    // MARK: - UIScrollViewDelegate
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+      reportOffset()
+    }
+
     override var intrinsicContentSize: CGSize {
       CGSize(width: UIView.noIntrinsicMetric, height: UIView.noIntrinsicMetric)
     }
@@ -357,6 +385,8 @@ func scrollContentPlacement(
     private var targetXObservation: WuiComputedObservation<Float>?
     private var targetYObservation: WuiComputedObservation<Float>?
     private var scrollGenerationObservation: WuiComputedObservation<Int32>?
+    private var offsetXBinding: WuiBinding<Float>?
+    private var offsetYBinding: WuiBinding<Float>?
     /// The clip view size the content was last laid out against.
     private var laidOutViewport: CGSize = .zero
 
@@ -368,6 +398,7 @@ func scrollContentPlacement(
       let contentView = WuiAnyView(anyview: ffiScroll.content, env: env)
       self.init(stretchAxis: stretchAxis, content: contentView, axis: ffiScroll.axis)
       installScrollController(ffiScroll)
+      installOffsetReporting(ffiScroll)
     }
 
     // MARK: - Designated Init
@@ -512,6 +543,42 @@ func scrollContentPlacement(
       )
       contentView.scroll(to: CGPoint(x: max(0, targetX), y: max(0, targetY)))
       reflectScrolledClipView(contentView)
+    }
+
+    private func installOffsetReporting(_ descriptor: CWaterUI.WuiScrollView) {
+      if let offsetX = descriptor.offset_x {
+        offsetXBinding = WuiBinding<Float>(offsetX)
+      }
+      if let offsetY = descriptor.offset_y {
+        offsetYBinding = WuiBinding<Float>(offsetY)
+      }
+      guard offsetXBinding != nil || offsetYBinding != nil else { return }
+      // The clip view's bounds origin is the content offset; it changes on
+      // every scroll, whether from the user or a controller request.
+      contentView.postsBoundsChangedNotifications = true
+      // A selector observer is released with `self`, so no `deinit`
+      // bookkeeping touches main-actor state.
+      NotificationCenter.default.addObserver(
+        self,
+        selector: #selector(clipBoundsDidChange(_:)),
+        name: NSView.boundsDidChangeNotification,
+        object: contentView
+      )
+      reportOffset()
+    }
+
+    @objc private func clipBoundsDidChange(_: Notification) {
+      reportOffset()
+    }
+
+    /// `report_offset`: writes the content offset, in points, into the
+    /// connected bindings — the clip view's bounds origin, which for the
+    /// flipped document is the distance the content's top-left has scrolled
+    /// under the viewport.
+    private func reportOffset() {
+      let origin = contentView.bounds.origin
+      offsetXBinding?.set(Float(origin.x))
+      offsetYBinding?.set(Float(origin.y))
     }
 
     override var intrinsicContentSize: NSSize {
