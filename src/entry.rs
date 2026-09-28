@@ -117,7 +117,9 @@ mod imp {
     ) -> ! {
         let mtm = MainThreadMarker::new().expect("waterui_apple_main runs on the main thread");
         let application = Application::shared(mtm);
-        application.set_activation_policy(if accessory {
+        // Best-effort: AppKit can refuse during early startup; the bundle's
+        // Info.plist policy is the fallback.
+        let _ = application.set_activation_policy(if accessory {
             ActivationPolicy::Accessory
         } else {
             ActivationPolicy::Regular
