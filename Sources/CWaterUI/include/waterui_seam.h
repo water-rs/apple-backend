@@ -128,6 +128,11 @@ bool waterui_apple_needs_fallback(void *view);
 /// does not claim it either.
 struct WateruiLeaf waterui_apple_render(void *view, void *env);
 
+/// Application entry point, emitted by `waterui_apple::export_app!` into the
+/// app's Rust crate. `main.swift` calls it with `accessory` = whether the
+/// process runs as an macOS accessory (menu-bar-only) app.
+void waterui_apple_main(bool accessory);
+
 #ifdef __cplusplus
 }
 #endif
