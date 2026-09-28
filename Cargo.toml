@@ -1,0 +1,25 @@
+[workspace]
+members = ["kit"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.95"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/water-rs/apple-backend"
+
+[workspace.lints]
+rust.missing_docs = "warn"
+rust.missing_debug_implementations = "warn"
+clippy.all = "warn"
+clippy.style = "warn"
+clippy.correctness = "warn"
+clippy.complexity = "warn"
+clippy.suspicious = "warn"
+clippy.perf = "warn"
+clippy.pedantic = "warn"
+clippy.nursery = "warn"
+clippy.cargo = "warn"
+# Every `unsafe` must state why it is sound, in a form the compiler checks.
+clippy.undocumented_unsafe_blocks = "warn"
+clippy.multiple_crate_versions = { level = "allow", priority = 1 }
