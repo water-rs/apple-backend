@@ -387,3 +387,18 @@ extension WuiBinding where T == OpaquePointer {
     )
   }
 }
+
+extension WuiBinding where T == CWaterUI.WuiAnchorEdge {
+  convenience init(_ inner: OpaquePointer) {
+    self.init(
+      inner: inner,
+      read: waterui_read_binding_anchor_edge,
+      watch: { inner, f in
+        let g = waterui_watch_binding_anchor_edge(inner, makeAnchorEdgeWatcher(f))
+        return WatcherGuard(g!)
+      },
+      set: waterui_set_binding_anchor_edge,
+      drop: waterui_drop_binding_anchor_edge
+    )
+  }
+}

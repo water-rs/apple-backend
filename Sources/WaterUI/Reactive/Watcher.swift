@@ -606,3 +606,21 @@ func makeColorWatcher(_ f: @escaping (OpaquePointer, WuiWatcherMetadata) -> Void
   }
   return watcher
 }
+
+@MainActor
+func makeAnchorEdgeWatcher(_ f: @escaping (WuiAnchorEdge, WuiWatcherMetadata) -> Void)
+  -> OpaquePointer
+{
+  let data = wrap(f)
+  let call: @convention(c) (UnsafeMutableRawPointer?, WuiAnchorEdge, OpaquePointer?) -> Void = {
+    data, value, metadata in
+    callWrapper(data, value, metadata)
+  }
+  let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
+    dropWrapper($0, WuiAnchorEdge.self)
+  }
+  guard let watcher = waterui_new_watcher_anchor_edge(data, call, drop) else {
+    fatalError("Failed to create anchor edge watcher")
+  }
+  return watcher
+}

@@ -11,7 +11,8 @@ import Foundation
 /// contract: `anchor` and `windowBounds` are in the same top-left coordinate
 /// space, `overlaySize` is the content's ideal size already clamped to the
 /// window. `env` resolves `Leading`/`Trailing` edges and `Start`/`End`
-/// alignments from the environment's layout direction.
+/// alignments from the environment's layout direction. Returns the frame
+/// plus the logical edge it landed against — what `placed_edge` reports.
 @MainActor
 func wuiAnchoredOverlayFrame(
   anchor: CGRect,
@@ -19,7 +20,7 @@ func wuiAnchoredOverlayFrame(
   overlaySize: CGSize,
   placement: WuiAnchorPlacement,
   env: WuiEnvironment
-) -> CGRect {
+) -> (CGRect, WuiAnchorEdge) {
   let result = waterui_anchored_overlay_place(
     CWaterUI.WuiRect(
       origin: CWaterUI.WuiPoint(
@@ -39,11 +40,14 @@ func wuiAnchoredOverlayFrame(
     WuiLayoutDirection_LeftToRight,
     env.inner
   )
-  return CGRect(
-    x: CGFloat(result.frame.origin.x),
-    y: CGFloat(result.frame.origin.y),
-    width: CGFloat(result.frame.size.width),
-    height: CGFloat(result.frame.size.height)
+  return (
+    CGRect(
+      x: CGFloat(result.frame.origin.x),
+      y: CGFloat(result.frame.origin.y),
+      width: CGFloat(result.frame.size.width),
+      height: CGFloat(result.frame.size.height)
+    ),
+    result.logical_edge
   )
 }
 
@@ -65,6 +69,7 @@ final class WuiAnchoredOverlay: PlatformView, WuiComponent {
   private let env: WuiEnvironment
   private let overlayView: WuiAnyView
   private let isPresented: WuiBinding<Bool>
+  private let placedEdge: WuiBinding<WuiAnchorEdge>
   private let placement: WuiAnchorPlacement
   private let dismissal: WuiDismissal
   private var presenceGuard: WatcherGuard?
@@ -95,10 +100,14 @@ final class WuiAnchoredOverlay: PlatformView, WuiComponent {
     guard let presentedRaw = metadata.value.is_presented else {
       fatalError("AnchoredOverlay.is_presented is null")
     }
+    guard let placedEdgeRaw = metadata.value.placed_edge else {
+      fatalError("AnchoredOverlay.placed_edge is null")
+    }
 
     self.env = env
     self.overlayView = WuiAnyView(anyview: overlayRaw, env: env)
     self.isPresented = WuiBinding<Bool>(presentedRaw)
+    self.placedEdge = WuiBinding<WuiAnchorEdge>(placedEdgeRaw)
     self.placement = metadata.value.placement
     self.dismissal = metadata.value.dismissal
     self.contentView = WuiAnyView.resolve(anyview: metadata.content, env: env)
@@ -258,7 +267,7 @@ final class WuiAnchoredOverlay: PlatformView, WuiComponent {
       guard let host = overlayHost, let window else { return }
       let container = window.bounds
       let size = measureOverlay(in: container.size)
-      let frame = wuiAnchoredOverlayFrame(
+      let (frame, logicalEdge) = wuiAnchoredOverlayFrame(
         anchor: convert(bounds, to: nil),
         windowBounds: container,
         overlaySize: size,
@@ -267,6 +276,9 @@ final class WuiAnchoredOverlay: PlatformView, WuiComponent {
       )
       host.overlayFrame = frame
       overlayView.frame = frame
+      if placedEdge.value != logicalEdge {
+        placedEdge.set(logicalEdge)
+      }
     }
 
     private func dismissOverlay() {
@@ -336,7 +348,7 @@ final class WuiAnchoredOverlay: PlatformView, WuiComponent {
       let topLeftContainer = CGRect(
         origin: container.origin, size: container.size)
       let anchorTopLeft = mirror(convert(bounds, to: nil), in: container)
-      let frameTopLeft = wuiAnchoredOverlayFrame(
+      let (frameTopLeft, logicalEdge) = wuiAnchoredOverlayFrame(
         anchor: anchorTopLeft,
         windowBounds: topLeftContainer,
         overlaySize: size,
@@ -345,6 +357,9 @@ final class WuiAnchoredOverlay: PlatformView, WuiComponent {
       )
       let frameWindow = mirror(frameTopLeft, in: container)
       panel.setFrame(parentWindow.convertToScreen(frameWindow), display: true)
+      if placedEdge.value != logicalEdge {
+        placedEdge.set(logicalEdge)
+      }
     }
 
     private func observeWindowAndFrame() {
