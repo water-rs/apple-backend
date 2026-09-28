@@ -176,7 +176,7 @@ impl HostView {
         // hierarchy keeps alive while `view` is in it.
         let parent = unsafe { view.superview() };
         assert!(
-            parent.is_some_and(|parent| ptr::eq(&*parent, this)),
+            parent.is_some_and(|parent| ptr::eq(&raw const *parent, this)),
             "{view:?} is not a subview of {this:?}"
         );
         view.removeFromSuperview();

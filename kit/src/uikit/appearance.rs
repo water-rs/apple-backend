@@ -49,6 +49,10 @@ impl ViewController {
     ///
     /// A panic in `handler` aborts the process (see the
     /// [crate documentation](crate)).
+    ///
+    /// # Panics
+    ///
+    /// If `UIKit` reports a trait change off the main thread.
     pub fn observe_color_scheme(
         &self,
         handler: impl Fn(ColorScheme) + 'static,

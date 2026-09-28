@@ -94,6 +94,9 @@ pub fn run(mtm: MainThreadMarker, handlers: ApplicationHandlers) -> ! {
         );
     });
     let delegate_class = NSString::from_class(AppDelegate::class());
+    // `Info.plist` names `SceneDelegate` as the scene delegate class, so
+    // `UIKit` instantiates it by name; touching the class registers it.
+    SceneDelegate::class();
     UIApplication::main(None, Some(&delegate_class), mtm)
 }
 

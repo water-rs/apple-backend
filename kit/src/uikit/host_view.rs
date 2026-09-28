@@ -202,7 +202,7 @@ impl HostView {
         let this: &UIView = self;
         assert!(
             view.superview()
-                .is_some_and(|parent| ptr::eq(&*parent, this)),
+                .is_some_and(|parent| ptr::eq(&raw const *parent, this)),
             "{view:?} is not a subview of {this:?}"
         );
         view.removeFromSuperview();

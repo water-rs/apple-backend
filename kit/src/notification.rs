@@ -69,6 +69,11 @@ impl Drop for NotificationObserver {
 ///
 /// A panic in `handler` aborts the process (see the
 /// [crate documentation](crate)).
+///
+/// # Panics
+///
+/// If the main operation queue delivers the notification off the main
+/// thread, which it must never do.
 pub fn observe(
     mtm: MainThreadMarker,
     name: &NotificationName,
