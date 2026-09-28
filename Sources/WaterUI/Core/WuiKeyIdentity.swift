@@ -6,7 +6,7 @@
 // Codes absent from these tables are keys the platform reports but the W3C
 // model has no name for; they travel as `Unidentified`.
 
-import CWaterUI
+@_exported import CWaterUI
 import OSLog
 
 #if canImport(UIKit)

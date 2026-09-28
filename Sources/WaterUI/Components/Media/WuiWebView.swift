@@ -5,7 +5,7 @@
 // # Layout Behavior
 // WebView is greedy - it expands to fill all available space.
 
-import CWaterUI
+@_exported import CWaterUI
 import OSLog
 import Security
 import WebKit

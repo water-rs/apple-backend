@@ -5,7 +5,7 @@
 //  Created by Gemini on 10/6/25.
 //
 
-import CWaterUI
+@_exported import CWaterUI
 import Foundation
 
 @MainActor

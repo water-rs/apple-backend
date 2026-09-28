@@ -11,7 +11,7 @@
 // // - sizeThatFits: Returns intrinsic size based on label + padding
 // // - Priority: 0 (default)
 
-import CWaterUI
+@_exported import CWaterUI
 
 #if canImport(UIKit)
   import UIKit

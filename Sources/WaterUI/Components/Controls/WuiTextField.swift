@@ -1,7 +1,7 @@
 // WuiTextField.swift
 // Text field component - merged UIKit and AppKit implementation
 
-import CWaterUI
+@_exported import CWaterUI
 
 #if canImport(UIKit)
   import UIKit

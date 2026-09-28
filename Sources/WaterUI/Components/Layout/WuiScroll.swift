@@ -14,7 +14,7 @@
 // // - sizeThatFits: Returns proposed size, or 0 if unspecified (no preferred size)
 // // - Priority: 0 (default)
 
-import CWaterUI
+@_exported import CWaterUI
 
 #if canImport(UIKit)
   import UIKit

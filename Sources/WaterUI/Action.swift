@@ -4,7 +4,7 @@
 //
 //  Created by Lexo Liu on 5/14/24.
 //
-import CWaterUI
+@_exported import CWaterUI
 #if canImport(UIKit)
 import UIKit
 #elseif canImport(AppKit)

@@ -5,7 +5,7 @@
 //  Created by Lexo Liu on 9/30/25.
 //
 
-import CWaterUI
+@_exported import CWaterUI
 
 // Helper class to store array information without generic parameters
 private final class ArrayInfo {

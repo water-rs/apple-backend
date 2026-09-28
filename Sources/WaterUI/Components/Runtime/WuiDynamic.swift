@@ -10,7 +10,7 @@
 // // - sizeThatFits: Delegates to current child
 // // - Priority: Delegates to current child
 
-import CWaterUI
+@_exported import CWaterUI
 
 #if canImport(UIKit)
   import UIKit

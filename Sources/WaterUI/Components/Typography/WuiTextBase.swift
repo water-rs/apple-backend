@@ -6,7 +6,7 @@
 // When width is constrained, text wraps and height adjusts accordingly.
 // Does not expand to fill available space.
 
-import CWaterUI
+@_exported import CWaterUI
 
 #if canImport(UIKit)
   import UIKit

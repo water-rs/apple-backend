@@ -1,5 +1,5 @@
 #if !WATERUI_NO_MEDIA
-import CWaterUI
+@_exported import CWaterUI
 import Foundation
 
 private enum WaterKitAppleMediaResult: Int32 {

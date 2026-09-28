@@ -1,4 +1,4 @@
-import CWaterUI
+@_exported import CWaterUI
 import CoreGraphics
 import Dispatch
 import Metal

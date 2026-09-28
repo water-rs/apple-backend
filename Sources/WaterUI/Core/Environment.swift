@@ -5,7 +5,7 @@
 //  Created by Lexo Liu on 7/31/24.
 //
 
-import CWaterUI
+@_exported import CWaterUI
 
 @MainActor
 public class WuiEnvironment {

@@ -12,7 +12,7 @@
 // //   hands the spacer its main-axis allocation at placement
 // // - Priority: Int32.min (flexible gap)
 
-import CWaterUI
+@_exported import CWaterUI
 
 #if canImport(UIKit)
 import UIKit

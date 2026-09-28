@@ -11,7 +11,7 @@
 // primitive, so the bar is composed from the platform's own materials
 // (NSVisualEffectView header material + hairline separator).
 
-import CWaterUI
+@_exported import CWaterUI
 
 #if canImport(UIKit)
   import UIKit

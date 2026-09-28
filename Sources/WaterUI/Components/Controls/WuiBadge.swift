@@ -6,7 +6,7 @@
 //  top-trailing corner, matching the badge metrics hydrolysis draws.
 //
 
-import CWaterUI
+@_exported import CWaterUI
 
 #if canImport(UIKit)
   import UIKit

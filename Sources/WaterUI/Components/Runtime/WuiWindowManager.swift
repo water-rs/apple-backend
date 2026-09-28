@@ -11,7 +11,7 @@
 // - Supports window backgrounds (Opaque, Color)
 // - Material blur effects are handled via MaterialBackground metadata on content
 
-import CWaterUI
+@_exported import CWaterUI
 import OSLog
 
 #if canImport(AppKit)

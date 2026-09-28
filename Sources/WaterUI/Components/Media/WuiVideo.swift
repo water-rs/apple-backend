@@ -1,6 +1,6 @@
 #if !WATERUI_NO_MEDIA
 import AVFoundation
-import CWaterUI
+@_exported import CWaterUI
 
 #if canImport(UIKit)
   import UIKit

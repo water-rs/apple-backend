@@ -1,4 +1,4 @@
-import CWaterUI
+@_exported import CWaterUI
 
 #if canImport(AppKit)
 import AppKit

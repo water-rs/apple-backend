@@ -6,7 +6,7 @@
 // Items are rendered as rows in a scrollable list.
 // Supports swipe-to-delete when items have delete handlers.
 
-import CWaterUI
+@_exported import CWaterUI
 import Foundation
 
 #if canImport(UIKit)

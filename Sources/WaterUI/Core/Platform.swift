@@ -1,7 +1,7 @@
 // Platform.swift
 // Platform-specific type aliases for cross-platform code sharing
 
-import CWaterUI
+@_exported import CWaterUI
 
 #if canImport(UIKit)
   import UIKit

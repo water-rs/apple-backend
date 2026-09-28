@@ -18,7 +18,7 @@
 // An HDR surface is allocated half-float in an extended-range colour space,
 // which is what asks Core Animation to composite it as EDR.
 
-import CWaterUI
+@_exported import CWaterUI
 import Foundation
 import Metal
 import OSLog

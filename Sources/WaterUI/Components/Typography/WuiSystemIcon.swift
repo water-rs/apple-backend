@@ -10,7 +10,7 @@
 // // - sizeThatFits: Returns intrinsic size based on symbol
 // // - Priority: 0 (default)
 
-import CWaterUI
+@_exported import CWaterUI
 
 #if canImport(UIKit)
   import UIKit

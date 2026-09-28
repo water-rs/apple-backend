@@ -6,7 +6,7 @@
 
 #if WATERUI_MAP
 
-import CWaterUI
+@_exported import CWaterUI
 import Foundation
 import MapKit
 

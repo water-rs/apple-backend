@@ -1,4 +1,4 @@
-import CWaterUI
+@_exported import CWaterUI
 import Foundation
 import OSLog
 import SwiftUI

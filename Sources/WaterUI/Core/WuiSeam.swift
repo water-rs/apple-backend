@@ -11,7 +11,7 @@
 //  defined in Rust) carries one the fallback does not claim the other way.
 //  Neither may re-enter the other on a miss — the seam cannot ping-pong.
 
-import CWaterUI
+@_exported import CWaterUI
 import Foundation
 
 #if canImport(UIKit)
@@ -476,7 +476,7 @@ private func verticalAlignmentTag(_ alignment: CWaterUI.WuiVerticalAlignment) ->
 /// owned by the caller, its `view` +1.
 @_cdecl("waterui_swift_render")
 @MainActor
-func wateruiSwiftRender(
+public func wateruiSwiftRender(
   _ view: OpaquePointer?, _ env: OpaquePointer?
 ) -> WateruiLeaf {
   guard let view, let env else { return unclaimedLeaf() }
@@ -488,7 +488,7 @@ func wateruiSwiftRender(
 /// is borrowed for the call; `callback` runs on the main thread once
 /// everything is installed.
 @_cdecl("waterui_swift_prepare_env")
-func wateruiSwiftPrepareEnv(
+public func wateruiSwiftPrepareEnv(
   _ env: OpaquePointer?,
   context: UnsafeMutableRawPointer?,
   callback: @convention(c) (UnsafeMutableRawPointer?) -> Void
@@ -531,7 +531,7 @@ func wateruiSwiftPrepareEnv(
 /// Runs `callback` on the main thread once `view` — a fallback-produced
 /// platform view — reports its first frame ready. The view is borrowed.
 @_cdecl("waterui_swift_when_ready")
-func wateruiSwiftWhenReady(
+public func wateruiSwiftWhenReady(
   _ view: UnsafeMutableRawPointer?,
   context: UnsafeMutableRawPointer?,
   callback: @convention(c) (UnsafeMutableRawPointer?) -> Void
@@ -568,7 +568,7 @@ func wateruiSwiftWhenReady(
   /// toolbar host on `window`. Both `content` and `env` are consumed.
   @_cdecl("waterui_swift_install_toolbar")
   @MainActor
-  func wateruiSwiftInstallToolbar(
+  public func wateruiSwiftInstallToolbar(
     _ content: OpaquePointer?, _ env: OpaquePointer?, _ window: UnsafeMutableRawPointer?
   ) {
     guard let content, let env, let window else {
@@ -585,7 +585,7 @@ func wateruiSwiftWhenReady(
 /// otherwise the leaf's safe-area-inset rect. `view` is borrowed.
 @_cdecl("waterui_swift_content_frame")
 @MainActor
-func wateruiSwiftContentFrame(
+public func wateruiSwiftContentFrame(
   _ view: UnsafeMutableRawPointer?, bounds: WateruiRect
 ) -> WateruiRect {
   guard let view else { return bounds }
@@ -610,7 +610,7 @@ func wateruiSwiftContentFrame(
   /// debug-time disjointness check.
   @_cdecl("waterui_swift_claims")
   @MainActor
-  func wateruiSwiftClaims() -> WateruiOwnedArray {
+  public func wateruiSwiftClaims() -> WateruiOwnedArray {
     registerBuiltinComponentsIfNeeded()
     let ids = Array(componentRegistry.keys)
     guard !ids.isEmpty else {

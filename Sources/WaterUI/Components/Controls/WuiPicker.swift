@@ -11,7 +11,7 @@
 //   in the same place. The asymmetry is documented on the framework's
 //   `PickerStyle::Radio`; it is not faked with a self-drawn list.
 
-import CWaterUI
+@_exported import CWaterUI
 
 #if canImport(UIKit)
   import UIKit

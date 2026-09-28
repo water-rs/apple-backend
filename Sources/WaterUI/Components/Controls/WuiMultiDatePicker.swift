@@ -1,4 +1,4 @@
-import CWaterUI
+@_exported import CWaterUI
 import Foundation
 
 #if canImport(UIKit)

@@ -1,7 +1,7 @@
 // WuiPlain.swift
 // Plain text component (simple unstyled text) - uses WuiTextBase for shared functionality
 
-import CWaterUI
+@_exported import CWaterUI
 
 #if canImport(UIKit)
   import UIKit

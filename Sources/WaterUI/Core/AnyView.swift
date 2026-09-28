@@ -5,7 +5,7 @@
 //  Created by Lexo Liu on 8/1/24.
 //
 
-import CWaterUI
+@_exported import CWaterUI
 import Foundation
 import os
 

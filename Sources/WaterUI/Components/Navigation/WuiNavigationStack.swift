@@ -10,7 +10,7 @@
 // On iOS, uses UINavigationController for native gestures (swipe-back).
 // On macOS, uses a custom view stack with titlebar accessories.
 
-import CWaterUI
+@_exported import CWaterUI
 import OSLog
 
 #if canImport(UIKit)

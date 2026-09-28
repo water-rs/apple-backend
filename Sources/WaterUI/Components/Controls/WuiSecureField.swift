@@ -11,7 +11,7 @@
 // // - sizeThatFits: Returns proposed width (min 100pt), intrinsic height
 // // - Priority: 0 (default)
 
-import CWaterUI
+@_exported import CWaterUI
 
 #if canImport(UIKit)
   import UIKit

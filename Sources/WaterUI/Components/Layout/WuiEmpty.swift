@@ -10,7 +10,7 @@
 // // - sizeThatFits: Always returns CGSize.zero
 // // - Priority: 0 (default)
 
-import CWaterUI
+@_exported import CWaterUI
 
 #if canImport(UIKit)
 import UIKit

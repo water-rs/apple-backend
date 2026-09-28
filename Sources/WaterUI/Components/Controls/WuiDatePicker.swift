@@ -5,7 +5,7 @@
 // DatePicker sizes itself to fit its content and never stretches to fill extra space.
 // In a stack, it takes only the space it needs.
 
-import CWaterUI
+@_exported import CWaterUI
 
 #if canImport(UIKit)
   import UIKit
