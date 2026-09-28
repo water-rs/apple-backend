@@ -229,6 +229,7 @@ private func registerBuiltinComponentsIfNeeded() {
   registerMetadataComponent(WuiGesture.self)
   registerMetadataComponent(WuiLifecycleHook.self)
   registerMetadataComponent(WuiOnEvent.self)
+  registerMetadataComponent(WuiOnKeyPress.self)
   registerMetadataComponent(WuiCursor.self)
   registerMetadataComponent(WuiAccessibilityIdentifier.self)
   registerMetadataComponent(WuiAccessibilityLabel.self)

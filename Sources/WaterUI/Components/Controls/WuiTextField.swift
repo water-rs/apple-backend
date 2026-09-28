@@ -31,7 +31,7 @@ final class WuiTextField: PlatformView, WuiComponent {
   private(set) var stretchAxis: WuiStretchAxis
 
   #if canImport(UIKit)
-    private let textView = UITextView()
+    private let textView = WuiKeyForwardingTextView()
     private let placeholderLabel = UILabel()
     /// The region between the label and the field's bottom edge. The text
     /// view is vertically centered inside it so the input sits where a
@@ -68,6 +68,9 @@ final class WuiTextField: PlatformView, WuiComponent {
   /// value caps a multi-line field, `0` means no limit.
   private let lineLimit: Int
   private var isSingleLine: Bool { lineLimit == 1 }
+  /// Action fired on Return in a line-limited field; nil means Return stays
+  /// unconsumed and bubbles. A field with no line limit never submits.
+  private let onSubmit: OpaquePointer?
   private let env: WuiEnvironment
 
   private var labelTopConstraint: NSLayoutConstraint?
@@ -98,6 +101,7 @@ final class WuiTextField: PlatformView, WuiComponent {
         selectionMenu: selectionMenu,
         keyboard: ffiTextField.keyboard,
         lineLimit: Int(ffiTextField.line_limit),
+        onSubmit: ffiTextField.on_submit.map { OpaquePointer(UnsafeRawPointer($0)) },
         env: env
       )
     #elseif canImport(AppKit)
@@ -110,6 +114,7 @@ final class WuiTextField: PlatformView, WuiComponent {
         semanticLabel: ffiTextField.label,
         selectionMenu: selectionMenu,
         lineLimit: Int(ffiTextField.line_limit),
+        onSubmit: ffiTextField.on_submit.map { OpaquePointer(UnsafeRawPointer($0)) },
         env: env
       )
     #endif
@@ -126,6 +131,7 @@ final class WuiTextField: PlatformView, WuiComponent {
       selectionMenu: OpaquePointer?,
       keyboard: CWaterUI.WuiKeyboardType,
       lineLimit: Int,
+      onSubmit: OpaquePointer?,
       env: WuiEnvironment
     ) {
       self.stretchAxis = stretchAxis
@@ -134,6 +140,7 @@ final class WuiTextField: PlatformView, WuiComponent {
       self.prompt = prompt
       self.keyboard = keyboard
       self.lineLimit = lineLimit
+      self.onSubmit = onSubmit
       self.env = env
       super.init(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
       configureSubviews()
@@ -160,6 +167,7 @@ final class WuiTextField: PlatformView, WuiComponent {
       semanticLabel: CWaterUI.WuiLabel,
       selectionMenu: OpaquePointer?,
       lineLimit: Int,
+      onSubmit: OpaquePointer?,
       env: WuiEnvironment
     ) {
       self.stretchAxis = stretchAxis
@@ -167,6 +175,7 @@ final class WuiTextField: PlatformView, WuiComponent {
       self.binding = binding
       self.prompt = prompt
       self.lineLimit = lineLimit
+      self.onSubmit = onSubmit
       self.env = env
       super.init(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
       configureSubviews()
@@ -188,6 +197,12 @@ final class WuiTextField: PlatformView, WuiComponent {
   @available(*, unavailable)
   required init?(coder: NSCoder) {
     fatalError("init(coder:) has not been implemented")
+  }
+
+  @MainActor deinit {
+    if let onSubmit {
+      waterui_drop_shared_action(onSubmit)
+    }
   }
 
   func sizeThatFits(_ proposal: WuiProposalSize) -> CGSize {
@@ -308,6 +323,10 @@ final class WuiTextField: PlatformView, WuiComponent {
     #if canImport(UIKit)
       textView.keyboardType = keyboard.uiKeyboardType
       textView.delegate = self
+      textView.isSingleLine = isSingleLine
+      // Return is the field's own key only while it can submit; without
+      // `on_submit` the press belongs to the `OnKeyPress` bubble.
+      textView.forwardsReturn = lineLimit > 0 && onSubmit == nil
       textView.installWuiFocusTarget(focusTarget)
       Self.configurePlainInput(textView)
       // `lineLimit == 0` means no limit, which is also UITextView's encoding for
@@ -520,13 +539,24 @@ final class WuiTextField: PlatformView, WuiComponent {
       replacementText text: String
     ) -> Bool {
       guard text.contains("\n") else { return true }
-      if isSingleLine {
-        // Keep single-line contract, but don't block IME composition updates.
-        return textView.markedTextRange != nil
-      }
+      // A newline inside an IME composition is still editable candidate text,
+      // so the cap check waits for the commit.
+      guard textView.markedTextRange == nil else { return true }
+      // A field with no line limit keeps Return as a newline and never
+      // submits. `lineLimit == 0` is UITextView's encoding for unlimited.
       guard lineLimit > 0 else { return true }
-      // A capped multi-line field rejects an edit that would add lines beyond
-      // the limit rather than truncating what the user already typed.
+      // Any line-limited field submits on Return when `on_submit` is set;
+      // the key is consumed rather than inserted. Without the action a
+      // hardware Return already bubbled through `OnKeyPress` ancestors via
+      // `pressesBegan` and is dropped if nothing takes it; a newline that
+      // still arrives here — the software keyboard emits no press — is
+      // capped like any edit.
+      if text == "\n", let onSubmit {
+        waterui_call_shared_action(onSubmit, env.inner)
+        return false
+      }
+      // A capped field rejects an edit that would add lines beyond the limit
+      // rather than truncating what the user already typed.
       let current = textView.text ?? ""
       guard let editRange = Range(range, in: current) else { return true }
       let candidate = current.replacingCharacters(in: editRange, with: text)
@@ -545,6 +575,101 @@ final class WuiTextField: PlatformView, WuiComponent {
       }
 
       return UIMenu(title: "", children: suggestedActions + custom)
+    }
+  }
+#endif
+
+#if canImport(UIKit)
+  /// The text view a `WuiTextField` drives. `UITextView` consumes every arrow
+  /// and Escape at the text-input level, so a focused field would otherwise
+  /// swallow exactly the keys `OnKeyPress` exists for. Keys the field does
+  /// not edit with — Escape always, the vertical navigation keys in a
+  /// single-line field, Return while it cannot submit — are handed to the
+  /// next responder instead of `super`, so they enter the responder-chain
+  /// bubble where `WuiOnKeyPress` lives; every phase of a press follows the
+  /// same partition, so `super` never sees an end for a press it never began.
+  /// A forwarded press no ancestor consumes is dropped — in a line-limited
+  /// field without `on_submit`, Return bubbles and is otherwise dropped.
+  /// A software-keyboard Return produces no press events, so it still reaches
+  /// `shouldChangeTextIn` for the line-cap check.
+  private final class WuiKeyForwardingTextView: UITextView {
+    /// Whether the field holds at most one line: in a multi-line field the
+    /// vertical navigation keys are caret editing and stay with the view.
+    var isSingleLine = true
+    /// Whether a Return press forwards into the `OnKeyPress` bubble rather
+    /// than submitting or inserting — set when the field is line-limited
+    /// and declares no `on_submit`.
+    var forwardsReturn = false
+
+    /// The single routing rule every press phase shares: `true` when the
+    /// press belongs to the `OnKeyPress` bubble rather than text editing.
+    private func forwards(_ press: UIPress) -> Bool {
+      switch press.key?.keyCode {
+      case .keyboardEscape?:
+        return true
+      case .keyboardUpArrow?, .keyboardDownArrow?, .keyboardPageUp?, .keyboardPageDown?:
+        return isSingleLine
+      case .keyboardReturnOrEnter?, .keypadEnter?:
+        return forwardsReturn
+      default:
+        return false
+      }
+    }
+
+    /// Splits a press set the way `super` must see it: editing keys stay,
+    /// forwarded keys go to `next`, and each phase calls both with only its
+    /// share so UIKit's press bookkeeping stays consistent per responder.
+    private func partition(_ presses: Set<UIPress>) -> (editing: Set<UIPress>, forwarded: Set<UIPress>) {
+      var editing: Set<UIPress> = []
+      var forwarded: Set<UIPress> = []
+      for press in presses {
+        if forwards(press) {
+          forwarded.insert(press)
+        } else {
+          editing.insert(press)
+        }
+      }
+      return (editing, forwarded)
+    }
+
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+      let (editing, forwarded) = partition(presses)
+      if !editing.isEmpty {
+        super.pressesBegan(editing, with: event)
+      }
+      if !forwarded.isEmpty {
+        next?.pressesBegan(forwarded, with: event)
+      }
+    }
+
+    override func pressesChanged(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+      let (editing, forwarded) = partition(presses)
+      if !editing.isEmpty {
+        super.pressesChanged(editing, with: event)
+      }
+      if !forwarded.isEmpty {
+        next?.pressesChanged(forwarded, with: event)
+      }
+    }
+
+    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+      let (editing, forwarded) = partition(presses)
+      if !editing.isEmpty {
+        super.pressesEnded(editing, with: event)
+      }
+      if !forwarded.isEmpty {
+        next?.pressesEnded(forwarded, with: event)
+      }
+    }
+
+    override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+      let (editing, forwarded) = partition(presses)
+      if !editing.isEmpty {
+        super.pressesCancelled(editing, with: event)
+      }
+      if !forwarded.isEmpty {
+        next?.pressesCancelled(forwarded, with: event)
+      }
     }
   }
 #endif
@@ -569,6 +694,55 @@ final class WuiTextField: PlatformView, WuiComponent {
 
     func controlTextDidEndEditing(_ obj: Notification) {
       focusTarget.emitPlatformFocusChange(false)
+    }
+
+    /// The field editor routes every named key command through here before
+    /// performing it. Commands the field does not consume — Escape, and in a
+    /// single-line field the vertical navigation keys — are forwarded back
+    /// onto the responder chain as the original key event, which is how they
+    /// reach `OnKeyPress` wrappers above the field.
+    func control(
+      _ control: NSControl,
+      textView: NSTextView,
+      doCommandBy commandSelector: Selector
+    ) -> Bool {
+      if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+        // A field with no line limit keeps Return as a newline and never
+        // submits; a line-limited field without the action leaves it
+        // unconsumed and bubbles it up the responder chain.
+        guard lineLimit > 0 else { return false }
+        guard let onSubmit else { return bubbleKeyEvent(textView) }
+        waterui_call_shared_action(onSubmit, env.inner)
+        return true
+      }
+      if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+        return bubbleKeyEvent(textView)
+      }
+      if commandSelector == #selector(NSResponder.moveUp(_:))
+        || commandSelector == #selector(NSResponder.moveDown(_:))
+        || commandSelector == #selector(NSResponder.pageUp(_:))
+        || commandSelector == #selector(NSResponder.pageDown(_:))
+      {
+        // In a multi-line field these are editing commands the editor keeps;
+        // a single-line field has nothing for them to do, so they bubble.
+        guard isSingleLine else { return false }
+        return bubbleKeyEvent(textView)
+      }
+      return false
+    }
+
+    /// Re-delivers the current key event to the field editor's responder
+    /// chain so ancestors can consume it. The editor's next responder is the
+    /// field itself — always set while editing — and its own `keyDown`
+    /// continues up the chain, so ancestors see the event exactly once.
+    private func bubbleKeyEvent(_ textView: NSTextView) -> Bool {
+      guard let event = NSApp.currentEvent,
+        let next = textView.nextResponder
+      else {
+        return false
+      }
+      next.keyDown(with: event)
+      return true
     }
 
     /// Splices the semantic selection items under AppKit's own menu. Reached
