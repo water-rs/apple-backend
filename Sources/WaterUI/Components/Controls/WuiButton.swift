@@ -504,7 +504,7 @@ final class WuiButton: PlatformView, WuiComponent {
 
     /// The platform symbol the button's label draws, if its icon is one.
     var systemIconName: String? {
-      labelView.firstSystemIcon?.iconName
+      labelView.firstSystemIconName
     }
 
     /// The label's own view. Under the icon-only display mode a window

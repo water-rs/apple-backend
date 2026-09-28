@@ -611,11 +611,17 @@
   }
 
   extension NSView {
-    /// The first platform-symbol icon in this subtree.
-    var firstSystemIcon: WuiSystemIcon? {
-      if let icon = self as? WuiSystemIcon { return icon }
+    /// The name of the first platform-symbol icon in this subtree.
+    ///
+    /// `CocoaUiImageView` is the Rust-rendered system-icon leaf that replaced
+    /// `WuiSystemIcon`; the class stays invisible to Swift, so it is
+    /// recognized by class name and its `-symbolName` read through KVC.
+    var firstSystemIconName: String? {
+      if NSStringFromClass(type(of: self)) == "CocoaUiImageView" {
+        return value(forKey: "symbolName") as? String
+      }
       for subview in subviews {
-        if let icon = subview.firstSystemIcon { return icon }
+        if let name = subview.firstSystemIconName { return name }
       }
       return nil
     }
