@@ -16,18 +16,12 @@
 
   import CWaterUI
   import Foundation
-  import OSLog
 
   #if canImport(UIKit)
     import UIKit
   #elseif canImport(AppKit)
     import AppKit
   #endif
-
-  private let gpuSurfaceInputLogger = Logger(
-    subsystem: "dev.waterui",
-    category: "GpuSurfaceInput"
-  )
 
   /// The absent-caret sentinel the carrier's `caret` field uses.
   private let wuiSurfaceCaretNone: Int64 = -1
