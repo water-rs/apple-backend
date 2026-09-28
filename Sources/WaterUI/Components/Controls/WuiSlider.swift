@@ -37,6 +37,7 @@ final class WuiSlider: PlatformView, WuiComponent {
   private var maxLabelView: WuiAnyView
   private var binding: WuiBinding<Double>
   private var range: WuiRange_f64
+  private let controlSize: CWaterUI.WuiControlSize
   private let disabled: WuiComputed<Bool>
   private var disabledWatcher: WatcherGuard?
   private var accessibility: WuiControlAccessibility?
@@ -76,6 +77,11 @@ final class WuiSlider: PlatformView, WuiComponent {
     let minLabelView = WuiAnyView(anyview: ffiSlider.min_value_label, env: env)
     let maxLabelView = WuiAnyView(anyview: ffiSlider.max_value_label, env: env)
     let binding = WuiBinding<Double>(ffiSlider.value)
+    // The drag-time value indicator is chrome this backend does not draw;
+    // release the formatter handle so it does not leak.
+    if let valueIndicator = ffiSlider.value_indicator {
+      waterui_drop_value_formatter(valueIndicator)
+    }
     self.init(
       stretchAxis: stretchAxis,
       label: labelView,
@@ -84,7 +90,8 @@ final class WuiSlider: PlatformView, WuiComponent {
       range: ffiSlider.range,
       binding: binding,
       disabled: env.disabled,
-      semanticLabel: ffiSlider.label
+      semanticLabel: ffiSlider.label,
+      controlSize: ffiSlider.size
     )
   }
 
@@ -98,8 +105,10 @@ final class WuiSlider: PlatformView, WuiComponent {
     range: WuiRange_f64,
     binding: WuiBinding<Double>,
     disabled: WuiComputed<Bool>,
-    semanticLabel: CWaterUI.WuiLabel
+    semanticLabel: CWaterUI.WuiLabel,
+    controlSize: CWaterUI.WuiControlSize
   ) {
+    self.controlSize = controlSize
     self.disabled = disabled
     self.stretchAxis = stretchAxis
     self.labelView = label
@@ -357,8 +366,29 @@ final class WuiSlider: PlatformView, WuiComponent {
       slider.target = self
       slider.action = #selector(valueChanged)
       slider.isContinuous = true
+      slider.controlSize = Self.nsControlSize(controlSize)
     #endif
   }
+
+  #if canImport(AppKit)
+    /// Maps `ControlSize` onto `NSControl.ControlSize`; iOS has no slider size
+    /// classes, so the value is only honoured on macOS.
+    private static func nsControlSize(_ size: CWaterUI.WuiControlSize) -> NSControl.ControlSize {
+      switch size {
+      case WuiControlSize_ExtraSmall:
+        return .mini
+      case WuiControlSize_Small:
+        return .small
+      case WuiControlSize_Medium:
+        return .regular
+      case WuiControlSize_Large, WuiControlSize_ExtraLarge:
+        // NSControl has no extra-large size; the largest maps to .large.
+        return .large
+      default:
+        return .regular
+      }
+    }
+  #endif
 
   private func startBindingWatcher() {
     bindingWatcher = binding.watch { [weak self] newValue, metadata in
