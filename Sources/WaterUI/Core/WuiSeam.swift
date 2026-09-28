@@ -23,45 +23,45 @@ import Foundation
 // MARK: - Wire types
 
 /// `WateruiProposalSize` on the wire: one `f32` per axis, `NaN` unspecified.
-typealias WateruiProposalSize = CWaterUI.WateruiProposalSize
+public typealias WateruiProposalSize = CWaterUI.WateruiProposalSize
 
 /// `WateruiSize` on the wire.
-typealias WateruiSize = CWaterUI.WateruiSize
+public typealias WateruiSize = CWaterUI.WateruiSize
 
 /// `WateruiPoint` on the wire.
-typealias WateruiPoint = CWaterUI.WateruiPoint
+public typealias WateruiPoint = CWaterUI.WateruiPoint
 
 /// `WateruiRect` on the wire.
-typealias WateruiRect = CWaterUI.WateruiRect
+public typealias WateruiRect = CWaterUI.WateruiRect
 
 /// `WateruiTypeId` on the wire — the FNV-1a-128 pair both sides share.
-typealias WateruiTypeId = CWaterUI.WateruiTypeId
+public typealias WateruiTypeId = CWaterUI.WateruiTypeId
 
 /// A guide on the wire: an alignment tag plus its offset. The horizontal and
 /// vertical variants share one layout (`u8` tag, `f32` value), so the
 /// horizontal name stands for both.
-typealias WateruiGuide = CWaterUI.WateruiHorizontalGuide
+public typealias WateruiGuide = CWaterUI.WateruiHorizontalGuide
 
 /// An owned array on the wire: allocation, length, capacity and its free
 /// function. The producer allocates however it chooses and must free exactly
 /// that allocation when `free` runs. A null `data` array is empty.
-typealias WateruiOwnedArray = CWaterUI.WateruiOwnedArray
+public typealias WateruiOwnedArray = CWaterUI.WateruiOwnedArray
 
 /// `ViewDimensions` on the wire.
-typealias WateruiViewDimensions = CWaterUI.WateruiViewDimensions
+public typealias WateruiViewDimensions = CWaterUI.WateruiViewDimensions
 
 /// A leaf's layout face: a context pointer and one callback per question
 /// the parent asks. The query callbacks are live reads — a leaf whose
 /// stretch axis or emptiness changes answers the new value on the next
 /// call. `drop` runs once, when the leaf's owner lets go; the view is
 /// retained and released separately from `context`.
-typealias WateruiSubView = CWaterUI.WateruiSubView
+public typealias WateruiSubView = CWaterUI.WateruiSubView
 
 /// A leaf crossing the seam in either direction, passed by value: `view` is
 /// +1 retained and owned by the receiver (`takeRetainedValue` / Rust's
 /// `Retained::from_raw`), or nil for "not claimed" — in which case `subview`
 /// callbacks are no-ops.
-typealias WateruiLeaf = CWaterUI.WateruiLeaf
+public typealias WateruiLeaf = CWaterUI.WateruiLeaf
 
 /// The leaf a direction answers when the view is unclaimed: a nil view with
 /// no-op callbacks, so the receiver can drop it without a branch.
