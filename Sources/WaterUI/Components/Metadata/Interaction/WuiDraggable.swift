@@ -6,6 +6,32 @@ import CWaterUI
   import AppKit
 #endif
 
+// MARK: - WuiDragPayloadBox
+
+/// An owned `WuiDragPayload` handle travelling with a drag inside the process.
+///
+/// Platform-representable payloads (text, URL, files) are also written to the
+/// pasteboard so other applications can receive them; the handle itself is how
+/// a same-process drop destination receives the typed value unserialized.
+/// `InProcess` payloads have no pasteboard representation — only the box moves.
+final class WuiDragPayloadBox {
+  let payload: OpaquePointer
+
+  init(payload: OpaquePointer) {
+    self.payload = payload
+  }
+
+  deinit {
+    waterui_drop_drag_payload(payload)
+  }
+}
+
+/// Pasteboard type marking a drag whose payload stays inside the process. The
+/// marker carries no data: a same-process destination reads the `WuiDragPayload`
+/// handle off the drag item's `localObject` (iOS) or the dragging source
+/// (macOS). Drags from other applications never carry it.
+let wuiInProcessPasteboardType = "dev.waterui.inProcessDragPayload"
+
 // MARK: - WuiDraggable
 
 /// Component for Metadata<Draggable>.
@@ -20,6 +46,11 @@ final class WuiDraggable: PlatformView, WuiComponent {
   private let contentView: any WuiComponent
   private let draggable: CWaterUI.WuiDraggable
   private let env: WuiEnvironment
+
+  /// The payload of the drag currently in flight from this view. Same-process
+  /// drop destinations read it off the dragging source to deliver the typed
+  /// value unserialized; it clears when the drag session ends.
+  private(set) var activePayload: WuiDragPayloadBox?
 
   var stretchAxis: WuiStretchAxis {
     contentView.stretchAxis
@@ -43,9 +74,6 @@ final class WuiDraggable: PlatformView, WuiComponent {
       dragInteraction.isEnabled = true
       self.addInteraction(dragInteraction)
       self.isUserInteractionEnabled = true
-    #elseif canImport(AppKit)
-      // macOS: Register as drag source
-      registerForDraggedTypes([.string, .URL])
     #endif
   }
 
@@ -59,11 +87,36 @@ final class WuiDraggable: PlatformView, WuiComponent {
     waterui_drop_draggable(&mutableDraggable)
   }
 
-  private func getDragData() -> (tag: WuiDragDataTag, value: String) {
+  /// Reads the payload a drag starting now carries. The box owns the FFI
+  /// handle and releases it with `waterui_drop_drag_payload`.
+  private func beginPayload() -> WuiDragPayloadBox {
     var mutableDraggable = draggable
-    let data = waterui_draggable_get_data(&mutableDraggable)
-    let value = WuiStr(data.value).toString()
-    return (data.tag, value)
+    guard let payload = waterui_draggable_payload(&mutableDraggable) else {
+      fatalError("waterui_draggable_payload returned null")
+    }
+    return WuiDragPayloadBox(payload: payload)
+  }
+
+  private func payloadText(_ payload: OpaquePointer) -> String {
+    WuiStr(waterui_drag_payload_text(payload)).toString()
+  }
+
+  private func payloadURL(_ payload: OpaquePointer) -> URL {
+    let value = WuiStr(waterui_drag_payload_url(payload)).toString()
+    guard let url = URL(string: value) else {
+      fatalError("WaterUI draggable contains an invalid URL: \(value)")
+    }
+    return url
+  }
+
+  private func payloadFileURLs(_ payload: OpaquePointer) -> [URL] {
+    WuiArray<CWaterUI.WuiStr>(waterui_drag_payload_files(payload)).map {
+      let value = WuiStr($0).toString()
+      guard let url = URL(string: value) else {
+        fatalError("WaterUI draggable contains an invalid file URL: \(value)")
+      }
+      return url
+    }
   }
 
   func layoutPriority() -> Int32 {
@@ -116,25 +169,44 @@ final class WuiDraggable: PlatformView, WuiComponent {
 
       dragOrigin = nil  // Prevent re-triggering
 
-      let (tag, value) = getDragData()
+      let box = beginPayload()
+      activePayload = box
 
-      let pasteboardItem = NSPasteboardItem()
-      switch tag {
-      case WuiDragDataTag_Url:
-        guard let url = URL(string: value) else {
-          fatalError("WaterUI draggable contains an invalid URL: \(value)")
+      let pasteboardItems: [NSPasteboardItem]
+      switch waterui_drag_payload_kind(box.payload) {
+      case WuiTransferKind_Text:
+        let item = NSPasteboardItem()
+        item.setString(payloadText(box.payload), forType: .string)
+        pasteboardItems = [item]
+      case WuiTransferKind_Url:
+        let item = NSPasteboardItem()
+        item.setString(payloadURL(box.payload).absoluteString, forType: .URL)
+        pasteboardItems = [item]
+      case WuiTransferKind_Files:
+        // One dragging item per file URL, matching Finder.
+        pasteboardItems = payloadFileURLs(box.payload).map { url in
+          let item = NSPasteboardItem()
+          item.setString(url.absoluteString, forType: .fileURL)
+          return item
         }
-        pasteboardItem.setString(url.absoluteString, forType: .URL)
-      case WuiDragDataTag_Text:
-        pasteboardItem.setString(value, forType: .string)
+      case WuiTransferKind_InProcess:
+        // No pasteboard representation: the marker merely routes the drag to
+        // same-process destinations, which read the payload off this source.
+        let item = NSPasteboardItem()
+        item.setString("", forType: NSPasteboard.PasteboardType(wuiInProcessPasteboardType))
+        pasteboardItems = [item]
       default:
-        fatalError("Unsupported WaterUI drag data tag: \(tag.rawValue)")
+        fatalError(
+          "Unsupported WaterUI transfer kind: \(waterui_drag_payload_kind(box.payload).rawValue)")
       }
 
-      let draggingItem = NSDraggingItem(pasteboardWriter: pasteboardItem)
-      draggingItem.setDraggingFrame(bounds, contents: snapshot())
+      let draggingItems = pasteboardItems.map { item -> NSDraggingItem in
+        let draggingItem = NSDraggingItem(pasteboardWriter: item)
+        draggingItem.setDraggingFrame(bounds, contents: snapshot())
+        return draggingItem
+      }
 
-      beginDraggingSession(with: [draggingItem], event: event, source: self)
+      beginDraggingSession(with: draggingItems, event: event, source: self)
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -163,6 +235,12 @@ final class WuiDraggable: PlatformView, WuiComponent {
     ) -> NSDragOperation {
       return [.copy, .move]
     }
+
+    func draggingSession(
+      _ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation
+    ) {
+      activePayload = nil
+    }
   }
 #endif
 
@@ -171,23 +249,39 @@ final class WuiDraggable: PlatformView, WuiComponent {
     func dragInteraction(
       _ interaction: UIDragInteraction, itemsForBeginning session: any UIDragSession
     ) -> [UIDragItem] {
-      let (tag, value) = getDragData()
+      let box = beginPayload()
 
-      let itemProvider: NSItemProvider
-      switch tag {
-      case WuiDragDataTag_Url:
-        guard let url = URL(string: value) else {
-          fatalError("WaterUI draggable contains an invalid URL: \(value)")
+      let itemProviders: [NSItemProvider]
+      switch waterui_drag_payload_kind(box.payload) {
+      case WuiTransferKind_Text:
+        itemProviders = [NSItemProvider(object: payloadText(box.payload) as NSString)]
+      case WuiTransferKind_Url:
+        itemProviders = [NSItemProvider(object: payloadURL(box.payload) as NSURL)]
+      case WuiTransferKind_Files:
+        itemProviders = payloadFileURLs(box.payload).map { NSItemProvider(object: $0 as NSURL) }
+      case WuiTransferKind_InProcess:
+        // The payload has no cross-process representation: a process-scoped
+        // marker keeps the item well-formed while the payload travels in
+        // `localObject` only.
+        let provider = NSItemProvider()
+        provider.registerDataRepresentation(
+          forTypeIdentifier: wuiInProcessPasteboardType, visibility: .ownProcess
+        ) { completion in
+          completion(Data(), nil)
+          return nil
         }
-        itemProvider = NSItemProvider(object: url as NSURL)
-      case WuiDragDataTag_Text:
-        itemProvider = NSItemProvider(object: value as NSString)
+        itemProviders = [provider]
       default:
-        fatalError("Unsupported WaterUI drag data tag: \(tag.rawValue)")
+        fatalError(
+          "Unsupported WaterUI transfer kind: \(waterui_drag_payload_kind(box.payload).rawValue)")
       }
 
-      let dragItem = UIDragItem(itemProvider: itemProvider)
-      return [dragItem]
+      return itemProviders.map { provider in
+        let dragItem = UIDragItem(itemProvider: provider)
+        // Same-process drop destinations read the payload handle off the item.
+        dragItem.localObject = box
+        return dragItem
+      }
     }
   }
 #endif
