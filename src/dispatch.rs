@@ -10,6 +10,7 @@
 
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
+#[cfg(debug_assertions)]
 use alloc::vec::Vec;
 use core::any::TypeId;
 use core::fmt;
