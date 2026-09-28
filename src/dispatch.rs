@@ -5,48 +5,54 @@
 //! the walk continues on the result — so handlers always see the type the
 //! tree ends on: `Native<C>` for native payloads, `Metadata<M>` /
 //! `IgnorableMetadata<M>` for wrappers, or any composer type a handler
-//! registers directly. A `Native<C>`/`Metadata<M>` nobody claims crosses the
-//! seam to [`waterui_swift_render`].
+//! registers directly. A `Native<C>`/`Metadata<M>` that no handler claims
+//! crosses the seam to [`waterui_swift_render`].
 
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
+use alloc::vec::Vec;
 use core::any::TypeId;
+use core::fmt;
 
+use cocoa_ui::{PlatformView, Retained};
+use dispatch2::MainThreadBound;
 use waterui_backend_core::{AnyView, Environment, View};
-use waterui_core::layout::SubView;
 
 use crate::contract::{NativeLeaf, RenderContext};
 use crate::seam;
 
-/// One claim in the dispatch table: the handler and the claimed type's name,
-/// kept for the seam's disjointness check.
-type Handler = Box<dyn Fn(AnyView, &mut RenderContext<'_>) -> NativeLeaf>;
+/// The handler signature every port implements: the erased view downcast to
+/// the claimed type, the render context, the leaf it becomes.
+pub(crate) type Handler = Box<dyn Fn(AnyView, &RenderContext<'_>) -> NativeLeaf>;
 
 /// The dispatch table. Built once at startup by [`crate::registry`], then
 /// immutable: children register through it, it is never written after
 /// handlers could run.
 pub(crate) struct Dispatcher {
-    handlers: BTreeMap<TypeId, (Handler, &'static str)>,
+    handlers: BTreeMap<TypeId, Handler>,
+    /// The claimed type's name per registered type, for the seam's debug
+    /// disjointness check; release builds store none.
+    #[cfg(debug_assertions)]
+    names: Vec<&'static str>,
 }
 
-#[expect(
-    clippy::non_send_fields_in_send_ty,
-    reason = "handlers run on the main thread only, proven by the MainThreadMarker every call path carries"
-)]
-// SAFETY: every entry point that can reach a handler carries a
-// `MainThreadMarker`, so handlers run on the main thread only — a captured
-// non-`Send`/`Sync` value (a `Binding`, an `Rc`) is never touched elsewhere.
-// The table is frozen after `registry::install`, and `Dispatcher` is
-// `pub(crate)`, so no call path can invoke it off the main thread.
-unsafe impl Send for Dispatcher {}
-// SAFETY: same main-thread contract as `Send` above.
-unsafe impl Sync for Dispatcher {}
+impl fmt::Debug for Dispatcher {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut output = f.debug_struct("Dispatcher");
+        output.field("handlers", &self.handlers.len());
+        #[cfg(debug_assertions)]
+        output.field("names", &self.names);
+        output.finish()
+    }
+}
 
 impl Dispatcher {
     /// An empty table; [`crate::registry`] fills it.
     pub(crate) fn new() -> Self {
         Self {
             handlers: BTreeMap::new(),
+            #[cfg(debug_assertions)]
+            names: Vec::new(),
         }
     }
 
@@ -60,7 +66,7 @@ impl Dispatcher {
     /// `raw_view!`/`configurable!` payload.
     pub(crate) fn register_native<C: waterui_core::NativeView + 'static>(
         &mut self,
-        handler: impl Fn(C, &mut RenderContext<'_>) -> NativeLeaf + 'static,
+        handler: impl Fn(C, &RenderContext<'_>) -> NativeLeaf + 'static,
     ) {
         let wrapped: Handler = Box::new(move |view, ctx| {
             let native = view
@@ -73,25 +79,29 @@ impl Dispatcher {
                 });
             handler(native.into_inner(), ctx)
         });
-        self.handlers.insert(
-            TypeId::of::<waterui_backend_core::Native<C>>(),
-            (wrapped, core::any::type_name::<C>()),
-        );
+        self.handlers
+            .insert(TypeId::of::<waterui_backend_core::Native<C>>(), wrapped);
+        // The name the fallback's registry keys is the erased view's own:
+        // `Native<C>`, not `C`.
+        #[cfg(debug_assertions)]
+        self.names
+            .push(core::any::type_name::<waterui_backend_core::Native<C>>());
     }
 
     /// Claims `T` exactly as it appears in the view tree: a metadata wrapper
     /// (`Metadata<M>`, `IgnorableMetadata<M>`), or a composer the port takes
     /// before `body()` expands it.
     ///
-    /// Called by [`crate::registry`]; unused until the first port lands.
-    #[expect(dead_code, reason = "the registration table fills as ports land")]
-    ///
-    /// A transparent handler typically owns no platform view of its own: it
-    /// applies `T`'s effect (an environment overlay, an attribute on the
+    /// A `register_view` handler typically owns no platform view of its own:
+    /// it applies `T`'s effect (an environment overlay, an attribute on the
     /// child's platform view) and returns the leaf its child rendered.
-    pub(crate) fn register_transparent<T: 'static>(
+    #[expect(
+        dead_code,
+        reason = "contract API for transparent and metadata ports; unused until the first such port lands"
+    )]
+    pub(crate) fn register_view<T: 'static>(
         &mut self,
-        handler: impl Fn(T, &mut RenderContext<'_>) -> NativeLeaf + 'static,
+        handler: impl Fn(T, &RenderContext<'_>) -> NativeLeaf + 'static,
     ) {
         let wrapped: Handler = Box::new(move |view, ctx| {
             let typed = view.downcast::<T>().unwrap_or_else(|_| {
@@ -102,13 +112,14 @@ impl Dispatcher {
             });
             handler(*typed, ctx)
         });
-        self.handlers
-            .insert(TypeId::of::<T>(), (wrapped, core::any::type_name::<T>()));
+        self.handlers.insert(TypeId::of::<T>(), wrapped);
+        #[cfg(debug_assertions)]
+        self.names.push(core::any::type_name::<T>());
     }
 
     /// The handler claiming `type_id`, if any.
     fn handler(&self, type_id: TypeId) -> Option<&Handler> {
-        self.handlers.get(&type_id).map(|(handler, _)| handler)
+        self.handlers.get(&type_id)
     }
 
     /// Renders `view` under `env` into the platform view it becomes.
@@ -118,21 +129,21 @@ impl Dispatcher {
     /// crosses to the fallback. Returns `None` only when the fallback itself
     /// declines the view.
     pub(crate) fn render(
-        &self,
+        &'static self,
         view: AnyView,
         env: &Environment,
         mtm: cocoa_ui::MainThreadMarker,
     ) -> Option<NativeLeaf> {
         let mut view = view;
-        let mut ctx = RenderContext::new(env, self, mtm);
+        let ctx = RenderContext::new(env, self, mtm);
         loop {
             let type_id = view.type_id();
             if let Some(handler) = self.handler(type_id) {
-                return Some(handler(view, &mut ctx));
+                return Some(handler(view, &ctx));
             }
             if needs_fallback(&view) {
                 #[cfg(debug_assertions)]
-                seam::assert_disjoint();
+                seam::assert_disjoint(mtm);
                 // SAFETY: the seam contract hands ownership of both boxes
                 // across; the returned leaf is owned by this call.
                 let leaf = unsafe {
@@ -141,12 +152,14 @@ impl Dispatcher {
                         Box::into_raw(Box::new(env.clone())),
                     )
                 };
-                if leaf.is_null() {
+                if leaf.view.is_null() {
                     return None;
                 }
-                // SAFETY: a non-null leaf is owned by this call.
-                let leaf = unsafe { *Box::from_raw(leaf) };
-                return Some(NativeLeaf::borrowed(leaf.view, leaf.subview));
+                // SAFETY: a non-null `view` is the +1 reference the seam
+                // contract hands this call.
+                let view = unsafe { Retained::from_raw(leaf.view.cast::<PlatformView>()) }
+                    .expect("a non-null seam view is a retained platform view");
+                return Some(NativeLeaf::from_seam(view, leaf.subview));
             }
             view = AnyView::new(view.body(env));
         }
@@ -157,17 +170,17 @@ impl Dispatcher {
     /// it, so a `Native`/`Metadata` here is a double miss and answers `None`
     /// rather than recursing the seam.
     pub(crate) fn render_across_seam(
-        &self,
+        &'static self,
         view: AnyView,
         env: &Environment,
         mtm: cocoa_ui::MainThreadMarker,
     ) -> Option<NativeLeaf> {
         let mut view = view;
-        let mut ctx = RenderContext::new(env, self, mtm);
+        let ctx = RenderContext::new(env, self, mtm);
         loop {
             let type_id = view.type_id();
             if let Some(handler) = self.handler(type_id) {
-                return Some(handler(view, &mut ctx));
+                return Some(handler(view, &ctx));
             }
             if needs_fallback(&view) {
                 return None;
@@ -180,72 +193,70 @@ impl Dispatcher {
 /// Whether the erased view is a wrapper whose `body()` must not run — a
 /// `Native<T>` or a `Metadata<T>` — meaning it crosses the seam (or, across
 /// the seam already, is a miss).
-fn needs_fallback(view: &AnyView) -> bool {
+///
+/// The check matches `type_name` prefixes, which is not a stable format:
+/// the test below pins the ones in use.
+pub(crate) fn needs_fallback(view: &AnyView) -> bool {
     let name = view.name();
     name.starts_with("waterui_core::components::native::Native<")
         || name.starts_with("waterui_core::components::metadata::Metadata<")
 }
 
-/// The process-wide dispatcher, built once by [`crate::registry`].
-pub(crate) fn dispatcher() -> &'static Dispatcher {
-    static DISPATCHER: std::sync::OnceLock<Dispatcher> = std::sync::OnceLock::new();
-    DISPATCHER.get_or_init(|| {
-        let mut dispatcher = Dispatcher::new();
-        crate::registry::install(&mut dispatcher);
-        dispatcher
-    })
+/// The process-wide dispatcher, built once by [`crate::registry`]; only
+/// reachable on the main thread.
+pub(crate) fn dispatcher(mtm: cocoa_ui::MainThreadMarker) -> &'static Dispatcher {
+    static DISPATCHER: std::sync::OnceLock<MainThreadBound<Dispatcher>> =
+        std::sync::OnceLock::new();
+    DISPATCHER
+        .get_or_init(|| {
+            let mut dispatcher = Dispatcher::new();
+            crate::registry::install(&mut dispatcher);
+            MainThreadBound::new(dispatcher, mtm)
+        })
+        .get(mtm)
 }
 
 /// The type names this dispatcher claims — the seam's disjointness check
 /// compares them against the fallback's table.
 #[cfg(debug_assertions)]
-pub(crate) fn claimed_type_names() -> impl Iterator<Item = &'static str> {
-    dispatcher().handlers.values().map(|(_, name)| *name)
-}
-
-/// What `render_across_seam`'s answer wires into the C ABI.
-pub(crate) struct SeamLeaf {
-    /// A retained platform view, erased.
-    pub(crate) view: *mut core::ffi::c_void,
-    /// The leaf's layout face.
-    pub(crate) subview: Box<dyn SubView>,
-}
-
-/// A leaf's layout face that owns the whole leaf: the platform view's
-/// retain and every watcher guard ride inside the wire `SubView`, so the
-/// leaf stays alive exactly as long as the other side measures through it.
-struct SeamOwned(NativeLeaf);
-
-impl SubView for SeamOwned {
-    fn measure(
-        &self,
-        proposal: waterui_core::layout::ProposalSize,
-    ) -> waterui_core::layout::ViewDimensions {
-        self.0.subview.measure(proposal)
-    }
-
-    fn stretch_axis(&self) -> waterui_core::layout::StretchAxis {
-        self.0.subview.stretch_axis()
-    }
-
-    fn priority(&self) -> i32 {
-        self.0.subview.priority()
-    }
-
-    fn is_empty(&self) -> bool {
-        self.0.subview.is_empty()
-    }
+pub(crate) fn claimed_type_names(
+    mtm: cocoa_ui::MainThreadMarker,
+) -> impl Iterator<Item = &'static str> {
+    dispatcher(mtm).names.iter().copied()
 }
 
 /// Renders a view crossing the seam *from* Swift — the body of
 /// [`crate::seam::waterui_apple_render`]. Runs on the main thread: that is a
 /// caller requirement of the seam contract.
-pub(crate) fn render_across_seam(view: AnyView, env: &Environment) -> Option<SeamLeaf> {
+pub(crate) fn render_across_seam(view: AnyView, env: &Environment) -> Option<NativeLeaf> {
     let mtm = cocoa_ui::MainThreadMarker::new().expect("seam renders run on the main thread");
-    dispatcher()
-        .render_across_seam(view, env, mtm)
-        .map(|leaf| SeamLeaf {
-            view: leaf.platform_view(),
-            subview: Box::new(SeamOwned(leaf)),
-        })
+    dispatcher(mtm).render_across_seam(view, env, mtm)
+}
+
+#[cfg(test)]
+mod tests {
+    use waterui_core::metadata::MetadataKey;
+    use waterui_core::{Metadata, Native, NativeView};
+
+    struct TestNative;
+    impl NativeView for TestNative {}
+    struct TestKey;
+    impl MetadataKey for TestKey {}
+
+    /// `needs_fallback` pattern-matches `type_name` output; if `Native` or
+    /// `Metadata` move, every unclaimed wrapper would run a panicking
+    /// `body()` — this pins the module paths the prefixes assume.
+    #[test]
+    fn type_name_prefixes_hold() {
+        assert!(
+            core::any::type_name::<Native<TestNative>>()
+                .starts_with("waterui_core::components::native::Native<"),
+            "Native's type_name moved; update needs_fallback"
+        );
+        assert!(
+            core::any::type_name::<Metadata<TestKey>>()
+                .starts_with("waterui_core::components::metadata::Metadata<"),
+            "Metadata's type_name moved; update needs_fallback"
+        );
+    }
 }

@@ -7,38 +7,32 @@
 //! The model: the dispatcher walks an [`AnyView`]; each registered handler
 //! claims a type and answers a [`NativeLeaf`] — a platform view plus the
 //! layout face a container lays out with. A handler that wraps other views
-//! renders its children through [`RenderContext::render`], mounts each
-//! child's platform view inside its own, and keeps the child leaf — and
-//! every watcher guard its reactivity needs — in [`KeepAlive`]. When the
+//! renders its children through [`RenderContext::render`] and mounts them
+//! with [`NativeLeaf::mount`]; the returned [`Mounted`] detaches the child's
+//! view when it drops, which is how a container releases a child it replaces.
+//! Everything the leaf's reactivity needs lives in [`KeepAlive`]: when the
 //! leaf drops, the watchers stop and the platform object releases.
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::any::Any;
-use core::ffi::c_void;
 use core::fmt;
-use core::marker::PhantomData;
 
+use cocoa_ui::PlatformView;
 use waterui::reactive::Signal;
 use waterui::reactive::watcher::Context;
 use waterui_backend_core::{AnyView, Environment};
 use waterui_core::layout::SubView;
 
-#[cfg(target_os = "macos")]
-use objc2::rc::Retained;
-#[cfg(target_os = "ios")]
-use objc2::rc::Retained;
-#[cfg(target_os = "macos")]
-use objc2_app_kit::NSView;
-#[cfg(target_os = "ios")]
-use objc2_ui_kit::UIView;
+use cocoa_ui::Retained;
 
-/// What a rendered component owns beyond its platform view.
+use crate::seam::WateruiSubView;
+
+/// What a rendered component owns beyond its platform view: watcher guards,
+/// action targets, rendered children, the platform objects they act on.
 ///
-/// Watcher guards, the platform objects they fire against, rendered child
-/// leaves, and the environment clones an overlaid subtree resolves through.
-/// Order matters: guards are stored before the views they observe, so a drop
-/// stops the watchers before the objects they fire on go away.
+/// Dropped in reverse insertion order (last kept, first dropped): a guard
+/// kept after the object it fires on stops before that object is released.
 #[derive(Default)]
 pub struct KeepAlive(Vec<Box<dyn Any>>);
 
@@ -47,6 +41,14 @@ impl fmt::Debug for KeepAlive {
         f.debug_struct("KeepAlive")
             .field("held", &self.0.len())
             .finish()
+    }
+}
+
+impl Drop for KeepAlive {
+    fn drop(&mut self) {
+        while let Some(item) = self.0.pop() {
+            drop(item);
+        }
     }
 }
 
@@ -64,96 +66,57 @@ impl KeepAlive {
     pub fn watch<S: Signal>(&mut self, signal: &S, watcher: impl Fn(Context<S::Output>) + 'static) {
         self.keep(signal.watch(watcher));
     }
+
+    /// Applies `signal`'s current value now, then every change: the usual
+    /// way a port pushes a reactive property to its platform object.
+    pub fn bind<S: Signal>(&mut self, signal: &S, apply: impl Fn(S::Output) + 'static) {
+        apply(signal.snapshot());
+        self.watch(signal, move |change| apply(change.into_value()));
+    }
 }
 
-/// A rendered component: the platform view it owns and the layout face its
-/// parent measures with.
+/// A rendered component: its platform view, its layout face, and what keeps
+/// its reactivity alive.
 ///
-/// `platform_view` is borrowed — the object is retained inside `keepalive`
-/// by construction, so the view is alive for exactly as long as the leaf.
+/// Drop order is fixed by field order: watchers and children stop first, the
+/// layout face next, the platform view last. Dropping a leaf does not detach
+/// its view from a superview; mount it through [`NativeLeaf::mount`] for
+/// that.
 pub struct NativeLeaf {
-    platform_view: *mut c_void,
-    /// The leaf's layout face: how the parent measures and stretches it.
-    pub subview: Box<dyn SubView>,
     keepalive: KeepAlive,
+    layout: Box<dyn SubView>,
+    view: Retained<PlatformView>,
 }
 
 impl fmt::Debug for NativeLeaf {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("NativeLeaf")
-            .field("platform_view", &self.platform_view)
+            .field("view", &self.view)
             .finish_non_exhaustive()
     }
 }
 
 impl NativeLeaf {
-    /// Builds a leaf whose platform view is `view`, retaining it for the
-    /// leaf's life.
-    #[cfg(target_os = "macos")]
-    pub fn new_appkit(view: Retained<NSView>, subview: impl SubView + 'static) -> Self {
-        let platform_view = Retained::as_ptr(&view).cast::<c_void>().cast_mut();
-        let mut keepalive = KeepAlive::default();
-        keepalive.keep(view);
+    /// A leaf whose platform view is `view` (any `NSView`/`UIView`
+    /// subclass), retained for the leaf's life.
+    pub fn new<V: AsRef<PlatformView> + ?Sized>(view: &V, layout: impl SubView + 'static) -> Self {
         Self {
-            platform_view,
-            subview: Box::new(subview),
-            keepalive,
-        }
-    }
-
-    /// Builds a leaf whose platform view is `view`, retaining it for the
-    /// leaf's life.
-    #[cfg(target_os = "ios")]
-    pub fn new_uikit(view: Retained<UIView>, subview: impl SubView + 'static) -> Self {
-        let platform_view = Retained::as_ptr(&view).cast::<c_void>().cast_mut();
-        let mut keepalive = KeepAlive::default();
-        keepalive.keep(view);
-        Self {
-            platform_view,
-            subview: Box::new(subview),
-            keepalive,
-        }
-    }
-
-    /// A leaf whose lifetime is managed externally — the seam owns the
-    /// platform object and its release. `platform_view` must outlive the
-    /// leaf.
-    pub(crate) fn borrowed(platform_view: *mut c_void, subview: impl SubView + 'static) -> Self {
-        Self {
-            platform_view,
-            subview: Box::new(subview),
             keepalive: KeepAlive::default(),
+            layout: Box::new(layout),
+            view: cocoa_ui::view::retain_base(view),
         }
     }
 
-    /// The platform view, as `AppKit` sees it.
-    ///
-    /// Borrowed from the leaf: mount it, lay it out, read it — the leaf
-    /// releases it.
-    #[cfg(target_os = "macos")]
+    /// The platform view. Borrowed: the leaf owns it.
     #[must_use]
-    pub fn nsview(&self) -> &NSView {
-        // SAFETY: `platform_view` is a live `NSView` for the leaf's lifetime —
-        // either retained in `keepalive` or guaranteed by `borrowed`'s caller.
-        unsafe { &*self.platform_view.cast::<NSView>() }
+    pub fn view(&self) -> &PlatformView {
+        &self.view
     }
 
-    /// The platform view, as `UIKit` sees it.
-    ///
-    /// Borrowed from the leaf: mount it, lay it out, read it — the leaf
-    /// releases it.
-    #[cfg(target_os = "ios")]
+    /// How the parent measures and stretches this leaf.
     #[must_use]
-    pub fn uiview(&self) -> &UIView {
-        // SAFETY: `platform_view` is a live `UIView` for the leaf's lifetime —
-        // either retained in `keepalive` or guaranteed by `borrowed`'s caller.
-        unsafe { &*self.platform_view.cast::<UIView>() }
-    }
-
-    /// The erased platform view pointer, for seams and window mounts.
-    #[must_use]
-    pub const fn platform_view(&self) -> *mut c_void {
-        self.platform_view
+    pub fn layout(&self) -> &dyn SubView {
+        &*self.layout
     }
 
     /// Keeps `value` — a watcher guard, a rendered child leaf, an
@@ -167,27 +130,92 @@ impl NativeLeaf {
         self.keepalive.watch(signal, watcher);
     }
 
+    /// Applies `signal`'s current value now, then every change.
+    pub fn bind<S: Signal>(&mut self, signal: &S, apply: impl Fn(S::Output) + 'static) {
+        self.keepalive.bind(signal, apply);
+    }
+
+    /// Adds this leaf's view to `parent` and returns the handle that owns
+    /// both; dropping the handle removes the view and releases the leaf.
+    #[must_use]
+    pub fn mount(self, parent: &PlatformView) -> Mounted {
+        cocoa_ui::view::add_subview(parent, &self.view);
+        Mounted(Some(self))
+    }
+
+    /// A leaf built from a `WateruiSubView` that crossed the seam: `view` is
+    /// the +1 reference the other side handed over.
+    pub(crate) fn from_seam(view: Retained<PlatformView>, layout: WateruiSubView) -> Self {
+        Self {
+            keepalive: KeepAlive::default(),
+            layout: Box::new(layout),
+            view,
+        }
+    }
+
     /// Splits the leaf for a host that manages the parts separately — a
-    /// window that mounts the view, measures through the subview, and drops
-    /// the rest with its own resources.
-    ///
-    /// Used by the window host; unused until the host lands.
-    #[expect(dead_code, reason = "the window host lands with entry::run")]
-    pub(crate) fn into_parts(self) -> (*mut c_void, Box<dyn SubView>, KeepAlive) {
-        (self.platform_view, self.subview, self.keepalive)
+    /// window that mounts the view, measures through the layout face, and
+    /// drops the rest with its own resources.
+    pub(crate) fn into_parts(self) -> (Retained<PlatformView>, Box<dyn SubView>, KeepAlive) {
+        (self.view, self.layout, self.keepalive)
     }
 }
 
-/// What a handler sees when it renders: the environment this subtree
-/// resolves against and the dispatcher it renders children through.
-///
-/// Handlers run on the platform main thread; [`RenderContext::mtm`] proves
-/// it to kit constructors that ask for one.
+/// A child leaf attached to a parent view. Dropping it detaches the view
+/// from its superview, then drops the leaf: this is how a container
+/// releases a child it replaces or removes.
+#[derive(Debug)]
+pub struct Mounted(Option<NativeLeaf>);
+
+impl Mounted {
+    /// The child's platform view.
+    ///
+    /// # Panics
+    ///
+    /// When called on a `Mounted` that is already unmounting — impossible
+    /// outside `Drop`.
+    #[must_use]
+    pub fn view(&self) -> &PlatformView {
+        self.0.as_ref().expect("a live Mounted").view()
+    }
+
+    /// The child's layout face.
+    ///
+    /// # Panics
+    ///
+    /// When called on a `Mounted` that is already unmounting.
+    #[must_use]
+    pub fn layout(&self) -> &dyn SubView {
+        self.0.as_ref().expect("a live Mounted").layout()
+    }
+
+    /// Detaches the view and hands the leaf back, for moving it elsewhere.
+    ///
+    /// # Panics
+    ///
+    /// When called on a `Mounted` that is already unmounting.
+    #[must_use]
+    pub fn unmount(mut self) -> NativeLeaf {
+        let leaf = self.0.take().expect("a live Mounted");
+        cocoa_ui::view::remove_from_superview(leaf.view());
+        leaf
+    }
+}
+
+impl Drop for Mounted {
+    fn drop(&mut self) {
+        if let Some(leaf) = self.0.take() {
+            cocoa_ui::view::remove_from_superview(leaf.view());
+            drop(leaf);
+        }
+    }
+}
+
+/// What a handler sees while it renders.
 pub struct RenderContext<'a> {
     env: &'a Environment,
-    dispatcher: &'a crate::dispatch::Dispatcher,
+    dispatcher: &'static crate::dispatch::Dispatcher,
     mtm: cocoa_ui::MainThreadMarker,
-    _marker: PhantomData<&'a ()>,
 }
 
 impl fmt::Debug for RenderContext<'_> {
@@ -199,14 +227,13 @@ impl fmt::Debug for RenderContext<'_> {
 impl<'a> RenderContext<'a> {
     pub(crate) const fn new(
         env: &'a Environment,
-        dispatcher: &'a crate::dispatch::Dispatcher,
+        dispatcher: &'static crate::dispatch::Dispatcher,
         mtm: cocoa_ui::MainThreadMarker,
     ) -> Self {
         Self {
             env,
             dispatcher,
             mtm,
-            _marker: PhantomData,
         }
     }
 
@@ -242,21 +269,61 @@ impl<'a> RenderContext<'a> {
         self.dispatcher.render(view.into(), self.env, self.mtm)
     }
 
-    /// Renders `view` under a different environment.
-    ///
-    /// Metadata handlers overlay the environment for their subtree:
-    /// `let mut env = ctx.env().clone(); env.insert(..); ctx.render_in(&env, content)`
+    /// The same context under another environment — for metadata handlers
+    /// that overlay the environment for their subtree:
+    /// `let env = ctx.env().clone(); env.insert(..); ctx.with_env(&env).render(content)`
     /// — and keep the clone in the leaf's [`KeepAlive`] when the subtree's
     /// signals may resolve through it after the handler returns.
+    #[must_use]
+    pub const fn with_env<'b>(&self, env: &'b Environment) -> RenderContext<'b> {
+        RenderContext::new(env, self.dispatcher, self.mtm)
+    }
+
+    /// An owned handle that can render after the handler returns — from a
+    /// watcher that swaps a child (`Dynamic`, conditionals, lists,
+    /// navigation).
+    #[must_use]
+    pub fn renderer(&self) -> Renderer {
+        Renderer {
+            env: self.env.clone(),
+            dispatcher: self.dispatcher,
+            mtm: self.mtm,
+        }
+    }
+}
+
+/// A `'static` render capability: an environment clone, the dispatcher and
+/// the main-thread proof. `!Send`, so it can only be used on the main
+/// thread.
+#[derive(Debug, Clone)]
+pub struct Renderer {
+    env: Environment,
+    dispatcher: &'static crate::dispatch::Dispatcher,
+    mtm: cocoa_ui::MainThreadMarker,
+}
+
+impl Renderer {
+    /// Renders `view` under the captured environment.
     ///
     /// # Panics
     ///
-    /// Same contract as [`RenderContext::render`]: when nothing claims the
-    /// view.
+    /// When nothing claims the view — same contract as
+    /// [`RenderContext::render`].
     #[must_use]
-    pub fn render_in(&self, env: &Environment, view: impl Into<AnyView>) -> NativeLeaf {
-        self.dispatcher
-            .render(view.into(), env, self.mtm)
+    pub fn render(&self, view: impl Into<AnyView>) -> NativeLeaf {
+        self.try_render(view)
             .expect("no handler and no fallback claim this view")
+    }
+
+    /// Renders `view`, answering `None` when nothing claims it.
+    #[must_use]
+    pub fn try_render(&self, view: impl Into<AnyView>) -> Option<NativeLeaf> {
+        self.dispatcher.render(view.into(), &self.env, self.mtm)
+    }
+
+    /// The captured environment and dispatcher as a context.
+    #[must_use]
+    pub const fn context(&self) -> RenderContext<'_> {
+        RenderContext::new(&self.env, self.dispatcher, self.mtm)
     }
 }

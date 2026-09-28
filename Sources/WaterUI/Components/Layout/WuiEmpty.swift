@@ -62,6 +62,11 @@ extension PlatformView {
         if self is WuiEmpty {
             return true
         }
+        if let rustLeaf = self as? WuiRustLeaf {
+            // The extension's subview walk cannot see inside a Rust leaf;
+            // the leaf answered `is_empty` itself.
+            return rustLeaf.isEmptyLeaf
+        }
         if self is WuiFixedContainer {
             return false
         }

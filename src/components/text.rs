@@ -29,58 +29,30 @@ use waterui_core::layout::{
     ViewDimensions,
 };
 
+use crate::contract::NativeLeaf;
 use crate::dispatch::Dispatcher;
 
 #[cfg(target_os = "macos")]
 mod platform {
     pub(super) use cocoa_ui::appkit::Label;
     pub(super) use cocoa_ui::appkit::colors;
-    pub(super) use cocoa_ui::appkit::view;
-    pub(super) use objc2::ClassType;
-    pub(super) use objc2::rc::Retained;
-    pub(super) use objc2_app_kit::{NSTextAlignment, NSView};
-    pub(super) use waterui_core::layout::SubView;
-
-    use crate::contract::NativeLeaf;
-
-    /// The label as its `NSView`, for animations and layout direction.
-    pub(super) fn as_view(label: &Label) -> &NSView {
-        label.as_super().as_super().as_super()
-    }
-
-    /// The label's leaf: the platform pointer retains through `NSView`.
-    pub(super) fn leaf(label: &Retained<Label>, subview: impl SubView + 'static) -> NativeLeaf {
-        NativeLeaf::new_appkit(
-            label.clone().into_super().into_super().into_super(),
-            subview,
-        )
-    }
+    pub(super) use cocoa_ui::objc2_app_kit::NSTextAlignment;
 }
 
 #[cfg(target_os = "ios")]
 mod platform {
+    pub(super) use cocoa_ui::objc2_ui_kit::NSTextAlignment;
     pub(super) use cocoa_ui::uikit::Label;
     pub(super) use cocoa_ui::uikit::colors;
-    pub(super) use cocoa_ui::uikit::view;
-    pub(super) use objc2::ClassType;
-    pub(super) use objc2::rc::Retained;
-    pub(super) use objc2_ui_kit::{NSTextAlignment, UIView};
-    pub(super) use waterui_core::layout::SubView;
-
-    use crate::contract::NativeLeaf;
-
-    /// The label as its `UIView`, for animations and layout direction.
-    pub(super) fn as_view(label: &Label) -> &UIView {
-        label.as_super().as_super()
-    }
-
-    /// The label's leaf: the platform pointer retains through `UIView`.
-    pub(super) fn leaf(label: &Retained<Label>, subview: impl SubView + 'static) -> NativeLeaf {
-        NativeLeaf::new_uikit(label.clone().into_super().into_super(), subview)
-    }
 }
 
+use cocoa_ui::PlatformView;
 use platform::Label;
+
+/// The label as its platform view, for animations and layout direction.
+fn as_view(label: &Label) -> &PlatformView {
+    label
+}
 
 /// A styled chunk resolved into its current values: the text plus the
 /// attributes the attributed-string builder consumes.
@@ -207,7 +179,7 @@ fn platform_font(
 
 /// A `ResolvedColor` as the platform's extended-sRGB color object.
 #[cfg(target_os = "ios")]
-fn platform_color(color: &ResolvedColor) -> Retained<objc2_ui_kit::UIColor> {
+fn platform_color(color: &ResolvedColor) -> Retained<cocoa_ui::objc2_ui_kit::UIColor> {
     platform::colors::extended_linear(
         f64::from(color.red),
         f64::from(color.green),
@@ -220,7 +192,7 @@ fn platform_color(color: &ResolvedColor) -> Retained<objc2_ui_kit::UIColor> {
 /// A `ResolvedColor` as the platform's extended-sRGB color object, with HDR
 /// headroom applied as a content-headroom multiplier — the `AppKit` variant.
 #[cfg(target_os = "macos")]
-fn platform_color(color: &ResolvedColor) -> Retained<objc2_app_kit::NSColor> {
+fn platform_color(color: &ResolvedColor) -> Retained<cocoa_ui::objc2_app_kit::NSColor> {
     let unscaled = platform::colors::extended_linear(
         f64::from(color.red),
         f64::from(color.green),
@@ -285,11 +257,9 @@ fn rebuild(state: &TextState, duration: Option<f64>) {
     match duration {
         Some(seconds) => {
             let label = state.label.clone();
-            cocoa_ui::core_animation::cross_dissolve(
-                platform::as_view(&state.label),
-                seconds,
-                move || label.set_attributed_text(&attributed),
-            );
+            cocoa_ui::core_animation::cross_dissolve(as_view(&state.label), seconds, move || {
+                label.set_attributed_text(&attributed);
+            });
         }
         None => state.label.set_attributed_text(&attributed),
     }
@@ -407,7 +377,7 @@ fn apply_alignment(label: &Label, alignment: HorizontalAlignment) {
     let alignment = if alignment == HorizontalAlignment::Center {
         NSTextAlignment::Center
     } else if alignment == HorizontalAlignment::Trailing {
-        if platform::view::is_right_to_left(platform::as_view(label)) {
+        if cocoa_ui::view::is_right_to_left(as_view(label)) {
             NSTextAlignment::Left
         } else {
             NSTextAlignment::Right
@@ -459,8 +429,8 @@ pub fn install(dispatcher: &mut Dispatcher) {
         rebuild(&state.borrow(), None);
         apply_alignment(&label, config.paragraph_alignment.snapshot());
 
-        let mut leaf = platform::leaf(
-            &label,
+        let mut leaf = NativeLeaf::new(
+            as_view(&label),
             TextSubView {
                 label: label.clone(),
             },

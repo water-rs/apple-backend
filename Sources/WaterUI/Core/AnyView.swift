@@ -37,9 +37,10 @@ private func waitForFirstPaintReadyParticipants(
 
 // MARK: - Component Registry
 
-/// Internal registry for component factories using pointer-based ID lookup
+/// Internal registry for component factories using pointer-based ID lookup.
+/// The seam's claims check (`WuiSeam.swift`) reads it.
 @MainActor
-private var componentRegistry: [WuiViewId: (OpaquePointer, WuiEnvironment) -> any WuiComponent] =
+var componentRegistry: [WuiViewId: (OpaquePointer, WuiEnvironment) -> any WuiComponent] =
   [:]
 
 /// Set of metadata component IDs (components that wrap content but aren't "real" content themselves)
@@ -80,7 +81,9 @@ func isMetadataComponent(_ component: any WuiComponent) -> Bool {
 /// stopped one step short of building anything. That makes it an exact answer
 /// to "what will this view become", and reaching a registered id is the proof
 /// that nothing realizable sits in between: any view that could draw is a
-/// registered component that would have stopped the walk first.
+/// registered component that would have stopped the walk first. A `Native` /
+/// `Metadata` wrapper the registry does not claim stops the walk too — the
+/// seam takes it from there (`WuiSeam.swift`).
 ///
 /// The walk consumes the views it steps through, as `resolve` does; the pointer
 /// it returns is the live handle and the caller owns it.
@@ -93,10 +96,10 @@ func wuiResolvedViewPointer(_ anyview: OpaquePointer, env: WuiEnvironment) -> Op
     if componentRegistry[viewId] != nil {
       return current
     }
-    guard let next = waterui_view_body(current, env.inner) else {
-      fatalError("Unsupported component type: \(viewId.toString())")
+    if wateruiAppleNeedsFallback(current) {
+      return current
     }
-    current = next
+    current = waterui_view_body(current, env.inner)
   }
 }
 
@@ -178,9 +181,10 @@ final class RootThemeController {
   }
 }
 
-/// Register builtin components (called once on first WuiAnyView creation)
+/// Register builtin components (called once on first WuiAnyView creation,
+/// and once by the seam's claims check).
 @MainActor
-private func registerBuiltinComponentsIfNeeded() {
+func registerBuiltinComponentsIfNeeded() {
   guard !builtinComponentsRegistered else { return }
   builtinComponentsRegistered = true
 
@@ -500,18 +504,7 @@ private func registerBuiltinComponentsIfNeeded() {
     internal static func resolve(anyview: OpaquePointer, env: WuiEnvironment)
       -> any WuiComponent
     {
-      let viewId = WuiViewId(waterui_view_id(anyview))
-
-      // Look up registered component factory - O(1) pointer-based lookup
-      if let factory = componentRegistry[viewId] {
-        return factory(anyview, env)
-      }
-
-      if let next = waterui_view_body(anyview, env.inner) {
-        return resolve(anyview: next, env: env)
-      }
-
-      fatalError("Unsupported component type: \(viewId.toString())")
+      wuiSeamResolve(anyview: anyview, env: env)
     }
   }
 
@@ -816,18 +809,7 @@ private func registerBuiltinComponentsIfNeeded() {
     internal static func resolve(anyview: OpaquePointer, env: WuiEnvironment)
       -> any WuiComponent
     {
-      let viewId = WuiViewId(waterui_view_id(anyview))
-
-      // Look up registered component factory - O(1) pointer-based lookup
-      if let factory = componentRegistry[viewId] {
-        return factory(anyview, env)
-      }
-
-      if let next = waterui_view_body(anyview, env.inner) {
-        return resolve(anyview: next, env: env)
-      }
-
-      fatalError("Unsupported component type: \(viewId.toString())")
+      wuiSeamResolve(anyview: anyview, env: env)
     }
   }
 #endif

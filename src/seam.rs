@@ -3,10 +3,10 @@
 //! Two entry points carry a view across the boundary, one in each direction:
 //! [`waterui_apple_render`] (defined here, called by Swift) and
 //! [`waterui_swift_render`] (defined by the fallback, called from here). Each
-//! answers a [`WateruiAppleLeaf`] / [`WateruiSwiftLeaf`]: a retained platform
-//! view plus the [`WateruiSubView`] layout face the other side's containers
-//! measure through. `None` on the view pointer means "not claimed" — a miss
-//! never re-enters the other direction, so the seam cannot ping-pong.
+//! answers a [`WateruiLeaf`]: a +1 platform view plus the [`WateruiSubView`]
+//! layout face the other side's containers measure through. A null `view`
+//! means "not claimed" — a miss never re-enters the other direction, so the
+//! seam cannot ping-pong.
 //!
 //! `Views` and `Environments` cross as owning pointers to `AnyView` /
 //! `Environment` — the same heap values both sides hold — and each receiver
@@ -17,9 +17,11 @@
 //! Every `unsafe extern "C"` here is a boundary function; the contracts on it
 //! are the ownership rules above, spelled out per parameter.
 
+use alloc::boxed::Box;
 use core::ffi::c_void;
 use core::ptr;
 
+use cocoa_ui::Retained;
 use waterui_backend_core::{AnyView, Environment};
 use waterui_core::layout::{
     HorizontalAlignment, ProposalSize, Size, StretchAxis, SubView, VerticalAlignment,
@@ -457,17 +459,19 @@ impl From<StretchAxis> for WateruiStretchAxis {
     }
 }
 
-/// A leaf's layout face: the `SubView` contract as a context pointer, its two
-/// callbacks, and the answers that are fixed at leaf creation.
+/// A leaf's layout face: the `SubView` contract as a context pointer and a
+/// callback per question the parent asks.
 ///
-/// `context` is whatever the producer needs its `measure`/`drop` to see — a
+/// `context` is whatever the producer needs its callbacks to see — a
 /// retained object on the Swift side, a boxed `dyn SubView` here. `drop` runs
 /// once, when the leaf's owner lets go; the leaf's native view is retained
-/// and released separately from `context`.
+/// and released separately from `context`. The query callbacks are live
+/// reads — a leaf whose stretch axis or emptiness changes answers the new
+/// value on the next call, not the one fixed at creation.
 #[repr(C)]
 #[derive(Debug)]
 pub struct WateruiSubView {
-    /// The producer's opaque context.
+    /// The producer's opaque context; null on an unclaimed leaf.
     pub context: *mut c_void,
     /// Measures the leaf for a proposal; the returned dimensions are owned by
     /// the caller, which drops them (releasing the guide arrays).
@@ -475,18 +479,24 @@ pub struct WateruiSubView {
         context: *mut c_void,
         proposal: WateruiProposalSize,
     ) -> WateruiViewDimensions,
+    /// Delivers the proposal the parent selected when it placed the leaf —
+    /// `WuiComponent.setPlacementProposal`. Leaves may ignore it.
+    pub place: unsafe extern "C" fn(context: *mut c_void, proposal: WateruiProposalSize),
+    /// Which axes the leaf stretches on, asked on every layout pass.
+    pub stretch_axis: unsafe extern "C" fn(context: *mut c_void) -> WateruiStretchAxis,
+    /// Layout priority; higher is measured first.
+    pub priority: unsafe extern "C" fn(context: *mut c_void) -> i32,
+    /// Whether the leaf renders nothing.
+    pub is_empty: unsafe extern "C" fn(context: *mut c_void) -> bool,
     /// Releases `context` once.
     pub drop: unsafe extern "C" fn(context: *mut c_void),
-    /// Which axes the leaf stretches on.
-    pub stretch_axis: WateruiStretchAxis,
-    /// Layout priority; higher is measured first.
-    pub priority: i32,
-    /// Whether the leaf renders nothing.
-    pub is_empty: bool,
 }
 
 impl Drop for WateruiSubView {
     fn drop(&mut self) {
+        if self.context.is_null() {
+            return;
+        }
         // SAFETY: `context` was registered with this `drop` by the producer
         // and is released exactly once, here.
         unsafe { (self.drop)(self.context) }
@@ -502,45 +512,76 @@ impl SubView for WateruiSubView {
     }
 
     fn stretch_axis(&self) -> StretchAxis {
-        self.stretch_axis.into()
+        // SAFETY: `context` is alive for as long as the leaf is.
+        unsafe { (self.stretch_axis)(self.context) }.into()
     }
 
     fn priority(&self) -> i32 {
-        self.priority
+        // SAFETY: `context` is alive for as long as the leaf is.
+        unsafe { (self.priority)(self.context) }
     }
 
     fn is_empty(&self) -> bool {
-        self.is_empty
+        // SAFETY: `context` is alive for as long as the leaf is.
+        unsafe { (self.is_empty)(self.context) }
     }
 }
 
-/// A leaf produced by `waterui_apple_render`: a retained platform view plus
-/// its layout face. Consumed by Swift.
+/// A leaf crossing the seam, returned by value.
+///
+/// `view` is +1 retained and owned by the receiver (Rust:
+/// `Retained::from_raw`; Swift: `takeRetainedValue`), or null for "not
+/// claimed" — in which case `subview.drop` is a no-op and `context` is
+/// null.
 #[repr(C)]
 #[derive(Debug)]
-pub struct WateruiAppleLeaf {
-    /// A retained `NSView`/`UIView`, or null when Rust does not claim the
-    /// view.
+pub struct WateruiLeaf {
+    /// A retained `NSView`/`UIView`, or null when the view is unclaimed.
     pub view: *mut c_void,
     /// The leaf's `SubView` face.
     pub subview: WateruiSubView,
 }
 
-/// A leaf produced by `waterui_swift_render`: a retained platform view plus
-/// its layout face. Consumed here.
-#[repr(C)]
-#[derive(Debug)]
-pub struct WateruiSwiftLeaf {
-    /// A retained `NSView`/`UIView`, or null when Swift does not claim the
-    /// view.
-    pub view: *mut c_void,
-    /// The leaf's `SubView` face.
-    pub subview: WateruiSubView,
+impl WateruiLeaf {
+    /// The answer for a view nobody claims.
+    fn unclaimed() -> Self {
+        unsafe extern "C" fn measure(
+            _context: *mut c_void,
+            _proposal: WateruiProposalSize,
+        ) -> WateruiViewDimensions {
+            WateruiViewDimensions::default()
+        }
+        const unsafe extern "C" fn place(_context: *mut c_void, _proposal: WateruiProposalSize) {}
+        const unsafe extern "C" fn stretch_axis(_context: *mut c_void) -> WateruiStretchAxis {
+            WateruiStretchAxis::None
+        }
+        const unsafe extern "C" fn priority(_context: *mut c_void) -> i32 {
+            0
+        }
+        const unsafe extern "C" fn is_empty(_context: *mut c_void) -> bool {
+            true
+        }
+        const unsafe extern "C" fn drop(_context: *mut c_void) {}
+        Self {
+            view: ptr::null_mut(),
+            subview: WateruiSubView {
+                context: ptr::null_mut(),
+                measure,
+                place,
+                stretch_axis,
+                priority,
+                is_empty,
+                drop,
+            },
+        }
+    }
 }
 
 /// Packages a Rust `SubView` for the other side of the seam.
 ///
-/// The returned `WateruiSubView` measures through `subview` and drops it once.
+/// The returned `WateruiSubView` answers every query live through `subview`
+/// and drops it once. `place` is a no-op until `SubView` grows a placement
+/// hook a container needs.
 #[must_use]
 pub fn into_wire(subview: Box<dyn SubView>) -> WateruiSubView {
     unsafe extern "C" fn measure(
@@ -553,23 +594,44 @@ pub fn into_wire(subview: Box<dyn SubView>) -> WateruiSubView {
         WateruiViewDimensions::from_dimensions(&subview.measure(proposal.into_proposal()))
     }
 
+    const unsafe extern "C" fn place(_context: *mut c_void, _proposal: WateruiProposalSize) {
+        // `SubView` has no placement hook yet; the field exists in the ABI so
+        // a later one does not change it.
+    }
+
+    unsafe extern "C" fn stretch_axis(context: *mut c_void) -> WateruiStretchAxis {
+        // SAFETY: as `measure`.
+        let subview = unsafe { &**context.cast::<Box<dyn SubView>>() };
+        subview.stretch_axis().into()
+    }
+
+    unsafe extern "C" fn priority(context: *mut c_void) -> i32 {
+        // SAFETY: as `measure`.
+        let subview = unsafe { &**context.cast::<Box<dyn SubView>>() };
+        subview.priority()
+    }
+
+    unsafe extern "C" fn is_empty(context: *mut c_void) -> bool {
+        // SAFETY: as `measure`.
+        let subview = unsafe { &**context.cast::<Box<dyn SubView>>() };
+        subview.is_empty()
+    }
+
     unsafe extern "C" fn drop(context: *mut c_void) {
         // SAFETY: `context` is the `Box::into_raw` of the `Box<Box<dyn SubView>>`
         // `into_wire` consumed; reclaiming it frees the leaf exactly once.
         unsafe { std::mem::drop(Box::from_raw(context.cast::<Box<dyn SubView>>())) };
     }
 
-    let stretch_axis = subview.stretch_axis().into();
-    let priority = subview.priority();
-    let is_empty = subview.is_empty();
     let context = Box::into_raw(Box::new(subview)).cast::<c_void>();
     WateruiSubView {
         context,
         measure,
-        drop,
+        place,
         stretch_axis,
         priority,
         is_empty,
+        drop,
     }
 }
 
@@ -588,12 +650,10 @@ unsafe extern "C" {
     /// Renders `view` through the Swift fallback's registry.
     ///
     /// `view` and `env` are consumed: the fallback retains what it needs of
-    /// each. The returned leaf — when non-null — is owned by the caller: its
-    /// `view` is a retained platform object the caller releases, and its
-    /// `subview` carries the layout face. A null return means the fallback
-    /// does not claim the view either.
-    pub fn waterui_swift_render(view: *mut AnyView, env: *mut Environment)
-    -> *mut WateruiSwiftLeaf;
+    /// each. The returned leaf's `view` is +1 and owned by this call
+    /// (`Retained::from_raw`); a null `view` means the fallback does not
+    /// claim the view either.
+    pub fn waterui_swift_render(view: *mut AnyView, env: *mut Environment) -> WateruiLeaf;
 
     /// Installs the fallback's environment services into `env`: the GPU
     /// runtime (whose creation is asynchronous) and the service objects the
@@ -640,13 +700,40 @@ unsafe extern "C" {
     pub fn waterui_swift_claims() -> WateruiArray<WateruiTypeId>;
 }
 
+/// The layout face a Rust leaf carries across the seam: the leaf's own
+/// `SubView` plus its `KeepAlive`, so watchers stay alive exactly as long
+/// as the other side can measure through it.
+struct SeamOwned {
+    _keepalive: crate::contract::KeepAlive,
+    layout: Box<dyn SubView>,
+}
+
+impl SubView for SeamOwned {
+    fn measure(&self, proposal: ProposalSize) -> ViewDimensions {
+        self.layout.measure(proposal)
+    }
+
+    fn stretch_axis(&self) -> StretchAxis {
+        self.layout.stretch_axis()
+    }
+
+    fn priority(&self) -> i32 {
+        self.layout.priority()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.layout.is_empty()
+    }
+}
+
 /// Renders `view` through the Rust dispatcher.
 ///
 /// `Swift` calls this for a view it does not claim — a leaf, metadata or
 /// `Native` config registered on the Rust side. `view` and `env` are
-/// consumed: this function retains what it keeps. Returns a boxed leaf, or
-/// null when no Rust handler claims the view either — one direction only,
-/// so the seam cannot recurse.
+/// consumed: this function retains what it keeps. The returned leaf's `view`
+/// is +1 and owned by the caller (`takeRetainedValue`); a null `view` means
+/// no Rust handler claims the view either — one direction only, so the seam
+/// cannot recurse.
 ///
 /// # Safety
 ///
@@ -656,22 +743,41 @@ unsafe extern "C" {
 pub unsafe extern "C" fn waterui_apple_render(
     view: *mut AnyView,
     env: *mut Environment,
-) -> *mut WateruiAppleLeaf {
+) -> WateruiLeaf {
     // SAFETY: the caller contract hands ownership of both boxes to this call.
     let (view, env) = unsafe { (*Box::from_raw(view), *Box::from_raw(env)) };
-    crate::dispatch::render_across_seam(view, &env).map_or(ptr::null_mut(), |leaf| {
-        Box::into_raw(Box::new(WateruiAppleLeaf {
-            view: leaf.view,
-            subview: into_wire(leaf.subview),
-        }))
+    crate::dispatch::render_across_seam(view, &env).map_or_else(WateruiLeaf::unclaimed, |leaf| {
+        let (view, layout, keepalive) = leaf.into_parts();
+        WateruiLeaf {
+            // `into_raw` hands the +1 to the caller; `SeamOwned` keeps the
+            // leaf's watchers and layout face inside the wire `subview`.
+            view: Retained::into_raw(view).cast::<c_void>(),
+            subview: into_wire(Box::new(SeamOwned {
+                _keepalive: keepalive,
+                layout,
+            })),
+        }
     })
+}
+
+/// Whether `view` is a `Native`/`Metadata` wrapper — the types whose
+/// `body()` panics instead of expanding, so the Swift resolve walk asks this
+/// before it calls `waterui_view_body`.
+///
+/// # Safety
+///
+/// `view` is borrowed for the call and must point at a live `AnyView`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn waterui_apple_needs_fallback(view: *const AnyView) -> bool {
+    // SAFETY: the caller contract keeps `view` a live `AnyView` for the call.
+    crate::dispatch::needs_fallback(unsafe { &*view })
 }
 
 /// The type ids the Rust dispatcher claims — the debug half of the seam's
 /// "exactly one owner per type" invariant. Stage 0 claims none.
 #[cfg(debug_assertions)]
-fn rust_claims() -> Vec<WateruiTypeId> {
-    crate::dispatch::claimed_type_names()
+fn rust_claims(mtm: cocoa_ui::MainThreadMarker) -> Vec<WateruiTypeId> {
+    crate::dispatch::claimed_type_names(mtm)
         .map(WateruiTypeId::from_name)
         .collect()
 }
@@ -679,15 +785,16 @@ fn rust_claims() -> Vec<WateruiTypeId> {
 /// Asserts the seam's disjointness invariant: no `TypeId` may be registered
 /// on both sides. Runs once, when the first view crosses.
 #[cfg(debug_assertions)]
-pub(crate) fn assert_disjoint() {
+pub(crate) fn assert_disjoint(mtm: cocoa_ui::MainThreadMarker) {
     static ONCE: std::sync::Once = std::sync::Once::new();
+    let _ = mtm;
     ONCE.call_once(|| {
         // SAFETY: the returned array is owned by this call per the seam
         // contract; `as_slice` borrows it for the read.
         let claims = unsafe { waterui_swift_claims() };
         // SAFETY: `claims` heads `len` initialized ids.
         let claims = unsafe { claims.as_slice() };
-        let mine = rust_claims();
+        let mine = rust_claims(mtm);
         for &claim in claims {
             debug_assert!(
                 !mine.contains(&claim),

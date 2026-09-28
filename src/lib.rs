@@ -25,7 +25,51 @@ extern crate alloc;
 
 pub mod contract;
 pub mod dispatch;
+pub mod entry;
 pub mod seam;
 
 pub(crate) mod components;
+pub(crate) mod first_paint;
+pub(crate) mod fonts;
+pub(crate) mod locale;
+#[cfg(target_os = "macos")]
+pub(crate) mod menus;
 pub(crate) mod registry;
+pub(crate) mod startup;
+pub(crate) mod theme;
+pub(crate) mod windows;
+
+/// Generates the `waterui_apple_main` entry point for the application
+/// crate that calls it.
+///
+/// The whole launch — process startup, the environment, the fallback's
+/// services, the declared windows and the platform run loop — ends in
+/// [`entry::run`], and the Xcode target's `main.swift` is a one-line call
+/// into it.
+#[macro_export]
+macro_rules! export_app {
+    ($app:path) => {
+        const _: () = {
+            /// The application's entry: the generated `main.swift` calls this
+            /// and nothing else.
+            ///
+            /// `accessory` selects the macOS activation policy
+            /// (`NSApplication.ActivationPolicy.accessory`); it is unused on
+            /// iOS.
+            ///
+            /// # Safety
+            ///
+            /// Call once, on the platform main thread, as the process entry.
+            #[unsafe(no_mangle)]
+            pub unsafe extern "C" fn waterui_apple_main(accessory: bool) {
+                let mut env = ::waterui::configure_environment!(::waterui::Environment::new());
+                // SAFETY: this is the process's entry on the main thread, and
+                // `env` lives in this frame — `run` never returns, so the
+                // borrow outlives every use the seam keeps.
+                unsafe {
+                    ::waterui_apple::entry::run($app, &mut env, accessory);
+                }
+            }
+        };
+    };
+}
