@@ -28,6 +28,7 @@ default = [
     "picker",
     "progress",
     "resolved_color",
+    "scroll",
     "secure_field",
     "slider",
     "spacer",
@@ -49,6 +50,7 @@ picker = []
 plain = []
 progress = []
 resolved_color = []
+scroll = []
 secure_field = []
 slider = []
 spacer = []

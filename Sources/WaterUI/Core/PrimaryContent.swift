@@ -31,10 +31,10 @@ protocol WuiPrimaryContentProviding {
 @MainActor
 func wuiResolvedPrimaryContent(of view: PlatformView) -> PlatformView {
   var current = view
-  while !(current is WuiSafeAreaManaging),
-    let next =
-      (current as? WuiPrimaryContentProviding)?.wuiPrimaryContent
-      ?? wuiKitPrimaryContent(current)
+  // A Rust-created scroll view cannot conform to WuiSafeAreaManaging, so
+  // any platform scroll view ends the descent the way a conformer does.
+  while !(current is WuiSafeAreaManaging) && !(current is PlatformScrollView),
+    let next = (current as? WuiPrimaryContentProviding)?.wuiPrimaryContent
   {
     current = next
   }
@@ -66,7 +66,7 @@ func wuiResolvedPrimaryContent(of view: PlatformView) -> PlatformView {
   /// the primary-content chain.
   @MainActor
   func wuiScrollSurface(of view: PlatformView) -> PlatformScrollView? {
-    if view is WuiSafeAreaManaging {
+    if view is WuiSafeAreaManaging || view is PlatformScrollView {
       return view as? PlatformScrollView
     }
     let candidates: [PlatformView]
@@ -106,7 +106,7 @@ func wuiResolvedPrimaryContent(of view: PlatformView) -> PlatformView {
 /// it stays inside the safe area.
 @MainActor
 func wuiHandlesSafeArea(_ view: PlatformView) -> Bool {
-  if view is WuiSafeAreaManaging || wuiKitManagesSafeArea(view) {
+  if view is WuiSafeAreaManaging || view is PlatformScrollView || view is WuiFixedContainer {
     return true
   }
   if let content =
@@ -134,7 +134,7 @@ extension PlatformView {
       while let view = ancestor {
         if let ignoring = view as? WuiIgnoreSafeArea {
           insets = ignoring.erasingIgnoredEdges(from: insets)
-        } else if view is WuiSafeAreaManaging {
+        } else if view is WuiSafeAreaManaging || view is PlatformScrollView {
           break
         }
         ancestor = view.superview

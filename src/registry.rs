@@ -65,4 +65,8 @@ pub fn install(dispatcher: &mut Dispatcher) {
     crate::components::focused::install(dispatcher);
     #[cfg(feature = "layout_priority")]
     crate::components::layout_priority::install(dispatcher);
+
+    // Wave B — containers.
+    #[cfg(feature = "scroll")]
+    crate::components::scroll::install(dispatcher);
 }

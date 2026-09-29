@@ -32,6 +32,8 @@ pub mod plain;
 pub mod progress;
 #[cfg(feature = "resolved_color")]
 pub mod resolved_color;
+#[cfg(feature = "scroll")]
+pub mod scroll;
 #[cfg(feature = "secure_field")]
 pub mod secure_field;
 #[cfg(feature = "slider")]
