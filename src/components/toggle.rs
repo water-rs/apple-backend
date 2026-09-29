@@ -19,15 +19,15 @@ use crate::dispatch::Dispatcher;
 
 #[cfg(target_os = "macos")]
 mod platform {
-    pub(super) use cocoa_ui::appkit::toggle::{Kind, LABEL_SPACING, StateChange, Toggle};
+    pub(super) use cocoa_ui::appkit::toggle::{Kind, StateChange, Toggle};
 }
 
 #[cfg(target_os = "ios")]
 mod platform {
-    pub(super) use cocoa_ui::uikit::toggle::{Kind, LABEL_SPACING, StateChange, Toggle};
+    pub(super) use cocoa_ui::uikit::toggle::{Kind, StateChange, Toggle};
 }
 
-use platform::{Kind, LABEL_SPACING, StateChange, Toggle};
+use platform::{Kind, StateChange, Toggle};
 
 /// The control a style draws on this platform — `makeToggleControl`'s table.
 #[cfg(target_os = "ios")]
@@ -128,12 +128,18 @@ impl SubView for ToggleSubView {
             .size;
         let control = self.toggle.control_size();
         let has_label = label.width > 0.0 && label.height > 0.0;
-        let intrinsic_width = control.width as f32
-            + if has_label {
-                LABEL_SPACING as f32 + label.width
-            } else {
-                0.0
-            };
+        // `row_size` is the kit's single definition of the row's
+        // composition — the same arithmetic `set_label`'s constraints
+        // place.
+        let (intrinsic_width, height) = if has_label {
+            let row = self.toggle.row_size(cocoa_ui::geometry::Size::new(
+                f64::from(label.width),
+                f64::from(label.height),
+            ));
+            (row.width as f32, row.height as f32)
+        } else {
+            (control.width as f32, control.height as f32)
+        };
         // A phone's toggle fills the row it's offered when a label shares it;
         // a Mac's takes its own width — the box pushed to the far edge of a
         // window is not a thing macOS draws.
@@ -148,7 +154,7 @@ impl SubView for ToggleSubView {
             let _ = proposal;
             intrinsic_width
         };
-        ViewDimensions::new(Size::new(width, (control.height as f32).max(label.height)))
+        ViewDimensions::new(Size::new(width, height))
     }
 
     fn stretch_axis(&self) -> StretchAxis {

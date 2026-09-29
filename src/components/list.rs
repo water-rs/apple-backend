@@ -1201,14 +1201,27 @@ mod platform_impl {
                         }),
                     });
                     container.configure(self.mtm, mounted.view(), insets, delete);
+                    // The row's slot is constraint-resolved inside `insets`
+                    // and, while editing, the inline delete button —
+                    // deliver that width, again on every layout pass, so a
+                    // proposal-driven child tracks its true slot across
+                    // resizes and the button's appearance.
+                    container.set_layout_handler(move |container| {
+                        let Some(content) = container.content() else {
+                            return;
+                        };
+                        let width = view::bounds(&content).size.width;
+                        #[expect(
+                            clippy::cast_possible_truncation,
+                            reason = "kit geometry is f64; layout proposals are f32"
+                        )]
+                        proposal::deliver(&content, ProposalSize::new(Some(width as f32), None));
+                    });
                     #[expect(
                         clippy::cast_possible_truncation,
                         reason = "kit geometry is f64; layout proposals are f32"
                     )]
-                    proposal::deliver(
-                        mounted.view(),
-                        ProposalSize::new(Some(view::bounds(table).size.width as f32), None),
-                    );
+                    proposal::deliver(mounted.view(), ProposalSize::new(Some(width as f32), None));
                     let guard = watch_deletable(&deletable, id, &self.state, table);
                     container.set_payload(Box::new(RowPayload {
                         mounted,
