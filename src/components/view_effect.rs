@@ -740,28 +740,53 @@ fn handle_window_change(state: &Rc<EffectState>) {
         return;
     }
     state.detach_after_capture.set(false);
-    #[cfg(target_os = "macos")]
     update_window_observers(state);
     initialize_gpu(state);
     request_render(state);
 }
 
-/// `WuiWindowOcclusionObserver` — occlusion changes re-run attach+schedule.
-#[cfg(target_os = "macos")]
+/// `WuiWindowOcclusionObserver` — occlusion/activation changes re-run
+/// attach+schedule. On iOS the attach a launch-time `.inactive` state
+/// deferred is retaken from `didBecomeActive`; without these observers an
+/// effect mounted before activation presents nothing forever.
 fn update_window_observers(state: &Rc<EffectState>) {
-    state.observers.borrow_mut().clear();
+    let mut observers = state.observers.borrow_mut();
+    observers.clear();
     let Some(window) = cocoa_ui::view::window(&state.view) else {
         return;
     };
+    #[cfg(target_os = "ios")]
+    let _ = &window;
     let mtm = cocoa_ui::MainThreadMarker::new().expect("main thread");
-    let weak = Rc::downgrade(state);
-    let observer = cocoa_ui::appkit::watch_occlusion(mtm, &window, move || {
-        if let Some(state) = weak.upgrade() {
-            initialize_gpu(&state);
-            schedule_frame_if_needed(&state);
+    let fire = {
+        let weak = Rc::downgrade(state);
+        move || {
+            if let Some(state) = weak.upgrade() {
+                initialize_gpu(&state);
+                schedule_frame_if_needed(&state);
+            }
         }
-    });
-    state.observers.borrow_mut().push(observer);
+    };
+    #[cfg(target_os = "macos")]
+    observers.push(cocoa_ui::appkit::watch_occlusion(mtm, &window, move || {
+        fire();
+    }));
+    #[cfg(target_os = "ios")]
+    for notification in [
+        // SAFETY: the notification names are system constants.
+        unsafe { cocoa_ui::objc2_ui_kit::UIApplicationDidBecomeActiveNotification },
+        // SAFETY: the notification names are system constants.
+        unsafe { cocoa_ui::objc2_ui_kit::UIApplicationWillResignActiveNotification },
+    ] {
+        observers.push(cocoa_ui::notification::observe(
+            mtm,
+            &cocoa_ui::notification::NotificationName::framework(notification),
+            {
+                let fire = fire.clone();
+                move || fire()
+            },
+        ));
+    }
 }
 
 /// `layoutSubviews`/`layout`: frame the hidden child, refresh geometry,
