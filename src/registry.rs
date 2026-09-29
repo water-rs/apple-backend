@@ -83,6 +83,23 @@ pub fn install(dispatcher: &mut Dispatcher) {
     #[cfg(feature = "with_env")]
     crate::components::with_env::install(dispatcher);
 
+
+    // Interaction metadata — the non-gesture interaction leaves.
+    #[cfg(feature = "accessibility_identifier")]
+    crate::components::accessibility_identifier::install(dispatcher);
+    #[cfg(feature = "accessibility_metadata")]
+    crate::components::accessibility_metadata::install(dispatcher);
+    #[cfg(feature = "context_menu")]
+    crate::components::context_menu::install(dispatcher);
+    #[cfg(feature = "cursor")]
+    crate::components::cursor::install(dispatcher);
+    #[cfg(feature = "hittable")]
+    crate::components::hittable::install(dispatcher);
+    #[cfg(feature = "on_event")]
+    crate::components::on_event::install(dispatcher);
+    #[cfg(feature = "on_key_press")]
+    crate::components::on_key_press::install(dispatcher);
+
     // Navigation — the group: metadata claims first (they wrap any content),
     // then the container and leaf components.
     #[cfg(feature = "navigation")]
