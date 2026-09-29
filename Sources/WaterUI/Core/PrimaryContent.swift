@@ -106,7 +106,7 @@ func wuiResolvedPrimaryContent(of view: PlatformView) -> PlatformView {
 /// it stays inside the safe area.
 @MainActor
 func wuiHandlesSafeArea(_ view: PlatformView) -> Bool {
-  if view is WuiSafeAreaManaging || view is PlatformScrollView || view is WuiFixedContainer {
+  if view is WuiSafeAreaManaging || view is PlatformScrollView || wuiKitManagesSafeArea(view) {
     return true
   }
   if let content =
