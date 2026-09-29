@@ -577,7 +577,11 @@ mod imp {
 
     use cocoa_ui::uikit::{ColorSchemeObservation, HostView, ViewController, WindowScene};
     use cocoa_ui::{MainThreadMarker, Retained};
-    use waterui::window::Window;
+    use waterui::Resolvable;
+    use waterui::Signal;
+    use waterui::signal::IntoComputed;
+    use waterui::theme::color::Background;
+    use waterui::window::{Window, WindowBackground};
     use waterui_backend_core::Environment;
 
     use crate::contract::KeepAlive;
@@ -704,7 +708,21 @@ mod imp {
         mtm: MainThreadMarker,
     ) -> WindowHost {
         let mut keepalive = KeepAlive::default();
-        let host = pending.controller.host_view();
+        let host = Retained::from(pending.controller.host_view());
+
+        // Background: a declared color resolves through the environment; an
+        // opaque window reads the theme's Background slot, exactly as the
+        // Swift controller painted `view.backgroundColor`.
+        let background: waterui::reactive::Computed<waterui::graphics::color::ResolvedColor> =
+            match &declaration.background {
+                WindowBackground::Opaque => Background.resolve(env).into_computed(),
+                WindowBackground::Color(color) => color.resolve(env),
+            };
+        apply_background(&host, &background.snapshot());
+        keepalive.watch(&background, {
+            let host = host.clone();
+            move |context| apply_background(&host, context.value())
+        });
 
         let content = declaration.build_content();
         let leaf = crate::dispatch::dispatcher(mtm)
@@ -753,6 +771,19 @@ mod imp {
                 height: bounds.size.height as f32,
             },
         }
+    }
+
+    /// `applyWindowBackground`'s write on `UIKit`: the resolved color as the
+    /// host view's `backgroundColor`, matching the Swift controller.
+    fn apply_background(host: &HostView, color: &waterui::graphics::color::ResolvedColor) {
+        let rgba = cocoa_ui::uikit::colors::extended_linear(
+            f64::from(color.red),
+            f64::from(color.green),
+            f64::from(color.blue),
+            f64::from(color.opacity),
+            f64::from(color.headroom),
+        );
+        cocoa_ui::view::set_background_color(host, Some(&rgba));
     }
 }
 
