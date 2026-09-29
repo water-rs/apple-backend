@@ -43,6 +43,7 @@ mod platform {
     use cocoa_ui::{Rect, view};
     use waterui::Str;
     use waterui::navigation::{NavigationController, NavigationTitleDisplayMode, NavigationView};
+    use waterui_core::layout::ProposalSize;
     use waterui_core::reactive::Signal;
 
     use crate::components::navigation::bar::{
@@ -233,9 +234,9 @@ mod platform {
         keep: &mut KeepAlive,
     ) -> cocoa_ui::Retained<cocoa_ui::objc2_ui_kit::UIBarButtonItem> {
         let mtm = cocoa_ui::MainThreadMarker::new().expect("main thread");
-        let action = cocoa_ui::uikit::first_control(item.leaf.view()).map(|control| {
+        let action = cocoa_ui::uikit::first_button(item.leaf.view()).map(|button| {
             alloc::rc::Rc::new(move || {
-                control.sendActionsForControlEvents(
+                button.sendActionsForControlEvents(
                     cocoa_ui::objc2_ui_kit::UIControlEvents::PrimaryActionTriggered,
                 );
             }) as alloc::rc::Rc<dyn Fn()>
@@ -245,7 +246,29 @@ mod platform {
                 cocoa_ui::uikit::bar_item(mtm, Some(symbol), None, action)
             }
             Some(BarItemIcon::View(icon)) => {
-                cocoa_ui::uikit::bar_item(mtm, None, Some(icon.view()), action)
+                // The declared icon draws inside the bar's chrome as a
+                // template image the bar tints; a view that cannot render
+                // stays hosted as the item's custom view.
+                let size = icon
+                    .layout()
+                    .measure(ProposalSize {
+                        width: None,
+                        height: None,
+                    })
+                    .size;
+                cocoa_ui::view::set_frame(
+                    icon.view(),
+                    cocoa_ui::geometry::Rect::new(
+                        0.0,
+                        0.0,
+                        f64::from(size.width),
+                        f64::from(size.height),
+                    ),
+                );
+                match cocoa_ui::bitmap::view_template_image(icon.view(), 24.0) {
+                    Some(image) => cocoa_ui::uikit::image_bar_item(mtm, Some(&image), action),
+                    None => cocoa_ui::uikit::bar_item(mtm, None, Some(item.leaf.view()), action),
+                }
             }
             None => cocoa_ui::uikit::bar_item(mtm, None, Some(item.leaf.view()), None),
         };
@@ -267,7 +290,7 @@ mod platform {
 
     use cocoa_ui::appkit::{
         HostView, HostedItem, Label, SearchField, ToolbarChild, ToolbarContent, WindowToolbar,
-        first_control, header_material_view, symbol_image,
+        first_button, header_material_view, symbol_image,
     };
     use cocoa_ui::objc2_app_kit::NSWindowStyleMask;
     use cocoa_ui::text::WrapWidth;
@@ -520,15 +543,18 @@ mod platform {
     }
 
     /// A semantic item as a toolbar child: the icon in a capsule, the action
-    /// forwarded to the content's own control.
+    /// forwarded to the content's own button.
     fn child(item: &BarItem) -> ToolbarChild {
-        let action = first_control(item.leaf.view()).map(|control| {
+        let button = first_button(item.leaf.view());
+        let action = button.as_ref().map(|button| {
+            let button = button.clone();
             alloc::rc::Rc::new(move || {
                 // SAFETY: `activate` on a control the same leaf owns
                 // is the documented way to fire its action.
-                unsafe { cocoa_ui::appkit::activate(&control) }
+                unsafe { cocoa_ui::appkit::activate(button.control()) }
             }) as alloc::rc::Rc<dyn Fn()>
         });
+        let bordered = button.as_ref().is_none_or(|button| !button.is_borderless());
         ToolbarChild {
             view: HostedItem {
                 view: cocoa_ui::view::retain_base(item.leaf.view()),
@@ -536,13 +562,27 @@ mod platform {
             },
             icon: match &item.icon {
                 Some(BarItemIcon::System(symbol)) => symbol_image(symbol),
-                Some(BarItemIcon::View(_)) | None => None,
+                Some(BarItemIcon::View(icon)) => {
+                    let size = icon
+                        .layout()
+                        .measure(ProposalSize {
+                            width: None,
+                            height: None,
+                        })
+                        .size;
+                    cocoa_ui::view::set_frame(
+                        icon.view(),
+                        Rect::new(0.0, 0.0, f64::from(size.width), f64::from(size.height)),
+                    );
+                    cocoa_ui::bitmap::view_template_image(icon.view(), 18.0)
+                }
+                None => None,
             },
             label: item
                 .title
                 .as_ref()
                 .map_or_else(String::new, |title| title.snapshot().to_plain().to_string()),
-            bordered: item.icon.is_none(),
+            bordered,
             action,
         }
     }

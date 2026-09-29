@@ -111,7 +111,7 @@ mod platform {
     use cocoa_ui::Retained;
     use cocoa_ui::objc2_ui_kit::{UIBarButtonItem, UIControlEvents};
     use cocoa_ui::uikit::{
-        LargeTitle, NavContentController, NavPage, NavSearch, bar_item, first_control,
+        LargeTitle, NavContentController, NavPage, NavSearch, bar_item, first_button,
     };
     use waterui::Environment;
     use waterui::Str;
@@ -121,6 +121,7 @@ mod platform {
         NavigationTransactionId, NavigationView,
     };
     use waterui::reactive::Signal;
+    use waterui_core::layout::ProposalSize;
 
     use crate::contract::{KeepAlive, NativeLeaf, RenderContext, Renderer};
 
@@ -381,19 +382,43 @@ mod platform {
 
         /// One semantic item as a `UIBarButtonItem`: an icon item carries a
         /// symbol plus an action forwarded to the rendered content's first
-        /// control — `firstButton.sendActions(.primaryActionTriggered)` —
+        /// button — `firstButton.sendActions(.primaryActionTriggered)` —
         /// while a plain item hosts the content itself. The title signal
         /// feeds `accessibilityLabel`.
         fn button(&self, item: &BarItem, keep: &mut KeepAlive) -> Retained<UIBarButtonItem> {
-            let action = first_control(item.leaf.view()).map(|control| {
+            let action = first_button(item.leaf.view()).map(|button| {
                 Rc::new(move || {
-                    control.sendActionsForControlEvents(UIControlEvents::PrimaryActionTriggered);
+                    button.sendActionsForControlEvents(UIControlEvents::PrimaryActionTriggered);
                 }) as Rc<dyn Fn()>
             });
             let object = match item.icon.as_ref() {
                 Some(BarItemIcon::System(name)) => bar_item(self.mtm, Some(name), None, action),
                 Some(BarItemIcon::View(icon)) => {
-                    bar_item(self.mtm, None, Some(icon.view()), action)
+                    // The declared icon draws inside the bar's chrome as a
+                    // template image the bar tints; a view that cannot
+                    // render stays hosted as the item's custom view.
+                    let size = icon
+                        .layout()
+                        .measure(ProposalSize {
+                            width: None,
+                            height: None,
+                        })
+                        .size;
+                    cocoa_ui::view::set_frame(
+                        icon.view(),
+                        cocoa_ui::geometry::Rect::new(
+                            0.0,
+                            0.0,
+                            f64::from(size.width),
+                            f64::from(size.height),
+                        ),
+                    );
+                    match cocoa_ui::bitmap::view_template_image(icon.view(), 24.0) {
+                        Some(image) => {
+                            cocoa_ui::uikit::image_bar_item(self.mtm, Some(&image), action)
+                        }
+                        None => bar_item(self.mtm, None, Some(item.leaf.view()), action),
+                    }
                 }
                 None => bar_item(self.mtm, None, Some(item.leaf.view()), None),
             };
@@ -518,7 +543,7 @@ mod platform {
     use cocoa_ui::Retained;
     use cocoa_ui::appkit::{
         HostView, HostedItem, HostedSearch, SearchField, ToolbarChild, ToolbarContent,
-        WindowToolbar, activate, first_control, run_animation, set_animated_alpha,
+        WindowToolbar, activate, first_button, run_animation, set_animated_alpha,
     };
     use cocoa_ui::geometry::Size as KitSize;
     use cocoa_ui::objc2_app_kit::{NSImage, NSView, NSWindowStyleMask};
@@ -890,12 +915,22 @@ mod platform {
         /// control — `firstButton`'s `performClick` — and a `View` icon or
         /// no icon hosts the content itself.
         fn child(item: &BarItem) -> ToolbarChild {
-            let action = first_control(item.leaf.view()).map(|control| {
+            // The item's action and its chrome both come from the button
+            // inside it, the way `firstButton` informed `actionItem`.
+            let button = first_button(item.leaf.view());
+            let action = button.as_ref().map(|button| {
+                let button = button.clone();
                 Rc::new(move || {
                     // SAFETY: toolbar actions fire on the main thread.
-                    unsafe { activate(&control) };
+                    unsafe { activate(button.control()) };
                 }) as Rc<dyn Fn()>
             });
+            let bordered = button.as_ref().is_none_or(|button| !button.is_borderless());
+            let label = item
+                .title
+                .as_ref()
+                .map(|title| title.snapshot().to_plain().to_string())
+                .unwrap_or_default();
             match item.icon.as_ref() {
                 Some(BarItemIcon::System(name)) => ToolbarChild {
                     view: HostedItem {
@@ -906,41 +941,36 @@ mod platform {
                         &objc2_foundation::NSString::from_str(name),
                         None,
                     ),
-                    label: item
-                        .title
-                        .as_ref()
-                        .map(|title| title.snapshot().to_plain().to_string())
-                        .unwrap_or_default(),
-                    bordered: false,
+                    label,
+                    bordered,
                     action,
                 },
-                Some(BarItemIcon::View(icon)) => ToolbarChild {
-                    view: HostedItem {
-                        view: cocoa_ui::view::retain_base(icon.view()),
-                        size: measure(icon),
-                    },
-                    icon: None,
-                    label: item
-                        .title
-                        .as_ref()
-                        .map(|title| title.snapshot().to_plain().to_string())
-                        .unwrap_or_default(),
-                    bordered: false,
-                    action: None,
-                },
+                Some(BarItemIcon::View(icon)) => {
+                    let size = measure(icon);
+                    set_frame(
+                        icon.view(),
+                        cocoa_ui::geometry::Rect::new(0.0, 0.0, size.width, size.height),
+                    );
+                    ToolbarChild {
+                        view: HostedItem {
+                            view: cocoa_ui::view::retain_base(item.leaf.view()),
+                            size: measure(&item.leaf),
+                        },
+                        icon: cocoa_ui::bitmap::view_template_image(icon.view(), 18.0),
+                        label,
+                        bordered,
+                        action,
+                    }
+                }
                 None => ToolbarChild {
                     view: HostedItem {
                         view: cocoa_ui::view::retain_base(item.leaf.view()),
                         size: measure(&item.leaf),
                     },
                     icon: None,
-                    label: item
-                        .title
-                        .as_ref()
-                        .map(|title| title.snapshot().to_plain().to_string())
-                        .unwrap_or_default(),
-                    bordered: false,
-                    action: None,
+                    label,
+                    bordered,
+                    action,
                 },
             }
         }

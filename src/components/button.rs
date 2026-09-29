@@ -192,6 +192,9 @@ fn configure_button(button: &Button, style: ButtonStyle) -> (f32, f32) {
         ButtonStyle::Plain | ButtonStyle::Link | ButtonStyle::Borderless => {
             button.set_bordered(false);
             button.set_transparent(true);
+            // Chrome presenting this button keeps the link and borderless
+            // styles bare; plain is only unstyled, not chrome-less.
+            button.set_borderless(matches!(style, ButtonStyle::Link | ButtonStyle::Borderless));
         }
         _ => panic!("unsupported WaterUI button style: {style:?}"),
     }
