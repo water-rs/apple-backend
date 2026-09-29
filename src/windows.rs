@@ -88,10 +88,16 @@ mod imp {
             declaration.closable,
             declaration.resizable,
         );
+        // `Window.frame` is the content rect — every other backend treats
+        // the binding as content-space (winit `inner_size`, GTK
+        // `set_default_size`), and the twin scaffold pins `contentRect`
+        // unconditionally.
         let frame = declaration.frame.snapshot();
-        let content_rect =
-            cocoa_ui::appkit::Window::content_rect_for_frame(mtm, into_kit_rect(frame), style);
-        let window = Rc::new(cocoa_ui::appkit::Window::new(mtm, content_rect, style));
+        let window = Rc::new(cocoa_ui::appkit::Window::new(
+            mtm,
+            into_kit_rect(frame),
+            style,
+        ));
         window.set_accepts_mouse_moved_events(true);
         window.set_alpha_value(0.0);
 
@@ -114,7 +120,7 @@ mod imp {
             let applying = applying_frame.clone();
             move |context| {
                 applying.set(true);
-                window.set_frame(
+                window.set_content_rect(
                     into_kit_rect(*context.value()),
                     context.metadata().try_get::<Animation>().is_some(),
                 );
@@ -127,7 +133,7 @@ mod imp {
             let applying = applying_frame;
             move || {
                 if !applying.get() {
-                    frame.set(into_layout_rect(window.frame()));
+                    frame.set(into_layout_rect(window.content_rect()));
                 }
             }
         };
@@ -214,7 +220,7 @@ mod imp {
             .render(content, env, mtm)
             .expect("window content must render: no handler or fallback claims it");
 
-        let host = HostView::new(mtm, content_rect);
+        let host = HostView::new(mtm, window.content_rect());
         host.add_subview(leaf.view());
         let leaf_view = cocoa_ui::view::retain_base(leaf.view());
 
