@@ -999,3 +999,87 @@ pub unsafe extern "C" fn waterui_apple_root_window_binding_free(binding: *mut c_
         drop(unsafe { Box::from_raw(binding.cast::<crate::windows::RootWindowBinding>()) });
     }
 }
+
+#[cfg(test)]
+// Bit-exact f32s round-trip; the asserts compare converted constants.
+#[allow(clippy::float_cmp)]
+mod tests {
+    use waterui_core::layout::ProposalSize;
+
+    use super::*;
+
+    #[test]
+    fn nan_axes_round_trip_to_unspecified_proposals() {
+        let proposal = WateruiProposalSize {
+            width: f32::NAN,
+            height: 42.0,
+        }
+        .into_proposal();
+        assert_eq!(proposal.width, None);
+        assert_eq!(proposal.height, Some(42.0));
+
+        let wire = WateruiProposalSize::from_proposal(ProposalSize::new(Some(10.0), None));
+        assert_eq!(wire.width, 10.0);
+        assert!(wire.height.is_nan());
+    }
+
+    #[test]
+    fn zero_is_a_real_bound_not_unspecified() {
+        let proposal = WateruiProposalSize {
+            width: 0.0,
+            height: 0.0,
+        }
+        .into_proposal();
+        assert_eq!(proposal.width, Some(0.0));
+        assert_eq!(proposal.height, Some(0.0));
+    }
+
+    #[test]
+    fn the_wire_rect_converts_to_both_geometry_domains() {
+        let wire = WateruiRect {
+            origin: WateruiPoint { x: 1.5, y: -2.5 },
+            size: WateruiSize {
+                width: 10.25,
+                height: 0.0,
+            },
+        };
+        let kit = wire.into_kit();
+        assert_eq!(kit.origin.x, 1.5);
+        assert_eq!(kit.origin.y, -2.5);
+        assert_eq!(kit.size.width, 10.25);
+        assert_eq!(kit.size.height, 0.0);
+        let layout = wire.into_layout();
+        assert_eq!(layout.origin().x, 1.5);
+        assert_eq!(layout.size().height, 0.0);
+
+        let round = WateruiRect::from(cocoa_ui::Rect::new(4.0, 8.0, 16.0, 24.0));
+        assert_eq!(round.origin.x, 4.0);
+        assert_eq!(round.size.height, 24.0);
+    }
+
+    #[test]
+    fn alignments_round_trip_with_center_as_the_default() {
+        assert_eq!(
+            WateruiHorizontalGuideAlignment::from_alignment(HorizontalAlignment::Leading)
+                .into_alignment(),
+            HorizontalAlignment::Leading
+        );
+        assert_eq!(
+            WateruiHorizontalGuideAlignment::from_alignment(HorizontalAlignment::Trailing)
+                .into_alignment(),
+            HorizontalAlignment::Trailing
+        );
+        // Every other horizontal alignment (center, and any custom
+        // `AlignmentKeyId` a host defines later) lands on the center slot.
+        for alignment in [HorizontalAlignment::Center, HorizontalAlignment::default()] {
+            assert_eq!(
+                WateruiHorizontalGuideAlignment::from_alignment(alignment).into_alignment(),
+                HorizontalAlignment::Center
+            );
+        }
+        assert_eq!(
+            WateruiVerticalGuideAlignment::from_alignment(VerticalAlignment::Top).into_alignment(),
+            VerticalAlignment::Top
+        );
+    }
+}
