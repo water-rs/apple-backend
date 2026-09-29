@@ -20,6 +20,7 @@ default = [
     "image",
     "secure_field",
     "slider",
+    "spacer",
     "stepper",
     "text",
     "text_field",
@@ -29,6 +30,7 @@ button = []
 image = []
 secure_field = []
 slider = []
+spacer = []
 stepper = []
 text = []
 text_field = []

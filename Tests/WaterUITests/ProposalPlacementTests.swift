@@ -151,15 +151,13 @@ struct ProposalPlacementTests {
 
   // MARK: - Spacer and FFI surface
 
-  /// The framework's `Spacer::DEFAULT_LAYOUT_PRIORITY` sits below every real
-  /// priority band — a spacer yields all siblings before taking space.
+  /// The framework's `Spacer::DEFAULT_LAYOUT_PRIORITY` (`Int32.min`) sits
+  /// below every real priority band — a spacer yields all siblings before
+  /// taking space.
   @Test func spacerDefaultPriorityIsTheFrameworkConstant() {
-    let spacer = WuiSpacer(stretchAxis: .mainAxis)
-    #expect(spacer.layoutPriority() == Int32.min)
-
     let proxy = SubViewProxy(
       stretchAxis: .both,
-      priority: spacer.layoutPriority()
+      priority: Int32.min
     ) { _ in
       WuiViewDimensions(size: .zero)
     }

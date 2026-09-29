@@ -14,6 +14,8 @@ pub mod image;
 pub mod secure_field;
 #[cfg(feature = "slider")]
 pub mod slider;
+#[cfg(feature = "spacer")]
+pub mod spacer;
 #[cfg(feature = "stepper")]
 pub mod stepper;
 #[cfg(feature = "text")]

@@ -191,7 +191,6 @@ func registerBuiltinComponentsIfNeeded() {
   // Basic components
   registerComponent(WuiEmpty.self)
   registerComponent(WuiPlain.self)
-  registerComponent(WuiSpacer.self)
   registerComponent(WuiColorView.self)
   registerComponent(WuiResolvedColorView.self)
   registerComponent(WuiResolvedGradientView.self)
