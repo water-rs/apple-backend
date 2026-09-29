@@ -100,8 +100,13 @@ mod imp {
                 Application::shared(mtm).terminate();
             }
         } else {
+            // Content renders under the environment `app` returned: its own
+            // installs (`install_chromium`, `.state(..)` chains) landed as
+            // overlays on the clone it was handed, which the host env cannot
+            // see — `insert` never propagates between clones.
+            let app_env = parts.env;
             for window in parts.windows {
-                let host = crate::windows::realize(window, env, mtm);
+                let host = crate::windows::realize(window, &app_env, mtm);
                 crate::windows::track(host);
             }
         }
@@ -209,7 +214,9 @@ mod imp {
             !parts.windows.is_empty(),
             "an iOS application must declare at least one window"
         );
-        crate::windows::declare(parts.windows, env, mtm);
+        // Same hand-off as macOS: content renders under the env `app`
+        // returned — its installs are invisible to the host env.
+        crate::windows::declare(parts.windows, &parts.env, mtm);
         core::mem::forget(launch);
     }
 

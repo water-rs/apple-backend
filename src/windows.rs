@@ -405,6 +405,10 @@ mod imp {
         /// Declarations still waiting on a scene, in declaration order.
         static DECLARED: RefCell<VecDeque<Window>> =
             const { RefCell::new(VecDeque::new()) };
+        /// The environment `app` returned, stored once `declare` runs: a
+        /// scene connecting afterward realizes its declaration under it,
+        /// since the app's own installs are invisible to the launch env.
+        static APP_ENV: RefCell<Option<Environment>> = const { RefCell::new(None) };
     }
 
     /// Installs the `WindowManager` service: `Window::show` resolves the
@@ -445,10 +449,15 @@ mod imp {
         };
         let declaration = DECLARED.with(|declared| declared.borrow_mut().pop_front());
         if let Some(declaration) = declaration {
+            // `declare` ran before this declaration was queued, so the app
+            // env exists and carries the app's own installs; the launch
+            // env is the fallback only for a path that cannot happen.
+            let app_env =
+                APP_ENV.with(|app_env| app_env.borrow().clone().unwrap_or_else(|| env.clone()));
             HOSTS.with(|hosts| {
                 hosts
                     .borrow_mut()
-                    .push(realize(&declaration, pending, env, mtm));
+                    .push(realize(&declaration, pending, &app_env, mtm));
             });
         } else {
             PENDING.with(|pending_scenes| {
@@ -460,7 +469,12 @@ mod imp {
 
     /// Delivers the application's declared windows — `AppParts::windows` — to
     /// the scenes waiting on them, or queues them for future connections.
+    /// `env` is the env `app` returned; it is stored so `connect` realizes
+    /// declarations queued ahead of its scene under the same env.
     pub fn declare(windows: Vec<Window>, env: &Environment, mtm: MainThreadMarker) {
+        APP_ENV.with(|app_env| {
+            *app_env.borrow_mut() = Some(env.clone());
+        });
         for declaration in windows {
             let pending = PENDING.with(|pending_scenes| pending_scenes.borrow_mut().pop_front());
             if let Some(pending) = pending {
