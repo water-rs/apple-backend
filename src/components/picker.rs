@@ -166,13 +166,20 @@ fn layout_children(view: &PlatformView, state: &PickerState) {
     let label_w = f64::from(label_size.width);
     let control_x = label_w + spacing(LABEL_SPACING, label_w);
 
-    place(
-        state.picker.view(),
-        control_x,
-        0.0,
-        (width - control_x).max(0.0),
-        height,
-    );
+    // The control hugs its content: its own intrinsic width beside the
+    // label, never the leaf's leftover — a wider leaf just means slack the
+    // layout already positioned around us.
+    let control_w = {
+        #[cfg(target_os = "macos")]
+        {
+            state.picker.intrinsic_size().width
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            (width - control_x).max(0.0)
+        }
+    };
+    place(state.picker.view(), control_x, 0.0, control_w, height);
 
     if let Some(label) = &state.label {
         let label_h = f64::from(label_size.height);
@@ -233,15 +240,14 @@ impl SubView for PickerSubView {
         let intrinsic_width = label_w + spacing(LABEL_SPACING, label_w) + control_size.width;
         let intrinsic_height = f64::from(label_size.height).max(control_size.height);
 
-        // The wheel keeps its intrinsic height but takes the offered width,
-        // matching `WuiPicker`'s `CGSize(width: proposal.width ?? intrinsic)`.
+        // A `SwiftUI` `Picker` hugs its content: label plus control at their
+        // intrinsic sizes. The `UIKit` wheel is the exception — `WuiPicker`
+        // stretches it to the proposed width.
         let wheel = state.style == PickerStyle::Radio && cfg!(target_os = "ios");
         let width = if wheel {
             proposal.width.map_or(intrinsic_width, f64::from)
         } else {
-            proposal
-                .width
-                .map_or(intrinsic_width, |w| f64::from(w).max(intrinsic_width))
+            intrinsic_width
         };
         let height = if wheel {
             intrinsic_height
@@ -254,13 +260,10 @@ impl SubView for PickerSubView {
     }
 
     fn stretch_axis(&self) -> StretchAxis {
-        let state = self.state.borrow();
-        if state.label.is_none() {
-            // No label: the control is pinned to every edge.
-            StretchAxis::Both
-        } else {
-            StretchAxis::Horizontal
-        }
+        let _ = self;
+        // `SwiftUI`'s picker does not stretch — even unlabeled it takes its
+        // intrinsic size; an hstack spacer positions it, not the leaf.
+        StretchAxis::None
     }
 
     fn priority(&self) -> i32 {

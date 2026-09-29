@@ -14,11 +14,16 @@
 //! leaf drops, the watchers stop and the platform object releases.
 
 use alloc::boxed::Box;
+use alloc::rc::Rc;
 use alloc::vec::Vec;
 use core::any::Any;
 use core::fmt;
 
 use cocoa_ui::PlatformView;
+#[cfg(target_os = "macos")]
+use cocoa_ui::appkit::HostView;
+#[cfg(target_os = "ios")]
+use cocoa_ui::uikit::HostView;
 use waterui::reactive::Signal;
 use waterui::reactive::watcher::Context;
 use waterui_backend_core::{AnyView, Environment};
@@ -84,7 +89,7 @@ impl KeepAlive {
 /// that.
 pub struct NativeLeaf {
     keepalive: KeepAlive,
-    layout: Box<dyn SubView>,
+    layout: Rc<dyn SubView>,
     view: Retained<PlatformView>,
 }
 
@@ -102,7 +107,7 @@ impl NativeLeaf {
     pub fn new<V: AsRef<PlatformView> + ?Sized>(view: &V, layout: impl SubView + 'static) -> Self {
         Self {
             keepalive: KeepAlive::default(),
-            layout: Box::new(crate::measure_memo::MemoizingSubView::new(Box::new(layout))),
+            layout: Rc::new(crate::measure_memo::MemoizingSubView::new(Box::new(layout))),
             view: cocoa_ui::view::retain_base(view),
         }
     }
@@ -117,6 +122,30 @@ impl NativeLeaf {
     #[must_use]
     pub fn layout(&self) -> &dyn SubView {
         &*self.layout
+    }
+
+    /// Mirrors the leaf's layout face onto the view's intrinsic measure,
+    /// so an Auto Layout parent — the toggle's row is one — can size the
+    /// mounted child. Without it a `HostView` leaf reports no intrinsic
+    /// content size and the constraint system collapses it to zero.
+    fn install_intrinsic_measure(view: &PlatformView, layout: &Rc<dyn SubView>) {
+        if let Some(host) = view.downcast_ref::<HostView>() {
+            let layout = Rc::clone(layout);
+            host.set_measure_handler(move |_host, proposal| {
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "the layout contract is f32; measured points always fit"
+                )]
+                let measured = layout.measure(waterui_core::layout::ProposalSize::new(
+                    proposal.width.map(|width| width as f32),
+                    proposal.height.map(|height| height as f32),
+                ));
+                cocoa_ui::geometry::Size::new(
+                    f64::from(measured.size.width),
+                    f64::from(measured.size.height),
+                )
+            });
+        }
     }
 
     /// Keeps `value` — a watcher guard, a rendered child leaf, an
@@ -139,6 +168,7 @@ impl NativeLeaf {
     /// both; dropping the handle removes the view and releases the leaf.
     #[must_use]
     pub fn mount(self, parent: &PlatformView) -> Mounted {
+        Self::install_intrinsic_measure(&self.view, &self.layout);
         cocoa_ui::view::add_subview(parent, &self.view);
         Mounted(Some(self))
     }
@@ -148,7 +178,7 @@ impl NativeLeaf {
     pub(crate) fn from_seam(view: Retained<PlatformView>, layout: WateruiSubView) -> Self {
         Self {
             keepalive: KeepAlive::default(),
-            layout: Box::new(crate::measure_memo::MemoizingSubView::new(Box::new(
+            layout: Rc::new(crate::measure_memo::MemoizingSubView::new(Box::new(
                 SeamSubView::new(&view, layout),
             ))),
             view,
@@ -158,7 +188,7 @@ impl NativeLeaf {
     /// Splits the leaf for a host that manages the parts separately — a
     /// window that mounts the view, measures through the layout face, and
     /// drops the rest with its own resources.
-    pub(crate) fn into_parts(self) -> (Retained<PlatformView>, Box<dyn SubView>, KeepAlive) {
+    pub(crate) fn into_parts(self) -> (Retained<PlatformView>, Rc<dyn SubView>, KeepAlive) {
         (self.view, self.layout, self.keepalive)
     }
 }

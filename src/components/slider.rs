@@ -262,9 +262,15 @@ fn value_animation(metadata: &Metadata) -> Option<ValueAnimation> {
 
 /// The `NSControl.ControlSize` mapping `WuiSlider` applies: `AppKit` has no
 /// extra-large size, so `Large` and `ExtraLarge` both map to `Large`.
+/// `ExtraSmall` — `Slider::new`'s default — maps to `Regular`: the recorded
+/// reference renders a default `SwiftUI.Slider`, which on macOS is the
+/// regular track; `Mini` would draw the leaf 4pt short.
 const fn platform_control_size(size: waterui::component::ControlSize) -> ControlSize {
     match size {
-        waterui::component::ControlSize::ExtraSmall => ControlSize::Mini,
+        // `SwiftUI.Slider` renders the framework's `ExtraSmall` default at
+        // the regular track, so the arm deliberately shares the wildcard's.
+        #[allow(clippy::match_same_arms)]
+        waterui::component::ControlSize::ExtraSmall => ControlSize::Regular,
         waterui::component::ControlSize::Small => ControlSize::Small,
         waterui::component::ControlSize::Large | waterui::component::ControlSize::ExtraLarge => {
             ControlSize::Large
@@ -480,7 +486,7 @@ mod tests {
     #[test]
     fn platform_control_size_collapses_extra_large() {
         use waterui::component::ControlSize as Wui;
-        assert_eq!(platform_control_size(Wui::ExtraSmall), ControlSize::Mini);
+        assert_eq!(platform_control_size(Wui::ExtraSmall), ControlSize::Regular);
         assert_eq!(platform_control_size(Wui::Small), ControlSize::Small);
         assert_eq!(platform_control_size(Wui::Medium), ControlSize::Regular);
         assert_eq!(platform_control_size(Wui::Large), ControlSize::Large);

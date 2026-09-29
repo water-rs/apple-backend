@@ -18,6 +18,7 @@
 //! are the ownership rules above, spelled out per parameter.
 
 use alloc::boxed::Box;
+use alloc::rc::Rc;
 use core::ffi::c_void;
 use core::ptr;
 
@@ -720,7 +721,7 @@ unsafe extern "C" {
 /// as the other side can measure through it.
 struct SeamOwned {
     _keepalive: crate::contract::KeepAlive,
-    layout: Box<dyn SubView>,
+    layout: Rc<dyn SubView>,
 }
 
 impl SubView for SeamOwned {
