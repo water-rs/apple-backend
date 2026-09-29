@@ -412,15 +412,23 @@ fn label_leaf(
         let label = label.clone();
         move |view| {
             let bounds = cocoa_ui::view::bounds(view);
-            let width = bounds.size.width.max(label.fitting_width());
-            // One point of negative leading offset: the cell keeps a
-            // two-point inset inside its frame, so starting the label a
-            // point left of the leaf edge puts ink where the platform
-            // text field would draw it.
-            cocoa_ui::view::set_frame(
-                as_view(&label),
-                cocoa_ui::geometry::Rect::new(-1.0, 0.0, width, bounds.size.height),
-            );
+            // `NSTextField`'s cell insets its text roughly 1.75pt inside
+            // the frame and needs about 3.5pt past the bare text bounds
+            // before it wraps; the offset and the added width place ink
+            // exactly on the leaf's own bounds. `UILabel` draws at the
+            // frame's origin and wraps at `preferredMaxLayoutWidth`, so
+            // it takes the bounds unchanged.
+            let frame = if cfg!(target_os = "macos") {
+                cocoa_ui::geometry::Rect::new(
+                    -2.0,
+                    0.0,
+                    bounds.size.width + 4.0,
+                    bounds.size.height,
+                )
+            } else {
+                bounds
+            };
+            cocoa_ui::view::set_frame(as_view(&label), frame);
         }
     });
 
