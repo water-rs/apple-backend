@@ -16,6 +16,8 @@ pub fn install(dispatcher: &mut Dispatcher) {
     // Wave A — trivial leaves.
     #[cfg(feature = "image")]
     crate::components::image::install(dispatcher);
+    #[cfg(feature = "slider")]
+    crate::components::slider::install(dispatcher);
     #[cfg(feature = "text")]
     crate::components::text::install(dispatcher);
     #[cfg(feature = "button")]

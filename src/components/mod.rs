@@ -9,6 +9,8 @@
 pub mod button;
 #[cfg(feature = "image")]
 pub mod image;
+#[cfg(feature = "slider")]
+pub mod slider;
 #[cfg(feature = "text")]
 pub mod text;
 #[cfg(feature = "toggle")]

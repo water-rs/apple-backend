@@ -200,7 +200,6 @@ func registerBuiltinComponentsIfNeeded() {
 
   // Interactive components
 
-  registerComponent(WuiSlider.self)
   registerComponent(WuiTextField.self)
   registerComponent(WuiSecureField.self)
   registerComponent(WuiStepper.self)
