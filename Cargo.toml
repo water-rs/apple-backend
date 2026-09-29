@@ -17,6 +17,7 @@ workspace = true
 # dependency in the artifact; the default is everything ported so far.
 default = [
     "anchored_overlay",
+    "applied_filter",
     "accessibility_identifier",
     "accessibility_metadata",
     "badge",
@@ -78,6 +79,7 @@ default = [
 ]
 anchored_overlay = []
 accessibility_identifier = []
+applied_filter = []
 accessibility_metadata = []
 badge = []
 border = []

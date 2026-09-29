@@ -1341,6 +1341,12 @@ pub async fn wait_for_first_frames(view: &cocoa_ui::PlatformView) {
                 pending = true;
             }
         });
+        #[cfg(feature = "applied_filter")]
+        crate::components::applied_filter::collect_filters(view, &mut |state| {
+            if crate::components::applied_filter::filter_needs_frame(state, cx.waker().clone()) {
+                pending = true;
+            }
+        });
         if pending {
             core::task::Poll::Pending
         } else {

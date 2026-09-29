@@ -207,12 +207,6 @@ func registerBuiltinComponentsIfNeeded() {
 
   // Navigation components
 
-  // GPU components. Off when the app disabled WaterUI's `gpu` feature, which
-  // is what exports the GPU symbols these components bind to.
-  #if !WATERUI_NO_GPU
-    registerMetadataComponent(WuiAppliedFilter.self)
-  #endif
-
   // WebView component. On only when the app's graph carries `waterui-webview`,
   // which is what exports the `waterui_webview_*` symbols it binds to.
   #if WATERUI_WEBVIEW

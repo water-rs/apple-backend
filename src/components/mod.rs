@@ -11,6 +11,8 @@ pub mod accessibility_identifier;
 pub mod accessibility_metadata;
 #[cfg(feature = "anchored_overlay")]
 pub mod anchored_overlay;
+#[cfg(feature = "applied_filter")]
+pub mod applied_filter;
 #[cfg(feature = "badge")]
 pub mod badge;
 #[cfg(feature = "border")]

@@ -156,6 +156,8 @@ pub fn install(dispatcher: &mut Dispatcher) {
     crate::components::gpu_surface::install(dispatcher);
     #[cfg(feature = "view_effect")]
     crate::components::view_effect::install(dispatcher);
+    #[cfg(feature = "applied_filter")]
+    crate::components::applied_filter::install(dispatcher);
     #[cfg(feature = "picture")]
     crate::components::picture::install(dispatcher);
     #[cfg(feature = "resolved_gradient")]
