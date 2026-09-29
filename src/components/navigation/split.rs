@@ -130,6 +130,10 @@ mod platform {
         ) = layout.into_parts();
         let mtm = ctx.mtm();
         let nav = SplitController::new(mtm, content.is_some());
+        // SwiftUI collapses a NavigationSplitView onto its sidebar whatever
+        // the selection — the destination's row stays highlighted and the
+        // detail is where a tap goes from there.
+        nav.set_collapsed_top_column(Some(UISplitViewControllerColumn::Primary));
 
         let sidebar_leaf = ctx.render(sidebar.build());
         let sidebar_vc = NavContentController::new(mtm, sidebar_leaf.view());
@@ -238,8 +242,9 @@ mod platform {
     use core::cell::RefCell;
 
     use crate::contract::{NativeLeaf, RenderContext};
-    use cocoa_ui::Retained;
-    use cocoa_ui::appkit::{Column, ColumnWidth, SplitViewController};
+    use cocoa_ui::appkit::{Column, ColumnWidth, HostView, SplitViewController, WindowToolbar};
+    use cocoa_ui::objc2_app_kit::NSWindowStyleMask;
+    use cocoa_ui::{Rect, Retained, view};
     use waterui::navigation::{NavigationSplitColumnVisibility, NavigationSplitLayout};
 
     use crate::contract::KeepAlive;
@@ -342,8 +347,31 @@ mod platform {
             },
         ]);
 
-        let mut leaf = NativeLeaf::new(&*nav_for_binds.view(), Fill);
+        // A titled window's toolbar shows the sidebar toggle beside the
+        // traffic lights; the coordinator is keyed per window, so attaching
+        // here shares the instance the navigation pages publish into.
+        let host = HostView::new(mtm, Rect::ZERO);
+        view::add_subview(&host, &nav_for_binds.view());
+        host.set_layout_handler(|host| {
+            let bounds = view::bounds(host);
+            if let Some(sub) = view::subviews(host).first() {
+                view::set_frame(sub, bounds);
+            }
+        });
+        host.set_window_handler({
+            let nav = nav_for_binds.clone();
+            move |host| {
+                let Some(window) = view::window(host) else {
+                    return;
+                };
+                if window.styleMask().contains(NSWindowStyleMask::Titled) {
+                    WindowToolbar::attached(&window).set_sidebar_split(Some(&nav));
+                }
+            }
+        });
+        let mut leaf = NativeLeaf::new(&*host, Fill);
         leaf.keep(split);
+        leaf.keep(host);
         leaf
     }
 
