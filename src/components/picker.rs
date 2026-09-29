@@ -132,6 +132,7 @@ fn rebuild_items(state: &Rc<RefCell<PickerState>>, items: &[PickerItem<Id>]) {
             item.content.content().watch(move |ctx| {
                 let mut borrowed = state.borrow_mut();
                 borrowed.titles[index] = item_title(ctx.value());
+                crate::measure_memo::invalidate();
                 let titles = borrowed.titles.clone();
                 borrowed.picker.set_items(&titles);
                 let index = borrowed

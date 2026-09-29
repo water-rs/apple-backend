@@ -898,6 +898,7 @@ mod platform_impl {
                 let Some(view) = weak.load() else {
                     return;
                 };
+                crate::measure_memo::invalidate();
                 let plain = cocoa_ui::text::strip_bidi_controls(&styled.to_plain());
                 view.set_text(&objc2_foundation::NSString::from_str(&plain), kind);
             };
@@ -1059,6 +1060,7 @@ mod platform_impl {
                 let Some(band) = weak.load() else {
                     return;
                 };
+                crate::measure_memo::invalidate();
                 let plain = cocoa_ui::text::strip_bidi_controls(&styled.to_plain());
                 band.set_text(&objc2_foundation::NSString::from_str(&plain));
             };

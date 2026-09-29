@@ -134,6 +134,7 @@ fn apply_items(state: &Rc<RefCell<MenuState>>, items: Vec<ResolvedMenuItem>) {
     // `invalidateCapturedRendering`: a rebuilt menu may measure
     // differently.
     view::invalidate_layout(&state.borrow().host);
+    crate::measure_memo::invalidate();
 }
 
 /// Rebuilds the trigger's menu from the live items.
@@ -333,6 +334,7 @@ pub fn install(dispatcher: &mut Dispatcher) {
                 if state.selected.get() != Some(selected) {
                     state.selected.set(Some(selected));
                     host.set_needs_layout();
+                    crate::measure_memo::invalidate();
                 }
             }
         });

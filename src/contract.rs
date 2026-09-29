@@ -102,7 +102,7 @@ impl NativeLeaf {
     pub fn new<V: AsRef<PlatformView> + ?Sized>(view: &V, layout: impl SubView + 'static) -> Self {
         Self {
             keepalive: KeepAlive::default(),
-            layout: Box::new(layout),
+            layout: Box::new(crate::measure_memo::MemoizingSubView::new(Box::new(layout))),
             view: cocoa_ui::view::retain_base(view),
         }
     }
@@ -148,7 +148,9 @@ impl NativeLeaf {
     pub(crate) fn from_seam(view: Retained<PlatformView>, layout: WateruiSubView) -> Self {
         Self {
             keepalive: KeepAlive::default(),
-            layout: Box::new(SeamSubView::new(&view, layout)),
+            layout: Box::new(crate::measure_memo::MemoizingSubView::new(Box::new(
+                SeamSubView::new(&view, layout),
+            ))),
             view,
         }
     }

@@ -35,6 +35,7 @@ pub(crate) mod components;
 pub(crate) mod first_paint;
 pub(crate) mod fonts;
 pub(crate) mod locale;
+pub(crate) mod measure_memo;
 #[cfg(target_os = "macos")]
 pub(crate) mod menus;
 pub(crate) mod proposal;

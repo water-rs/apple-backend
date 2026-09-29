@@ -137,6 +137,7 @@ fn update_child(state: &Rc<RefCell<DynamicState>>, view: AnyView) {
         }
         state.child = Some(mounted);
         view::invalidate_layout(&state.host);
+        crate::measure_memo::invalidate();
         state.host.clone()
     };
     // Force a synchronous layout pass so the new content updates

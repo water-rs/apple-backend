@@ -255,6 +255,7 @@ fn render_attributed(state: &TextState) -> Retained<objc2_foundation::NSAttribut
 /// Pushes the rebuilt attributed string onto the label, animating the swap
 /// when the watcher metadata asks for it.
 fn rebuild(state: &TextState, duration: Option<f64>) {
+    crate::measure_memo::invalidate();
     let attributed = render_attributed(state);
     match duration {
         Some(seconds) => {
@@ -388,6 +389,7 @@ fn apply_alignment(label: &Label, alignment: HorizontalAlignment) {
         NSTextAlignment::Natural
     };
     label.set_text_alignment(alignment);
+    crate::measure_memo::invalidate();
 }
 
 /// Builds a label leaf around `styled` at `line_limit`/`alignment`, sharing

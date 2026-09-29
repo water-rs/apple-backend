@@ -396,6 +396,7 @@ fn render(config: ScrollView, ctx: &RenderContext<'_>) -> NativeLeaf {
         move |scroll| {
             if layout_viewport(scroll) != content.laid_out_viewport.get() {
                 scroll.set_needs_layout();
+                crate::measure_memo::invalidate();
             }
         }
     });

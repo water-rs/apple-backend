@@ -185,6 +185,7 @@ fn render(config: BadgeConfig, ctx: &RenderContext<'_>) -> NativeLeaf {
         move |value| {
             state.borrow().indicator.set_value(value);
             host.set_needs_layout();
+            crate::measure_memo::invalidate();
         }
     });
 

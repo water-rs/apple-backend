@@ -291,7 +291,9 @@ fn update_attached_views(state: &TableState) {
 fn reload_content(state: &TableState) {
     update_attached_views(state);
     state.host.set_needs_layout();
+    crate::measure_memo::invalidate();
     view::invalidate_layout(&state.host);
+    crate::measure_memo::invalidate();
 }
 
 /// `reloadContent` (`AppKit`): refresh the column titles, recompute row
@@ -313,7 +315,9 @@ fn reload_content(state: &mut TableState) {
     state.table.reload_data();
     TableView::refresh_header(&state.header);
     state.host.set_needs_layout();
+    crate::measure_memo::invalidate();
     view::invalidate_layout(&state.host);
+    crate::measure_memo::invalidate();
 }
 
 /// `WuiStableViewCollection`'s reconcile for one column's rows: reuse the

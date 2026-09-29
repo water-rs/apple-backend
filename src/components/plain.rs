@@ -189,6 +189,7 @@ fn render(state: &PlainState, duration: Option<f64>) {
         None => state.label.set_attributed_text(&attributed),
     }
     cocoa_ui::view::invalidate_layout(&state.label);
+    crate::measure_memo::invalidate();
 }
 
 /// The label's layout face: intrinsic, baseline-aware, non-stretching.

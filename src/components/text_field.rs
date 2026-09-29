@@ -600,6 +600,7 @@ pub fn install(dispatcher: &mut Dispatcher) {
             {
                 let field = field.clone();
                 move |state| {
+                    crate::measure_memo::invalidate();
                     let attributed = render_attributed(state);
                     #[cfg(target_os = "ios")]
                     field.set_attributed_text(&attributed);
@@ -629,7 +630,10 @@ pub fn install(dispatcher: &mut Dispatcher) {
             &config.prompt.content.snapshot(),
             {
                 let field = field.clone();
-                move |state| field.set_placeholder(&render_attributed(state))
+                move |state| {
+                    crate::measure_memo::invalidate();
+                    field.set_placeholder(&render_attributed(state));
+                }
             },
         );
         leaf.watch(&config.prompt.content, restyle(&prompt_state));

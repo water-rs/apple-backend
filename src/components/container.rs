@@ -443,6 +443,7 @@ fn sync_children(state: &mut ContainerState, ids: Vec<ItemId>) {
     view::reconcile_subviews(&state.host, &ordered_views);
     state.order = order;
     state.item_ids = ids;
+    crate::measure_memo::invalidate();
     state.host.set_needs_layout();
 }
 
@@ -482,6 +483,7 @@ fn update_virtual_ids(state: &mut ContainerState, ids: Vec<ItemId>) {
     state.item_ids = ids;
     state.measured_main.retain(|id, _| seen.contains(id));
     state.measured_cross.retain(|id, _| seen.contains(id));
+    crate::measure_memo::invalidate();
     let dropped: Vec<ItemId> = state
         .rendered
         .keys()
@@ -500,6 +502,7 @@ fn invalidate_virtual_layout(state: &ContainerState) {
     state.host.invalidateIntrinsicContentSize();
     state.host.set_needs_layout();
     view::invalidate_layout(&state.host);
+    crate::measure_memo::invalidate();
 }
 
 /// `installScrollObservationIfNeeded` + `teardownScrollObservation`: while
@@ -557,6 +560,7 @@ fn perform_lazy_layout(state: &mut ContainerState) {
         state.measured_main.clear();
         state.measured_cross.clear();
         state.rendered.clear();
+        crate::measure_memo::invalidate();
     }
 
     let viewport = current_viewport(state);
@@ -603,6 +607,7 @@ fn perform_lazy_layout(state: &mut ContainerState) {
         {
             state.measured_main.insert(id, main);
             state.measured_cross.insert(id, cross_axis);
+            crate::measure_memo::invalidate();
             needs_invalidation = true;
         }
 
