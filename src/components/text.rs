@@ -34,6 +34,7 @@ use crate::dispatch::Dispatcher;
 
 #[cfg(target_os = "macos")]
 mod platform {
+    pub(super) use cocoa_ui::appkit::HostView;
     pub(super) use cocoa_ui::appkit::Label;
     pub(super) use cocoa_ui::appkit::colors;
     pub(super) use cocoa_ui::objc2_app_kit::NSTextAlignment;
@@ -42,12 +43,13 @@ mod platform {
 #[cfg(target_os = "ios")]
 mod platform {
     pub(super) use cocoa_ui::objc2_ui_kit::NSTextAlignment;
+    pub(super) use cocoa_ui::uikit::HostView;
     pub(super) use cocoa_ui::uikit::Label;
     pub(super) use cocoa_ui::uikit::colors;
 }
 
 use cocoa_ui::PlatformView;
-use platform::Label;
+use platform::{HostView, Label};
 
 /// The label as its platform view, for animations and layout direction.
 fn as_view(label: &Label) -> &PlatformView {
@@ -393,8 +395,26 @@ fn apply_alignment(label: &Label, alignment: HorizontalAlignment) {
 pub fn install(dispatcher: &mut Dispatcher) {
     dispatcher.register_native::<TextConfig>(|config, ctx| {
         let mtm = ctx.mtm();
+        // The leaf is a container holding the label, `WuiTextBase`'s shape:
+        // the leaf measures bare text bounds while the label inside keeps
+        // its cell-fitting width, so text ink never clips when the two
+        // disagree by the cell's insets.
+        let host = HostView::new(mtm, cocoa_ui::geometry::Rect::ZERO);
         let label = Label::new(mtm);
         label.set_line_limit(config.line_limit.map_or(0, NonZero::get));
+        let host_view: &PlatformView = &host;
+        host.add_subview(as_view(&label));
+        host.set_layout_handler({
+            let label = label.clone();
+            move |view| {
+                let bounds = cocoa_ui::view::bounds(view);
+                let width = bounds.size.width.max(label.fitting_width());
+                cocoa_ui::view::set_frame(
+                    as_view(&label),
+                    cocoa_ui::geometry::Rect::new(0.0, 0.0, width, bounds.size.height),
+                );
+            }
+        });
 
         let state = Rc::new(RefCell::new(TextState {
             mtm,
@@ -430,7 +450,7 @@ pub fn install(dispatcher: &mut Dispatcher) {
         apply_alignment(&label, config.paragraph_alignment.snapshot());
 
         let mut leaf = NativeLeaf::new(
-            as_view(&label),
+            host_view,
             TextSubView {
                 label: label.clone(),
             },
