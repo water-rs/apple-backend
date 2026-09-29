@@ -446,6 +446,29 @@ fn sync_children(state: &mut ContainerState, ids: Vec<ItemId>) {
     state.host.set_needs_layout();
 }
 
+/// Applies a collection change. Mounting a child may emit back into this
+/// container's own `contents` signal, making the watch fire reentrantly
+/// while the in-flight reconcile still holds the state; that emission is
+/// requeued on the main queue and applied once the borrow is released.
+fn reconcile_children(
+    state: &Rc<RefCell<ContainerState>>,
+    mtm: cocoa_ui::MainThreadMarker,
+    ids: Vec<ItemId>,
+) {
+    let Ok(mut borrowed) = state.try_borrow_mut() else {
+        let state = Rc::clone(state);
+        cocoa_ui::main_queue::enqueue_local(mtm, move |_mtm| {
+            reconcile_children(&state, mtm, ids);
+        });
+        return;
+    };
+    if borrowed.lazy.is_some() {
+        update_virtual_ids(&mut borrowed, ids);
+    } else {
+        sync_children(&mut borrowed, ids);
+    }
+}
+
 /// `updateVirtualIds`: filter measurements and rendered children to the ids
 /// that survived, then invalidate.
 fn update_virtual_ids(state: &mut ContainerState, ids: Vec<ItemId>) {
@@ -845,12 +868,7 @@ pub fn install(dispatcher: &mut Dispatcher) {
                 let metadata = ctx.metadata().clone();
                 let state = Rc::clone(&state);
                 with_platform_animation(&metadata, move || {
-                    let mut state = state.borrow_mut();
-                    if state.lazy.is_some() {
-                        update_virtual_ids(&mut state, ids);
-                    } else {
-                        sync_children(&mut state, ids);
-                    }
+                    reconcile_children(&state, mtm, ids);
                 });
             }
         });
