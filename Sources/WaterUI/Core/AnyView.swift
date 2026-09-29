@@ -204,18 +204,6 @@ func registerBuiltinComponentsIfNeeded() {
   #endif
 
   // Navigation components
-
-  // WebView component. On only when the app's graph carries `waterui-webview`,
-  // which is what exports the `waterui_webview_*` symbols it binds to.
-  #if WATERUI_WEBVIEW
-    registerComponent(WuiWebViewComponent.self)
-  #endif
-
-  // Map component. Off unless the app enabled WaterUI's `map` feature, which
-  // is what exports the map symbols this component binds to.
-  #if WATERUI_MAP
-    registerComponent(WuiMapViewComponent.self)
-  #endif
 }
 
 // MARK: - WuiAnyView
