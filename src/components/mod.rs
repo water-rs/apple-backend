@@ -10,6 +10,8 @@ pub mod button;
 pub mod empty;
 #[cfg(feature = "image")]
 pub mod image;
+#[cfg(feature = "secure_field")]
+pub mod secure_field;
 #[cfg(feature = "slider")]
 pub mod slider;
 #[cfg(feature = "stepper")]

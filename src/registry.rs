@@ -32,4 +32,6 @@ pub fn install(dispatcher: &mut Dispatcher) {
     crate::components::toggle::install(dispatcher);
     #[cfg(feature = "text_field")]
     crate::components::text_field::install(dispatcher);
+    #[cfg(feature = "secure_field")]
+    crate::components::secure_field::install(dispatcher);
 }
