@@ -11,3 +11,5 @@ pub mod button;
 pub mod image;
 #[cfg(feature = "text")]
 pub mod text;
+#[cfg(feature = "toggle")]
+pub mod toggle;

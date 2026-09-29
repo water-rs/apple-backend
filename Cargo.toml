@@ -15,10 +15,11 @@ workspace = true
 [features]
 # Component ports are feature-gated so unused ones leave no code or
 # dependency in the artifact; the default is everything ported so far.
-default = ["button", "image", "text"]
+default = ["button", "image", "text", "toggle"]
 button = []
 image = []
 text = []
+toggle = []
 
 [dependencies]
 waterui = { git = "https://github.com/water-rs/waterui", rev = "ec7d5ad2022f3b3cadf149d372adb18a3f4da74a" }
