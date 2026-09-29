@@ -7,6 +7,10 @@
 
 #[cfg(feature = "anchored_overlay")]
 pub mod anchored_overlay;
+#[cfg(feature = "accessibility_identifier")]
+pub mod accessibility_identifier;
+#[cfg(feature = "accessibility_metadata")]
+pub mod accessibility_metadata;
 #[cfg(feature = "badge")]
 pub mod badge;
 #[cfg(feature = "button")]
@@ -15,6 +19,10 @@ pub mod button;
 pub mod color_picker;
 #[cfg(feature = "container")]
 pub mod container;
+#[cfg(feature = "context_menu")]
+pub mod context_menu;
+#[cfg(feature = "cursor")]
+pub mod cursor;
 #[cfg(feature = "date_picker")]
 pub mod date_picker;
 pub mod empty;
@@ -24,6 +32,8 @@ pub mod fixed_container;
 pub mod focused;
 #[cfg(feature = "ignore_safe_area")]
 pub mod ignore_safe_area;
+#[cfg(feature = "hittable")]
+pub mod hittable;
 #[cfg(feature = "image")]
 pub mod image;
 #[cfg(feature = "layout_priority")]
@@ -32,13 +42,18 @@ pub mod layout_priority;
 pub mod lifecycle_hook;
 #[cfg(feature = "menu")]
 pub mod menu;
-
 #[cfg(feature = "list")]
 pub mod list;
+#[cfg(any(feature = "menu", feature = "context_menu"))]
+mod menu_items;
 #[cfg(feature = "multi_date_picker")]
 pub mod multi_date_picker;
 #[cfg(feature = "navigation")]
 pub mod navigation;
+#[cfg(feature = "on_event")]
+pub mod on_event;
+#[cfg(feature = "on_key_press")]
+pub mod on_key_press;
 #[cfg(feature = "picker")]
 pub mod picker;
 #[cfg(feature = "plain")]

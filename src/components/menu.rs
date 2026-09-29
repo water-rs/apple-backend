@@ -15,20 +15,14 @@
 //! rebuild-everything semantics. Rebuilds run inside the platform
 //! animation the watcher's metadata carries.
 
-use alloc::boxed::Box;
 use alloc::rc::Rc;
-use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
 
 use cocoa_ui::{PlatformView, Rect, view};
-use waterui::animation::Animation;
-use waterui::component::menu::{CommandRole, ResolvedMenu, ResolvedMenuItem};
-#[cfg(target_os = "macos")]
-use waterui::component::menu::{ResolvedCommand, Shortcut};
+use waterui::component::menu::{ResolvedMenu, ResolvedMenuItem};
 use waterui::reactive::Signal;
 use waterui::reactive::watcher::{BoxWatcherGuard, Metadata};
-use waterui::text::StyledStr;
 use waterui_backend_core::Environment;
 use waterui_core::layout::{ProposalSize, StretchAxis, SubView, ViewDimensions};
 
@@ -37,17 +31,19 @@ use crate::dispatch::Dispatcher;
 use crate::proposal;
 
 #[cfg(target_os = "macos")]
+use super::menu_items::append_items;
+#[cfg(target_os = "ios")]
+use super::menu_items::build_menu;
+use super::menu_items::{collect_item_watchers, item_title, with_platform_animation};
+
+#[cfg(target_os = "macos")]
 mod platform {
-    pub(super) use cocoa_ui::appkit::{
-        HitTest, HostView, KeyModifiers, Menu, MenuButton, MenuItem,
-    };
+    pub(super) use cocoa_ui::appkit::{HitTest, HostView, Menu, MenuButton, MenuItem};
 }
 
 #[cfg(target_os = "ios")]
 mod platform {
-    pub(super) use cocoa_ui::uikit::{
-        HitTest, HostView, Menu, MenuAction, MenuButton, MenuElement,
-    };
+    pub(super) use cocoa_ui::uikit::{HitTest, HostView, MenuButton};
 }
 
 use platform::{HostView, MenuButton};
@@ -87,41 +83,6 @@ fn platform_color(
     )
 }
 
-/// A styled string as display text: the plain characters with the bidi
-/// control characters interpolation inserts for layout stripped.
-fn item_title(styled: &StyledStr) -> String {
-    cocoa_ui::text::strip_bidi_controls(styled.to_plain().as_str())
-}
-
-/// `withPlatformAnimation`: the watcher metadata's `Animation` mapped to a
-/// kit timing — `Default` parses to the 0.25s bezier the FFI spells it as.
-fn with_platform_animation(metadata: &Metadata, body: impl FnOnce() + 'static) {
-    let timing = match metadata.try_get::<Animation>() {
-        None => return body(),
-        Some(Animation::Default) => cocoa_ui::core_animation::Timing::Bezier {
-            duration: 0.25,
-            control_points: [0.42, 0.0, 0.58, 1.0],
-        },
-        Some(Animation::Bezier {
-            duration,
-            x1,
-            y1,
-            x2,
-            y2,
-        }) => cocoa_ui::core_animation::Timing::Bezier {
-            duration: duration.as_secs_f64(),
-            control_points: [x1, y1, x2, y2],
-        },
-        Some(Animation::Spring { stiffness, damping }) => {
-            cocoa_ui::core_animation::Timing::Spring {
-                stiffness: f64::from(stiffness),
-                damping: f64::from(damping),
-            }
-        }
-    };
-    cocoa_ui::core_animation::animate_with(timing, body);
-}
-
 /// The leaf's live state: the trigger, the latest resolved items, the
 /// watchers keeping them observed, and the environment commands run
 /// against.
@@ -149,22 +110,21 @@ impl core::fmt::Debug for MenuState {
     }
 }
 
-/// A menu item's watched signals re-snapshot the item list and rebuild —
-/// `WuiMenuNode`'s per-field `onChange` handlers all funnel into
-/// `rebuildNativeMenu`.
-fn request_resync(state: &Rc<RefCell<MenuState>>, metadata: &Metadata) {
-    let state = Rc::clone(state);
-    with_platform_animation(metadata, move || {
-        let items = state.borrow().items.clone();
-        apply_items(&state, items);
-    });
-}
-
 /// Re-snapshots `items` onto the state, installs a fresh watcher per item
 /// signal, and rebuilds the platform menu.
 fn apply_items(state: &Rc<RefCell<MenuState>>, items: Vec<ResolvedMenuItem>) {
+    let resync: Rc<dyn Fn(&Metadata)> = {
+        let state = Rc::clone(state);
+        Rc::new(move |metadata| {
+            let state = Rc::clone(&state);
+            with_platform_animation(metadata, move || {
+                let items = state.borrow().items.clone();
+                apply_items(&state, items);
+            });
+        })
+    };
     let mut watchers = Vec::new();
-    collect_item_watchers(&items, state, &mut watchers);
+    collect_item_watchers(&items, &resync, &mut watchers);
     {
         let mut state = state.borrow_mut();
         state.items = items;
@@ -174,217 +134,6 @@ fn apply_items(state: &Rc<RefCell<MenuState>>, items: Vec<ResolvedMenuItem>) {
     // `invalidateCapturedRendering`: a rebuilt menu may measure
     // differently.
     view::invalidate_layout(&state.borrow().host);
-}
-
-/// Installs one watcher per live item signal — the command and submenu
-/// labels, `disabled` and `selected`, and each nested menu's `items` —
-/// recursively, as `WuiMenuTree` did per node.
-fn collect_item_watchers(
-    items: &[ResolvedMenuItem],
-    state: &Rc<RefCell<MenuState>>,
-    watchers: &mut Vec<BoxWatcherGuard>,
-) {
-    for item in items {
-        match item {
-            ResolvedMenuItem::Command(command) => {
-                for signal in [&command.disabled, &command.selected] {
-                    let state = Rc::clone(state);
-                    watchers.push(Box::new(signal.watch(move |wctx| {
-                        request_resync(&state, wctx.metadata());
-                    })));
-                }
-                let state = Rc::clone(state);
-                watchers.push(Box::new(command.label.content.watch(move |wctx| {
-                    request_resync(&state, wctx.metadata());
-                })));
-            }
-            ResolvedMenuItem::Menu(submenu) => {
-                watchers.push(Box::new(submenu.label.content.watch({
-                    let state = Rc::clone(state);
-                    move |wctx| {
-                        request_resync(&state, wctx.metadata());
-                    }
-                })));
-                let nested = submenu.items.clone();
-                watchers.push(Box::new(nested.watch({
-                    let state = Rc::clone(state);
-                    move |wctx| {
-                        request_resync(&state, wctx.metadata());
-                    }
-                })));
-                collect_item_watchers(&submenu.items.snapshot(), state, watchers);
-            }
-            ResolvedMenuItem::Divider => {}
-        }
-    }
-}
-
-/// The key equivalent and modifier set a `Shortcut` describes; no shortcut
-/// is the empty pair.
-#[cfg(target_os = "macos")]
-fn shortcut_parts(shortcut: &Shortcut) -> (String, platform::KeyModifiers) {
-    let modifiers = [
-        (
-            shortcut.modifiers.command(),
-            platform::KeyModifiers::COMMAND,
-        ),
-        (shortcut.modifiers.option(), platform::KeyModifiers::OPTION),
-        (shortcut.modifiers.shift(), platform::KeyModifiers::SHIFT),
-        (
-            shortcut.modifiers.control(),
-            platform::KeyModifiers::CONTROL,
-        ),
-    ]
-    .into_iter()
-    .filter(|(held, _)| *held)
-    .fold(platform::KeyModifiers::empty(), |flags, (_, native)| {
-        flags | native
-    });
-    (String::from(shortcut.key.as_str()), modifiers)
-}
-
-/// `wuiApplyCommandPresentation`: title, key equivalent, enabled, checked
-/// state, subtitle, destructive red, icon — then the action a pick runs.
-#[cfg(target_os = "macos")]
-fn command_item(
-    mtm: cocoa_ui::MainThreadMarker,
-    command: &ResolvedCommand,
-    env: &Environment,
-) -> platform::MenuItem {
-    let title = item_title(&command.label.content.snapshot());
-    let (key, modifiers) = command.shortcut.as_ref().map_or_else(
-        || (String::new(), platform::KeyModifiers::empty()),
-        shortcut_parts,
-    );
-    let mut item = platform::MenuItem::new(mtm, &title, None, &key)
-        .with_key_modifiers(modifiers)
-        .with_enabled(!command.disabled.snapshot())
-        .with_selected(command.selected.snapshot());
-    if let Some(subtitle) = &command.subtitle {
-        item = item.with_subtitle(subtitle.as_str());
-    }
-    // `attributedTitle` replaces the plain title, so it lands after the
-    // subtitle is committed.
-    if matches!(command.role, CommandRole::Destructive) {
-        item = item.with_destructive();
-    }
-    if let Some(icon) = &command.icon {
-        item = item.with_icon(icon.name.as_str());
-    }
-    let action = command.action.clone();
-    let env = env.clone();
-    item.with_action(move || {
-        action.call(&env);
-    })
-}
-
-/// `appendAppKitMenuItems`: each item appended in order — commands, a
-/// separator per divider, nested menus under a titled item.
-#[cfg(target_os = "macos")]
-fn append_items(
-    mtm: cocoa_ui::MainThreadMarker,
-    menu: &platform::Menu,
-    items: &[ResolvedMenuItem],
-    env: &Environment,
-) {
-    for item in items {
-        match item {
-            ResolvedMenuItem::Divider => menu.add_separator(),
-            ResolvedMenuItem::Command(command) => {
-                menu.add_item(command_item(mtm, command, env));
-            }
-            ResolvedMenuItem::Menu(submenu) => {
-                let title = item_title(&submenu.label.content.snapshot());
-                let nested = platform::Menu::new(mtm, &title);
-                append_items(mtm, &nested, &submenu.items.snapshot(), env);
-                let mut item = platform::MenuItem::new(mtm, &title, None, "");
-                if let Some(icon) = &submenu.icon {
-                    item = item.with_icon(icon.name.as_str());
-                }
-                menu.add_item(item.with_submenu(&nested));
-            }
-        }
-    }
-}
-
-/// Rebuilds the trigger's `UIMenu`: dividers split the items into
-/// `.displayInline` groups, flattened when a single group remains —
-/// `splitMenuGroups` + `buildUIKitMenu`.
-#[cfg(target_os = "ios")]
-fn build_menu(
-    mtm: cocoa_ui::MainThreadMarker,
-    title: &str,
-    icon: Option<&str>,
-    items: &[ResolvedMenuItem],
-    env: &Environment,
-) -> platform::Menu {
-    let mut groups: Vec<&[ResolvedMenuItem]> = items
-        .split(|item| matches!(item, ResolvedMenuItem::Divider))
-        .filter(|group| !group.is_empty())
-        .collect();
-    let flat = groups.len() <= 1;
-    if groups.is_empty() {
-        groups.push(&[]);
-    }
-    let children: Vec<platform::MenuElement> = if flat {
-        menu_elements(groups[0], env, mtm)
-    } else {
-        groups
-            .iter()
-            .map(|group| {
-                platform::MenuElement::Submenu(platform::Menu::new(
-                    mtm,
-                    "",
-                    None,
-                    true,
-                    &menu_elements(group, env, mtm),
-                ))
-            })
-            .collect()
-    };
-    platform::Menu::new(mtm, title, icon, false, &children)
-}
-
-/// `buildUIKitMenuElements`: one element per item — `UIAction`s for
-/// commands carrying title, subtitle, icon, disabled/destructive
-/// attributes, on-state and handler; nested menus recurse.
-#[cfg(target_os = "ios")]
-fn menu_elements(
-    items: &[ResolvedMenuItem],
-    env: &Environment,
-    mtm: cocoa_ui::MainThreadMarker,
-) -> Vec<platform::MenuElement> {
-    items
-        .iter()
-        .filter_map(|item| match item {
-            ResolvedMenuItem::Divider => None,
-            ResolvedMenuItem::Command(command) => {
-                let title = item_title(&command.label.content.snapshot());
-                let action = command.action.clone();
-                let env = env.clone();
-                Some(platform::MenuElement::Action(
-                    platform::MenuAction::new(mtm, &title, move || {
-                        action.call(&env);
-                    })
-                    .with_subtitle(command.subtitle.as_deref())
-                    .with_icon(command.icon.as_ref().map(|icon| icon.name.as_str()))
-                    .with_disabled(command.disabled.snapshot())
-                    .with_destructive(matches!(command.role, CommandRole::Destructive))
-                    .with_selected(command.selected.snapshot()),
-                ))
-            }
-            ResolvedMenuItem::Menu(submenu) => {
-                let title = item_title(&submenu.label.content.snapshot());
-                Some(platform::MenuElement::Submenu(build_menu(
-                    mtm,
-                    &title,
-                    submenu.icon.as_ref().map(|icon| icon.name.as_str()),
-                    &submenu.items.snapshot(),
-                    env,
-                )))
-            }
-        })
-        .collect()
 }
 
 /// Rebuilds the trigger's menu from the live items.
@@ -616,6 +365,7 @@ pub fn install(dispatcher: &mut Dispatcher) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use waterui::text::StyledStr;
 
     #[test]
     fn label_offer_subtracts_padding_and_clamps() {

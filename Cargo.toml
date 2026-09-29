@@ -17,14 +17,19 @@ workspace = true
 # dependency in the artifact; the default is everything ported so far.
 default = [
     "anchored_overlay",
+    "accessibility_identifier",
+    "accessibility_metadata",
     "badge",
     "button",
     "color_picker",
     "container",
+    "context_menu",
+    "cursor",
     "date_picker",
     "fixed_container",
     "focused",
     "ignore_safe_area",
+    "hittable",
     "image",
     "layout_priority",
     "lifecycle_hook",
@@ -32,6 +37,8 @@ default = [
     "list",
     "multi_date_picker",
     "navigation",
+    "on_event",
+    "on_key_press",
     "picker",
     "progress",
     "resolved_color",
@@ -49,14 +56,19 @@ default = [
     "with_env",
 ]
 anchored_overlay = []
+accessibility_identifier = []
+accessibility_metadata = []
 badge = []
 button = []
 color_picker = []
 container = []
+context_menu = []
+cursor = []
 date_picker = []
 fixed_container = []
 focused = []
 ignore_safe_area = []
+hittable = []
 image = []
 layout_priority = []
 lifecycle_hook = []
@@ -64,6 +76,8 @@ list = []
 menu = []
 multi_date_picker = []
 navigation = []
+on_event = []
+on_key_press = []
 picker = []
 plain = []
 progress = []
@@ -97,6 +111,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-oslog = "0.2"
 tracing-panic = "0.1"
 
+objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = [
     "NSAttributedString",
     "NSDate",
