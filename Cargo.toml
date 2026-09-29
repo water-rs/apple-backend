@@ -15,11 +15,12 @@ workspace = true
 [features]
 # Component ports are feature-gated so unused ones leave no code or
 # dependency in the artifact; the default is everything ported so far.
-default = ["button", "image", "slider", "text", "toggle"]
+default = ["button", "image", "slider", "text", "text_field", "toggle"]
 button = []
 image = []
 slider = []
 text = []
+text_field = []
 toggle = []
 
 [dependencies]

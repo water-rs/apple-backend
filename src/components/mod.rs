@@ -14,5 +14,7 @@ pub mod image;
 pub mod slider;
 #[cfg(feature = "text")]
 pub mod text;
+#[cfg(feature = "text_field")]
+pub mod text_field;
 #[cfg(feature = "toggle")]
 pub mod toggle;

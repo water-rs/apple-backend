@@ -28,4 +28,6 @@ pub fn install(dispatcher: &mut Dispatcher) {
     crate::components::button::install(dispatcher);
     #[cfg(feature = "toggle")]
     crate::components::toggle::install(dispatcher);
+    #[cfg(feature = "text_field")]
+    crate::components::text_field::install(dispatcher);
 }
