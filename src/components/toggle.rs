@@ -57,11 +57,11 @@ const fn kind(style: ToggleStyle) -> Kind {
 fn state_change(metadata: &Metadata) -> StateChange {
     match metadata.try_get::<Animation>() {
         None => StateChange::Immediate,
-        Some(Animation::Default) => StateChange::Animated { seconds: 0.25 },
-        Some(Animation::Bezier { duration, .. }) => StateChange::Animated {
+        Some(Animation::Default) => StateChange::Dissolve { seconds: 0.25 },
+        Some(Animation::Bezier { duration, .. }) => StateChange::Dissolve {
             seconds: duration.as_secs_f64(),
         },
-        Some(Animation::Spring { .. }) => StateChange::Animated { seconds: 0.15 },
+        Some(Animation::Spring { .. }) => StateChange::Dissolve { seconds: 0.15 },
     }
 }
 
@@ -269,7 +269,7 @@ mod tests {
             ),
         ];
         for (animation, expected) in table {
-            let StateChange::Animated { seconds } = state_change(&Metadata::new().with(animation))
+            let StateChange::Dissolve { seconds } = state_change(&Metadata::new().with(animation))
             else {
                 panic!("a present animation must animate");
             };
