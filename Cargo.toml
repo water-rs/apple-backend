@@ -18,6 +18,7 @@ workspace = true
 default = [
     "button",
     "image",
+    "progress",
     "secure_field",
     "slider",
     "spacer",
@@ -28,6 +29,7 @@ default = [
 ]
 button = []
 image = []
+progress = []
 secure_field = []
 slider = []
 spacer = []

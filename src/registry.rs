@@ -22,6 +22,8 @@ pub fn install(dispatcher: &mut Dispatcher) {
     crate::components::image::install(dispatcher);
     #[cfg(feature = "slider")]
     crate::components::slider::install(dispatcher);
+    #[cfg(feature = "progress")]
+    crate::components::progress::install(dispatcher);
     #[cfg(feature = "stepper")]
     crate::components::stepper::install(dispatcher);
     #[cfg(feature = "text")]

@@ -10,6 +10,8 @@ pub mod button;
 pub mod empty;
 #[cfg(feature = "image")]
 pub mod image;
+#[cfg(feature = "progress")]
+pub mod progress;
 #[cfg(feature = "secure_field")]
 pub mod secure_field;
 #[cfg(feature = "slider")]
