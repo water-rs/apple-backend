@@ -1,0 +1,5 @@
+[profile.default]
+# The `AppKit`/`UIKit`-touching tests share process-wide framework state;
+# keep them ordered inside their test binary rather than the harness's
+# random shuffle.
+failure-output = "immediate-final"

@@ -51,6 +51,7 @@ fn key(proposal: ProposalSize) -> u64 {
 ///
 /// Entries outliving a bound flush lazily: at 128 entries the map clears,
 /// which bounds memory and amortizes the re-miss into the next epoch.
+#[derive(Default)]
 struct MeasureMemo {
     inner: RefCell<HashMap<u64, (u64, ViewDimensions)>>,
 }
@@ -117,5 +118,83 @@ impl SubView for MemoizingSubView {
     }
     fn is_empty(&self) -> bool {
         self.inner.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+
+    use waterui_core::layout::{ProposalSize, Size, ViewDimensions};
+
+    use super::{MeasureMemo, invalidate, key};
+
+    fn dimensions(width: f32) -> ViewDimensions {
+        ViewDimensions::new(Size::new(width, 0.0))
+    }
+
+    #[test]
+    fn distinct_proposals_key_distinctly() {
+        let free = ProposalSize::new(None, None);
+        let zero = ProposalSize::new(Some(0.0), Some(0.0));
+        let negative_zero = ProposalSize::new(Some(-0.0), Some(0.0));
+        // `None` is `0`, so a real bound must never alias it — even the
+        // all-zero-bit `Some(-0.0)`.
+        assert_ne!(key(free), key(zero));
+        assert_ne!(key(zero), key(negative_zero));
+        assert_ne!(
+            key(ProposalSize::new(Some(1.0), None)),
+            key(ProposalSize::new(None, Some(1.0)))
+        );
+        // NaN proposals key consistently — same bits, same key.
+        assert_eq!(
+            key(ProposalSize::new(Some(f32::NAN), None)),
+            key(ProposalSize::new(Some(f32::NAN), None))
+        );
+    }
+
+    #[test]
+    fn a_repeated_proposal_computes_once() {
+        let memo = MeasureMemo::default();
+        let calls = AtomicUsize::new(0);
+        let compute = || {
+            calls.fetch_add(1, AtomicOrdering::Relaxed);
+            dimensions(7.0)
+        };
+        let proposal = ProposalSize::new(Some(100.0), None);
+        memo.measure(proposal, compute);
+        memo.measure(proposal, compute);
+        memo.measure(ProposalSize::new(Some(50.0), None), compute);
+        assert_eq!(calls.load(AtomicOrdering::Relaxed), 2);
+    }
+
+    #[test]
+    fn invalidation_recomputes_every_leaf() {
+        let memo = MeasureMemo::default();
+        let calls = AtomicUsize::new(0);
+        let compute = || {
+            calls.fetch_add(1, AtomicOrdering::Relaxed);
+            dimensions(7.0)
+        };
+        let proposal = ProposalSize::new(Some(100.0), None);
+        memo.measure(proposal, compute);
+        invalidate();
+        memo.measure(proposal, compute);
+        assert_eq!(calls.load(AtomicOrdering::Relaxed), 2);
+    }
+
+    #[test]
+    fn the_cache_stays_bounded() {
+        let memo = MeasureMemo::default();
+        let mut value = 0.0_f32;
+        for _ in 0..300 {
+            value += 1.0;
+            memo.measure(ProposalSize::new(Some(value), Some(value)), || {
+                dimensions(value)
+            });
+        }
+        // The 128-entry bound cleared the map at least once rather than
+        // growing without limit.
+        assert!(memo.inner.borrow().len() <= 128);
     }
 }

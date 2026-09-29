@@ -345,12 +345,7 @@ impl SubView for TextSubView {
         reason = "the layout contract is f32; measured points always fit"
     )]
     fn measure(&self, proposal: ProposalSize) -> ViewDimensions {
-        let wrap = match proposal.width {
-            None => cocoa_ui::text::WrapWidth::Free,
-            Some(width) if width > 0.0 => cocoa_ui::text::WrapWidth::Fixed(f64::from(width)),
-            Some(_) => cocoa_ui::text::WrapWidth::Unbreakable,
-        };
-        let metrics = self.label.measure(wrap);
+        let metrics = self.label.measure(wrap_for(proposal.width));
         // `cocoa_ui::text::measure` reports the cell-fitting width, two
         // points past the bare text bounds; `WuiTextBase` measures the bare
         // bounds, so the inset comes back out here.
@@ -373,6 +368,17 @@ impl SubView for TextSubView {
 
     fn priority(&self) -> i32 {
         0
+    }
+}
+
+/// The wrap mode a width proposal implies: none means natural width, a
+/// positive bound wraps at it, and zero/negative width can only fit the
+/// widest unbreakable run.
+fn wrap_for(proposal_width: Option<f32>) -> cocoa_ui::text::WrapWidth {
+    match proposal_width {
+        None => cocoa_ui::text::WrapWidth::Free,
+        Some(width) if width > 0.0 => cocoa_ui::text::WrapWidth::Fixed(f64::from(width)),
+        Some(_) => cocoa_ui::text::WrapWidth::Unbreakable,
     }
 }
 
@@ -585,5 +591,22 @@ mod tests {
                 Some(expected.to_bits())
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod wrap_tests {
+    use cocoa_ui::text::WrapWidth;
+
+    use super::wrap_for;
+
+    #[test]
+    fn the_width_proposal_picks_the_wrap_mode() {
+        assert_eq!(wrap_for(None), WrapWidth::Free);
+        assert_eq!(wrap_for(Some(120.0)), WrapWidth::Fixed(120.0));
+        assert_eq!(wrap_for(Some(0.0)), WrapWidth::Unbreakable);
+        assert_eq!(wrap_for(Some(-1.0)), WrapWidth::Unbreakable);
+        // NaN is not a positive bound: unbreakable, like zero.
+        assert_eq!(wrap_for(Some(f32::NAN)), WrapWidth::Unbreakable);
     }
 }

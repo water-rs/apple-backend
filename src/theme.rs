@@ -225,3 +225,77 @@ fn font_weight(weight: f64) -> FontWeight {
         })
         .map_or(FontWeight::Normal, |(_, weight)| *weight)
 }
+
+#[cfg(test)]
+// The resolved values are exact constants the conversion table produces.
+#[allow(clippy::float_cmp)]
+mod tests {
+    use cocoa_ui::Rgba;
+    use waterui::graphics::color::ColorScheme as WuiColorScheme;
+
+    use super::{color_scheme, font_weight, into_resolved};
+    use waterui::text::font::FontWeight;
+
+    /// Every canonical platform weight snaps to its named weight, including
+    /// the float32-rounded constants `AppKit`/`UIKit` publish.
+    #[test]
+    fn font_weight_snaps_the_canonical_platform_weights() {
+        let table: [(f64, FontWeight); 9] = [
+            (-0.800_000_011_920_929, FontWeight::UltraLight),
+            (-0.600_000_023_841_858, FontWeight::Thin),
+            (-0.400_000_005_960_464_5, FontWeight::Light),
+            (0.0, FontWeight::Normal),
+            (0.230_000_004_172_325_1, FontWeight::Medium),
+            (0.300_000_011_920_929, FontWeight::SemiBold),
+            (0.400_000_005_960_464_5, FontWeight::Bold),
+            (0.560_000_002_384_185_8, FontWeight::UltraBold),
+            (0.620_000_004_768_371_6, FontWeight::Black),
+        ];
+        for (weight, expected) in table {
+            assert_eq!(font_weight(weight), expected, "weight {weight}");
+        }
+    }
+
+    /// Between two canonical weights the nearer one wins; the midpoint is a
+    /// coin toss and a float64 system font reports a plain value like 0.28.
+    #[test]
+    fn font_weight_picks_the_nearer_canonical_neighbour() {
+        assert_eq!(font_weight(0.20), FontWeight::Medium);
+        assert_eq!(font_weight(0.28), FontWeight::SemiBold);
+        assert_eq!(font_weight(0.37), FontWeight::Bold);
+        // In-betweens must still answer a weight, never panic.
+        for weight in [-1.0, -0.5, -0.2, 0.1, 0.45, 0.6, 1.0] {
+            let _ = font_weight(weight);
+        }
+    }
+
+    /// Out-of-range values clamp to the table's extremes, not `Normal`.
+    #[test]
+    fn font_weight_clamps_outside_the_table() {
+        assert_eq!(font_weight(-2.0), FontWeight::UltraLight);
+        assert_eq!(font_weight(5.0), FontWeight::Black);
+    }
+
+    #[test]
+    fn color_scheme_maps_light_and_dark() {
+        assert_eq!(
+            color_scheme(cocoa_ui::ColorScheme::Light),
+            WuiColorScheme::Light
+        );
+        assert_eq!(
+            color_scheme(cocoa_ui::ColorScheme::Dark),
+            WuiColorScheme::Dark
+        );
+    }
+
+    /// The wire `ResolvedColor` keeps the alpha as `opacity`; components are
+    /// the platform's sRGB channels narrowed to f32.
+    #[test]
+    fn into_resolved_carries_alpha_as_opacity() {
+        let resolved = into_resolved(Rgba::new(0.25, 0.5, 0.75, 0.4));
+        assert_eq!(resolved.opacity, 0.4_f32);
+        assert!(resolved.opacity < 1.0);
+        let opaque = into_resolved(Rgba::new(1.0, 0.0, 0.0, 1.0));
+        assert_eq!(opaque.opacity, 1.0);
+    }
+}
