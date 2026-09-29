@@ -872,7 +872,6 @@ fn on_layout(state: &Rc<FilterState>) {
     let bounds = cocoa_ui::view::bounds(&state.view);
     if let Some(mounted) = state.mounted.borrow().as_ref() {
         cocoa_ui::view::set_frame(mounted.view(), bounds);
-        cocoa_ui::view::invalidate_layout(mounted.view());
         cocoa_ui::view::layout_immediately(mounted.view());
     }
     update_output_frame(state);
