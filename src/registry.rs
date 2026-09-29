@@ -30,6 +30,12 @@ pub fn install(dispatcher: &mut Dispatcher) {
     crate::components::text::install(dispatcher);
     #[cfg(feature = "button")]
     crate::components::button::install(dispatcher);
+
+    // Wave B — pickers.
+    #[cfg(feature = "picker")]
+    crate::components::picker::install(dispatcher);
+    #[cfg(feature = "color_picker")]
+    crate::components::color_picker::install(dispatcher);
     #[cfg(feature = "toggle")]
     crate::components::toggle::install(dispatcher);
     #[cfg(feature = "text_field")]

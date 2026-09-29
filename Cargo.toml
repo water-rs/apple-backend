@@ -17,8 +17,10 @@ workspace = true
 # dependency in the artifact; the default is everything ported so far.
 default = [
     "button",
+    "color_picker",
     "focused",
     "image",
+    "picker",
     "progress",
     "secure_field",
     "slider",
@@ -29,8 +31,10 @@ default = [
     "toggle",
 ]
 button = []
+color_picker = []
 focused = []
 image = []
+picker = []
 progress = []
 secure_field = []
 slider = []

@@ -7,11 +7,15 @@
 
 #[cfg(feature = "button")]
 pub mod button;
+#[cfg(feature = "color_picker")]
+pub mod color_picker;
 pub mod empty;
 #[cfg(feature = "focused")]
 pub mod focused;
 #[cfg(feature = "image")]
 pub mod image;
+#[cfg(feature = "picker")]
+pub mod picker;
 #[cfg(feature = "progress")]
 pub mod progress;
 #[cfg(feature = "secure_field")]
