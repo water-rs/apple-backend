@@ -21,6 +21,7 @@ default = [
     "accessibility_metadata",
     "badge",
     "button",
+    "clip_shape",
     "color_picker",
     "container",
     "context_menu",
@@ -28,14 +29,17 @@ default = [
     "date_picker",
     "draggable",
     "drop_destination",
+    "dynamic_range",
     "fixed_container",
     "focused",
+    "glass_background",
     "ignore_safe_area",
     "hittable",
     "gesture",
     "image",
     "layout_priority",
     "lifecycle_hook",
+    "material_background",
     "menu",
     "list",
     "multi_date_picker",
@@ -63,6 +67,7 @@ accessibility_identifier = []
 accessibility_metadata = []
 badge = []
 button = []
+clip_shape = []
 color_picker = []
 container = []
 context_menu = []
@@ -70,8 +75,10 @@ cursor = []
 date_picker = []
 draggable = []
 drop_destination = []
+dynamic_range = []
 fixed_container = []
 focused = []
+glass_background = []
 ignore_safe_area = []
 hittable = []
 gesture = []
@@ -80,6 +87,7 @@ image = []
 layout_priority = []
 lifecycle_hook = []
 list = []
+material_background = []
 menu = []
 multi_date_picker = []
 navigation = []
@@ -122,6 +130,22 @@ objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = [
     "NSAttributedString",
     "NSDate",
+    "NSValue",
+] }
+objc2 = "0.6"
+objc2-core-foundation = { version = "0.3", default-features = false, features = [
+    "std",
+] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = [
+    "std",
+    "CGPath",
+] }
+objc2-quartz-core = { version = "0.3", default-features = false, features = [
+    "std",
+    "CALayer",
+    "CAShapeLayer",
+    "objc2-core-foundation",
+    "objc2-core-graphics",
 ] }
 
 # The framework's own `[patch.crates-io]`, translated for this consumer the

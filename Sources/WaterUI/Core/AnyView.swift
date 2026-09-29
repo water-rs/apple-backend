@@ -201,20 +201,13 @@ func registerBuiltinComponentsIfNeeded() {
   registerComponent(WuiDynamic.self)
 
   // Metadata components (wrappers that modify env/appearance)
-  registerMetadataComponent(WuiStandardDynamicRange.self)
-  registerMetadataComponent(WuiHighDynamicRange.self)
   registerMetadataComponent(WuiShadow.self)
   registerMetadataComponent(WuiBorder.self)
-  registerMetadataComponent(WuiClipShape.self)
   registerMetadataComponent(WuiOpacity.self)
   registerMetadataComponent(WuiScale.self)
   registerMetadataComponent(WuiRotation.self)
   registerMetadataComponent(WuiOffset.self)
 
-  // Material background (blur effect)
-  registerMetadataComponent(WuiMaterialBackground.self)
-  // Glass background (Liquid Glass)
-  registerMetadataComponent(WuiGlassBackground.self)
 
   // Media components. Off when the app dropped WaterUI's `media` capability,
   // which is what exports the `waterui_video_*`/`waterkit_audio_*` symbols

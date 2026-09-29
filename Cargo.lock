@@ -756,7 +756,6 @@ dependencies = [
  "bitflags 2.13.2",
  "block2",
  "dispatch2",
- "keyboard-types",
  "libc",
  "mach2",
  "objc2",
@@ -3636,6 +3635,7 @@ dependencies = [
  "objc2-core-foundation",
  "objc2-core-graphics",
  "objc2-foundation",
+ "objc2-quartz-core",
 ]
 
 [[package]]
@@ -5534,7 +5534,10 @@ dependencies = [
  "libc",
  "native-executor",
  "objc2",
+ "objc2-core-foundation",
+ "objc2-core-graphics",
  "objc2-foundation",
+ "objc2-quartz-core",
  "tracing",
  "tracing-oslog",
  "tracing-panic",

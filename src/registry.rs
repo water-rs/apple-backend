@@ -76,6 +76,17 @@ pub fn install(dispatcher: &mut Dispatcher) {
     #[cfg(feature = "menu")]
     crate::components::menu::install(dispatcher);
 
+    // Visual metadata — surfaces: clip masks, dynamic-range tags, and the
+    // material/glass backgrounds.
+    #[cfg(feature = "clip_shape")]
+    crate::components::clip_shape::install(dispatcher);
+    #[cfg(feature = "dynamic_range")]
+    crate::components::dynamic_range::install(dispatcher);
+    #[cfg(feature = "glass_background")]
+    crate::components::glass_background::install(dispatcher);
+    #[cfg(feature = "material_background")]
+    crate::components::material_background::install(dispatcher);
+
     // Environment + lifecycle metadata — the environment overlay,
     // safe-area escape, capture protection, one-shot hooks and retention.
     #[cfg(feature = "ignore_safe_area")]

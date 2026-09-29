@@ -15,6 +15,8 @@ pub mod accessibility_metadata;
 pub mod badge;
 #[cfg(feature = "button")]
 pub mod button;
+#[cfg(feature = "clip_shape")]
+pub mod clip_shape;
 #[cfg(feature = "color_picker")]
 pub mod color_picker;
 #[cfg(feature = "container")]
@@ -29,11 +31,15 @@ pub mod date_picker;
 pub mod draggable;
 #[cfg(feature = "drop_destination")]
 pub mod drop_destination;
+#[cfg(feature = "dynamic_range")]
+pub mod dynamic_range;
 pub mod empty;
 #[cfg(feature = "fixed_container")]
 pub mod fixed_container;
 #[cfg(feature = "focused")]
 pub mod focused;
+#[cfg(feature = "glass_background")]
+pub mod glass_background;
 #[cfg(feature = "ignore_safe_area")]
 pub mod ignore_safe_area;
 #[cfg(feature = "hittable")]
@@ -46,6 +52,8 @@ pub mod image;
 pub mod layout_priority;
 #[cfg(feature = "lifecycle_hook")]
 pub mod lifecycle_hook;
+#[cfg(feature = "material_background")]
+pub mod material_background;
 #[cfg(feature = "menu")]
 pub mod menu;
 #[cfg(feature = "list")]
