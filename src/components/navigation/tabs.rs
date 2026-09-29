@@ -109,6 +109,7 @@ mod platform {
     use cocoa_ui::uikit::{TabSpec, TabsController};
     use waterui::navigation::TabsLayout;
     use waterui::reactive::Signal;
+    use waterui_core::layout::ProposalSize;
 
     use crate::contract::KeepAlive;
 
@@ -128,6 +129,28 @@ mod platform {
                 .map(|tab| Retained::from(tab.pane.view()))
                 .collect::<Vec<_>>(),
         );
+
+        // A declared icon view draws inside the tab item as a template image
+        // — the baseline's `installIconViews`, capped at the same 25pt side.
+        for (index, tab) in mounted.iter().enumerate() {
+            let Some(icon_leaf) = &tab.icon_leaf else {
+                continue;
+            };
+            let size = icon_leaf
+                .layout()
+                .measure(ProposalSize {
+                    width: None,
+                    height: None,
+                })
+                .size;
+            cocoa_ui::view::set_frame(
+                icon_leaf.view(),
+                cocoa_ui::Rect::new(0.0, 0.0, f64::from(size.width), f64::from(size.height)),
+            );
+            if let Some(image) = cocoa_ui::bitmap::view_template_image(icon_leaf.view(), 25.0) {
+                tabs.tab_item(index).setImage(Some(&image));
+            }
+        }
 
         // Reactive chrome mutates each `UITabBarItem` in place — rebuilding
         // the controllers re-parents pane views UIKit still owns.
