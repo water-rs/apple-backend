@@ -64,6 +64,8 @@ pub mod layout_priority;
 pub mod lifecycle_hook;
 #[cfg(feature = "list")]
 pub mod list;
+#[cfg(feature = "map")]
+pub mod map;
 #[cfg(feature = "material_background")]
 pub mod material_background;
 #[cfg(feature = "menu")]

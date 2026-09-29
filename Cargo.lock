@@ -764,9 +764,11 @@ dependencies = [
  "objc2-app-kit",
  "objc2-core-foundation",
  "objc2-core-graphics",
+ "objc2-core-location",
  "objc2-core-text",
  "objc2-foundation",
  "objc2-io-surface",
+ "objc2-map-kit",
  "objc2-metal",
  "objc2-quartz-core",
  "objc2-security",
@@ -3468,6 +3470,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "objc2-contacts"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b034b578389f89a85c055eacc8d8b368be5f04a6c1b07f672bf3aec21d0ef621"
+dependencies = [
+ "objc2",
+ "objc2-foundation",
+]
+
+[[package]]
 name = "objc2-core-audio"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3534,6 +3546,16 @@ name = "objc2-core-image"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e5d563b38d2b97209f8e861173de434bd0214cf020e3423a52624cd1d989f006"
+dependencies = [
+ "objc2",
+ "objc2-foundation",
+]
+
+[[package]]
+name = "objc2-core-location"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ca347214e24bc973fc025fd0d36ebb179ff30536ed1f80252706db19ee452009"
 dependencies = [
  "objc2",
  "objc2-foundation",
@@ -3622,6 +3644,24 @@ dependencies = [
  "libc",
  "objc2",
  "objc2-core-foundation",
+ "objc2-foundation",
+]
+
+[[package]]
+name = "objc2-map-kit"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "579edede1c244621cd8229b70ea6e20e6ec3bab5a74afdfd494b446b681e1e64"
+dependencies = [
+ "bitflags 2.13.2",
+ "block2",
+ "dispatch2",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-contacts",
+ "objc2-core-foundation",
+ "objc2-core-graphics",
+ "objc2-core-location",
  "objc2-foundation",
 ]
 
@@ -5601,6 +5641,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "waterkit-location"
+version = "0.1.4"
+source = "git+https://github.com/water-rs/waterkit?rev=e5290913ee8adb22843fd60047f6a845f2391c5b#e5290913ee8adb22843fd60047f6a845f2391c5b"
+dependencies = [
+ "async-channel",
+ "async-io",
+ "futures",
+ "jiff",
+ "jni 0.22.4",
+ "js-sys",
+ "swift-bridge",
+ "thiserror 2.0.21",
+ "wasm-bindgen",
+ "waterkit-build",
+ "waterkit-core",
+ "waterkit-permission",
+ "web-sys",
+ "windows 0.62.2",
+ "zbus",
+]
+
+[[package]]
+name = "waterkit-permission"
+version = "0.1.4"
+source = "git+https://github.com/water-rs/waterkit?rev=e5290913ee8adb22843fd60047f6a845f2391c5b#e5290913ee8adb22843fd60047f6a845f2391c5b"
+dependencies = [
+ "async-channel",
+ "futures",
+ "jni 0.22.4",
+ "js-sys",
+ "ndk-context",
+ "swift-bridge",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "waterkit-build",
+ "waterkit-core",
+ "web-sys",
+ "windows 0.62.2",
+ "zbus",
+]
+
+[[package]]
 name = "waterkit-screen"
 version = "0.1.4"
 source = "git+https://github.com/water-rs/waterkit?rev=e5290913ee8adb22843fd60047f6a845f2391c5b#e5290913ee8adb22843fd60047f6a845f2391c5b"
@@ -5670,6 +5752,7 @@ dependencies = [
  "waterui-core",
  "waterui-graphics",
  "waterui-locale",
+ "waterui-map",
  "waterui-shape",
  "waterui-webview",
  "wgpu-hal",
@@ -5975,6 +6058,17 @@ dependencies = [
  "quote",
  "syn 3.0.6",
  "toml",
+]
+
+[[package]]
+name = "waterui-map"
+version = "0.5.1"
+source = "git+https://github.com/water-rs/waterui?rev=ec7d5ad2022f3b3cadf149d372adb18a3f4da74a#ec7d5ad2022f3b3cadf149d372adb18a3f4da74a"
+dependencies = [
+ "nami",
+ "suiteki",
+ "waterkit-location",
+ "waterui-core",
 ]
 
 [[package]]
@@ -7368,16 +7462,6 @@ version = "0.1.4"
 source = "git+https://github.com/water-rs/waterkit?rev=e5290913ee8adb22843fd60047f6a845f2391c5b#e5290913ee8adb22843fd60047f6a845f2391c5b"
 
 [[patch.unused]]
-name = "waterkit-location"
-version = "0.1.4"
-source = "git+https://github.com/water-rs/waterkit?rev=e5290913ee8adb22843fd60047f6a845f2391c5b#e5290913ee8adb22843fd60047f6a845f2391c5b"
-
-[[patch.unused]]
-name = "waterkit-permission"
-version = "0.1.4"
-source = "git+https://github.com/water-rs/waterkit?rev=e5290913ee8adb22843fd60047f6a845f2391c5b#e5290913ee8adb22843fd60047f6a845f2391c5b"
-
-[[patch.unused]]
 name = "waterkit-video"
 version = "0.1.4"
 source = "git+https://github.com/water-rs/waterkit?rev=e5290913ee8adb22843fd60047f6a845f2391c5b#e5290913ee8adb22843fd60047f6a845f2391c5b"
@@ -7421,11 +7505,6 @@ source = "git+https://github.com/water-rs/dew?rev=1b683d0daab9a119396fb3b31d31bc
 name = "waterui-gtk"
 version = "0.2.1"
 source = "git+https://github.com/water-rs/gtk-backend?rev=cc7a9737b1d1acd3117e39833e60f4b575fe4155#cc7a9737b1d1acd3117e39833e60f4b575fe4155"
-
-[[patch.unused]]
-name = "waterui-map"
-version = "0.5.1"
-source = "git+https://github.com/water-rs/waterui?rev=ec7d5ad2022f3b3cadf149d372adb18a3f4da74a#ec7d5ad2022f3b3cadf149d372adb18a3f4da74a"
 
 [[patch.unused]]
 name = "waterui-map-gpu"

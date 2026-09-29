@@ -43,6 +43,7 @@ default = [
     "layer_transform",
     "layout_priority",
     "lifecycle_hook",
+    "map",
     "material_background",
     "menu",
     "offset",
@@ -107,6 +108,7 @@ image = []
 lifecycle_hook = []
 layer_transform = []
 list = []
+map = ["dep:waterui-map"]
 material_background = []
 menu = []
 offset = []
@@ -146,6 +148,7 @@ waterui = { git = "https://github.com/water-rs/waterui", rev = "ec7d5ad2022f3b3c
 waterui-core = { git = "https://github.com/water-rs/waterui", rev = "ec7d5ad2022f3b3cadf149d372adb18a3f4da74a" }
 waterui-backend-core = { git = "https://github.com/water-rs/waterui", rev = "ec7d5ad2022f3b3cadf149d372adb18a3f4da74a", features = ["overlay"] }
 waterui-locale = { git = "https://github.com/water-rs/waterui", rev = "ec7d5ad2022f3b3cadf149d372adb18a3f4da74a" }
+waterui-map = { git = "https://github.com/water-rs/waterui", rev = "ec7d5ad2022f3b3cadf149d372adb18a3f4da74a", optional = true }
 # The GPU components the backend owns (`gpu_surface`, `view_effect`,
 # `picture`, `resolved_gradient`) are Rust semantic types here, not FFI
 # pointers: `cpu-scene` is what `picture`'s rasteriser needs beyond `gpu`.
