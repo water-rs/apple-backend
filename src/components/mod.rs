@@ -22,10 +22,14 @@ pub mod empty;
 pub mod fixed_container;
 #[cfg(feature = "focused")]
 pub mod focused;
+#[cfg(feature = "ignore_safe_area")]
+pub mod ignore_safe_area;
 #[cfg(feature = "image")]
 pub mod image;
 #[cfg(feature = "layout_priority")]
 pub mod layout_priority;
+#[cfg(feature = "lifecycle_hook")]
+pub mod lifecycle_hook;
 #[cfg(feature = "menu")]
 pub mod menu;
 
@@ -43,8 +47,12 @@ pub mod plain;
 pub mod progress;
 #[cfg(feature = "resolved_color")]
 pub mod resolved_color;
+#[cfg(feature = "retain")]
+pub mod retain;
 #[cfg(feature = "scroll")]
 pub mod scroll;
+#[cfg(feature = "secure")]
+pub mod secure;
 #[cfg(feature = "secure_field")]
 pub mod secure_field;
 #[cfg(feature = "slider")]
@@ -61,3 +69,5 @@ pub mod text;
 pub mod text_field;
 #[cfg(feature = "toggle")]
 pub mod toggle;
+#[cfg(feature = "with_env")]
+pub mod with_env;

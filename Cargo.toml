@@ -24,8 +24,10 @@ default = [
     "date_picker",
     "fixed_container",
     "focused",
+    "ignore_safe_area",
     "image",
     "layout_priority",
+    "lifecycle_hook",
     "menu",
     "list",
     "multi_date_picker",
@@ -33,7 +35,9 @@ default = [
     "picker",
     "progress",
     "resolved_color",
+    "retain",
     "scroll",
+    "secure",
     "secure_field",
     "slider",
     "spacer",
@@ -42,6 +46,7 @@ default = [
     "text",
     "text_field",
     "toggle",
+    "with_env",
 ]
 anchored_overlay = []
 badge = []
@@ -51,9 +56,11 @@ container = []
 date_picker = []
 fixed_container = []
 focused = []
-layout_priority = []
-list = []
+ignore_safe_area = []
 image = []
+layout_priority = []
+lifecycle_hook = []
+list = []
 menu = []
 multi_date_picker = []
 navigation = []
@@ -61,7 +68,9 @@ picker = []
 plain = []
 progress = []
 resolved_color = []
+retain = []
 scroll = []
+secure = []
 secure_field = []
 slider = []
 spacer = []
@@ -70,6 +79,7 @@ table = []
 text = []
 text_field = []
 toggle = []
+with_env = []
 
 [dependencies]
 waterui = { git = "https://github.com/water-rs/waterui", rev = "ec7d5ad2022f3b3cadf149d372adb18a3f4da74a" }

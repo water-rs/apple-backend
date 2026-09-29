@@ -189,7 +189,6 @@ func registerBuiltinComponentsIfNeeded() {
   builtinComponentsRegistered = true
 
   // Basic components
-  registerComponent(WuiEmpty.self)
   registerComponent(WuiResolvedGradientView.self)
   registerComponent(WuiResolvedShape.self)
   registerComponent(WuiPictureView.self)
@@ -202,12 +201,9 @@ func registerBuiltinComponentsIfNeeded() {
   registerComponent(WuiDynamic.self)
 
   // Metadata components (wrappers that modify env/appearance)
-  registerMetadataComponent(WuiWithEnv.self)
-  registerMetadataComponent(WuiSecure.self)
   registerMetadataComponent(WuiStandardDynamicRange.self)
   registerMetadataComponent(WuiHighDynamicRange.self)
   registerMetadataComponent(WuiGesture.self)
-  registerMetadataComponent(WuiLifecycleHook.self)
   registerMetadataComponent(WuiOnEvent.self)
   registerMetadataComponent(WuiOnKeyPress.self)
   registerMetadataComponent(WuiCursor.self)
@@ -226,8 +222,6 @@ func registerBuiltinComponentsIfNeeded() {
   registerMetadataComponent(WuiScale.self)
   registerMetadataComponent(WuiRotation.self)
   registerMetadataComponent(WuiOffset.self)
-  registerMetadataComponent(WuiIgnoreSafeArea.self)
-  registerMetadataComponent(WuiRetain.self)
   registerMetadataComponent(WuiContextMenu.self)
   registerMetadataComponent(WuiHittable.self)
 

@@ -21,6 +21,9 @@
 //! boundary is ordinary safe Rust, and the platform side goes through
 //! `cocoa-ui`, which is safe.
 
+// The `with_env` feature name is fixed by the port contract.
+#![allow(clippy::redundant_feature_names)]
+
 extern crate alloc;
 
 pub mod contract;

@@ -70,6 +70,19 @@ pub fn install(dispatcher: &mut Dispatcher) {
     #[cfg(feature = "menu")]
     crate::components::menu::install(dispatcher);
 
+    // Environment + lifecycle metadata — the environment overlay,
+    // safe-area escape, capture protection, one-shot hooks and retention.
+    #[cfg(feature = "ignore_safe_area")]
+    crate::components::ignore_safe_area::install(dispatcher);
+    #[cfg(feature = "lifecycle_hook")]
+    crate::components::lifecycle_hook::install(dispatcher);
+    #[cfg(feature = "retain")]
+    crate::components::retain::install(dispatcher);
+    #[cfg(feature = "secure")]
+    crate::components::secure::install(dispatcher);
+    #[cfg(feature = "with_env")]
+    crate::components::with_env::install(dispatcher);
+
     // Navigation — the group: metadata claims first (they wrap any content),
     // then the container and leaf components.
     #[cfg(feature = "navigation")]

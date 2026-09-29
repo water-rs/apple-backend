@@ -121,7 +121,8 @@ func wuiHandlesSafeArea(_ view: PlatformView) -> Bool {
 extension PlatformView {
   /// The part of the bounds inside the safe area.
   ///
-  /// On iOS a `WuiIgnoreSafeArea` — this view or an enclosing one — erases its
+  /// On iOS an ignore-safe-area wrapper — this view or an enclosing one,
+  /// its edges reported through `cocoaUiIgnoredSafeAreaEdges` — erases its
   /// edges from the insets its subtree sees, up to the next view that owns
   /// its insets (a scroll surface or chrome container starts afresh). UIKit computes every view's
   /// `safeAreaInsets` from geometry alone, so the erasure is applied here
@@ -132,9 +133,16 @@ extension PlatformView {
       var insets = safeAreaInsets
       var ancestor: PlatformView? = self
       while let view = ancestor {
-        if let ignoring = view as? WuiIgnoreSafeArea {
-          insets = ignoring.erasingIgnoredEdges(from: insets)
-        } else if view is WuiSafeAreaManaging || view is PlatformScrollView {
+        if let ignored = wuiKitIgnoredSafeAreaEdges(view), ignored & 0x10 != 0 {
+          insets = UIEdgeInsets(
+            top: ignored & 1 != 0 ? 0 : insets.top,
+            left: ignored & 2 != 0 ? 0 : insets.left,
+            bottom: ignored & 4 != 0 ? 0 : insets.bottom,
+            right: ignored & 8 != 0 ? 0 : insets.right
+          )
+        } else if view is WuiSafeAreaManaging || view is PlatformScrollView
+          || wuiKitManagesSafeArea(view)
+        {
           break
         }
         ancestor = view.superview
@@ -167,6 +175,16 @@ func wuiKitPrimaryContent(_ view: PlatformView) -> PlatformView? {
 func wuiKitManagesSafeArea(_ view: PlatformView) -> Bool {
   guard view.responds(to: Selector(("cocoaUiManagesSafeArea"))) else { return false }
   return (view.value(forKey: "cocoaUiManagesSafeArea") as? Bool) ?? false
+}
+
+/// The edges `view` erases from the safe-area insets its subtree sees —
+/// what `cocoaUiIgnoredSafeAreaEdges` reports: bits 0–3 the `Edges` mask
+/// (bit 0 top, bit 1 leading, bit 2 bottom, bit 3 trailing), bit 4 marking
+/// the view an ignore-safe-area wrapper.
+@MainActor
+func wuiKitIgnoredSafeAreaEdges(_ view: PlatformView) -> Int? {
+  guard view.responds(to: Selector(("cocoaUiIgnoredSafeAreaEdges"))) else { return nil }
+  return view.value(forKey: "cocoaUiIgnoredSafeAreaEdges") as? Int
 }
 
 /// The frame a wrapper gives its single content view: the whole of its bounds

@@ -706,3 +706,26 @@ public func wateruiSwiftManagesSafeArea(_ view: UnsafeMutableRawPointer?) -> Boo
     )
   }
 #endif
+
+extension PlatformView {
+  /// Whether this view is WaterUI's empty view `()`, possibly under
+  /// layout-transparent wrappers or hosted by a `Dynamic`.
+  ///
+  /// This is a semantic answer, not a measured size: a `Color` or `Spacer`
+  /// squeezed to zero still renders and still answers false, and so does a
+  /// `WuiFixedContainer` (a frame or nested stack explicitly claims its
+  /// slot — e.g. `().size(w, h)`). Transparent single-child hosts forward
+  /// the child's answer. A stack treats a view answering true as a
+  /// non-member (§4.4: no slot, no spacing).
+  var rendersNothing: Bool {
+    if let rustLeaf = self as? WuiRustLeaf {
+      // The extension's subview walk cannot see inside a Rust leaf;
+      // the leaf answered `is_empty` itself.
+      return rustLeaf.isEmptyLeaf
+    }
+    guard !subviews.isEmpty else {
+      return false
+    }
+    return subviews.allSatisfy { $0.rendersNothing }
+  }
+}
