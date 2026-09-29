@@ -108,6 +108,25 @@ mod platform {
 
     use crate::contract::KeepAlive;
 
+    /// `WuiSplitColumnPageController`: `UIKit` wraps each column in a nav
+    /// controller whose bar reserves its height in the safe area even when
+    /// it draws nothing, so the page hides the bar while it is the stack's
+    /// base — a pushed page keeps it for the back affordance.
+    fn hide_bar_when_base(vc: &Retained<NavContentController>) {
+        let weak = cocoa_ui::objc2::rc::Weak::new(&**vc);
+        vc.set_will_appear_handler(move |animated| {
+            let Some(vc) = weak.load() else { return };
+            let Some(nav) = vc.navigationController() else {
+                return;
+            };
+            let is_base = nav.viewControllers().firstObject().is_some_and(|first| {
+                cocoa_ui::objc2::rc::Retained::as_ptr(&first).cast::<u8>()
+                    == cocoa_ui::objc2::rc::Retained::as_ptr(&vc).cast::<u8>()
+            });
+            nav.setNavigationBarHidden_animated(is_base, animated);
+        });
+    }
+
     struct Split {
         columns: Columns,
         nav: Retained<SplitController>,
@@ -137,6 +156,7 @@ mod platform {
 
         let sidebar_leaf = ctx.render(sidebar.build());
         let sidebar_vc = NavContentController::new(mtm, sidebar_leaf.view());
+        hide_bar_when_base(&sidebar_vc);
         nav.set_column(UISplitViewControllerColumn::Primary, &sidebar_vc);
 
         let columns = Columns {
@@ -218,6 +238,7 @@ mod platform {
         fn mount_middle(&self, keep: &mut KeepAlive) {
             let leaf = self.columns.middle();
             let vc = NavContentController::new(self.mtm, leaf.view());
+            hide_bar_when_base(&vc);
             self.nav
                 .set_column(UISplitViewControllerColumn::Supplementary, &vc);
             keep.keep(leaf);
@@ -227,6 +248,7 @@ mod platform {
         fn mount_detail(&self, keep: &mut KeepAlive) {
             let leaf = self.columns.detail();
             let vc = NavContentController::new(self.mtm, leaf.view());
+            hide_bar_when_base(&vc);
             self.nav
                 .set_column(UISplitViewControllerColumn::Secondary, &vc);
             keep.keep(leaf);
