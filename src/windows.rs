@@ -21,7 +21,7 @@ mod imp {
     use core::ffi::c_void;
 
     use super::{into_kit_rect, into_kit_size, into_layout_rect};
-    use cocoa_ui::appkit::{HostView, HostedItem, WindowStyle, WindowToolbar};
+    use cocoa_ui::appkit::{HostView, WindowStyle};
     use cocoa_ui::{MainThreadMarker, Retained};
     use waterui::animation::Animation;
     use waterui::reactive::{Signal, SignalExt};
@@ -42,29 +42,7 @@ mod imp {
         window: &cocoa_ui::objc2_app_kit::NSWindow,
         view: &cocoa_ui::objc2_app_kit::NSView,
     ) {
-        let mut node = cocoa_ui::view::retain_base(view);
-        loop {
-            let subs = cocoa_ui::view::subviews(&node);
-            if subs.len() != 1 {
-                break;
-            }
-            node = subs[0].clone();
-        }
-        let subs = cocoa_ui::view::subviews(&node);
-        let children: Vec<Retained<cocoa_ui::objc2_app_kit::NSView>> = if subs.is_empty() {
-            alloc::vec![node]
-        } else {
-            subs
-        };
-        WindowToolbar::attached(window).set_window_items(
-            children
-                .iter()
-                .map(|v| HostedItem {
-                    view: v.clone(),
-                    size: v.fittingSize().into(),
-                })
-                .collect(),
-        );
+        crate::toolbar::install_toolbar_items(window, view);
     }
 
     /// What an open window owns: the platform object, its host view, and

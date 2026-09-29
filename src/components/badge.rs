@@ -40,6 +40,18 @@ mod platform {
 
 use platform::{BadgeView, HostView};
 
+/// The badge chrome `SwiftUI` draws: a 6pt dot for a zero count, a 16pt
+/// capsule carrying the count in an 11pt medium label, inset 12pt inside
+/// the content's trailing edge and overhanging 14pt above its top.
+const BADGE_METRICS: cocoa_ui::badge::BadgeMetrics = cocoa_ui::badge::BadgeMetrics {
+    dot_size: 6.0,
+    capsule_height: 16.0,
+    capsule_horizontal_padding: 4.0,
+    capsule_font_size: 11.0,
+    count_horizontal_offset: 12.0,
+    count_vertical_offset: 14.0,
+};
+
 /// A `ResolvedColor` as the platform's extended-sRGB color object.
 #[cfg(target_os = "ios")]
 fn platform_color(color: &ResolvedColor) -> Retained<platform::PlatformColor> {
@@ -144,7 +156,7 @@ fn render(config: BadgeConfig, ctx: &RenderContext<'_>) -> NativeLeaf {
     let host = HostView::new(mtm, Rect::ZERO);
     let host_view: &PlatformView = &host;
     let content = ctx.render(content_builder.build()).mount(host_view);
-    let indicator = BadgeView::new(mtm);
+    let indicator = BadgeView::new(mtm, BADGE_METRICS);
     cocoa_ui::view::add_subview(host_view, &indicator);
 
     let state = Rc::new(RefCell::new(BadgeState {

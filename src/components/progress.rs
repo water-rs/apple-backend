@@ -65,6 +65,10 @@ const VERTICAL_SPACING: f64 = 6.0;
 /// `max(50, intrinsicWidth)`.
 const MIN_LINEAR_WIDTH: f64 = 50.0;
 
+/// The bar width a linear indicator falls back to when the platform
+/// control reports no intrinsic width — `WuiProgress`'s bar width.
+const LINEAR_BAR_WIDTH: f64 = 100.0;
+
 /// How long each step of the four-color tint cycle holds, in seconds.
 #[cfg(target_os = "ios")]
 const TINT_STEP_SECONDS: u64 = 1;
@@ -156,10 +160,14 @@ fn control_size(progress: &Progress, variant: ProgressVariant) -> Size {
     let size = progress.intrinsic_size();
     match variant {
         ProgressVariant::Circular => Size::new(size.width as f32, size.height as f32),
-        ProgressVariant::Linear => Size::new(
-            (size.width.max(MIN_LINEAR_WIDTH)) as f32,
-            size.height as f32,
-        ),
+        ProgressVariant::Linear => {
+            let intrinsic = if size.width > 0.0 {
+                size.width
+            } else {
+                LINEAR_BAR_WIDTH
+            };
+            Size::new(intrinsic.max(MIN_LINEAR_WIDTH) as f32, size.height as f32)
+        }
     }
 }
 
@@ -490,6 +498,12 @@ pub fn install(dispatcher: &mut Dispatcher) {
         };
         let progress = Progress::new(mtm);
         progress.set_variant(variant);
+        // `SwiftUI` draws a circular indicator at the small control size on
+        // macOS; the kit leaves the size to the backend.
+        #[cfg(target_os = "macos")]
+        if variant == ProgressVariant::Circular {
+            progress.set_control_size(cocoa_ui::slider::ControlSize::Small);
+        }
         cocoa_ui::view::add_subview(host_view, as_view(&progress));
 
         let value = config.value.snapshot();

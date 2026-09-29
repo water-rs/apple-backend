@@ -46,6 +46,8 @@ pub(crate) mod proposal;
 mod registry;
 pub(crate) mod startup;
 pub(crate) mod theme;
+#[cfg(target_os = "macos")]
+mod toolbar;
 pub(crate) mod windows;
 
 /// Generates the `waterui_apple_main` entry point for the application

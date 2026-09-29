@@ -47,6 +47,26 @@ const HORIZONTAL_SPACING: f64 = 8.0;
 /// unusable, matching `WuiSlider`'s `minSliderTrackWidth`.
 const MIN_TRACK_WIDTH: f64 = 50.0;
 
+/// The track height `SwiftUI`'s `Slider` reports on iOS — `UISlider` draws
+/// the same track and thumb centered in a 34pt frame, so the extra 3pt is
+/// pure padding and the parity answer pins 31pt instead.
+#[cfg(target_os = "ios")]
+const SLIDER_TRACK_HEIGHT: f64 = 31.0;
+
+/// The height the leaf charges for the track — the control's own intrinsic
+/// answer on macOS, the `SwiftUI` track height on iOS.
+#[cfg(target_os = "ios")]
+const fn track_height(_slider: &Slider) -> f64 {
+    SLIDER_TRACK_HEIGHT
+}
+
+/// The height the leaf charges for the track — the control's own intrinsic
+/// answer on macOS, the `SwiftUI` track height on iOS.
+#[cfg(target_os = "macos")]
+fn track_height(slider: &Slider) -> f64 {
+    slider.intrinsic_height()
+}
+
 /// A label that measures empty — hidden through `LabelDisplayMode::Hidden`
 /// or simply absent — contributes no spacing beside it either.
 fn spacing(spacing: f64, beside: f64) -> f64 {
@@ -140,7 +160,7 @@ fn layout_children(view: &PlatformView, state: &SliderState) {
     let bounds = cocoa_ui::view::bounds(view);
     let width = bounds.size.width;
     let sizes = child_sizes(children);
-    let slider_height = state.slider.intrinsic_height();
+    let slider_height = track_height(&state.slider);
     let rtl = cocoa_ui::view::is_right_to_left(view);
 
     // Mirroring the frames reproduces the leading/trailing anchors a
@@ -212,7 +232,7 @@ impl SubView for SliderSubView {
     fn measure(&self, proposal: ProposalSize) -> ViewDimensions {
         let state = self.state.borrow();
         let (sizes, slider_height) = match &state.children {
-            Some(children) => (child_sizes(children), state.slider.intrinsic_height()),
+            Some(children) => (child_sizes(children), track_height(&state.slider)),
             None => (ChildSizes::default(), 0.0),
         };
         let min_width = sizes.min_width();
