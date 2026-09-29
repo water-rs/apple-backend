@@ -74,6 +74,8 @@ default = [
     "toggle",
     "view_effect",
     "view_renderer",
+    "video",
+    "video_player",
     "with_env",
 ]
 anchored_overlay = []
@@ -135,6 +137,8 @@ text_field = []
 toggle = []
 view_effect = []
 view_renderer = []
+video = []
+video_player = []
 with_env = []
 
 [dependencies]
@@ -163,6 +167,8 @@ objc2-metal = { version = "0.3", features = [
 ] }
 cocoa-ui = { path = "../cocoa-ui" }
 waterkit-screen = { git = "https://github.com/water-rs/waterkit", rev = "e5290913ee8adb22843fd60047f6a845f2391c5b" }
+waterkit-audio = { git = "https://github.com/water-rs/waterkit", rev = "e5290913ee8adb22843fd60047f6a845f2391c5b", features = ["media-session"] }
+waterui-video = { git = "https://github.com/water-rs/waterui", rev = "ec7d5ad2022f3b3cadf149d372adb18a3f4da74a" }
 executor-core = { version = "0.7.1", features = ["std"] }
 async-channel = "2"
 futures = "0.3"

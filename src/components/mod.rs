@@ -122,6 +122,8 @@ pub mod text;
 pub mod text_field;
 #[cfg(feature = "toggle")]
 pub mod toggle;
+#[cfg(any(feature = "video", feature = "video_player"))]
+pub mod video;
 #[cfg(feature = "view_effect")]
 pub mod view_effect;
 #[cfg(feature = "view_renderer")]

@@ -162,4 +162,8 @@ pub fn install(dispatcher: &mut Dispatcher) {
     crate::components::resolved_gradient::install(dispatcher);
     #[cfg(feature = "resolved_shape")]
     crate::components::resolved_shape::install(dispatcher);
+
+    // Media — the AVPlayer-backed video leaves.
+    #[cfg(any(feature = "video", feature = "video_player"))]
+    crate::components::video::install(dispatcher);
 }
