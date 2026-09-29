@@ -45,20 +45,17 @@ pub fn install(dispatcher: &mut crate::dispatch::Dispatcher) {
 #[cfg(target_os = "macos")]
 pub fn extract_title_text(view: &PlatformView) -> Option<String> {
     use cocoa_ui::objc2_app_kit::NSTextField;
-    for subview in cocoa_ui::view::subviews(view)
-        .iter()
-        .chain(core::iter::once(&cocoa_ui::view::retain_base(view)))
-    {
-        if let Some(field) = subview.downcast_ref::<NSTextField>() {
-            let text = field.stringValue().to_string();
-            if !text.is_empty() {
-                return Some(text);
-            }
-            let attributed = field.attributedStringValue().string().to_string();
-            if !attributed.is_empty() {
-                return Some(attributed);
-            }
+    if let Some(field) = view.downcast_ref::<NSTextField>() {
+        let text = field.stringValue().to_string();
+        if !text.is_empty() {
+            return Some(text);
         }
+        let attributed = field.attributedStringValue().string().to_string();
+        if !attributed.is_empty() {
+            return Some(attributed);
+        }
+    }
+    for subview in cocoa_ui::view::subviews(view).iter() {
         if let Some(found) = extract_title_text(subview) {
             return Some(found);
         }
@@ -71,19 +68,16 @@ pub fn extract_title_text(view: &PlatformView) -> Option<String> {
 #[cfg(target_os = "ios")]
 pub fn extract_title_text(view: &PlatformView) -> Option<String> {
     use cocoa_ui::objc2_ui_kit::UILabel;
-    for subview in cocoa_ui::view::subviews(view)
-        .iter()
-        .chain(core::iter::once(&cocoa_ui::view::retain_base(view)))
-    {
-        if let Some(label) = subview.downcast_ref::<UILabel>() {
-            let text = label
-                .attributedText()
-                .map(|text| text.string().to_string())
-                .or_else(|| label.text().map(|text| text.to_string()));
-            if let Some(text) = text.filter(|text| !text.is_empty()) {
-                return Some(text);
-            }
+    if let Some(label) = view.downcast_ref::<UILabel>() {
+        let text = label
+            .attributedText()
+            .map(|text| text.string().to_string())
+            .or_else(|| label.text().map(|text| text.to_string()));
+        if let Some(text) = text.filter(|text| !text.is_empty()) {
+            return Some(text);
         }
+    }
+    for subview in cocoa_ui::view::subviews(view).iter() {
         if let Some(found) = extract_title_text(subview) {
             return Some(found);
         }

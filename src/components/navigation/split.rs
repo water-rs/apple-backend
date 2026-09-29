@@ -58,7 +58,11 @@ struct Columns {
     /// Middle-column selection, three-column splits only.
     secondary: Option<Binding<Option<Id>>>,
     /// Guard for every leaf mounted in a column.
-    keep: RefCell<KeepAlive>,
+    mounted: RefCell<KeepAlive>,
+    /// The selection-watcher guards — separate from `mounted` because
+    /// `bind` fires immediately while its borrow is still held, and the
+    /// watcher re-borrows `mounted`.
+    watchers: RefCell<KeepAlive>,
 }
 
 impl Columns {
@@ -138,7 +142,8 @@ mod platform {
             placeholder,
             primary,
             secondary,
-            keep: RefCell::new(KeepAlive::default()),
+            mounted: RefCell::new(KeepAlive::default()),
+            watchers: RefCell::new(KeepAlive::default()),
         };
         let mut keep = KeepAlive::default();
         keep.keep(sidebar_leaf);
@@ -149,14 +154,14 @@ mod platform {
 
         split.mount_middle(&mut keep);
         split.mount_detail(&mut keep);
-        *split.columns.keep.borrow_mut() = keep;
+        *split.columns.mounted.borrow_mut() = keep;
 
         // Selection bindings rebuild the downstream columns.
         let primary = split.columns.primary.clone();
-        split.columns.keep.borrow_mut().bind(&primary, {
+        split.columns.watchers.borrow_mut().bind(&primary, {
             let split = split.clone();
             move |_| {
-                let mut keep = split.columns.keep.borrow_mut();
+                let mut keep = split.columns.mounted.borrow_mut();
                 split.mount_middle(&mut keep);
                 if split.columns.secondary.is_none() {
                     split.mount_detail(&mut keep);
@@ -164,16 +169,16 @@ mod platform {
             }
         });
         if let Some(secondary) = &split.columns.secondary {
-            split.columns.keep.borrow_mut().bind(secondary, {
+            split.columns.watchers.borrow_mut().bind(secondary, {
                 let split = split.clone();
                 move |_| {
-                    let mut keep = split.columns.keep.borrow_mut();
+                    let mut keep = split.columns.mounted.borrow_mut();
                     split.mount_detail(&mut keep);
                 }
             });
         }
 
-        split.columns.keep.borrow_mut().bind(&visibility, {
+        split.columns.watchers.borrow_mut().bind(&visibility, {
             let nav = nav_for_binds.clone();
             move |visibility| {
                 let (sidebar, content) = match visibility {
@@ -265,7 +270,8 @@ mod platform {
             placeholder,
             primary,
             secondary,
-            keep: RefCell::new(KeepAlive::default()),
+            mounted: RefCell::new(KeepAlive::default()),
+            watchers: RefCell::new(KeepAlive::default()),
         };
         let sidebar_view = cocoa_ui::view::retain_base(sidebar_leaf.view());
         let nav_for_binds = nav.clone();
@@ -278,27 +284,27 @@ mod platform {
         let mut keep = KeepAlive::default();
         keep.keep(sidebar_leaf);
         split.mount(&mut keep);
-        *split.columns.keep.borrow_mut() = keep;
+        *split.columns.mounted.borrow_mut() = keep;
 
         let primary = split.columns.primary.clone();
-        split.columns.keep.borrow_mut().bind(&primary, {
+        split.columns.watchers.borrow_mut().bind(&primary, {
             let split = split.clone();
             move |_| {
-                let mut keep = split.columns.keep.borrow_mut();
+                let mut keep = split.columns.mounted.borrow_mut();
                 split.mount(&mut keep);
             }
         });
         if let Some(secondary) = &split.columns.secondary {
-            split.columns.keep.borrow_mut().bind(secondary, {
+            split.columns.watchers.borrow_mut().bind(secondary, {
                 let split = split.clone();
                 move |_| {
-                    let mut keep = split.columns.keep.borrow_mut();
+                    let mut keep = split.columns.mounted.borrow_mut();
                     split.mount(&mut keep);
                 }
             });
         }
 
-        split.columns.keep.borrow_mut().bind(&visibility, {
+        split.columns.watchers.borrow_mut().bind(&visibility, {
             let nav = nav_for_binds.clone();
             move |visibility| {
                 let (sidebar, content) = match visibility {
