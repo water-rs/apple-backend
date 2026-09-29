@@ -199,7 +199,6 @@ func registerBuiltinComponentsIfNeeded() {
 
   registerComponent(WuiDatePicker.self)
   registerComponent(WuiMultiDatePicker.self)
-  registerComponent(WuiProgress.self)
   registerComponent(WuiMenu.self)
   registerComponent(WuiBadge.self)
 
