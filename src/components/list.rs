@@ -237,11 +237,14 @@ fn index_path_for_flat(groups: &[SectionGroup], flat: usize) -> Option<(usize, u
 #[cfg(target_os = "ios")]
 /// `containsNavigationLink`: walk the primary-content chain looking for a
 /// navigation-link wrapper — a matched node gives the row a disclosure
-/// indicator.
+/// indicator. The Rust path tags the wrapper with an accessibility
+/// identifier rather than a Swift class name.
 fn contains_navigation_link(view: &cocoa_ui::PlatformView) -> bool {
     let mut current = view::retain_base(view);
     loop {
-        if view::class_name(&current).contains("NavigationLink") {
+        if view::accessibility_identifier(&current).as_deref()
+            == Some(crate::components::navigation::metadata::LINK_HINT_IDENTIFIER)
+        {
             return true;
         }
         match view::primary_content(&current) {
