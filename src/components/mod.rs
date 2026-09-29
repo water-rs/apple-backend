@@ -46,6 +46,8 @@ pub mod focused;
 pub mod gesture;
 #[cfg(feature = "glass_background")]
 pub mod glass_background;
+#[cfg(feature = "gpu_surface")]
+pub mod gpu_surface;
 #[cfg(feature = "hittable")]
 pub mod hittable;
 #[cfg(feature = "ignore_safe_area")]
@@ -80,12 +82,18 @@ pub mod on_key_press;
 pub mod opacity;
 #[cfg(feature = "picker")]
 pub mod picker;
+#[cfg(feature = "picture")]
+pub mod picture;
 #[cfg(feature = "plain")]
 pub mod plain;
 #[cfg(feature = "progress")]
 pub mod progress;
 #[cfg(feature = "resolved_color")]
 pub mod resolved_color;
+#[cfg(feature = "resolved_gradient")]
+pub mod resolved_gradient;
+#[cfg(feature = "resolved_shape")]
+pub mod resolved_shape;
 #[cfg(feature = "retain")]
 pub mod retain;
 #[cfg(feature = "rotation")]
@@ -114,5 +122,9 @@ pub mod text;
 pub mod text_field;
 #[cfg(feature = "toggle")]
 pub mod toggle;
+#[cfg(feature = "view_effect")]
+pub mod view_effect;
+#[cfg(feature = "view_renderer")]
+pub mod view_renderer;
 #[cfg(feature = "with_env")]
 pub mod with_env;

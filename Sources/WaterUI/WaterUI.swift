@@ -983,8 +983,7 @@ public final class WuiRootContext {
     // A build without WaterUI's `gpu` feature exports no GPU runtime symbols
     // and has nothing to install one for.
     #if !WATERUI_NO_GPU
-      let gpuRuntime = await createWuiGpuRuntime()
-      waterui_env_install_gpu_runtime(initEnvPtr, gpuRuntime)
+      await installGpuRuntime(env: initEnvPtr)
     #endif
     let nativeServices = WuiNativeServices()
     nativeServices.environment = env
@@ -992,7 +991,7 @@ public final class WuiRootContext {
       installWebViewController(env: initEnvPtr)
     #endif
     installWindowManager(env: initEnvPtr, services: nativeServices)
-    installViewRenderer(env: initEnvPtr, services: nativeServices)
+    waterui_apple_install_view_renderer(UnsafeMutableRawPointer(initEnvPtr))
 
     // 2. Detect system color scheme
     #if canImport(UIKit)

@@ -756,7 +756,13 @@ dependencies = [
  "bitflags 2.13.2",
  "block2",
  "dispatch2",
+<<<<<<< HEAD
  "keyboard-types",
+||||||| parent of 812a701c8 (feat(graphics): port GPU surface, picture, gradient, shape, effect and renderer components to Rust leaves)
+=======
+ "keyboard-types",
+ "kurbo 0.12.0",
+>>>>>>> 812a701c8 (feat(graphics): port GPU surface, picture, gradient, shape, effect and renderer components to Rust leaves)
  "libc",
  "mach2",
  "objc2",
@@ -765,10 +771,14 @@ dependencies = [
  "objc2-core-graphics",
  "objc2-core-text",
  "objc2-foundation",
+ "objc2-io-surface",
+ "objc2-metal",
  "objc2-quartz-core",
  "objc2-ui-kit",
  "oslog",
  "tracing",
+ "wgpu",
+ "wgpu-hal",
 ]
 
 [[package]]
@@ -1055,7 +1065,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1266,7 +1276,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1769,7 +1779,7 @@ dependencies = [
  "log",
  "presser",
  "thiserror 2.0.21",
- "windows 0.61.3",
+ "windows 0.62.2",
 ]
 
 [[package]]
@@ -1888,7 +1898,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.61.2",
+ "windows-core 0.62.2",
 ]
 
 [[package]]
@@ -2518,6 +2528,17 @@ checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
 
 [[package]]
 name = "kurbo"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce9729cc38c18d86123ab736fd2e7151763ba226ac2490ec092d1dd148825e32"
+dependencies = [
+ "arrayvec",
+ "euclid",
+ "smallvec",
+]
+
+[[package]]
+name = "kurbo"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4b60dfc32f652b926df6192e55525b16d186c69d47876c3ead4da5cc9f8450e2"
@@ -3113,7 +3134,7 @@ name = "nami-core"
 version = "0.3.3"
 source = "git+https://github.com/water-rs/nami?rev=f1db5017f5d64cb45b9b304c74ff420377258476#f1db5017f5d64cb45b9b304c74ff420377258476"
 dependencies = [
- "kurbo",
+ "kurbo 0.13.1",
 ]
 
 [[package]]
@@ -3235,7 +3256,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3605,8 +3626,11 @@ checksum = "a0125f776a10d00af4152d74616409f0d4a2053a6f57fa5b7d6aa2854ac04794"
 dependencies = [
  "bitflags 2.13.2",
  "block2",
+ "dispatch2",
  "objc2",
+ "objc2-core-foundation",
  "objc2-foundation",
+ "objc2-io-surface",
 ]
 
 [[package]]
@@ -3617,9 +3641,11 @@ checksum = "96c1358452b371bf9f104e21ec536d37a650eb10f7ee379fff67d2e08d537f1f"
 dependencies = [
  "bitflags 2.13.2",
  "block2",
+ "libc",
  "objc2",
  "objc2-core-foundation",
  "objc2-core-graphics",
+ "objc2-core-video",
  "objc2-foundation",
  "objc2-metal",
 ]
@@ -3751,7 +3777,7 @@ checksum = "839c8299360d2e998bdb106dc0a6cd71dcc5f4df51df1b620361bf50e283cca6"
 dependencies = [
  "bytemuck",
  "color",
- "kurbo",
+ "kurbo 0.13.1",
  "linebender_resource_handle",
  "smallvec",
 ]
@@ -4344,7 +4370,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4678,7 +4704,7 @@ version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "695b5790b3131dafa99b3bbfd25a216edb3d216dad9ca208d4657bfb8f2abc3d"
 dependencies = [
- "kurbo",
+ "kurbo 0.13.1",
  "siphasher",
 ]
 
@@ -4832,7 +4858,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.5",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4841,7 +4867,7 @@ version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8c27177b12a6399ffc08b98f76f7c9a1f4fe9fc967c784c5a071fa8d93cf7e1"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5174,7 +5200,7 @@ checksum = "977d0a4abdef933f424a99fe09f95576e089b90aebc6f016a3bc813762493e91"
 dependencies = [
  "data-url",
  "imagesize",
- "kurbo",
+ "kurbo 0.13.1",
  "log",
  "pico-args",
  "roxmltree",
@@ -5250,6 +5276,18 @@ dependencies = [
  "peniko",
  "smallvec",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "vello_cpu"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ace506ca414548966fcf3c283be94eb1cad8254de488791ee698bf438b0890a9"
+dependencies = [
+ "bytemuck",
+ "glifo",
+ "hashbrown 0.17.1",
+ "vello_common",
 ]
 
 [[package]]
@@ -5529,16 +5567,31 @@ dependencies = [
 name = "waterui-apple"
 version = "0.1.0"
 dependencies = [
+ "async-channel",
  "cocoa-ui",
  "dispatch2",
  "executor-core",
+ "futures",
+ "kurbo 0.13.1",
  "libc",
  "native-executor",
+<<<<<<< HEAD
  "objc2",
  "objc2-core-foundation",
  "objc2-core-graphics",
+||||||| parent of 812a701c8 (feat(graphics): port GPU surface, picture, gradient, shape, effect and renderer components to Rust leaves)
+=======
+ "objc2",
+ "objc2-core-graphics",
+>>>>>>> 812a701c8 (feat(graphics): port GPU surface, picture, gradient, shape, effect and renderer components to Rust leaves)
  "objc2-foundation",
+<<<<<<< HEAD
  "objc2-quartz-core",
+||||||| parent of 812a701c8 (feat(graphics): port GPU surface, picture, gradient, shape, effect and renderer components to Rust leaves)
+=======
+ "objc2-metal",
+ "objc2-quartz-core",
+>>>>>>> 812a701c8 (feat(graphics): port GPU surface, picture, gradient, shape, effect and renderer components to Rust leaves)
  "tracing",
  "tracing-oslog",
  "tracing-panic",
@@ -5547,7 +5600,10 @@ dependencies = [
  "waterui",
  "waterui-backend-core",
  "waterui-core",
+ "waterui-graphics",
  "waterui-locale",
+ "waterui-shape",
+ "wgpu-hal",
 ]
 
 [[package]]
@@ -5606,7 +5662,7 @@ name = "waterui-backend-core"
 version = "0.5.2"
 source = "git+https://github.com/water-rs/waterui?rev=ec7d5ad2022f3b3cadf149d372adb18a3f4da74a#ec7d5ad2022f3b3cadf149d372adb18a3f4da74a"
 dependencies = [
- "kurbo",
+ "kurbo 0.13.1",
  "nami",
  "num-traits",
  "peniko",
@@ -5695,7 +5751,7 @@ dependencies = [
  "glifo",
  "image",
  "keyboard-types",
- "kurbo",
+ "kurbo 0.13.1",
  "libc",
  "mp4parse",
  "naga 30.0.1",
@@ -5711,6 +5767,7 @@ dependencies = [
  "tracing",
  "vello",
  "vello_common",
+ "vello_cpu",
  "vello_hybrid",
  "waterui-core",
  "wgpu",
@@ -5735,7 +5792,7 @@ source = "git+https://github.com/water-rs/image?rev=5625b8a224600c57fd8f9d464762
 dependencies = [
  "half",
  "image",
- "kurbo",
+ "kurbo 0.13.1",
  "mp4-atom",
  "num-traits",
  "peniko",
@@ -5907,7 +5964,7 @@ version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c634f1f71f1ff3820c205885566faec45a0477e16a60a5a5b800615a17724654"
 dependencies = [
- "kurbo",
+ "kurbo 0.13.1",
  "peniko",
  "suiteki",
  "tracing",
@@ -6331,7 +6388,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

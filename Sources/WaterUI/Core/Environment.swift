@@ -9,6 +9,10 @@
 
 @MainActor
 public class WuiEnvironment {
+    /// The environment's opaque `WuiEnv` handle for C-ABI seam calls from
+    /// sibling modules (CEF's `waterui_apple_make_gpu_surface_view`).
+    public var pointer: OpaquePointer { inner }
+
     var inner: OpaquePointer
     init(_ inner: OpaquePointer) {
         self.inner = inner

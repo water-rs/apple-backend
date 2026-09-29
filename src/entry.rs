@@ -162,12 +162,16 @@ mod imp {
                 // SAFETY: `launch` is consumed by `prepared` exactly once —
                 // this handler runs once — and `env` is `run`'s borrow, lent
                 // for the process.
+                // The runtime lands in `env` before the seam's services —
+                // `WuiGpuRuntime.swift` + `waterui_env_install_gpu_runtime`.
                 unsafe {
-                    crate::seam::waterui_swift_prepare_env(
-                        env_ptr,
-                        Box::into_raw(launch).cast::<c_void>(),
-                        prepared,
-                    );
+                    crate::gpu_runtime::prepare(env_ptr, move || {
+                        crate::seam::waterui_swift_prepare_env(
+                            env_ptr,
+                            Box::into_raw(launch).cast::<c_void>(),
+                            prepared,
+                        );
+                    });
                 }
             })
             .should_terminate_after_last_window_closed(move |_| quit_on_last.get());
@@ -262,12 +266,16 @@ mod imp {
             let env_ptr = launch.env;
             // SAFETY: `launch` is consumed by `prepared` exactly once, and
             // `env` is `run`'s borrow, lent for the process.
+            // The runtime lands in `env` before the seam's services —
+            // `WuiGpuRuntime.swift` + `waterui_env_install_gpu_runtime`.
             unsafe {
-                crate::seam::waterui_swift_prepare_env(
-                    env_ptr,
-                    Box::into_raw(launch).cast::<c_void>(),
-                    prepared,
-                );
+                crate::gpu_runtime::prepare(env_ptr, move || {
+                    crate::seam::waterui_swift_prepare_env(
+                        env_ptr,
+                        Box::into_raw(launch).cast::<c_void>(),
+                        prepared,
+                    );
+                });
             }
         });
         uikit::run(mtm, handlers)

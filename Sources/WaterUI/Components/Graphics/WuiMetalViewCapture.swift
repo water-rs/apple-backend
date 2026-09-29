@@ -34,6 +34,25 @@ private final class WuiMetalFenceBatch {
   }
 }
 
+/// The GPU surfaces a capture can composite — Rust leaves register
+/// themselves against this protocol; the deleted `WuiCapturedGpuSurface` conformed to
+/// the same surface shape.
+@MainActor
+protocol WuiCapturedGpuSurface: PlatformView {
+  var capturePixelFormat: MTLPixelFormat { get }
+  func beginCaptureSuppression()
+  func endCaptureSuppression()
+  func beginExternalRendering(onRedraw: (() -> Void)?)
+  func endExternalRendering(resumingPresentation: Bool)
+  func prepareExternalRender(texture: MTLTexture) -> Bool
+  func renderPreparedExternalTexture(
+    texture: MTLTexture,
+    width: UInt32,
+    height: UInt32,
+    completion: @escaping () -> Void
+  )
+}
+
 /// Captures a native view subtree — and any `GpuSurface` nested inside it — into
 /// a single Metal texture for the filter and view-effect pipelines.
 ///
@@ -66,7 +85,7 @@ private final class WuiMetalFenceBatch {
 /// is shared without either the main actor or that serial queue mediating it.
 final class WuiMetalViewCapture: @unchecked Sendable {
   private struct GpuSurfaceSnapshot: @unchecked Sendable {
-    let surface: WuiGpuSurface
+    let surface: WuiCapturedGpuSurface
     let origin: MTLOrigin
     let size: MTLSize
     let pixelFormat: MTLPixelFormat
@@ -313,7 +332,7 @@ final class WuiMetalViewCapture: @unchecked Sendable {
   private let contentView: PlatformView
   @MainActor var onRedraw: (() -> Void)?
 
-  @MainActor private var activeGpuSurfaces: [ObjectIdentifier: WuiGpuSurface] = [:]
+  @MainActor private var activeGpuSurfaces: [ObjectIdentifier: WuiCapturedGpuSurface] = [:]
   @MainActor private var captureRenderer: CARenderer?
   @MainActor private var nativeCaptureQueue: MTLCommandQueue?
   @MainActor private var nativeCaptureDevice: MTLDevice?
@@ -714,7 +733,7 @@ final class WuiMetalViewCapture: @unchecked Sendable {
     targetWidth: Int,
     targetHeight: Int
   ) {
-    if let surface = view as? WuiGpuSurface {
+    if let surface = view as? WuiCapturedGpuSurface {
       let rect = surface.convert(surface.bounds, to: contentView)
       let originX = max(0, Int((rect.minX * geometry.scaleX).rounded(.down)))
       let originY = max(0, Int((rect.minY * geometry.scaleY).rounded(.down)))
@@ -755,7 +774,7 @@ final class WuiMetalViewCapture: @unchecked Sendable {
     guard let onRedraw else {
       fatalError("WuiMetalViewCapture redraw handler was not installed")
     }
-    var next: [ObjectIdentifier: WuiGpuSurface] = [:]
+    var next: [ObjectIdentifier: WuiCapturedGpuSurface] = [:]
     for snapshot in snapshots {
       next[ObjectIdentifier(snapshot.surface)] = snapshot.surface
     }

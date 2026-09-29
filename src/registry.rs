@@ -149,4 +149,17 @@ pub fn install(dispatcher: &mut Dispatcher) {
     // Wave C — overlays.
     #[cfg(feature = "badge")]
     crate::components::badge::install(dispatcher);
+
+    // GPU/graphics — the surface leaf first: view_effect's capture
+    // resolves mounted surfaces through its registry.
+    #[cfg(feature = "gpu_surface")]
+    crate::components::gpu_surface::install(dispatcher);
+    #[cfg(feature = "view_effect")]
+    crate::components::view_effect::install(dispatcher);
+    #[cfg(feature = "picture")]
+    crate::components::picture::install(dispatcher);
+    #[cfg(feature = "resolved_gradient")]
+    crate::components::resolved_gradient::install(dispatcher);
+    #[cfg(feature = "resolved_shape")]
+    crate::components::resolved_shape::install(dispatcher);
 }

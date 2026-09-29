@@ -34,6 +34,10 @@ pub mod seam;
 pub(crate) mod components;
 pub(crate) mod first_paint;
 pub(crate) mod fonts;
+#[cfg(feature = "gpu_surface")]
+mod gpu_input;
+mod gpu_runtime;
+mod invalidation;
 pub(crate) mod locale;
 pub(crate) mod measure_memo;
 #[cfg(target_os = "macos")]

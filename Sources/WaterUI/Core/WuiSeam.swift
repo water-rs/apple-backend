@@ -554,14 +554,10 @@ public func wateruiSwiftPrepareEnv(
       fatalError("waterui_clone_env answered null")
     }
     let environment = WuiEnvironment(cloned)
-    #if !WATERUI_NO_GPU
-      let gpuRuntime = await createWuiGpuRuntime()
-      waterui_env_install_gpu_runtime(env, gpuRuntime)
-    #endif
     let nativeServices = WuiNativeServices()
     nativeServices.environment = environment
     installWindowManager(env: env, services: nativeServices)
-    installViewRenderer(env: env, services: nativeServices)
+    waterui_apple_install_view_renderer(UnsafeMutableRawPointer(env))
     callback(context)
   }
 }

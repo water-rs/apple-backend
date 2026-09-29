@@ -23,11 +23,13 @@ open class CefSurfaceView: NSView {
       fatalError("CEF surface was created without input state")
     }
     self.cefState = state
-    let gpuView = makeWaterUIGpuSurface(
-      stretchAxis: .both,
-      ffiSurface: surface.gpu_surface,
-      env: env
-    )
+    var ffiSurface = surface.gpu_surface
+    guard
+      let gpuViewPointer = waterui_apple_make_gpu_surface_view(&ffiSurface, UnsafeMutableRawPointer(env.pointer))
+    else {
+      fatalError("CEF surface could not create its GPU surface view")
+    }
+    let gpuView = Unmanaged<NSView>.fromOpaque(gpuViewPointer).takeRetainedValue()
     super.init(frame: .zero)
     gpuView.translatesAutoresizingMaskIntoConstraints = false
     addSubview(gpuView)

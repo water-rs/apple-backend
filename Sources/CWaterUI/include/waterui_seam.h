@@ -143,6 +143,27 @@ struct WateruiResolution waterui_apple_resolve(void *view, void *env);
 /// borrowed `NSWindow*`/`NSView*`; call on the main thread. macOS only.
 void waterui_apple_install_toolbar(void *window, void *view);
 
+/// Installs the shared `GpuRuntime` into `env` asynchronously — the CEF
+/// backend's `installGpuRuntime(env:)` and the Rust launcher's pre-seam
+/// `gpu_runtime::prepare`. `complete` fires once with `context` when the
+/// runtime is in; `drop_context` releases `context` exactly once.
+void waterui_apple_install_gpu_runtime(void *env, void *context,
+                                       void (*complete)(void *),
+                                       void (*drop_context)(void *));
+
+/// The runtime's `MTLDevice` for `env`, retained `+1`-neutral (borrowed):
+/// `wuiMetalDevice(environment:)` wraps it.
+void *waterui_apple_gpu_metal_device(void *env);
+
+/// Installs the environment's `ViewRenderer` — `renderViewToRGBA`'s Rust
+/// port — backing `CustomViewRenderer`. Call on the main thread.
+void waterui_apple_install_view_renderer(void *env);
+
+/// `makeWaterUIGpuSurface`: builds a `gpu_surface` leaf for a CEF-owned
+/// `CWaterUI.WuiGpuSurface` and returns its platform view `+1` for
+/// `Unmanaged<NSView>.takeRetainedValue()`.
+void *waterui_apple_make_gpu_surface_view(void *surface, void *env);
+
 /// Application entry point, emitted by `waterui_apple::export_app!` into the
 /// app's Rust crate. `main.swift` calls it with `accessory` = whether the
 /// process runs as an macOS accessory (menu-bar-only) app.

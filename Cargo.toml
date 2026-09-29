@@ -21,7 +21,12 @@ default = [
     "accessibility_metadata",
     "badge",
     "button",
+<<<<<<< HEAD
     "clip_shape",
+||||||| parent of 812a701c8 (feat(graphics): port GPU surface, picture, gradient, shape, effect and renderer components to Rust leaves)
+=======
+    "gpu_surface",
+>>>>>>> 812a701c8 (feat(graphics): port GPU surface, picture, gradient, shape, effect and renderer components to Rust leaves)
     "color_picker",
     "container",
     "context_menu",
@@ -55,8 +60,11 @@ default = [
     "on_event",
     "on_key_press",
     "picker",
+    "picture",
     "progress",
     "resolved_color",
+    "resolved_gradient",
+    "resolved_shape",
     "retain",
     "scroll",
     "secure",
@@ -68,6 +76,8 @@ default = [
     "text",
     "text_field",
     "toggle",
+    "view_effect",
+    "view_renderer",
     "with_env",
 ]
 anchored_overlay = []
@@ -76,7 +86,12 @@ accessibility_metadata = []
 badge = []
 border = []
 button = []
+<<<<<<< HEAD
 clip_shape = []
+||||||| parent of 812a701c8 (feat(graphics): port GPU surface, picture, gradient, shape, effect and renderer components to Rust leaves)
+=======
+gpu_surface = []
+>>>>>>> 812a701c8 (feat(graphics): port GPU surface, picture, gradient, shape, effect and renderer components to Rust leaves)
 color_picker = []
 container = []
 context_menu = []
@@ -107,8 +122,11 @@ on_event = []
 on_key_press = []
 picker = []
 plain = []
+picture = []
 progress = []
 resolved_color = []
+resolved_gradient = []
+resolved_shape = []
 retain = []
 rotation = ["layer_transform"]
 scale = ["layer_transform"]
@@ -123,6 +141,8 @@ table = []
 text = []
 text_field = []
 toggle = []
+view_effect = []
+view_renderer = []
 with_env = []
 
 [dependencies]
@@ -130,10 +150,39 @@ waterui = { git = "https://github.com/water-rs/waterui", rev = "ec7d5ad2022f3b3c
 waterui-core = { git = "https://github.com/water-rs/waterui", rev = "ec7d5ad2022f3b3cadf149d372adb18a3f4da74a" }
 waterui-backend-core = { git = "https://github.com/water-rs/waterui", rev = "ec7d5ad2022f3b3cadf149d372adb18a3f4da74a", features = ["overlay"] }
 waterui-locale = { git = "https://github.com/water-rs/waterui", rev = "ec7d5ad2022f3b3cadf149d372adb18a3f4da74a" }
+# The GPU components the backend owns (`gpu_surface`, `view_effect`,
+# `picture`, `resolved_gradient`) are Rust semantic types here, not FFI
+# pointers: `cpu-scene` is what `picture`'s rasteriser needs beyond `gpu`.
+waterui-graphics = { git = "https://github.com/water-rs/waterui", rev = "ec7d5ad2022f3b3cadf149d372adb18a3f4da74a", features = [
+    "gpu",
+    "cpu-scene",
+] }
+waterui-shape = { git = "https://github.com/water-rs/waterui", rev = "ec7d5ad2022f3b3cadf149d372adb18a3f4da74a" }
+# HAL access to the wgpu device's `MTLDevice`, for the Swift-side CEF surface
+# and the surviving applied-filter glue.
+wgpu-hal = { version = "29.0.4", features = ["metal"] }
+objc2-metal = { version = "0.3", features = [
+    "MTLCommandBuffer",
+    "MTLCommandQueue",
+    "MTLDevice",
+    "MTLPixelFormat",
+    "MTLResource",
+    "MTLTexture",
+] }
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "NSAttributedString",
+    "NSDate",
+] }
 cocoa-ui = { path = "../cocoa-ui" }
 waterkit-screen = { git = "https://github.com/water-rs/waterkit", rev = "e5290913ee8adb22843fd60047f6a845f2391c5b" }
 executor-core = { version = "0.7.1", features = ["std"] }
+async-channel = "2"
+futures = "0.3"
 native-executor = "0.8.0"
+kurbo = "0.13"
+objc2 = "0.6"
+objc2-quartz-core = "0.3"
+objc2-core-graphics = "0.3"
 dispatch2 = "0.3"
 libc = "0.2"
 tracing = "0.1"
@@ -141,6 +190,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-oslog = "0.2"
 tracing-panic = "0.1"
 
+<<<<<<< HEAD
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = [
     "NSAttributedString",
@@ -162,6 +212,14 @@ objc2-quartz-core = { version = "0.3", default-features = false, features = [
     "objc2-core-graphics",
 ] }
 
+||||||| parent of 812a701c8 (feat(graphics): port GPU surface, picture, gradient, shape, effect and renderer components to Rust leaves)
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "NSAttributedString",
+    "NSDate",
+] }
+
+=======
+>>>>>>> 812a701c8 (feat(graphics): port GPU surface, picture, gradient, shape, effect and renderer components to Rust leaves)
 # The framework's own `[patch.crates-io]`, translated for this consumer the
 # same way `water`'s scaffolds do it: member path pins become git pins at the
 # resolved `dev` revision, the rest ride verbatim.
