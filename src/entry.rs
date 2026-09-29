@@ -90,6 +90,31 @@ mod imp {
         let env = unsafe { &mut *launch.env };
         crate::windows::install_manager(env);
         let parts = app(env.clone()).into_parts();
+        // Content renders under the environment `app` returned: its own
+        // installs (`install_chromium`, `.state(..)` chains) landed as
+        // overlays on the clone it was handed, which the host env cannot
+        // see — `insert` never propagates between clones.
+        let mut app_env = parts.env;
+        // The web view controller fills its slot late and only when the
+        // `webview` port is enabled — an application bundling its own
+        // engine installed it during `app(env)`.
+        // SAFETY: `prepared` runs on the main thread; `app_env` outlives
+        // the call and the install borrows it only.
+        #[cfg(feature = "webview")]
+        unsafe {
+            crate::components::webview::waterui_apple_install_webview(core::ptr::from_mut(
+                &mut app_env,
+            ));
+        }
+        // `installMenuBar`: the declared menus resolve and rebuild under the
+        // environment `app` returned, exactly as windows do. The guard lives
+        // for the process.
+        core::mem::forget(crate::menus::install_declared(
+            mtm,
+            &Application::shared(mtm),
+            &parts.menu_bar,
+            &app_env,
+        ));
         launch
             .quit_on_last
             .set(matches!(parts.last_window, LastWindowPolicy::Quit));
@@ -100,22 +125,6 @@ mod imp {
                 Application::shared(mtm).terminate();
             }
         } else {
-            // Content renders under the environment `app` returned: its own
-            // installs (`install_chromium`, `.state(..)` chains) landed as
-            // overlays on the clone it was handed, which the host env cannot
-            // see — `insert` never propagates between clones.
-            let mut app_env = parts.env;
-            // The web view controller fills its slot late and only when the
-            // `webview` port is enabled — an application bundling its own
-            // engine installed it during `app(env)`.
-            // SAFETY: `prepared` runs on the main thread; `app_env` outlives
-            // the call and the install borrows it only.
-            #[cfg(feature = "webview")]
-            unsafe {
-                crate::components::webview::waterui_apple_install_webview(core::ptr::from_mut(
-                    &mut app_env,
-                ));
-            }
             for window in parts.windows {
                 let host = crate::windows::realize(window, &app_env, mtm);
                 crate::windows::track(host);
@@ -206,6 +215,7 @@ mod imp {
     struct Launch {
         app: Option<Box<dyn FnOnce(Environment) -> App>>,
         env: *mut Environment,
+        declared: crate::menus::Declared,
         _theme: Rc<ThemeSignals>,
         _locale: Box<dyn Any>,
     }
@@ -243,6 +253,14 @@ mod imp {
                 &mut app_env,
             ));
         }
+        // `installMenuBar`: `declared` feeds the `build_menus` handler the
+        // delegate registered at launch; the watch rebuilds on every change.
+        // The guard lives for the process.
+        core::mem::forget(crate::menus::install_declared(
+            &parts.menu_bar,
+            &app_env,
+            &launch.declared,
+        ));
         crate::windows::declare(parts.windows, &app_env, mtm);
         core::mem::forget(launch);
     }
@@ -260,9 +278,14 @@ mod imp {
         ));
         let locale = crate::locale::install(env, mtm);
 
+        // Filled by `prepared`: `build_menus` can fire before `app(env)`
+        // runs, so the declared menus sit behind this slot.
+        let declared = crate::menus::declared();
+        let build_menus = crate::menus::build_handler(Rc::clone(&declared));
         let launch = Box::new(Launch {
             app: Some(Box::new(app)),
             env: core::ptr::from_mut(env),
+            declared,
             _theme: Rc::clone(&theme),
             _locale: Box::new(locale),
         });
@@ -274,6 +297,7 @@ mod imp {
         let handlers = ApplicationHandlers::new(move |scene| {
             crate::windows::connect(scene, Rc::clone(&theme), &scene_env, mtm)
         })
+        .build_menus(build_menus)
         .did_finish_launching(move |_| {
             let env_ptr = launch.env;
             // SAFETY: `launch` is consumed by `prepared` exactly once, and

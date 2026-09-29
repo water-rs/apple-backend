@@ -98,7 +98,7 @@ fn kit_command(command: &ResolvedCommand) -> cocoa_ui::menu::Command {
 }
 
 /// A resolved nested menu's header as the kit's shared `Command` payload.
-fn kit_command_for_menu(menu: &ResolvedNestedMenu) -> cocoa_ui::menu::Command {
+pub fn kit_command_for_menu(menu: &ResolvedNestedMenu) -> cocoa_ui::menu::Command {
     kit_command_fields(
         menu.label.content.snapshot().to_plain().to_string(),
         None,

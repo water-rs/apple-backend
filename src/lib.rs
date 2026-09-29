@@ -40,7 +40,7 @@ mod gpu_runtime;
 mod invalidation;
 pub(crate) mod locale;
 pub(crate) mod measure_memo;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 pub(crate) mod menus;
 pub(crate) mod proposal;
 mod registry;
