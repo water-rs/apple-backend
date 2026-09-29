@@ -18,6 +18,8 @@ pub mod image;
 pub mod picker;
 #[cfg(feature = "progress")]
 pub mod progress;
+#[cfg(feature = "resolved_color")]
+pub mod resolved_color;
 #[cfg(feature = "secure_field")]
 pub mod secure_field;
 #[cfg(feature = "slider")]

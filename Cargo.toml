@@ -22,6 +22,7 @@ default = [
     "image",
     "picker",
     "progress",
+    "resolved_color",
     "secure_field",
     "slider",
     "spacer",
@@ -36,6 +37,7 @@ focused = []
 image = []
 picker = []
 progress = []
+resolved_color = []
 secure_field = []
 slider = []
 spacer = []
