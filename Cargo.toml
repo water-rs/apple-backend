@@ -25,6 +25,7 @@ default = [
     "focused",
     "image",
     "layout_priority",
+    "menu",
     "multi_date_picker",
     "navigation",
     "picker",
@@ -49,6 +50,7 @@ fixed_container = []
 focused = []
 layout_priority = []
 image = []
+menu = []
 multi_date_picker = []
 navigation = []
 picker = []

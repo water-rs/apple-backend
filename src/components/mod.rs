@@ -24,6 +24,8 @@ pub mod focused;
 pub mod image;
 #[cfg(feature = "layout_priority")]
 pub mod layout_priority;
+#[cfg(feature = "menu")]
+pub mod menu;
 #[cfg(feature = "multi_date_picker")]
 pub mod multi_date_picker;
 #[cfg(feature = "navigation")]

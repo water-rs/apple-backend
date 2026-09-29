@@ -65,6 +65,8 @@ pub fn install(dispatcher: &mut Dispatcher) {
     crate::components::focused::install(dispatcher);
     #[cfg(feature = "layout_priority")]
     crate::components::layout_priority::install(dispatcher);
+    #[cfg(feature = "menu")]
+    crate::components::menu::install(dispatcher);
 
     // Navigation — the group: metadata claims first (they wrap any content),
     // then the container and leaf components.
