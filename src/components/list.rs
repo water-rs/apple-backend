@@ -44,8 +44,8 @@ use crate::proposal;
 
 #[cfg(target_os = "macos")]
 use cocoa_ui::appkit::{
-    DeleteButton, ListTableView as TableView, RowContainer, SectionHeader, SectionKind, TableRowView,
-    TableSource,
+    DeleteButton, ListTableView as TableView, RowContainer, SectionHeader, SectionKind,
+    TableRowView, TableSource,
 };
 #[cfg(target_os = "ios")]
 use cocoa_ui::uikit::{IndexPath, SectionKind, TableCell, TableSource, TableView};
