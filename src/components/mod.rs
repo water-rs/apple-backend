@@ -5,6 +5,8 @@
 //! the [`crate::contract`] is a `cocoa-ui` addition, never a reactivity type
 //! crossing into the kit.
 
+#[cfg(feature = "badge")]
+pub mod badge;
 #[cfg(feature = "button")]
 pub mod button;
 #[cfg(feature = "color_picker")]

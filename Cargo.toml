@@ -16,6 +16,7 @@ workspace = true
 # Component ports are feature-gated so unused ones leave no code or
 # dependency in the artifact; the default is everything ported so far.
 default = [
+    "badge",
     "button",
     "color_picker",
     "container",
@@ -38,6 +39,7 @@ default = [
     "text_field",
     "toggle",
 ]
+badge = []
 button = []
 color_picker = []
 container = []

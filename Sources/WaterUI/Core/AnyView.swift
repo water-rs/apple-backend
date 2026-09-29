@@ -196,8 +196,6 @@ func registerBuiltinComponentsIfNeeded() {
 
   // Interactive components
 
-  registerComponent(WuiBadge.self)
-
   // Container components
   registerComponent(WuiList.self)
   registerComponent(WuiTable.self)

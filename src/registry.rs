@@ -74,4 +74,8 @@ pub fn install(dispatcher: &mut Dispatcher) {
     // Wave B — containers.
     #[cfg(feature = "scroll")]
     crate::components::scroll::install(dispatcher);
+
+    // Wave C — overlays.
+    #[cfg(feature = "badge")]
+    crate::components::badge::install(dispatcher);
 }
