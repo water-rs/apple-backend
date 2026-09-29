@@ -335,6 +335,10 @@ mod platform {
                         .to_plain()
                         .to_string(),
                     text: search.text.snapshot().to_string(),
+                    // SwiftUI's `.searchable` draws the pill stacked under
+                    // the title on iPhone; `.automatic` is `.integrated` on
+                    // iOS 26, which hides inside the (hidden) toolbar.
+                    placement: cocoa_ui::uikit::SearchBarPlacement::Stacked,
                 });
                 let binding = search.text.clone();
                 controller.set_search_change_handler(move |text| {
