@@ -241,7 +241,6 @@ func registerBuiltinComponentsIfNeeded() {
   registerMetadataComponent(WuiScale.self)
   registerMetadataComponent(WuiRotation.self)
   registerMetadataComponent(WuiOffset.self)
-  registerMetadataComponent(WuiFocused.self)
   registerMetadataComponent(WuiIgnoreSafeArea.self)
   registerMetadataComponent(WuiRetain.self)
   registerMetadataComponent(WuiContextMenu.self)

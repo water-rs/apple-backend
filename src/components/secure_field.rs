@@ -14,12 +14,13 @@
 //! wrapper: watcher copies are scoped to the setter call, and edit
 //! writebacks move the `String` straight into `Secure::new`.
 //!
-//! Focus-target plumbing (`Metadata<Focused>`) stays in the Swift
-//! fallback, as in `text_field`.
+//! The field is also this subtree's focus anchor — the kit marks it so
+//! `Metadata<Focused>` resolves it the way `installWuiFocusTarget` marked
+//! it in Swift, as in `text_field`.
 
 use alloc::rc::Rc;
 
-use cocoa_ui::{PlatformView, Rect, Retained, view};
+use cocoa_ui::{PlatformView, Rect, Retained, focus, view};
 use waterui::component::form::secure::{Secure, SecureFieldConfig};
 use waterui::resolve::Resolvable;
 use waterui::text::StyledStr;
@@ -325,6 +326,9 @@ pub fn install(dispatcher: &mut Dispatcher) {
             let field = field.clone();
             move |is_disabled| field.set_enabled(!is_disabled)
         });
+
+        // The field is this subtree's focus anchor, as in `text_field`.
+        leaf.keep(focus::install(mtm, field_view));
 
         leaf.keep(state);
         leaf

@@ -96,10 +96,6 @@ impl Dispatcher {
     /// A `register_view` handler typically owns no platform view of its own:
     /// it applies `T`'s effect (an environment overlay, an attribute on the
     /// child's platform view) and returns the leaf its child rendered.
-    #[expect(
-        dead_code,
-        reason = "contract API for transparent and metadata ports; unused until the first such port lands"
-    )]
     pub(crate) fn register_view<T: 'static>(
         &mut self,
         handler: impl Fn(T, &RenderContext<'_>) -> NativeLeaf + 'static,

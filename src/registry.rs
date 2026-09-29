@@ -38,4 +38,9 @@ pub fn install(dispatcher: &mut Dispatcher) {
     crate::components::secure_field::install(dispatcher);
     #[cfg(feature = "spacer")]
     crate::components::spacer::install(dispatcher);
+
+    // Metadata — transparent wrappers claiming `Metadata<M>` before the
+    // seam can hand it to the fallback.
+    #[cfg(feature = "focused")]
+    crate::components::focused::install(dispatcher);
 }

@@ -11,8 +11,10 @@
 //! `WuiTextField.sizeThatFits`: a 100pt-width floor, the label stacked
 //! over the field with 4pt of spacing, height always at least intrinsic.
 //!
-//! `WuiSecureField`, the selection menu, and focus-target plumbing stay
-//! in the Swift fallback until their own ports land.
+//! The field is also this subtree's focus anchor — the kit marks it so
+//! `Metadata<Focused>` resolves it the way `installWuiFocusTarget` marked
+//! it in Swift. `WuiSecureField` and the selection menu stay in the
+//! Swift fallback until their own ports land.
 
 use alloc::boxed::Box;
 use alloc::rc::Rc;
@@ -20,7 +22,7 @@ use alloc::vec::Vec;
 use core::any::Any;
 use core::cell::RefCell;
 
-use cocoa_ui::{PlatformView, Rect, Retained, view};
+use cocoa_ui::{PlatformView, Rect, Retained, focus, view};
 use waterui::Str;
 #[cfg(target_os = "ios")]
 use waterui::component::text_field::KeyboardType;
@@ -647,6 +649,11 @@ pub fn install(dispatcher: &mut Dispatcher) {
             let field = field.clone();
             move |is_disabled| field.set_enabled(!is_disabled)
         });
+
+        // The field is this subtree's focus anchor: `Metadata<Focused>`
+        // resolves it by walking the view hierarchy, as
+        // `installWuiFocusTarget` marked it in Swift.
+        leaf.keep(focus::install(mtm, field_view));
 
         leaf.keep(state);
         leaf.keep(value_state);
