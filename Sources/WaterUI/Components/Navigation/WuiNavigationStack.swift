@@ -304,7 +304,7 @@ final class WuiNavigationDestinationState {
     private func barButtonItem(for item: WuiNavigationToolbarItem) -> UIBarButtonItem {
       let button = item.view.firstButton
       let invoke = UIAction { [weak button] _ in
-        button?.invokeAction()
+        button?.sendActions(for: .primaryActionTriggered)
       }
 
       if let systemIconName = item.systemIconName {
@@ -1095,12 +1095,14 @@ private func navigationRestorationIdentifier(depth: Int) -> String {
 
 #if canImport(UIKit)
   extension UIView {
-    /// The first `WaterUI` button in this subtree.
+    /// The first button in this subtree.
     ///
     /// Chrome built from a label's semantics rather than its view still has to
-    /// run the action the caller attached to that label's button.
-    var firstButton: WuiButton? {
-      if let button = self as? WuiButton { return button }
+    /// run the action the caller attached to that label's button. The mounted
+    /// control is found as the platform class — a native render's button is a
+    /// `UIControl`, not a `WaterUI` type.
+    var firstButton: UIControl? {
+      if let control = self as? UIControl { return control }
       for subview in subviews {
         if let button = subview.firstButton { return button }
       }

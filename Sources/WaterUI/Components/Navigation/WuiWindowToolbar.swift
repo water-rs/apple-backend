@@ -479,42 +479,11 @@
 
     /// Builds a toolbar item for one child of the window's toolbar content.
     ///
-    /// A button whose label draws a platform symbol becomes a real
-    /// `NSToolbarItem` — icon in the glass capsule, name kept for the overflow
-    /// menu, tooltip and assistive technology, running the button's action —
-    /// exactly as a navigation action does. Any other child is hosted as the
-    /// view it is.
+    /// Content children host as the views they are: a natively rendered
+    /// button carries no Swift-readable icon or title to promote into real
+    /// toolbar chrome.
     private func windowItem(identifier: NSToolbarItem.Identifier, view: NSView) -> NSToolbarItem? {
-      guard let button = view.firstButton else {
-        return hostingItem(identifier: identifier, view: view)
-      }
-      let item = NSToolbarItem(itemIdentifier: identifier)
-      if let symbol = button.systemIconName {
-        item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-      } else if let labelView = button.labelContentView {
-        // The icon isn't a platform symbol — a text glyph or a packaged icon —
-        // so it is rendered into a template image for the toolbar to tint like
-        // its own items; hosting the label's view would keep its content tint
-        // and draw it accent-coloured where a toolbar icon belongs in the
-        // window's neutral chrome. The item appears without one and gains it
-        // when the render lands.
-        Task { @MainActor [weak item] in
-          item?.image = await renderViewToTemplateImage(labelView, maxSide: 18)
-        }
-      } else {
-        return hostingItem(identifier: identifier, view: view)
-      }
-      let label = button.semanticTitle
-      item.label = label
-      item.paletteLabel = label
-      item.toolTip = label.isEmpty ? nil : label
-      item.isBordered = true
-      item.target = self
-      item.action = #selector(actionInvoked(_:))
-      itemActions[identifier] = { [weak button] in
-        button?.invokeAction()
-      }
-      return item
+      hostingItem(identifier: identifier, view: view)
     }
 
     /// Builds a toolbar item for one navigation action.
@@ -558,13 +527,13 @@
       item.toolTip = label.isEmpty ? nil : label
       // A borderless button stays bare in the toolbar, as SwiftUI keeps a
       // `.borderless` toolbar button out of the glass capsule.
-      item.isBordered = action.view.firstButton?.isBorderless != true
+      item.isBordered = action.view.firstButton?.isBordered != false
       item.target = self
       item.action = #selector(actionInvoked(_:))
       // The label's own button carries the handler, so the toolbar item runs
       // the same action the view would have.
       itemActions[identifier] = { [weak button = action.view.firstButton] in
-        button?.invokeAction()
+        button?.performClick(nil)
       }
       return item
     }
@@ -626,12 +595,14 @@
       return nil
     }
 
-    /// The first `WaterUI` button in this subtree.
+    /// The first button in this subtree.
     ///
     /// Chrome built from a label's semantics rather than its view still has to
-    /// run the action the caller attached to that label's button.
-    var firstButton: WuiButton? {
-      if let button = self as? WuiButton { return button }
+    /// run the action the caller attached to that label's button. The mounted
+    /// control is found as the platform class — a native render's button is an
+    /// `NSButton`, not a `WaterUI` type.
+    var firstButton: NSButton? {
+      if let button = self as? NSButton { return button }
       for subview in subviews {
         if let button = subview.firstButton { return button }
       }

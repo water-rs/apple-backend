@@ -199,7 +199,6 @@ func registerBuiltinComponentsIfNeeded() {
   registerComponent(WuiPictureView.self)
 
   // Interactive components
-  registerComponent(WuiButton.self)
   registerComponent(WuiToggle.self)
   registerComponent(WuiSlider.self)
   registerComponent(WuiTextField.self)

@@ -18,4 +18,6 @@ pub fn install(dispatcher: &mut Dispatcher) {
     crate::components::image::install(dispatcher);
     #[cfg(feature = "text")]
     crate::components::text::install(dispatcher);
+    #[cfg(feature = "button")]
+    crate::components::button::install(dispatcher);
 }
