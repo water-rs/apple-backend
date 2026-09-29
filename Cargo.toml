@@ -24,7 +24,7 @@ waterui = { git = "https://github.com/water-rs/waterui", rev = "ec7d5ad2022f3b3c
 waterui-core = { git = "https://github.com/water-rs/waterui", rev = "ec7d5ad2022f3b3cadf149d372adb18a3f4da74a" }
 waterui-backend-core = { git = "https://github.com/water-rs/waterui", rev = "ec7d5ad2022f3b3cadf149d372adb18a3f4da74a" }
 waterui-locale = { git = "https://github.com/water-rs/waterui", rev = "ec7d5ad2022f3b3cadf149d372adb18a3f4da74a" }
-cocoa-ui = { git = "https://github.com/water-rs/cocoa-ui", rev = "246e30aac414f6766a85cac3cd783a638cee0f31" }
+cocoa-ui = { git = "https://github.com/water-rs/cocoa-ui", rev = "30364140fd4084962eafdbf279b0ea60db1f26c1" }
 waterkit-screen = { git = "https://github.com/water-rs/waterkit", rev = "e5290913ee8adb22843fd60047f6a845f2391c5b" }
 executor-core = { version = "0.7.1", features = ["std"] }
 native-executor = "0.8.0"
