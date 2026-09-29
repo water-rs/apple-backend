@@ -103,7 +103,6 @@ mod platform {
     use super::{Fill, Mounted, mount_tabs};
     use alloc::rc::Rc;
     use alloc::vec::Vec;
-    use core::cell::RefCell;
 
     use crate::contract::{NativeLeaf, RenderContext};
     use cocoa_ui::Retained;
@@ -121,54 +120,32 @@ mod platform {
         let mut keep = KeepAlive::default();
         let mounted = Rc::new(mount_tabs(core::mem::take(&mut layout.tabs), ctx));
 
-        let specs = Rc::new(RefCell::new(
-            mounted.iter().map(spec).collect::<Vec<TabSpec>>(),
-        ));
+        let specs: Vec<TabSpec> = mounted.iter().map(spec).collect();
+        tabs.set_tabs(
+            &specs,
+            &mounted
+                .iter()
+                .map(|tab| Retained::from(tab.pane.view()))
+                .collect::<Vec<_>>(),
+        );
 
-        // A `UITabBarItem` has no stable handle through the kit — republish
-        // the whole spec set, preserving the selected index.
-        let republish: Rc<dyn Fn()> = {
-            let tabs = tabs.clone();
-            let specs = specs.clone();
-            let mounted = mounted.clone();
-            Rc::new(move || {
-                let selected = tabs.selected_index();
-                tabs.set_tabs(
-                    &specs.borrow(),
-                    &mounted
-                        .iter()
-                        .map(|tab| Retained::from(tab.pane.view()))
-                        .collect::<Vec<_>>(),
-                );
-                if let Some(selected) = selected {
-                    tabs.select(selected);
-                }
-            })
-        };
-        keep.keep(republish.clone());
-        republish();
-
+        // Reactive chrome mutates each `UITabBarItem` in place — rebuilding
+        // the controllers re-parents pane views UIKit still owns.
         for (index, tab) in mounted.iter().enumerate() {
             if let Some(badge) = &tab.badge {
                 keep.bind(badge, {
-                    let specs = specs.clone();
-                    let republish = republish.clone();
+                    let item = tabs.tab_item(index);
                     move |value| {
-                        specs.borrow_mut()[index].badge = if value > 0 {
-                            Some(value.to_string())
-                        } else {
-                            None
-                        };
-                        republish();
+                        let badge = (value > 0)
+                            .then(|| objc2_foundation::NSString::from_str(&value.to_string()));
+                        item.setBadgeValue(badge.as_deref());
                     }
                 });
             }
             keep.bind(&tab.enabled, {
-                let specs = specs.clone();
-                let republish = republish.clone();
+                let item = tabs.tab_item(index);
                 move |enabled| {
-                    specs.borrow_mut()[index].enabled = enabled;
-                    republish();
+                    item.setEnabled(enabled);
                 }
             });
         }
