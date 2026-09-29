@@ -152,7 +152,9 @@ impl SubView for ToggleSubView {
     }
 
     fn stretch_axis(&self) -> StretchAxis {
-        StretchAxis::Horizontal
+        // `WuiToggle` answers the default `.none` on both platforms; the iOS
+        // row fill comes from `measure` echoing the proposed width instead.
+        StretchAxis::None
     }
 
     fn priority(&self) -> i32 {
