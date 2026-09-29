@@ -10,7 +10,7 @@ use alloc::rc::Rc;
 use alloc::vec::Vec;
 use core::any::Any;
 use core::cell::RefCell;
-use core::num::NonZero;
+use core::num::{NonZero, NonZeroUsize};
 
 use cocoa_ui::Retained;
 use waterui::Str;
@@ -29,7 +29,7 @@ use waterui_core::layout::{
     ViewDimensions,
 };
 
-use crate::contract::NativeLeaf;
+use crate::contract::{NativeLeaf, RenderContext};
 use crate::dispatch::Dispatcher;
 
 #[cfg(target_os = "macos")]
@@ -390,90 +390,114 @@ fn apply_alignment(label: &Label, alignment: HorizontalAlignment) {
     label.set_text_alignment(alignment);
 }
 
+/// Builds a label leaf around `styled` at `line_limit`/`alignment`, sharing
+/// `WuiTextBase`'s shape: the leaf is a container whose measured size is the
+/// bare text bounds while the label inside keeps its cell-fitting width, so
+/// text ink never clips when the two disagree by the cell's insets.
+fn label_leaf(
+    ctx: &RenderContext,
+    line_limit: Option<NonZeroUsize>,
+    styled: &StyledStr,
+    alignment: HorizontalAlignment,
+) -> (NativeLeaf, Rc<RefCell<TextState>>, Retained<Label>) {
+    let mtm = ctx.mtm();
+    let host = HostView::new(mtm, cocoa_ui::geometry::Rect::ZERO);
+    let label = Label::new(mtm);
+    label.set_line_limit(line_limit.map_or(0, NonZero::get));
+    let host_view: &PlatformView = &host;
+    host.add_subview(as_view(&label));
+    host.set_layout_handler({
+        let label = label.clone();
+        move |view| {
+            let bounds = cocoa_ui::view::bounds(view);
+            let width = bounds.size.width.max(label.fitting_width());
+            // One point of negative leading offset: the cell keeps a
+            // two-point inset inside its frame, so starting the label a
+            // point left of the leaf edge puts ink where the platform
+            // text field would draw it.
+            cocoa_ui::view::set_frame(
+                as_view(&label),
+                cocoa_ui::geometry::Rect::new(-1.0, 0.0, width, bounds.size.height),
+            );
+        }
+    });
+
+    let state = Rc::new(RefCell::new(TextState {
+        mtm,
+        env: ctx.env().clone(),
+        label: label.clone(),
+        default_foreground: ResolvedColor::default(),
+        chunks: Vec::new(),
+        signal_guards: Vec::new(),
+        default_guard: None,
+    }));
+
+    // The theme default backs every chunk without its own foreground,
+    // exactly as the Swift renderer's `defaultForeground` slot does.
+    let default_foreground = Foreground.resolve(ctx.env());
+    let initial_foreground = default_foreground.snapshot();
+    let foreground_guard = default_foreground.watch({
+        let state = Rc::clone(&state);
+        move |ctx| {
+            let duration = cross_dissolve_duration(ctx.metadata());
+            let mut state = state.borrow_mut();
+            state.default_foreground = ctx.into_value();
+            rebuild(&state, duration);
+        }
+    });
+    {
+        let mut state = state.borrow_mut();
+        state.default_foreground = initial_foreground;
+        state.default_guard = Some(Box::new(foreground_guard));
+    }
+
+    apply_styled(&state, styled);
+    rebuild(&state.borrow(), None);
+    apply_alignment(&label, alignment);
+
+    let mut leaf = NativeLeaf::new(
+        host_view,
+        TextSubView {
+            label: label.clone(),
+        },
+    );
+    leaf.keep(Rc::clone(&state));
+    (leaf, state, label)
+}
+
 /// Installs the `text` handler on the dispatcher: `Native<TextConfig>` maps
-/// to a kit label with per-chunk signal watches and baseline measurement.
+/// to a kit label with per-chunk signal watches and baseline measurement,
+/// and `Native<Str>` (a bare string used as a view) maps to the same leaf
+/// with static content.
 pub fn install(dispatcher: &mut Dispatcher) {
     dispatcher.register_native::<TextConfig>(|config, ctx| {
-        let mtm = ctx.mtm();
-        // The leaf is a container holding the label, `WuiTextBase`'s shape:
-        // the leaf measures bare text bounds while the label inside keeps
-        // its cell-fitting width, so text ink never clips when the two
-        // disagree by the cell's insets.
-        let host = HostView::new(mtm, cocoa_ui::geometry::Rect::ZERO);
-        let label = Label::new(mtm);
-        label.set_line_limit(config.line_limit.map_or(0, NonZero::get));
-        let host_view: &PlatformView = &host;
-        host.add_subview(as_view(&label));
-        host.set_layout_handler({
-            let label = label.clone();
-            move |view| {
-                let bounds = cocoa_ui::view::bounds(view);
-                let width = bounds.size.width.max(label.fitting_width());
-                // One point of negative leading offset: the cell keeps a
-                // two-point inset inside its frame, so starting the label a
-                // point left of the leaf edge puts ink where the platform
-                // text field would draw it.
-                cocoa_ui::view::set_frame(
-                    as_view(&label),
-                    cocoa_ui::geometry::Rect::new(-1.0, 0.0, width, bounds.size.height),
-                );
-            }
-        });
-
-        let state = Rc::new(RefCell::new(TextState {
-            mtm,
-            env: ctx.env().clone(),
-            label: label.clone(),
-            default_foreground: ResolvedColor::default(),
-            chunks: Vec::new(),
-            signal_guards: Vec::new(),
-            default_guard: None,
-        }));
-
-        // The theme default backs every chunk without its own foreground,
-        // exactly as the Swift renderer's `defaultForeground` slot does.
-        let default_foreground = Foreground.resolve(ctx.env());
-        let initial_foreground = default_foreground.snapshot();
-        let foreground_guard = default_foreground.watch({
-            let state = Rc::clone(&state);
-            move |ctx| {
-                let duration = cross_dissolve_duration(ctx.metadata());
-                let mut state = state.borrow_mut();
-                state.default_foreground = ctx.into_value();
-                rebuild(&state, duration);
-            }
-        });
-        {
-            let mut state = state.borrow_mut();
-            state.default_foreground = initial_foreground;
-            state.default_guard = Some(Box::new(foreground_guard));
-        }
-
-        apply_styled(&state, &config.content.snapshot());
-        rebuild(&state.borrow(), None);
-        apply_alignment(&label, config.paragraph_alignment.snapshot());
-
-        let mut leaf = NativeLeaf::new(
-            host_view,
-            TextSubView {
-                label: label.clone(),
-            },
+        let (mut leaf, state, label) = label_leaf(
+            ctx,
+            config.line_limit,
+            &config.content.snapshot(),
+            config.paragraph_alignment.snapshot(),
         );
 
         // Content changes re-resolve every chunk signal; paragraph
-        // alignment pushes straight to the label.
-        leaf.watch(&config.content, {
-            let state = Rc::clone(&state);
-            move |ctx| {
-                let duration = cross_dissolve_duration(ctx.metadata());
-                apply_styled(&state, ctx.value());
-                rebuild(&state.borrow(), duration);
-            }
+        // alignment pushes straight to the label inside the leaf.
+        leaf.watch(&config.content, move |ctx| {
+            let duration = cross_dissolve_duration(ctx.metadata());
+            apply_styled(&state, ctx.value());
+            rebuild(&state.borrow(), duration);
         });
         leaf.watch(&config.paragraph_alignment, move |ctx| {
             apply_alignment(&label, *ctx.value());
         });
-        leaf.keep(state);
+        leaf
+    });
+
+    dispatcher.register_native::<Str>(|text, ctx| {
+        let (leaf, ..) = label_leaf(
+            ctx,
+            None,
+            &StyledStr::from(text),
+            HorizontalAlignment::Leading,
+        );
         leaf
     });
 }
