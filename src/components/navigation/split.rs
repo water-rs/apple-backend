@@ -150,9 +150,12 @@ mod platform {
         keep.keep(sidebar_vc);
         let nav_for_binds = nav.clone();
         keep.keep(nav.clone());
+        let has_middle = columns.content.is_some();
         let split = Rc::new(Split { columns, nav, mtm });
 
-        split.mount_middle(&mut keep);
+        if split.columns.content.is_some() {
+            split.mount_middle(&mut keep);
+        }
         split.mount_detail(&mut keep);
         *split.columns.mounted.borrow_mut() = keep;
 
@@ -162,8 +165,9 @@ mod platform {
             let split = split.clone();
             move |_| {
                 let mut keep = split.columns.mounted.borrow_mut();
-                split.mount_middle(&mut keep);
-                if split.columns.secondary.is_none() {
+                if split.columns.content.is_some() {
+                    split.mount_middle(&mut keep);
+                } else {
                     split.mount_detail(&mut keep);
                 }
             }
@@ -188,7 +192,9 @@ mod platform {
                     NavigationSplitColumnVisibility::DetailOnly => (true, true),
                 };
                 nav.set_collapsed(UISplitViewControllerColumn::Primary, sidebar);
-                nav.set_collapsed(UISplitViewControllerColumn::Supplementary, content);
+                if has_middle {
+                    nav.set_collapsed(UISplitViewControllerColumn::Supplementary, content);
+                }
             }
         });
 
