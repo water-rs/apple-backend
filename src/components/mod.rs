@@ -12,6 +12,8 @@ pub mod empty;
 pub mod image;
 #[cfg(feature = "slider")]
 pub mod slider;
+#[cfg(feature = "stepper")]
+pub mod stepper;
 #[cfg(feature = "text")]
 pub mod text;
 #[cfg(feature = "text_field")]
