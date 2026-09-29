@@ -104,7 +104,12 @@ mod imp {
             // installs (`install_chromium`, `.state(..)` chains) landed as
             // overlays on the clone it was handed, which the host env cannot
             // see — `insert` never propagates between clones.
-            let app_env = parts.env;
+            let mut app_env = parts.env;
+            // SAFETY: `prepared` runs on the main thread; `app_env` outlives
+            // the call and the install borrows it only.
+            unsafe {
+                crate::seam::waterui_swift_install_webview(core::ptr::from_mut(&mut app_env));
+            }
             for window in parts.windows {
                 let host = crate::windows::realize(window, &app_env, mtm);
                 crate::windows::track(host);
@@ -216,7 +221,13 @@ mod imp {
         );
         // Same hand-off as macOS: content renders under the env `app`
         // returned — its installs are invisible to the host env.
-        crate::windows::declare(parts.windows, &parts.env, mtm);
+        let mut app_env = parts.env;
+        // SAFETY: `prepared` runs on the main thread; `app_env` outlives
+        // the call and the install borrows it only.
+        unsafe {
+            crate::seam::waterui_swift_install_webview(core::ptr::from_mut(&mut app_env));
+        }
+        crate::windows::declare(parts.windows, &app_env, mtm);
         core::mem::forget(launch);
     }
 

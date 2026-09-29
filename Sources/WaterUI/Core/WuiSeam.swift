@@ -555,13 +555,25 @@ public func wateruiSwiftPrepareEnv(
     #endif
     let nativeServices = WuiNativeServices()
     nativeServices.environment = environment
-    #if WATERUI_WEBVIEW
-      installWebViewController(env: env)
-    #endif
     installWindowManager(env: env, services: nativeServices)
     installViewRenderer(env: env, services: nativeServices)
     callback(context)
   }
+}
+
+/// Installs the platform `WebViewController` into `env` on the main thread,
+/// after `app` has run. The slot is deliberately filled late: an application
+/// bundling its own engine (CEF, for example) installs its controller during
+/// `app(env)`, and `installWebViewController` leaves an occupied slot alone —
+/// installing earlier on the launch env would mask the application's own
+/// engine behind the platform's.
+@_cdecl("waterui_swift_install_webview")
+public func wateruiSwiftInstallWebView(_ env: UnsafeMutableRawPointer?) {
+  #if WATERUI_WEBVIEW
+    MainActor.assumeIsolated {
+      installWebViewController(env: OpaquePointer(env))
+    }
+  #endif
 }
 
 /// Runs `callback` on the main thread once `view` — a fallback-produced

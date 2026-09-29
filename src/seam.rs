@@ -658,13 +658,23 @@ unsafe extern "C" {
     /// Installs the fallback's environment services into `env`: the GPU
     /// runtime (whose creation is asynchronous) and the service objects the
     /// fallback's components read (`WuiNativeServices`, the window manager,
-    /// the view renderer, the web view controller). `env` is borrowed for the
-    /// call; `callback` runs on the main thread once everything is installed.
+    /// the view renderer). `env` is borrowed for the call; `callback` runs
+    /// on the main thread once everything is installed.
+    ///
+    /// The web view controller is deliberately absent: an application that
+    /// installs its own engine must not find the platform one already
+    /// occupying the slot. [`waterui_swift_install_webview`] fills it on the
+    /// render environment after `app` has run.
     pub fn waterui_swift_prepare_env(
         env: *mut Environment,
         context: *mut c_void,
         callback: unsafe extern "C" fn(*mut c_void),
     );
+
+    /// Installs the platform `WebViewController` into `env` when the
+    /// application left the slot empty — the fallback's `WebView` draws
+    /// through it. Runs on the main thread; `env` is borrowed for the call.
+    pub fn waterui_swift_install_webview(env: *mut Environment);
 
     /// Runs `callback` on the main thread once `view` — a platform view the
     /// fallback produced through [`waterui_swift_render`] — reports its first
