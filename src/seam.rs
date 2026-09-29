@@ -726,38 +726,67 @@ impl SubView for SeamOwned {
     }
 }
 
-/// Renders `view` through the Rust dispatcher.
+/// A `waterui_apple_resolve` answer.
+///
+/// `leaf` carries the claimed leaf, or `expanded` carries a `Box<AnyView>`
+/// the caller re-walks — the unclaimed `Native` expanded to its
+/// `with_fallback` view. Both empty means neither side claims the view.
+#[repr(C)]
+#[derive(Debug)]
+pub struct WateruiResolution {
+    /// The claimed leaf, or [`WateruiLeaf::unclaimed`] when `expanded` is set
+    /// or nobody claims the view.
+    pub leaf: WateruiLeaf,
+    /// The expanded `AnyView` to re-walk, or null.
+    pub expanded: *mut AnyView,
+}
+
+/// Resolves `view` through the Rust dispatcher.
 ///
 /// `Swift` calls this for a view it does not claim — a leaf, metadata or
 /// `Native` config registered on the Rust side. `view` and `env` are
-/// consumed: this function retains what it keeps. The returned leaf's `view`
-/// is +1 and owned by the caller (`takeRetainedValue`); a null `view` means
-/// no Rust handler claims the view either — one direction only, so the seam
-/// cannot recurse.
+/// consumed: this function retains what it keeps. The answer's `leaf.view` is
+/// +1 and owned by the caller (`takeRetainedValue`); `expanded` carries a
+/// `Box<AnyView>` the caller takes and re-walks. One direction only, so the
+/// seam cannot recurse.
 ///
 /// # Safety
 ///
 /// `view` must be a `Box<AnyView>` allocation and `env` a `Box<Environment>`
 /// one, each owned by this call.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn waterui_apple_render(
+pub unsafe extern "C" fn waterui_apple_resolve(
     view: *mut AnyView,
     env: *mut Environment,
-) -> WateruiLeaf {
+) -> WateruiResolution {
     // SAFETY: the caller contract hands ownership of both boxes to this call.
     let (view, env) = unsafe { (*Box::from_raw(view), *Box::from_raw(env)) };
-    crate::dispatch::render_across_seam(view, &env).map_or_else(WateruiLeaf::unclaimed, |leaf| {
-        let (view, layout, keepalive) = leaf.into_parts();
-        WateruiLeaf {
-            // `into_raw` hands the +1 to the caller; `SeamOwned` keeps the
-            // leaf's watchers and layout face inside the wire `subview`.
-            view: Retained::into_raw(view).cast::<c_void>(),
-            subview: into_wire(Box::new(SeamOwned {
-                _keepalive: keepalive,
-                layout,
-            })),
+    match crate::dispatch::render_across_seam(view, &env) {
+        crate::dispatch::SeamResolution::Claimed(leaf) => {
+            let (view, layout, keepalive) = leaf.into_parts();
+            WateruiResolution {
+                leaf: WateruiLeaf {
+                    // `into_raw` hands the +1 to the caller; `SeamOwned` keeps
+                    // the leaf's watchers and layout face inside the wire
+                    // `subview`.
+                    view: Retained::into_raw(view).cast::<c_void>(),
+                    subview: into_wire(Box::new(SeamOwned {
+                        _keepalive: keepalive,
+                        layout,
+                    })),
+                },
+                expanded: ptr::null_mut(),
+            }
         }
-    })
+        crate::dispatch::SeamResolution::Expand(view) => WateruiResolution {
+            leaf: WateruiLeaf::unclaimed(),
+            expanded: Box::into_raw(Box::new(view)),
+        },
+        crate::dispatch::SeamResolution::Miss => WateruiResolution {
+            leaf: WateruiLeaf::unclaimed(),
+            expanded: ptr::null_mut(),
+        },
+    }
 }
 
 /// Whether `view` is a `Native`/`Metadata` wrapper — the types whose

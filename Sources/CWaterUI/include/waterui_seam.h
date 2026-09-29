@@ -2,7 +2,7 @@
 //
 // Hand-written mirror of `src/seam.rs` in the `waterui-apple` crate, kept
 // byte-for-byte with its `repr(C)` declarations: same field order, same
-// packing. `waterui_apple_render` / `waterui_swift_render` exchange these
+// packing. `waterui_apple_resolve` / `waterui_swift_render` exchange these
 // types by value; neither side may re-enter the other on a miss.
 //
 // The `Waterui*` prefix is deliberate: `Wui*` types belong to the generated
@@ -122,11 +122,20 @@ typedef struct WateruiLeaf {
 /// resolve walk asks this before calling `waterui_view_body`. Borrows `view`.
 bool waterui_apple_needs_fallback(void *view);
 
-/// Renders `view` through the Rust dispatcher. `view` and `env` are
+/// A `waterui_apple_resolve` answer: `leaf` carries the claimed leaf, or
+/// `expanded` carries a `Box<AnyView>` the caller re-walks — the unclaimed
+/// `Native` expanded to its `with_fallback` view. Both empty means neither
+/// side claims the view.
+typedef struct WateruiResolution {
+  struct WateruiLeaf leaf;
+  void *expanded;
+} WateruiResolution;
+
+/// Resolves `view` through the Rust dispatcher. `view` and `env` are
 /// `Box<AnyView>` / `Box<Environment>` allocations consumed by this call.
-/// The answered leaf's `view` is +1 owned by the caller, or null when Rust
-/// does not claim it either.
-struct WateruiLeaf waterui_apple_render(void *view, void *env);
+/// The answered leaf's `view` is +1 owned by the caller; `expanded` is a
+/// `Box<AnyView>` the caller takes and re-walks, or null.
+struct WateruiResolution waterui_apple_resolve(void *view, void *env);
 
 /// Application entry point, emitted by `waterui_apple::export_app!` into the
 /// app's Rust crate. `main.swift` calls it with `accessory` = whether the

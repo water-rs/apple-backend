@@ -167,28 +167,47 @@ impl Dispatcher {
     }
 
     /// The same walk for a view crossing the seam *from* Swift — the
-    /// `waterui_apple_render` entry. The fallback already failed to claim
-    /// it, so a `Native`/`Metadata` here is a double miss and answers `None`
-    /// rather than recursing the seam.
+    /// `waterui_apple_resolve` entry. The fallback already failed to claim
+    /// it, so a `Native`/`Metadata` here is a double miss — unless it
+    /// expands, which [`SeamResolution::Expand`] reports for the caller to
+    /// re-walk.
     pub(crate) fn render_across_seam(
         &'static self,
         view: AnyView,
         env: &Environment,
         mtm: cocoa_ui::MainThreadMarker,
-    ) -> Option<NativeLeaf> {
+    ) -> SeamResolution {
         let mut view = view;
         let ctx = RenderContext::new(env, self, mtm);
         loop {
             let type_id = view.type_id();
             if let Some(handler) = self.handler(type_id) {
-                return Some(handler(view, &ctx));
+                return SeamResolution::Claimed(handler(view, &ctx));
             }
             if needs_fallback(&view) {
-                return None;
+                // A `Native` carrying `with_fallback` still expands through
+                // `body()` — the embedded view is its backend-agnostic
+                // realization. A bare `Native`/`Metadata` panics, which
+                // `catch_unwind` reports as a miss.
+                let expanded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    AnyView::new(view.body(env))
+                }));
+                return expanded.map_or(SeamResolution::Miss, SeamResolution::Expand);
             }
             view = AnyView::new(view.body(env));
         }
     }
+}
+
+/// The outcome of rendering a view that crossed the seam from Swift.
+pub(crate) enum SeamResolution {
+    /// A registered handler claimed the view; mount the leaf.
+    Claimed(NativeLeaf),
+    /// The view was an unclaimed `Native` that expands to its embedded
+    /// `with_fallback` view — the caller re-walks the expansion.
+    Expand(AnyView),
+    /// Neither side claims the view and it cannot expand.
+    Miss,
 }
 
 /// Whether the erased view is a wrapper whose `body()` must not run — a
@@ -227,9 +246,9 @@ pub(crate) fn claimed_type_names(
 }
 
 /// Renders a view crossing the seam *from* Swift — the body of
-/// [`crate::seam::waterui_apple_render`]. Runs on the main thread: that is a
+/// [`crate::seam::waterui_apple_resolve`]. Runs on the main thread: that is a
 /// caller requirement of the seam contract.
-pub(crate) fn render_across_seam(view: AnyView, env: &Environment) -> Option<NativeLeaf> {
+pub(crate) fn render_across_seam(view: AnyView, env: &Environment) -> SeamResolution {
     let mtm = cocoa_ui::MainThreadMarker::new().expect("seam renders run on the main thread");
     dispatcher(mtm).render_across_seam(view, env, mtm)
 }

@@ -7,7 +7,7 @@
 //  same packing — so the two sides exchange them without a translation layer.
 //
 //  Direction: `waterui_swift_render` carries a view the Rust dispatcher does
-//  not claim INTO the fallback; `waterui_apple_render` (declared here,
+//  not claim INTO the fallback; `waterui_apple_resolve` (declared here,
 //  defined in Rust) carries one the fallback does not claim the other way.
 //  Neither may re-enter the other on a miss — the seam cannot ping-pong.
 
@@ -63,6 +63,12 @@ public typealias WateruiSubView = CWaterUI.WateruiSubView
 /// callbacks are no-ops.
 public typealias WateruiLeaf = CWaterUI.WateruiLeaf
 
+/// A `waterui_apple_resolve` answer: `leaf` carries the claimed leaf, or
+/// `expanded` carries a boxed `AnyView` the caller re-walks — the unclaimed
+/// `Native` expanded to its `with_fallback` view. Both empty means neither
+/// side claims the view.
+public typealias WateruiResolution = CWaterUI.WateruiResolution
+
 /// The leaf a direction answers when the view is unclaimed: a nil view with
 /// no-op callbacks, so the receiver can drop it without a branch.
 private func unclaimedLeaf() -> WateruiLeaf {
@@ -94,13 +100,14 @@ private func unclaimedLeaf() -> WateruiLeaf {
 @_silgen_name("waterui_apple_needs_fallback")
 func wateruiAppleNeedsFallback(_ view: OpaquePointer) -> Bool
 
-/// Renders `view` through the Rust dispatcher: claims a registered type or
-/// expands composers until a leaf is reached. Consumes both pointers. A nil
-/// `view` on the answered leaf means Rust does not claim it either.
-@_silgen_name("waterui_apple_render")
-func wateruiAppleRender(
+/// Resolves `view` through the Rust dispatcher: claims a registered type,
+/// expands an unclaimed `Native` to its `with_fallback` view, or reports a
+/// miss. Consumes both pointers; `expanded` is a boxed `AnyView` the caller
+/// owns and re-walks.
+@_silgen_name("waterui_apple_resolve")
+func wateruiAppleResolve(
   _ view: OpaquePointer, _ env: OpaquePointer
-) -> WateruiLeaf
+) -> WateruiResolution
 
 // MARK: - The shared resolve walk
 
@@ -120,7 +127,21 @@ func wuiSeamResolve(anyview: OpaquePointer, env: WuiEnvironment) -> any WuiCompo
       return factory(current, env)
     }
     if wateruiAppleNeedsFallback(current) {
-      return WuiRustLeaf(anyview: current, env: env)
+      guard let envClone = waterui_clone_env(env.inner)
+      else {
+        fatalError("a view crossed the seam and its environment could not be cloned")
+      }
+      let resolution = wateruiAppleResolve(current, envClone)
+      if let expanded = resolution.expanded {
+        // An unclaimed `Native` carrying `with_fallback` expands to the
+        // embedded view; the walk resumes on it.
+        current = OpaquePointer(expanded)
+        continue
+      }
+      if resolution.leaf.view != nil {
+        return WuiRustLeaf(leaf: resolution.leaf, env: env)
+      }
+      fatalError("a view crossed the seam and neither side claimed it")
     }
     current = waterui_view_body(current, env.inner)
   }
@@ -128,7 +149,7 @@ func wuiSeamResolve(anyview: OpaquePointer, env: WuiEnvironment) -> any WuiCompo
 
 // MARK: - WuiRustLeaf: a Rust-produced leaf as a WuiComponent
 
-/// The view a leaf produced by `waterui_apple_render` occupies inside the
+/// The view a leaf produced by `waterui_apple_resolve` occupies inside the
 /// fallback's view hierarchy: it embeds the leaf's platform view and measures
 /// through the leaf's `subview` face.
 ///
@@ -147,15 +168,30 @@ final class WuiRustLeaf: PlatformView, WuiComponent {
   private let leafView: PlatformView
   private let leafEnv: WuiEnvironment
 
-  required init(anyview: OpaquePointer, env: WuiEnvironment) {
-    leafEnv = env
+  /// The protocol entry — only reachable through `componentRegistry`, whose
+  /// types never carry a `with_fallback` expansion, so a resolved `expanded`
+  /// here would be a contract violation, not a path to follow.
+  convenience init(anyview: OpaquePointer, env: WuiEnvironment) {
     guard let envClone = waterui_clone_env(env.inner)
     else {
       fatalError("a view crossed the seam and its environment could not be cloned")
     }
-    leaf = wateruiAppleRender(anyview, envClone)
-    guard let viewPtr = leaf.view else {
+    let resolution = wateruiAppleResolve(anyview, envClone)
+    guard resolution.expanded == nil else {
+      fatalError("a registry-claimed view expanded across the seam")
+    }
+    guard resolution.leaf.view != nil else {
       fatalError("a view crossed the seam and Rust did not claim it")
+    }
+    self.init(leaf: resolution.leaf, env: env)
+  }
+
+  /// Wraps an already-resolved leaf; `leaf.view` must be non-nil.
+  init(leaf: WateruiLeaf, env: WuiEnvironment) {
+    leafEnv = env
+    self.leaf = leaf
+    guard let viewPtr = leaf.view else {
+      fatalError("a resolved leaf crossed the seam without a view")
     }
     // The leaf's view arrives +1; ARC takes ownership here.
     #if canImport(UIKit)
