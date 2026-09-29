@@ -125,7 +125,7 @@ mod platform {
 
     use crate::contract::{KeepAlive, NativeLeaf, RenderContext, Renderer};
 
-    use super::super::bar::{BarItem, BarItemIcon, BarState, search_prompt};
+    use super::super::bar::{BarItem, BarItemIcon, BarState, bar_item_frame, search_prompt};
     use super::{Fill, Sink, page_transition};
 
     /// A pending transaction: it completes when `UINavigationController`
@@ -246,6 +246,7 @@ mod platform {
         pub(super) fn build(self: &Rc<Self>, root: NavigationView) -> NativeLeaf {
             let root = self.make_entry(root, true);
             let nav = cocoa_ui::uikit::NavigationController::new(self.mtm, &root.controller);
+            nav.set_prefers_large_titles(true);
             let driver = Rc::downgrade(self);
             nav.set_pop_handler(move |count| {
                 if let Some(driver) = driver.upgrade() {
@@ -413,14 +414,20 @@ mod platform {
                             f64::from(size.height),
                         ),
                     );
-                    match cocoa_ui::bitmap::view_template_image(icon.view(), 24.0) {
-                        Some(image) => {
-                            cocoa_ui::uikit::image_bar_item(self.mtm, Some(&image), action)
-                        }
-                        None => bar_item(self.mtm, None, Some(item.leaf.view()), action),
+                    if let Some(image) = cocoa_ui::bitmap::view_template_image(icon.view(), 24.0) {
+                        cocoa_ui::uikit::image_bar_item(self.mtm, Some(&image), action)
+                    } else {
+                        cocoa_ui::view::set_frame(item.leaf.view(), bar_item_frame(item));
+                        bar_item(self.mtm, None, Some(item.leaf.view()), action)
                     }
                 }
-                None => bar_item(self.mtm, None, Some(item.leaf.view()), None),
+                None => {
+                    // A hosted item must arrive with a real frame: the bar
+                    // wraps it as the item's customView and never lays it
+                    // out itself.
+                    cocoa_ui::view::set_frame(item.leaf.view(), bar_item_frame(item));
+                    bar_item(self.mtm, None, Some(item.leaf.view()), None)
+                }
             };
             if let Some(title) = item.title.clone() {
                 let object = object.clone();

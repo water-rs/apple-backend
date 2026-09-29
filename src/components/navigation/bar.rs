@@ -224,10 +224,9 @@ fn bar_item(item: NavigationToolbarItem, ctx: &RenderContext<'_>) -> BarItem {
     }
 }
 
-/// The intrinsic size `AppKit`'s chrome offers a hosted item: its measured
-/// size at the unspecified proposal — `setPlacementProposal(WuiProposalSize())`
+/// The intrinsic size the chrome offers a hosted item: its measured size at
+/// the unspecified proposal — `setPlacementProposal(WuiProposalSize())`
 /// followed by `sizeThatFits`.
-#[allow(dead_code)]
 pub fn bar_item_frame(item: &BarItem) -> cocoa_ui::Rect {
     let dimensions = item.leaf.layout().measure(ProposalSize {
         width: None,

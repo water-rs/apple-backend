@@ -47,7 +47,7 @@ mod platform {
     use waterui_core::reactive::Signal;
 
     use crate::components::navigation::bar::{
-        BarItem, BarItemIcon, BarState, bar_color, search_prompt,
+        BarItem, BarItemIcon, BarState, bar_color, bar_item_frame, search_prompt,
     };
     use crate::components::text::platform_color;
     use crate::contract::{KeepAlive, NativeLeaf, RenderContext};
@@ -265,12 +265,19 @@ mod platform {
                         f64::from(size.height),
                     ),
                 );
-                match cocoa_ui::bitmap::view_template_image(icon.view(), 24.0) {
-                    Some(image) => cocoa_ui::uikit::image_bar_item(mtm, Some(&image), action),
-                    None => cocoa_ui::uikit::bar_item(mtm, None, Some(item.leaf.view()), action),
+                if let Some(image) = cocoa_ui::bitmap::view_template_image(icon.view(), 24.0) {
+                    cocoa_ui::uikit::image_bar_item(mtm, Some(&image), action)
+                } else {
+                    cocoa_ui::view::set_frame(item.leaf.view(), bar_item_frame(item));
+                    cocoa_ui::uikit::bar_item(mtm, None, Some(item.leaf.view()), action)
                 }
             }
-            None => cocoa_ui::uikit::bar_item(mtm, None, Some(item.leaf.view()), None),
+            None => {
+                // A hosted item must arrive with a real frame: the bar wraps
+                // it as the item's customView and never lays it out itself.
+                cocoa_ui::view::set_frame(item.leaf.view(), bar_item_frame(item));
+                cocoa_ui::uikit::bar_item(mtm, None, Some(item.leaf.view()), None)
+            }
         };
         if let Some(title) = &item.title {
             keep.bind(title, {
