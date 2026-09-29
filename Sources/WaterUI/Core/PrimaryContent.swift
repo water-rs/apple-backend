@@ -32,7 +32,9 @@ protocol WuiPrimaryContentProviding {
 func wuiResolvedPrimaryContent(of view: PlatformView) -> PlatformView {
   var current = view
   while !(current is WuiSafeAreaManaging),
-    let next = (current as? WuiPrimaryContentProviding)?.wuiPrimaryContent
+    let next =
+      (current as? WuiPrimaryContentProviding)?.wuiPrimaryContent
+      ?? wuiKitPrimaryContent(current)
   {
     current = next
   }
@@ -70,8 +72,15 @@ func wuiResolvedPrimaryContent(of view: PlatformView) -> PlatformView {
     let candidates: [PlatformView]
     if let stack = view as? WuiScrollSurfaceProviding {
       candidates = stack.wuiScrollSurfaceCandidates
-    } else if let wrapper = view as? WuiPrimaryContentProviding {
-      candidates = wrapper.wuiPrimaryContent.map { [$0] } ?? []
+    } else if view.responds(to: Selector(("cocoaUiScrollSurfaceCandidates"))),
+      let kit = view.value(forKey: "cocoaUiScrollSurfaceCandidates") as? [PlatformView]
+    {
+      candidates = kit
+    } else if let content =
+      (view as? WuiPrimaryContentProviding)?.wuiPrimaryContent
+      ?? wuiKitPrimaryContent(view)
+    {
+      candidates = [content]
     } else {
       candidates = []
     }
@@ -97,10 +106,13 @@ func wuiResolvedPrimaryContent(of view: PlatformView) -> PlatformView {
 /// it stays inside the safe area.
 @MainActor
 func wuiHandlesSafeArea(_ view: PlatformView) -> Bool {
-  if view is WuiSafeAreaManaging || view is WuiFixedContainer {
+  if view is WuiSafeAreaManaging || wuiKitManagesSafeArea(view) {
     return true
   }
-  if let wrapper = view as? WuiPrimaryContentProviding, let content = wrapper.wuiPrimaryContent {
+  if let content =
+    (view as? WuiPrimaryContentProviding)?.wuiPrimaryContent
+    ?? wuiKitPrimaryContent(view)
+  {
     return wuiHandlesSafeArea(content)
   }
   return false
@@ -140,6 +152,21 @@ extension PlatformView {
       safeAreaRect
     #endif
   }
+}
+
+// KVC fallbacks for the kit views behind a Rust leaf: `cocoaUiPrimaryContent`,
+// `cocoaUiManagesSafeArea`, `cocoaUiScrollSurfaceCandidates` are defined on the
+// kit `HostView` and answer the same questions the Swift protocols did.
+@MainActor
+func wuiKitPrimaryContent(_ view: PlatformView) -> PlatformView? {
+  guard view.responds(to: Selector(("cocoaUiPrimaryContent"))) else { return nil }
+  return view.value(forKey: "cocoaUiPrimaryContent") as? PlatformView
+}
+
+@MainActor
+func wuiKitManagesSafeArea(_ view: PlatformView) -> Bool {
+  guard view.responds(to: Selector(("cocoaUiManagesSafeArea"))) else { return false }
+  return (view.value(forKey: "cocoaUiManagesSafeArea") as? Bool) ?? false
 }
 
 /// The frame a wrapper gives its single content view: the whole of its bounds

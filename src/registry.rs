@@ -51,8 +51,18 @@ pub fn install(dispatcher: &mut Dispatcher) {
     #[cfg(feature = "spacer")]
     crate::components::spacer::install(dispatcher);
 
+    // Containers — the layout containers of the arrangement wave.
+    #[cfg(feature = "fixed_container")]
+    crate::components::fixed_container::install(dispatcher);
+    #[cfg(feature = "container")]
+    crate::components::container::install(dispatcher);
+    #[cfg(feature = "plain")]
+    crate::components::plain::install(dispatcher);
+
     // Metadata — transparent wrappers claiming `Metadata<M>` before the
     // seam can hand it to the fallback.
     #[cfg(feature = "focused")]
     crate::components::focused::install(dispatcher);
+    #[cfg(feature = "layout_priority")]
+    crate::components::layout_priority::install(dispatcher);
 }

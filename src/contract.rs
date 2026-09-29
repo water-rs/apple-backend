@@ -148,7 +148,7 @@ impl NativeLeaf {
     pub(crate) fn from_seam(view: Retained<PlatformView>, layout: WateruiSubView) -> Self {
         Self {
             keepalive: KeepAlive::default(),
-            layout: Box::new(layout),
+            layout: Box::new(SeamSubView::new(&view, layout)),
             view,
         }
     }
@@ -158,6 +158,51 @@ impl NativeLeaf {
     /// drops the rest with its own resources.
     pub(crate) fn into_parts(self) -> (Retained<PlatformView>, Box<dyn SubView>, KeepAlive) {
         (self.view, self.layout, self.keepalive)
+    }
+}
+
+/// The `SubView` of a leaf that crossed the seam: the wire face plus the
+/// registration that lets a Rust parent deliver the leaf's selected
+/// proposal back through the seam's `place` callback.
+///
+/// `_guard` is declared first so its drop runs before `inner` releases the
+/// wire context: unregistering after the context is freed would leave a
+/// stale `place`/`context` pair in the channel map.
+struct SeamSubView {
+    _guard: crate::proposal::SeamGuard,
+    inner: WateruiSubView,
+}
+
+impl SeamSubView {
+    fn new(view: &PlatformView, inner: WateruiSubView) -> Self {
+        Self {
+            _guard: crate::proposal::register_seam(view, &inner),
+            inner,
+        }
+    }
+}
+
+impl fmt::Debug for SeamSubView {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SeamSubView").finish_non_exhaustive()
+    }
+}
+
+impl SubView for SeamSubView {
+    fn measure(
+        &self,
+        proposal: waterui_core::layout::ProposalSize,
+    ) -> waterui_core::layout::ViewDimensions {
+        self.inner.measure(proposal)
+    }
+    fn stretch_axis(&self) -> waterui_core::layout::StretchAxis {
+        self.inner.stretch_axis()
+    }
+    fn priority(&self) -> i32 {
+        self.inner.priority()
+    }
+    fn is_empty(&self) -> bool {
+        self.inner.is_empty()
     }
 }
 

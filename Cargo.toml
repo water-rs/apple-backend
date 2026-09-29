@@ -18,9 +18,12 @@ workspace = true
 default = [
     "button",
     "color_picker",
+    "container",
     "date_picker",
+    "fixed_container",
     "focused",
     "image",
+    "layout_priority",
     "multi_date_picker",
     "picker",
     "progress",
@@ -35,11 +38,15 @@ default = [
 ]
 button = []
 color_picker = []
+container = []
 date_picker = []
+fixed_container = []
 focused = []
+layout_priority = []
 image = []
 multi_date_picker = []
 picker = []
+plain = []
 progress = []
 resolved_color = []
 secure_field = []

@@ -67,9 +67,6 @@ extension PlatformView {
             // the leaf answered `is_empty` itself.
             return rustLeaf.isEmptyLeaf
         }
-        if self is WuiFixedContainer {
-            return false
-        }
         guard !subviews.isEmpty else {
             return false
         }

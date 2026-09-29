@@ -156,7 +156,7 @@ func wuiSeamResolve(anyview: OpaquePointer, env: WuiEnvironment) -> any WuiCompo
 /// The component owns the leaf: `deinit` runs the wire `drop` on the subview
 /// context and releases the retained platform view.
 @MainActor
-final class WuiRustLeaf: PlatformView, WuiComponent {
+final class WuiRustLeaf: PlatformView, WuiComponent, WuiPrimaryContentProviding {
   static var rawId: CWaterUI.WuiTypeId {
     // A rust leaf answers the id of the view it wrapped — unused by the
     // registry, which never looks this type up; `resolve` constructs it
@@ -166,6 +166,11 @@ final class WuiRustLeaf: PlatformView, WuiComponent {
 
   private let leaf: WateruiLeaf
   private let leafView: PlatformView
+
+  /// The view the Rust leaf mounted — the fixed container's `first` and a
+  /// wrapper's single child answer through the same chain the Swift
+  /// containers did.
+  var wuiPrimaryContent: PlatformView? { leafView }
   private let leafEnv: WuiEnvironment
 
   /// The protocol entry — only reachable through `componentRegistry`, whose
@@ -652,6 +657,41 @@ public func wateruiSwiftContentFrame(
     origin: WateruiPoint(x: Float(frame.origin.x), y: Float(frame.origin.y)),
     size: WateruiSize(width: Float(frame.size.width), height: Float(frame.size.height))
   )
+}
+
+/// The safe-area-inset rect of the borrowed `view` — the fixed container's
+/// layout offers and places children inside it.
+@_cdecl("waterui_swift_safe_area_rect")
+@MainActor
+public func wateruiSwiftSafeAreaRect(_ view: UnsafeMutableRawPointer?) -> WateruiRect {
+  guard let view else {
+    return WateruiRect(
+      origin: WateruiPoint(x: 0, y: 0), size: WateruiSize(width: 0, height: 0))
+  }
+  #if canImport(UIKit)
+    let platformView = Unmanaged<UIView>.fromOpaque(view).takeUnretainedValue()
+  #else
+    let platformView = Unmanaged<NSView>.fromOpaque(view).takeUnretainedValue()
+  #endif
+  let rect = platformView.wuiSafeAreaRect
+  return WateruiRect(
+    origin: WateruiPoint(x: Float(rect.origin.x), y: Float(rect.origin.y)),
+    size: WateruiSize(width: Float(rect.size.width), height: Float(rect.size.height))
+  )
+}
+
+/// Whether the borrowed `view` lays its own content out against the safe
+/// area — the fixed container extends the children that answer true.
+@_cdecl("waterui_swift_manages_safe_area")
+@MainActor
+public func wateruiSwiftManagesSafeArea(_ view: UnsafeMutableRawPointer?) -> Bool {
+  guard let view else { return false }
+  #if canImport(UIKit)
+    let platformView = Unmanaged<UIView>.fromOpaque(view).takeUnretainedValue()
+  #else
+    let platformView = Unmanaged<NSView>.fromOpaque(view).takeUnretainedValue()
+  #endif
+  return wuiHandlesSafeArea(platformView)
 }
 
 #if DEBUG

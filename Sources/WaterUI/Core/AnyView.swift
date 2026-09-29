@@ -190,7 +190,8 @@ func registerBuiltinComponentsIfNeeded() {
 
   // Basic components
   registerComponent(WuiEmpty.self)
-  registerComponent(WuiPlain.self)
+  registerComponent(WuiColorView.self)
+  registerComponent(WuiResolvedColorView.self)
   registerComponent(WuiResolvedGradientView.self)
   registerComponent(WuiResolvedShape.self)
   registerComponent(WuiPictureView.self)
@@ -201,8 +202,6 @@ func registerBuiltinComponentsIfNeeded() {
   registerComponent(WuiBadge.self)
 
   // Container components
-  registerComponent(WuiFixedContainer.self)
-  registerComponent(WuiContainer.self)
   registerComponent(WuiScroll.self)
   registerComponent(WuiList.self)
   registerComponent(WuiTable.self)
@@ -243,7 +242,6 @@ func registerBuiltinComponentsIfNeeded() {
   registerMetadataComponent(WuiNavigationLinkHint.self)
   registerMetadataComponent(WuiNavigationTransitionSourceView.self)
   registerMetadataComponent(WuiNavigationTransitionDestinationView.self)
-  registerMetadataComponent(WuiLayoutPriority.self)
 
   // Material background (blur effect)
   registerMetadataComponent(WuiMaterialBackground.self)

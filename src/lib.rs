@@ -34,7 +34,8 @@ pub(crate) mod fonts;
 pub(crate) mod locale;
 #[cfg(target_os = "macos")]
 pub(crate) mod menus;
-pub(crate) mod registry;
+pub(crate) mod proposal;
+mod registry;
 pub(crate) mod startup;
 pub(crate) mod theme;
 pub(crate) mod windows;

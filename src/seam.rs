@@ -21,7 +21,7 @@ use alloc::boxed::Box;
 use core::ffi::c_void;
 use core::ptr;
 
-use cocoa_ui::Retained;
+use cocoa_ui::{PlatformView, Retained};
 use waterui_backend_core::{AnyView, Environment};
 use waterui_core::layout::{
     HorizontalAlignment, ProposalSize, Size, StretchAxis, SubView, VerticalAlignment,
@@ -89,14 +89,14 @@ pub struct WateruiProposalSize {
 }
 
 impl WateruiProposalSize {
-    fn into_proposal(self) -> ProposalSize {
+    pub(crate) fn into_proposal(self) -> ProposalSize {
         ProposalSize::new(
             (!self.width.is_nan()).then_some(self.width),
             (!self.height.is_nan()).then_some(self.height),
         )
     }
 
-    fn from_proposal(proposal: ProposalSize) -> Self {
+    pub(crate) fn from_proposal(proposal: ProposalSize) -> Self {
         Self {
             width: proposal.width.unwrap_or(f32::NAN),
             height: proposal.height.unwrap_or(f32::NAN),
@@ -580,50 +580,57 @@ impl WateruiLeaf {
 /// Packages a Rust `SubView` for the other side of the seam.
 ///
 /// The returned `WateruiSubView` answers every query live through `subview`
-/// and drops it once. `place` is a no-op until `SubView` grows a placement
-/// hook a container needs.
+/// and drops it once. `place` delivers the selected proposal to the sink the
+/// leaf registered under its view — a no-op for leaves that do not consume
+/// placement proposals.
 #[must_use]
-pub fn into_wire(subview: Box<dyn SubView>) -> WateruiSubView {
+pub fn into_wire(view_key: usize, subview: Box<dyn SubView>) -> WateruiSubView {
     unsafe extern "C" fn measure(
         context: *mut c_void,
         proposal: WateruiProposalSize,
     ) -> WateruiViewDimensions {
         // SAFETY: `into_wire` pairs `context` with the `Box<dyn SubView>` it
         // consumed; the box is alive until `drop` runs.
-        let subview = unsafe { &**context.cast::<Box<dyn SubView>>() };
-        WateruiViewDimensions::from_dimensions(&subview.measure(proposal.into_proposal()))
+        let payload = unsafe { &*context.cast::<crate::proposal::WirePayload>() };
+        WateruiViewDimensions::from_dimensions(&payload.subview.measure(proposal.into_proposal()))
     }
 
-    const unsafe extern "C" fn place(_context: *mut c_void, _proposal: WateruiProposalSize) {
-        // `SubView` has no placement hook yet; the field exists in the ABI so
-        // a later one does not change it.
+    unsafe extern "C" fn place(context: *mut c_void, proposal: WateruiProposalSize) {
+        // SAFETY: as `measure`.
+        let payload = unsafe { &*context.cast::<crate::proposal::WirePayload>() };
+        crate::proposal::deliver_key(payload.view_key, proposal.into_proposal());
     }
 
     unsafe extern "C" fn stretch_axis(context: *mut c_void) -> WateruiStretchAxis {
         // SAFETY: as `measure`.
-        let subview = unsafe { &**context.cast::<Box<dyn SubView>>() };
-        subview.stretch_axis().into()
+        let payload = unsafe { &*context.cast::<crate::proposal::WirePayload>() };
+        payload.subview.stretch_axis().into()
     }
 
     unsafe extern "C" fn priority(context: *mut c_void) -> i32 {
         // SAFETY: as `measure`.
-        let subview = unsafe { &**context.cast::<Box<dyn SubView>>() };
-        subview.priority()
+        let payload = unsafe { &*context.cast::<crate::proposal::WirePayload>() };
+        payload.subview.priority()
     }
 
     unsafe extern "C" fn is_empty(context: *mut c_void) -> bool {
         // SAFETY: as `measure`.
-        let subview = unsafe { &**context.cast::<Box<dyn SubView>>() };
-        subview.is_empty()
+        let payload = unsafe { &*context.cast::<crate::proposal::WirePayload>() };
+        payload.subview.is_empty()
     }
 
     unsafe extern "C" fn drop(context: *mut c_void) {
-        // SAFETY: `context` is the `Box::into_raw` of the `Box<Box<dyn SubView>>`
+        // SAFETY: `context` is the `Box::into_raw` of the `Box<WirePayload>`
         // `into_wire` consumed; reclaiming it frees the leaf exactly once.
-        unsafe { std::mem::drop(Box::from_raw(context.cast::<Box<dyn SubView>>())) };
+        unsafe {
+            std::mem::drop(Box::from_raw(
+                context.cast::<crate::proposal::WirePayload>(),
+            ));
+        }
     }
 
-    let context = Box::into_raw(Box::new(subview)).cast::<c_void>();
+    let context = Box::into_raw(Box::new(crate::proposal::WirePayload { subview, view_key }))
+        .cast::<c_void>();
     WateruiSubView {
         context,
         measure,
@@ -703,6 +710,18 @@ unsafe extern "C" {
     /// class (`wuiHandlesSafeArea`).
     pub fn waterui_swift_content_frame(view: *mut c_void, bounds: WateruiRect) -> WateruiRect;
 
+    /// `view`'s own safe-area-inset bounds — `wuiSafeAreaRect`, which erases
+    /// `WuiIgnoreSafeArea` edges on `UIKit` and answers `safeAreaRect` on
+    /// `AppKit`. `view` is borrowed for the call; only the fallback can answer
+    /// it, because the ignored-edge erasure consults Swift wrapper classes.
+    pub fn waterui_swift_safe_area_rect(view: *mut c_void) -> WateruiRect;
+
+    /// Whether `view` lays its own content out against the safe area —
+    /// `wuiHandlesSafeArea`, which descends the primary-content chain and
+    /// answers for platform containers and scroll surfaces. `view` is
+    /// borrowed for the call.
+    pub fn waterui_swift_manages_safe_area(view: *mut c_void) -> bool;
+
     /// Answers the identity of every view type the fallback currently claims,
     /// for the debug-time disjointness check. The returned array is owned by
     /// the caller.
@@ -779,11 +798,14 @@ pub unsafe extern "C" fn waterui_apple_resolve(
                     // `into_raw` hands the +1 to the caller; `SeamOwned` keeps
                     // the leaf's watchers and layout face inside the wire
                     // `subview`.
-                    view: Retained::into_raw(view).cast::<c_void>(),
-                    subview: into_wire(Box::new(SeamOwned {
-                        _keepalive: keepalive,
-                        layout,
-                    })),
+                    view: Retained::into_raw(view.clone()).cast::<c_void>(),
+                    subview: into_wire(
+                        core::ptr::from_ref::<PlatformView>(&view) as usize,
+                        Box::new(SeamOwned {
+                            _keepalive: keepalive,
+                            layout,
+                        }),
+                    ),
                 },
                 expanded: ptr::null_mut(),
             }
