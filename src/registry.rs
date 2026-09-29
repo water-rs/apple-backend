@@ -61,6 +61,8 @@ pub fn install(dispatcher: &mut Dispatcher) {
 
     // Metadata — transparent wrappers claiming `Metadata<M>` before the
     // seam can hand it to the fallback.
+    #[cfg(feature = "anchored_overlay")]
+    crate::components::anchored_overlay::install(dispatcher);
     #[cfg(feature = "focused")]
     crate::components::focused::install(dispatcher);
     #[cfg(feature = "layout_priority")]

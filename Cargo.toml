@@ -16,6 +16,7 @@ workspace = true
 # Component ports are feature-gated so unused ones leave no code or
 # dependency in the artifact; the default is everything ported so far.
 default = [
+    "anchored_overlay",
     "badge",
     "button",
     "color_picker",
@@ -41,6 +42,7 @@ default = [
     "text_field",
     "toggle",
 ]
+anchored_overlay = []
 badge = []
 button = []
 color_picker = []
@@ -70,7 +72,7 @@ toggle = []
 [dependencies]
 waterui = { git = "https://github.com/water-rs/waterui", rev = "ec7d5ad2022f3b3cadf149d372adb18a3f4da74a" }
 waterui-core = { git = "https://github.com/water-rs/waterui", rev = "ec7d5ad2022f3b3cadf149d372adb18a3f4da74a" }
-waterui-backend-core = { git = "https://github.com/water-rs/waterui", rev = "ec7d5ad2022f3b3cadf149d372adb18a3f4da74a" }
+waterui-backend-core = { git = "https://github.com/water-rs/waterui", rev = "ec7d5ad2022f3b3cadf149d372adb18a3f4da74a", features = ["overlay"] }
 waterui-locale = { git = "https://github.com/water-rs/waterui", rev = "ec7d5ad2022f3b3cadf149d372adb18a3f4da74a" }
 cocoa-ui = { path = "../cocoa-ui" }
 waterkit-screen = { git = "https://github.com/water-rs/waterkit", rev = "e5290913ee8adb22843fd60047f6a845f2391c5b" }

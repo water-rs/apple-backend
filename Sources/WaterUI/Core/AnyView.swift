@@ -230,7 +230,6 @@ func registerBuiltinComponentsIfNeeded() {
   registerMetadataComponent(WuiIgnoreSafeArea.self)
   registerMetadataComponent(WuiRetain.self)
   registerMetadataComponent(WuiContextMenu.self)
-  registerMetadataComponent(WuiAnchoredOverlay.self)
   registerMetadataComponent(WuiHittable.self)
 
 
