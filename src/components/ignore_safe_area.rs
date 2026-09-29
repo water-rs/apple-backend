@@ -112,14 +112,17 @@ pub fn install(dispatcher: &mut Dispatcher) {
             use crate::seam::waterui_swift_content_frame;
             let state = Rc::clone(&state);
             move |host| {
-                // SAFETY: the child is a live platform view; the contract is
-                // a main-thread read.
+                let host_view: &PlatformView = host;
+                // SAFETY: both are live platform views; the contract is a
+                // main-thread read.
                 let frame = unsafe {
                     waterui_swift_content_frame(
                         core::ptr::from_ref::<PlatformView>(state.child.view())
                             .cast::<core::ffi::c_void>()
                             .cast_mut(),
-                        view::bounds(host).into(),
+                        core::ptr::from_ref::<PlatformView>(host_view)
+                            .cast::<core::ffi::c_void>()
+                            .cast_mut(),
                     )
                 }
                 .into_kit();

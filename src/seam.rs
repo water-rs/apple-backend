@@ -687,13 +687,14 @@ unsafe extern "C" {
         callback: unsafe extern "C" fn(*mut c_void),
     );
 
-    /// The frame a leaf's platform view takes inside a host of `bounds`,
-    /// after safe-area rules: `host.bounds` when the leaf manages its own
-    /// safe area, otherwise the host's safe-area-inset rect. `view` is
-    /// borrowed for the call; only the fallback can answer it, because
-    /// whether a leaf manages the safe area is a property of the Swift leaf
-    /// class (`wuiHandlesSafeArea`).
-    pub fn waterui_swift_content_frame(view: *mut c_void, bounds: WateruiRect) -> WateruiRect;
+    /// The frame a leaf's platform view takes inside `host`, after safe-area
+    /// rules: `host.bounds` when the leaf manages its own safe area,
+    /// otherwise the host's safe-area-inset rect (`wuiContentFrame(of:in:)`).
+    /// Both views are borrowed for the call; only the fallback can answer it,
+    /// because whether a leaf manages the safe area is a property of the
+    /// Swift leaf class (`wuiHandlesSafeArea`), and the host's effective
+    /// insets erase `WuiIgnoreSafeArea` edges through Swift wrapper classes.
+    pub fn waterui_swift_content_frame(view: *mut c_void, host: *mut c_void) -> WateruiRect;
 
     /// `view`'s own safe-area-inset bounds — `wuiSafeAreaRect`, which erases
     /// `WuiIgnoreSafeArea` edges on `UIKit` and answers `safeAreaRect` on

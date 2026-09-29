@@ -73,14 +73,17 @@ impl SubView for WithEnvSubView {
 /// `wuiContentFrame(of: contentView, in: self)`: the whole bounds when the
 /// content manages its own safe area, the host's safe-area rect otherwise.
 fn content_frame(host: &HostView, child: &PlatformView) -> Rect {
-    // SAFETY: `child` is a live platform view; the contract is a main-thread
+    let host_view: &PlatformView = host;
+    // SAFETY: both are live platform views; the contract is a main-thread
     // read.
     unsafe {
         waterui_swift_content_frame(
             core::ptr::from_ref::<PlatformView>(child)
                 .cast::<core::ffi::c_void>()
                 .cast_mut(),
-            view::bounds(host).into(),
+            core::ptr::from_ref::<PlatformView>(host_view)
+                .cast::<core::ffi::c_void>()
+                .cast_mut(),
         )
     }
     .into_kit()

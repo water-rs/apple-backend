@@ -611,25 +611,26 @@ public func wateruiSwiftWhenReady(
 }
 
 
-/// The frame a leaf's platform view takes inside a host of `bounds`, after
-/// safe-area rules: `bounds` when the leaf manages its own safe area,
-/// otherwise the leaf's safe-area-inset rect. `view` is borrowed.
+/// The frame a leaf's platform view takes inside `host`, after safe-area
+/// rules: the host's whole bounds when the leaf manages its own safe area,
+/// otherwise the host's safe-area-inset rect. Both views are borrowed.
 @_cdecl("waterui_swift_content_frame")
 @MainActor
 public func wateruiSwiftContentFrame(
-  _ view: UnsafeMutableRawPointer?, bounds: WateruiRect
+  _ view: UnsafeMutableRawPointer?, host: UnsafeMutableRawPointer?
 ) -> WateruiRect {
-  guard let view else { return bounds }
+  guard let view, let host else {
+    return WateruiRect(
+      origin: WateruiPoint(x: 0, y: 0), size: WateruiSize(width: 0, height: 0))
+  }
   #if canImport(UIKit)
     let platformView = Unmanaged<UIView>.fromOpaque(view).takeUnretainedValue()
+    let hostView = Unmanaged<UIView>.fromOpaque(host).takeUnretainedValue()
   #else
     let platformView = Unmanaged<NSView>.fromOpaque(view).takeUnretainedValue()
+    let hostView = Unmanaged<NSView>.fromOpaque(host).takeUnretainedValue()
   #endif
-  let hostBounds = CGRect(
-    x: CGFloat(bounds.origin.x), y: CGFloat(bounds.origin.y),
-    width: CGFloat(bounds.size.width), height: CGFloat(bounds.size.height)
-  )
-  let frame = wuiHandlesSafeArea(platformView) ? hostBounds : platformView.wuiSafeAreaRect
+  let frame = wuiContentFrame(of: platformView, in: hostView)
   return WateruiRect(
     origin: WateruiPoint(x: Float(frame.origin.x), y: Float(frame.origin.y)),
     size: WateruiSize(width: Float(frame.size.width), height: Float(frame.size.height))

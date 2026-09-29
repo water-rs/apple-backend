@@ -32,7 +32,7 @@ mod imp {
     use waterui_backend_core::Environment;
 
     use crate::contract::KeepAlive;
-    use crate::seam::{WateruiPoint, WateruiRect, WateruiSize, waterui_swift_content_frame};
+    use crate::seam::waterui_swift_content_frame;
 
     /// Installs `view` — the rendered window-toolbar host — as `window`'s
     /// toolbar items: lone-child wrappers are descended and the first
@@ -258,13 +258,15 @@ mod imp {
         crate::first_paint::mark(Retained::as_ptr(&leaf_view).cast::<c_void>().cast_mut());
 
         host.set_layout_handler(move |host| {
-            let bounds = host_bounds(host);
-            // SAFETY: the seam borrows the view for the call; `leaf_view`
+            let host_view: &cocoa_ui::PlatformView = host;
+            // SAFETY: the seam borrows the views for the call; `leaf_view`
             // holds the retain for the host's lifetime.
             let frame = unsafe {
                 waterui_swift_content_frame(
                     Retained::as_ptr(&leaf_view).cast::<c_void>().cast_mut(),
-                    bounds,
+                    core::ptr::from_ref::<cocoa_ui::PlatformView>(host_view)
+                        .cast::<c_void>()
+                        .cast_mut(),
                 )
             };
             cocoa_ui::view::set_frame(&leaf_view, frame.into_kit());
@@ -543,25 +545,6 @@ mod imp {
         window.set_has_shadow(true);
     }
 
-    /// The host's bounds as a seam rect.
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "seam geometry is f32; window geometry always fits"
-    )]
-    fn host_bounds(host: &HostView) -> WateruiRect {
-        let bounds = host.bounds();
-        WateruiRect {
-            origin: WateruiPoint {
-                x: bounds.origin.x as f32,
-                y: bounds.origin.y as f32,
-            },
-            size: WateruiSize {
-                width: bounds.size.width as f32,
-                height: bounds.size.height as f32,
-            },
-        }
-    }
-
     fn mtm() -> MainThreadMarker {
         MainThreadMarker::new().expect("window realization runs on the main thread")
     }
@@ -585,7 +568,7 @@ mod imp {
     use waterui_backend_core::Environment;
 
     use crate::contract::KeepAlive;
-    use crate::seam::{WateruiPoint, WateruiRect, WateruiSize, waterui_swift_content_frame};
+    use crate::seam::waterui_swift_content_frame;
     use crate::theme::ThemeSignals;
 
     /// What a connected scene owns: its root controller and every
@@ -734,13 +717,15 @@ mod imp {
         crate::first_paint::mark(Retained::as_ptr(&leaf_view).cast::<c_void>().cast_mut());
 
         host.set_layout_handler(move |host| {
-            let bounds = host_bounds(host);
-            // SAFETY: the seam borrows the view for the call; `leaf_view`
+            let host_view: &cocoa_ui::PlatformView = host;
+            // SAFETY: the seam borrows the views for the call; `leaf_view`
             // holds the retain for the host's lifetime.
             let frame = unsafe {
                 waterui_swift_content_frame(
                     Retained::as_ptr(&leaf_view).cast::<c_void>().cast_mut(),
-                    bounds,
+                    core::ptr::from_ref::<cocoa_ui::PlatformView>(host_view)
+                        .cast::<c_void>()
+                        .cast_mut(),
                 )
             };
             cocoa_ui::view::set_frame(&leaf_view, frame.into_kit());
@@ -751,25 +736,6 @@ mod imp {
         WindowHost {
             _controller: pending.controller,
             _keepalive: keepalive,
-        }
-    }
-
-    /// The host's bounds as a seam rect.
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "seam geometry is f32; window geometry always fits"
-    )]
-    fn host_bounds(host: &HostView) -> WateruiRect {
-        let bounds = host.bounds();
-        WateruiRect {
-            origin: WateruiPoint {
-                x: bounds.origin.x as f32,
-                y: bounds.origin.y as f32,
-            },
-            size: WateruiSize {
-                width: bounds.size.width as f32,
-                height: bounds.size.height as f32,
-            },
         }
     }
 
