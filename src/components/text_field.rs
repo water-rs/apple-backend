@@ -447,9 +447,12 @@ fn layout_children(view: &PlatformView, state: &FieldState) {
     let has_label = label.height > 0.0;
     view::set_hidden(state.label.view(), !has_label);
 
+    // The label pins top+leading and keeps its intrinsic width; the measure
+    // reports bare text bounds, which is narrower than the cell's drawing
+    // frame, so the full region width is what keeps it unclipped.
     view::set_frame(
         state.label.view(),
-        Rect::new(0.0, 0.0, f64::from(label.width), f64::from(label.height)),
+        Rect::new(0.0, 0.0, bounds.size.width, f64::from(label.height)),
     );
 
     let region_top = if has_label {
