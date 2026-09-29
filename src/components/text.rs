@@ -409,9 +409,13 @@ pub fn install(dispatcher: &mut Dispatcher) {
             move |view| {
                 let bounds = cocoa_ui::view::bounds(view);
                 let width = bounds.size.width.max(label.fitting_width());
+                // One point of negative leading offset: the cell keeps a
+                // two-point inset inside its frame, so starting the label a
+                // point left of the leaf edge puts ink where the platform
+                // text field would draw it.
                 cocoa_ui::view::set_frame(
                     as_view(&label),
-                    cocoa_ui::geometry::Rect::new(0.0, 0.0, width, bounds.size.height),
+                    cocoa_ui::geometry::Rect::new(-1.0, 0.0, width, bounds.size.height),
                 );
             }
         });
