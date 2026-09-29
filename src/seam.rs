@@ -864,7 +864,6 @@ pub(crate) fn assert_disjoint(mtm: cocoa_ui::MainThreadMarker) {
 #[cfg(target_os = "macos")]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn waterui_apple_install_toolbar(window: *const c_void, view: *const c_void) {
-    use cocoa_ui::appkit::{HostedItem, WindowToolbar};
     use cocoa_ui::objc2_app_kit::{NSView, NSWindow};
 
     // SAFETY: per the contract above — live platform pointers, main thread.
@@ -872,29 +871,7 @@ pub unsafe extern "C" fn waterui_apple_install_toolbar(window: *const c_void, vi
     // SAFETY: per the contract above — live platform pointers, main thread.
     let view: &NSView = unsafe { &*view.cast() };
 
-    let mut node = cocoa_ui::view::retain_base(view);
-    loop {
-        let subs = cocoa_ui::view::subviews(&node);
-        if subs.len() != 1 {
-            break;
-        }
-        node = subs[0].clone();
-    }
-    let subs = cocoa_ui::view::subviews(&node);
-    let children: alloc::vec::Vec<Retained<NSView>> = if subs.is_empty() {
-        alloc::vec![node]
-    } else {
-        subs
-    };
-    WindowToolbar::attached(window).set_window_items(
-        children
-            .iter()
-            .map(|v| HostedItem {
-                view: v.clone(),
-                size: v.fittingSize().into(),
-            })
-            .collect(),
-    );
+    crate::toolbar::install_toolbar_items(window, view);
 }
 
 /// The declared first window as the embed path carries it.
