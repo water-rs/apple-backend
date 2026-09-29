@@ -197,9 +197,6 @@ func registerBuiltinComponentsIfNeeded() {
 
   // Container components
 
-  // Dynamic components
-  registerComponent(WuiDynamic.self)
-
   // Metadata components (wrappers that modify env/appearance)
 
 

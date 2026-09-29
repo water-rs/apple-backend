@@ -33,6 +33,8 @@ pub mod date_picker;
 pub mod draggable;
 #[cfg(feature = "drop_destination")]
 pub mod drop_destination;
+#[cfg(feature = "dynamic")]
+pub mod dynamic;
 #[cfg(feature = "dynamic_range")]
 pub mod dynamic_range;
 pub mod empty;

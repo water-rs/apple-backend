@@ -59,6 +59,8 @@ pub fn install(dispatcher: &mut Dispatcher) {
     crate::components::container::install(dispatcher);
     #[cfg(feature = "plain")]
     crate::components::plain::install(dispatcher);
+    #[cfg(feature = "dynamic")]
+    crate::components::dynamic::install(dispatcher);
 
     // Metadata — transparent wrappers claiming `Metadata<M>` before the
     // seam can hand it to the fallback.

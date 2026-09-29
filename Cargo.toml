@@ -29,6 +29,7 @@ default = [
     "date_picker",
     "draggable",
     "drop_destination",
+    "dynamic",
     "dynamic_range",
     "fixed_container",
     "focused",
@@ -83,6 +84,7 @@ cursor = []
 date_picker = []
 draggable = []
 drop_destination = []
+dynamic = []
 dynamic_range = []
 fixed_container = []
 focused = []
