@@ -13,6 +13,10 @@ use crate::dispatch::Dispatcher;
 /// Fills `dispatcher` with every claim the backend owns. Called exactly
 /// once, before the first render, inside [`crate::dispatch::dispatcher`].
 pub fn install(dispatcher: &mut Dispatcher) {
+    // Core — the unit view, always claimed: an unclaimed `Native<()>` crosses
+    // the seam into a `body()` panic, which `panic = "abort"` makes fatal.
+    crate::components::empty::install(dispatcher);
+
     // Wave A — trivial leaves.
     #[cfg(feature = "image")]
     crate::components::image::install(dispatcher);

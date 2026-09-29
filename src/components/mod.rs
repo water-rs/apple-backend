@@ -7,6 +7,7 @@
 
 #[cfg(feature = "button")]
 pub mod button;
+pub mod empty;
 #[cfg(feature = "image")]
 pub mod image;
 #[cfg(feature = "slider")]
