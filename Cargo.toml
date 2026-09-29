@@ -77,6 +77,8 @@ default = [
     "view_effect",
     "view_renderer",
     "webview",
+    "video",
+    "video_player",
     "with_env",
 ]
 anchored_overlay = []
@@ -141,6 +143,8 @@ toggle = []
 view_effect = []
 view_renderer = []
 webview = ["dep:waterui-webview", "dep:cookie"]
+video = []
+video_player = []
 with_env = []
 
 [dependencies]
@@ -176,6 +180,8 @@ waterui-webview = { git = "https://github.com/water-rs/waterui", rev = "ec7d5ad2
 # The cookie type `waterui-webview`'s handle contract answers with —
 # `time`/`SameSite` rebuild cookies from `NSHTTPCookie` records.
 cookie = { version = "0.18.2", optional = true }
+waterkit-audio = { git = "https://github.com/water-rs/waterkit", rev = "e5290913ee8adb22843fd60047f6a845f2391c5b", features = ["media-session"] }
+waterui-video = { git = "https://github.com/water-rs/waterui", rev = "ec7d5ad2022f3b3cadf149d372adb18a3f4da74a" }
 executor-core = { version = "0.7.1", features = ["std"] }
 async-channel = "2"
 futures = "0.3"

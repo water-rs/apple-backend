@@ -201,8 +201,6 @@ func registerBuiltinComponentsIfNeeded() {
   // which is what exports the `waterui_video_*`/`waterkit_audio_*` symbols
   // these components bind to.
   #if !WATERUI_NO_MEDIA
-    registerComponent(WuiVideo.self)
-    registerComponent(WuiVideoPlayer.self)
   #endif
 
   // Navigation components
