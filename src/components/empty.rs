@@ -41,8 +41,8 @@ impl SubView for EmptySubView {
 
 /// Installs the `()` handler on the dispatcher: `Native<()>` maps to a
 /// hidden, zero-size view that never participates in layout.
-pub(crate) fn install(dispatcher: &mut Dispatcher) {
-    dispatcher.register_native::<()>(|_, ctx| {
+pub fn install(dispatcher: &mut Dispatcher) {
+    dispatcher.register_native::<()>(|(), ctx| {
         let view = HostView::new(ctx.mtm(), cocoa_ui::Rect::ZERO);
         cocoa_ui::view::set_hidden(&view, true);
         NativeLeaf::new(&*view, EmptySubView)
