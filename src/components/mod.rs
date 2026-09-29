@@ -46,6 +46,8 @@ pub mod slider;
 pub mod spacer;
 #[cfg(feature = "stepper")]
 pub mod stepper;
+#[cfg(feature = "table")]
+pub mod table;
 #[cfg(feature = "text")]
 pub mod text;
 #[cfg(feature = "text_field")]

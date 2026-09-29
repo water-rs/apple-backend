@@ -198,7 +198,6 @@ func registerBuiltinComponentsIfNeeded() {
 
   // Container components
   registerComponent(WuiList.self)
-  registerComponent(WuiTable.self)
 
   // Dynamic components
   registerComponent(WuiDynamic.self)
