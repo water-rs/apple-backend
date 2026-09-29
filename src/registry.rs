@@ -138,6 +138,11 @@ pub fn install(dispatcher: &mut Dispatcher) {
     #[cfg(feature = "navigation")]
     crate::components::navigation::install(dispatcher);
 
+    // Media — the web view leaf; its `WebViewController` is installed late
+    // by `waterui_apple_install_webview`, not here.
+    #[cfg(feature = "webview")]
+    crate::components::webview::install(dispatcher);
+
     // Wave B — containers.
     #[cfg(feature = "list")]
     crate::components::list::install(dispatcher);

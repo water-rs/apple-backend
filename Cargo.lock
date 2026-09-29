@@ -769,7 +769,9 @@ dependencies = [
  "objc2-io-surface",
  "objc2-metal",
  "objc2-quartz-core",
+ "objc2-security",
  "objc2-ui-kit",
+ "objc2-web-kit",
  "oslog",
  "tracing",
  "wgpu",
@@ -837,6 +839,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "633458d4ef8c78b72454de2d54fd6ab2e60f9e02be22f3c6104cdc8a4e0fceb9"
 dependencies = [
  "unicode-segmentation",
+]
+
+[[package]]
+name = "cookie"
+version = "0.18.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1a373e3602691c3cdea496d2f0ee5935151e6168fe87739483c463db1b2f2f87"
+dependencies = [
+ "time",
+ "version_check",
 ]
 
 [[package]]
@@ -1008,6 +1020,12 @@ dependencies = [
  "quote",
  "syn 3.0.6",
 ]
+
+[[package]]
+name = "deranged"
+version = "0.5.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7cd812cc2bc1d69d4764bd80df88b4317eaef9e773c75226407d9bc0876b211c"
 
 [[package]]
 name = "derive_more"
@@ -3288,6 +3306,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "num-conv"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "521739c6d2bac4aa25192232afe6841231376b2b26d4d9fae5ecf8ca5772e441"
+
+[[package]]
 name = "num-derive"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3645,6 +3669,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "objc2-security"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "709fe137109bd1e8b5a99390f77a7d8b2961dafc1a1c5db8f2e60329ad6d895a"
+dependencies = [
+ "bitflags 2.13.2",
+ "objc2",
+ "objc2-core-foundation",
+]
+
+[[package]]
 name = "objc2-ui-kit"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3674,6 +3709,18 @@ dependencies = [
  "objc2-core-video",
  "objc2-foundation",
  "objc2-metal",
+]
+
+[[package]]
+name = "objc2-web-kit"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b2e5aaab980c433cf470df9d7af96a7b46a9d892d521a2cbbb2f8a4c16751e7f"
+dependencies = [
+ "bitflags 2.13.2",
+ "block2",
+ "objc2",
+ "objc2-foundation",
 ]
 
 [[package]]
@@ -3929,6 +3976,12 @@ dependencies = [
  "writeable",
  "zerovec",
 ]
+
+[[package]]
+name = "powerfmt"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "439ee305def115ba05938db6eb1644ff94165c5ab5e9420d1c1bcedbba909391"
 
 [[package]]
 name = "ppv-lite86"
@@ -4684,6 +4737,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94e823acd5b58b0a34d159fd8cf07ede6e01d448afc4a408cb68b60e3e3b85be"
 dependencies = [
  "nami-core",
+ "serde",
 ]
 
 [[package]]
@@ -4934,6 +4988,36 @@ dependencies = [
  "quick-error",
  "weezl",
  "zune-jpeg",
+]
+
+[[package]]
+name = "time"
+version = "0.3.55"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cdb87b95ec50ddfa440816d227a17b2ccbdda963a316a727fda0fc4334f7d134"
+dependencies = [
+ "deranged",
+ "num-conv",
+ "powerfmt",
+ "serde_core",
+ "time-core",
+ "time-macros",
+]
+
+[[package]]
+name = "time-core"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e1c906769ad99c88eaa54e728060edef082f8e358ff32030cb7c7d315e81109"
+
+[[package]]
+name = "time-macros"
+version = "0.2.32"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e689342a48d2ea927c87ea50cabf8594854bf940e9310208848d680d668ed85"
+dependencies = [
+ "num-conv",
+ "time-core",
 ]
 
 [[package]]
@@ -5563,6 +5647,7 @@ version = "0.1.0"
 dependencies = [
  "async-channel",
  "cocoa-ui",
+ "cookie",
  "dispatch2",
  "executor-core",
  "futures",
@@ -5586,6 +5671,7 @@ dependencies = [
  "waterui-graphics",
  "waterui-locale",
  "waterui-shape",
+ "waterui-webview",
  "wgpu-hal",
 ]
 
@@ -6001,6 +6087,31 @@ dependencies = [
  "uuid",
  "waterui-core",
  "waterui-url",
+]
+
+[[package]]
+name = "waterui-watcher-set"
+version = "0.5.1"
+source = "git+https://github.com/water-rs/waterui?rev=ec7d5ad2022f3b3cadf149d372adb18a3f4da74a#ec7d5ad2022f3b3cadf149d372adb18a3f4da74a"
+
+[[package]]
+name = "waterui-webview"
+version = "0.5.1"
+source = "git+https://github.com/water-rs/waterui?rev=ec7d5ad2022f3b3cadf149d372adb18a3f4da74a#ec7d5ad2022f3b3cadf149d372adb18a3f4da74a"
+dependencies = [
+ "base64",
+ "cookie",
+ "executor-core",
+ "percent-encoding",
+ "serde",
+ "serde_json",
+ "suiteki",
+ "thiserror 2.0.21",
+ "tracing",
+ "waterui-core",
+ "waterui-layout",
+ "waterui-url",
+ "waterui-watcher-set",
 ]
 
 [[package]]
@@ -7335,11 +7446,6 @@ source = "git+https://github.com/water-rs/particle?rev=e27ae84666ee58c2ff4adae16
 name = "waterui-video-gpu"
 version = "0.4.0"
 source = "git+https://github.com/water-rs/video-gpu?rev=fd554cc95800e42d92b1029c61f641fd9b349465#fd554cc95800e42d92b1029c61f641fd9b349465"
-
-[[patch.unused]]
-name = "waterui-webview"
-version = "0.5.1"
-source = "git+https://github.com/water-rs/waterui?rev=ec7d5ad2022f3b3cadf149d372adb18a3f4da74a#ec7d5ad2022f3b3cadf149d372adb18a3f4da74a"
 
 [[patch.unused]]
 name = "waterui-winui"

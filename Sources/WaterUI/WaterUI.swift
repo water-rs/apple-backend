@@ -965,7 +965,7 @@ public final class WuiRootContext {
     let nativeServices = WuiNativeServices()
     nativeServices.environment = env
     #if WATERUI_WEBVIEW
-      installWebViewController(env: initEnvPtr)
+      waterui_apple_install_webview(UnsafeMutableRawPointer(initEnvPtr))
     #endif
     waterui_apple_install_window_manager(UnsafeMutableRawPointer(initEnvPtr))
     waterui_apple_install_view_renderer(UnsafeMutableRawPointer(initEnvPtr))

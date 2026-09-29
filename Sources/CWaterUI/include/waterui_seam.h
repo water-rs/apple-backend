@@ -159,6 +159,12 @@ void *waterui_apple_gpu_metal_device(void *env);
 /// port — backing `CustomViewRenderer`. Call on the main thread.
 void waterui_apple_install_view_renderer(void *env);
 
+/// Installs the platform `WebViewController` into `env` when the
+/// application left the slot empty — the Rust port of
+/// `installWebViewController`. Runs on the main thread; `env` is borrowed
+/// for the call. Only emitted when the crate's `webview` feature is on.
+void waterui_apple_install_webview(void *env);
+
 /// `makeWaterUIGpuSurface`: builds a `gpu_surface` leaf for a CEF-owned
 /// `CWaterUI.WuiGpuSurface` and returns its platform view `+1` for
 /// `Unmanaged<NSView>.takeRetainedValue()`.

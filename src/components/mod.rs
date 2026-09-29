@@ -128,5 +128,7 @@ pub mod toggle;
 pub mod view_effect;
 #[cfg(feature = "view_renderer")]
 pub mod view_renderer;
+#[cfg(feature = "webview")]
+pub mod webview;
 #[cfg(feature = "with_env")]
 pub mod with_env;

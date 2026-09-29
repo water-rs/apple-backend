@@ -105,10 +105,16 @@ mod imp {
             // overlays on the clone it was handed, which the host env cannot
             // see — `insert` never propagates between clones.
             let mut app_env = parts.env;
+            // The web view controller fills its slot late and only when the
+            // `webview` port is enabled — an application bundling its own
+            // engine installed it during `app(env)`.
             // SAFETY: `prepared` runs on the main thread; `app_env` outlives
             // the call and the install borrows it only.
+            #[cfg(feature = "webview")]
             unsafe {
-                crate::seam::waterui_swift_install_webview(core::ptr::from_mut(&mut app_env));
+                crate::components::webview::waterui_apple_install_webview(core::ptr::from_mut(
+                    &mut app_env,
+                ));
             }
             for window in parts.windows {
                 let host = crate::windows::realize(window, &app_env, mtm);
@@ -226,10 +232,16 @@ mod imp {
         // Same hand-off as macOS: content renders under the env `app`
         // returned — its installs are invisible to the host env.
         let mut app_env = parts.env;
+        // The web view controller fills its slot late and only when the
+        // `webview` port is enabled — an application bundling its own
+        // engine installed it during `app(env)`.
         // SAFETY: `prepared` runs on the main thread; `app_env` outlives
         // the call and the install borrows it only.
+        #[cfg(feature = "webview")]
         unsafe {
-            crate::seam::waterui_swift_install_webview(core::ptr::from_mut(&mut app_env));
+            crate::components::webview::waterui_apple_install_webview(core::ptr::from_mut(
+                &mut app_env,
+            ));
         }
         crate::windows::declare(parts.windows, &app_env, mtm);
         core::mem::forget(launch);

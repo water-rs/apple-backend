@@ -571,10 +571,7 @@ public func wateruiSwiftPrepareEnv(
 @_cdecl("waterui_swift_install_webview")
 public func wateruiSwiftInstallWebView(_ env: UnsafeMutableRawPointer?) {
   #if WATERUI_WEBVIEW
-    let envBits = UInt(bitPattern: env)
-    MainActor.assumeIsolated {
-      installWebViewController(env: OpaquePointer(bitPattern: envBits))
-    }
+    waterui_apple_install_webview(env)
   #endif
 }
 
