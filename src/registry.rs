@@ -76,6 +76,8 @@ pub fn install(dispatcher: &mut Dispatcher) {
     crate::components::navigation::install(dispatcher);
 
     // Wave B — containers.
+    #[cfg(feature = "list")]
+    crate::components::list::install(dispatcher);
     #[cfg(feature = "scroll")]
     crate::components::scroll::install(dispatcher);
     #[cfg(feature = "table")]
