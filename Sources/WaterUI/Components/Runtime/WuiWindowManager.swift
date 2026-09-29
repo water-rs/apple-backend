@@ -250,8 +250,11 @@ func installWindowManager(env: OpaquePointer, services: WuiNativeServices) {
       // the main window's does; see `WuiRootWindowBinding`.
       if let rawToolbar = wuiWindow.toolbar {
         let toolbarPtr = OpaquePointer(UnsafeMutableRawPointer(rawToolbar))
-        WuiWindowToolbar.attached(to: window)
-          .setWindowContent(WuiAnyView(anyview: toolbarPtr, env: env))
+        let toolbarView = WuiAnyView(anyview: toolbarPtr, env: env)
+        waterui_apple_install_toolbar(
+          Unmanaged.passUnretained(window).toOpaque(),
+          Unmanaged.passUnretained(toolbarView).toOpaque()
+        )
       }
 
       let contentView = WuiAnyView(anyview: contentPtr, env: env)
@@ -595,8 +598,11 @@ func installWindowManager(env: OpaquePointer, services: WuiNativeServices) {
       // capsule, spacing and overflow. The coordinator retains the resolved
       // view for the window's life.
       if let rawToolbar = declaration.toolbar {
-        WuiWindowToolbar.attached(to: window)
-          .setWindowContent(WuiAnyView(anyview: rawToolbar, env: env))
+        let toolbarView = WuiAnyView(anyview: rawToolbar, env: env)
+        waterui_apple_install_toolbar(
+          Unmanaged.passUnretained(window).toOpaque(),
+          Unmanaged.passUnretained(toolbarView).toOpaque()
+        )
       }
 
       // An empty title is a window with none of its own, and the host has

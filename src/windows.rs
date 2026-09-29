@@ -21,7 +21,7 @@ mod imp {
     use core::ffi::c_void;
 
     use super::{into_kit_rect, into_kit_size, into_layout_rect};
-    use cocoa_ui::appkit::{HostView, WindowStyle};
+    use cocoa_ui::appkit::{HostView, HostedItem, WindowStyle, WindowToolbar};
     use cocoa_ui::{MainThreadMarker, Retained};
     use waterui::animation::Animation;
     use waterui::reactive::{Signal, SignalExt};
@@ -32,10 +32,40 @@ mod imp {
     use waterui_backend_core::Environment;
 
     use crate::contract::KeepAlive;
-    use crate::seam::{
-        WateruiPoint, WateruiRect, WateruiSize, waterui_swift_content_frame,
-        waterui_swift_install_toolbar,
-    };
+    use crate::seam::{WateruiPoint, WateruiRect, WateruiSize, waterui_swift_content_frame};
+
+    /// Installs `view` — the rendered window-toolbar host — as `window`'s
+    /// toolbar items: lone-child wrappers are descended and the first
+    /// multi-child view's children become the items, as
+    /// `WuiWindowToolbar.setWindowContent` answered them.
+    fn install_toolbar(
+        window: &cocoa_ui::objc2_app_kit::NSWindow,
+        view: &cocoa_ui::objc2_app_kit::NSView,
+    ) {
+        let mut node = cocoa_ui::view::retain_base(view);
+        loop {
+            let subs = cocoa_ui::view::subviews(&node);
+            if subs.len() != 1 {
+                break;
+            }
+            node = subs[0].clone();
+        }
+        let subs = cocoa_ui::view::subviews(&node);
+        let children: Vec<Retained<cocoa_ui::objc2_app_kit::NSView>> = if subs.is_empty() {
+            alloc::vec![node]
+        } else {
+            subs
+        };
+        WindowToolbar::attached(window).set_window_items(
+            children
+                .iter()
+                .map(|v| HostedItem {
+                    view: v.clone(),
+                    size: v.fittingSize().into(),
+                })
+                .collect(),
+        );
+    }
 
     /// What an open window owns: the platform object, its host view, and
     /// every subscription and child leaf the window keeps alive. Dropping a
@@ -243,19 +273,15 @@ mod imp {
         keepalive.keep(leaf);
         keepalive.keep(host.clone());
 
-        // The toolbar remains the fallback's, through the seam.
+        // The declared toolbar goes through the window's one `NSToolbar`:
+        // each child becomes an `NSToolbarItem`, which is what gives it the
+        // system's capsule, spacing and overflow.
         if let Some(toolbar) = declaration.toolbar {
-            // SAFETY: both boxes are consumed by the fallback, which keeps
-            // what it retains; `window` is borrowed for the call.
-            unsafe {
-                waterui_swift_install_toolbar(
-                    alloc::boxed::Box::into_raw(alloc::boxed::Box::new(toolbar)),
-                    alloc::boxed::Box::into_raw(alloc::boxed::Box::new(env.clone())),
-                    core::ptr::from_ref(window.native())
-                        .cast::<c_void>()
-                        .cast_mut(),
-                );
-            }
+            let toolbar_leaf = crate::dispatch::dispatcher(mtm)
+                .render(toolbar, env, mtm)
+                .expect("window toolbar must render: no handler or fallback claims it");
+            install_toolbar(window.native(), toolbar_leaf.view());
+            keepalive.keep(toolbar_leaf);
         }
 
         // Reveal: adopt the declared state, then fade in once the content

@@ -1047,13 +1047,13 @@ private func singleSectionRowDiff(old: [Int32], new: [Int32])
 
     /// Whether the row's content chain carries a navigation link's identity.
     ///
-    /// The link marker (`WuiNavigationLinkHint`) wraps the link's button, and
+    /// The link marker (`dev.waterui.navigation-link-hint`) tags the link's button, and
     /// wrapper views sit between the row and it; the primary-content chain
     /// walks through them.
     private static func containsNavigationLink(_ view: PlatformView) -> Bool {
       var current: PlatformView? = view
       while let node = current {
-        if node is WuiNavigationLinkHint { return true }
+        if node.accessibilityIdentifier == "dev.waterui.navigation-link-hint" { return true }
         current = (node as? WuiPrimaryContentProviding)?.wuiPrimaryContent
       }
       return false

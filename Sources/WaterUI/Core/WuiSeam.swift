@@ -617,22 +617,6 @@ public func wateruiSwiftWhenReady(
   }
 }
 
-#if canImport(AppKit)
-  /// Attaches the window's toolbar: `content` renders as the fallback's
-  /// toolbar host on `window`. Both `content` and `env` are consumed.
-  @_cdecl("waterui_swift_install_toolbar")
-  @MainActor
-  public func wateruiSwiftInstallToolbar(
-    _ content: OpaquePointer?, _ env: OpaquePointer?, _ window: UnsafeMutableRawPointer?
-  ) {
-    guard let content, let env, let window else {
-      fatalError("waterui_swift_install_toolbar called with a null argument")
-    }
-    let nsWindow = Unmanaged<NSWindow>.fromOpaque(window).takeUnretainedValue()
-    WuiWindowToolbar.attached(to: nsWindow)
-      .setWindowContent(WuiAnyView(anyview: content, env: WuiEnvironment(env)))
-  }
-#endif
 
 /// The frame a leaf's platform view takes inside a host of `bounds`, after
 /// safe-area rules: `bounds` when the leaf manages its own safe area,

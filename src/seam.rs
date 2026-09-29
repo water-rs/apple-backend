@@ -692,16 +692,6 @@ unsafe extern "C" {
         callback: unsafe extern "C" fn(*mut c_void),
     );
 
-    /// Attaches the window's toolbar: `content` renders as the fallback's
-    /// toolbar host and is installed on the platform window `window`. Both
-    /// pointers are consumed (the toolbar keeps what it retains).
-    #[cfg(target_os = "macos")]
-    pub fn waterui_swift_install_toolbar(
-        content: *mut AnyView,
-        env: *mut Environment,
-        window: *mut c_void,
-    );
-
     /// The frame a leaf's platform view takes inside a host of `bounds`,
     /// after safe-area rules: `host.bounds` when the leaf manages its own
     /// safe area, otherwise the host's safe-area-inset rect. `view` is
@@ -863,4 +853,49 @@ pub(crate) fn assert_disjoint(mtm: cocoa_ui::MainThreadMarker) {
             );
         }
     });
+}
+
+/// Installs a rendered window-toolbar host view as the window's toolbar items.
+///
+/// Lone-child wrappers are descended and the first multi-child view's
+/// children become the items, as `WuiWindowToolbar.setWindowContent`
+/// answered them.
+///
+/// # Safety
+/// `window` and `view` must be live `NSWindow`/`NSView` pointers; both are
+/// borrowed, not consumed. Call on the main thread.
+#[cfg(target_os = "macos")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn waterui_apple_install_toolbar(window: *const c_void, view: *const c_void) {
+    use cocoa_ui::appkit::{HostedItem, WindowToolbar};
+    use cocoa_ui::objc2_app_kit::{NSView, NSWindow};
+
+    // SAFETY: per the contract above — live platform pointers, main thread.
+    let window: &NSWindow = unsafe { &*window.cast() };
+    // SAFETY: per the contract above — live platform pointers, main thread.
+    let view: &NSView = unsafe { &*view.cast() };
+
+    let mut node = cocoa_ui::view::retain_base(view);
+    loop {
+        let subs = cocoa_ui::view::subviews(&node);
+        if subs.len() != 1 {
+            break;
+        }
+        node = subs[0].clone();
+    }
+    let subs = cocoa_ui::view::subviews(&node);
+    let children: alloc::vec::Vec<Retained<NSView>> = if subs.is_empty() {
+        alloc::vec![node]
+    } else {
+        subs
+    };
+    WindowToolbar::attached(window).set_window_items(
+        children
+            .iter()
+            .map(|v| HostedItem {
+                view: v.clone(),
+                size: v.fittingSize().into(),
+            })
+            .collect(),
+    );
 }

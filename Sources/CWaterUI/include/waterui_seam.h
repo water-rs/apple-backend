@@ -137,6 +137,12 @@ typedef struct WateruiResolution {
 /// `Box<AnyView>` the caller takes and re-walks, or null.
 struct WateruiResolution waterui_apple_resolve(void *view, void *env);
 
+/// Installs `view` — the rendered window-toolbar host — as `window`'s
+/// toolbar items: lone-child wrappers are descended and the first
+/// multi-child view's children become the toolbar items. Both pointers are
+/// borrowed `NSWindow*`/`NSView*`; call on the main thread. macOS only.
+void waterui_apple_install_toolbar(void *window, void *view);
+
 /// Application entry point, emitted by `waterui_apple::export_app!` into the
 /// app's Rust crate. `main.swift` calls it with `accessory` = whether the
 /// process runs as an macOS accessory (menu-bar-only) app.

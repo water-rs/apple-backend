@@ -66,6 +66,11 @@ pub fn install(dispatcher: &mut Dispatcher) {
     #[cfg(feature = "layout_priority")]
     crate::components::layout_priority::install(dispatcher);
 
+    // Navigation — the group: metadata claims first (they wrap any content),
+    // then the container and leaf components.
+    #[cfg(feature = "navigation")]
+    crate::components::navigation::install(dispatcher);
+
     // Wave B — containers.
     #[cfg(feature = "scroll")]
     crate::components::scroll::install(dispatcher);

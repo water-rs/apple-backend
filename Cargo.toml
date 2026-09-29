@@ -25,6 +25,7 @@ default = [
     "image",
     "layout_priority",
     "multi_date_picker",
+    "navigation",
     "picker",
     "progress",
     "resolved_color",
@@ -46,6 +47,7 @@ focused = []
 layout_priority = []
 image = []
 multi_date_picker = []
+navigation = []
 picker = []
 plain = []
 progress = []

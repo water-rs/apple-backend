@@ -181,7 +181,7 @@ fn platform_font(
 
 /// A `ResolvedColor` as the platform's extended-sRGB color object.
 #[cfg(target_os = "ios")]
-fn platform_color(color: &ResolvedColor) -> Retained<cocoa_ui::objc2_ui_kit::UIColor> {
+pub fn platform_color(color: &ResolvedColor) -> Retained<cocoa_ui::objc2_ui_kit::UIColor> {
     platform::colors::extended_linear(
         f64::from(color.red),
         f64::from(color.green),
@@ -194,7 +194,7 @@ fn platform_color(color: &ResolvedColor) -> Retained<cocoa_ui::objc2_ui_kit::UIC
 /// A `ResolvedColor` as the platform's extended-sRGB color object, with HDR
 /// headroom applied as a content-headroom multiplier — the `AppKit` variant.
 #[cfg(target_os = "macos")]
-fn platform_color(color: &ResolvedColor) -> Retained<cocoa_ui::objc2_app_kit::NSColor> {
+pub fn platform_color(color: &ResolvedColor) -> Retained<cocoa_ui::objc2_app_kit::NSColor> {
     let unscaled = platform::colors::extended_linear(
         f64::from(color.red),
         f64::from(color.green),

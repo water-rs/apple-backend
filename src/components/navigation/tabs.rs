@@ -1,0 +1,409 @@
+//! `TabsLayout` — the adaptive tab container.
+//!
+//! iOS renders a `UITabBarController` (kit [`TabsController`]); macOS renders a
+//! sidebar source list for `Sidebar` style and a segmented control above the
+//! content otherwise. Each tab's `NavigationView` renders through the
+//! navigation handler, so it draws its own standalone bar inside the pane.
+//! The selection binding is two-way: native selection writes back, external
+//! writes select the matching tab.
+
+use alloc::vec::Vec;
+
+use crate::contract::{NativeLeaf, RenderContext};
+use crate::dispatch::Dispatcher;
+use waterui::navigation::{
+    TabsLayout,
+    tab::{Tab, TabIcon, TabRole},
+};
+use waterui_core::id::Id;
+use waterui_core::layout::{StretchAxis, SubView, ViewDimensions};
+
+use super::extract_title_text;
+
+/// Installs the `TabsLayout` handler.
+pub fn install(dispatcher: &mut Dispatcher) {
+    dispatcher.register_native::<TabsLayout>(platform::tabs_leaf);
+}
+
+struct Fill;
+
+impl SubView for Fill {
+    fn measure(&self, _proposal: waterui_core::layout::ProposalSize) -> ViewDimensions {
+        ViewDimensions::new(waterui_core::layout::Size::new(0.0, 0.0))
+    }
+
+    fn stretch_axis(&self) -> StretchAxis {
+        StretchAxis::Both
+    }
+
+    fn priority(&self) -> i32 {
+        0
+    }
+}
+
+/// A tab rendered once: its pane's leaf, its label's extracted text and the
+/// reactive `Tab` fields a spec bind still needs.
+struct Mounted {
+    /// Identifier the selection binding stores.
+    id: Id,
+    /// The tab pane's rendered leaf.
+    pane: NativeLeaf,
+    /// The label's rendered leaf (extracted into the tab chrome).
+    #[allow(dead_code)]
+    label_leaf: NativeLeaf,
+    /// Label text for the tab chrome.
+    label: alloc::string::String,
+    /// SF Symbol name, when the icon is a system icon.
+    symbol: Option<alloc::string::String>,
+    /// The icon's rendered view, for custom-icon platforms.
+    #[allow(dead_code)]
+    icon_leaf: Option<NativeLeaf>,
+    /// Badge signal.
+    badge: Option<waterui::reactive::Computed<i32>>,
+    /// Enabled signal.
+    enabled: waterui::reactive::Computed<bool>,
+    /// Search-role tab.
+    #[allow(dead_code)]
+    is_search: bool,
+}
+
+/// Renders every tab once and returns the mounted set.
+fn mount_tabs(tabs: Vec<Tab<Id>>, ctx: &RenderContext) -> Vec<Mounted> {
+    tabs.into_iter()
+        .map(|mut tab| {
+            let pane = ctx.render(waterui_backend_core::AnyView::new(tab.content.build()));
+            let label_leaf = ctx.render(core::mem::replace(
+                &mut tab.label,
+                waterui_backend_core::AnyView::new(()),
+            ));
+            let label = extract_title_text(label_leaf.view());
+            let (symbol, icon_leaf) = match tab.icon {
+                Some(TabIcon::System(icon)) => (Some(icon.name.to_string()), None),
+                Some(TabIcon::View(icon)) => (None, Some(ctx.render(icon.build()))),
+                None => (None, None),
+            };
+
+            Mounted {
+                id: tab.id,
+                pane,
+                label_leaf,
+                label: label.unwrap_or_default(),
+                symbol,
+                icon_leaf,
+                badge: tab.badge,
+                enabled: tab.enabled,
+                is_search: matches!(tab.role, TabRole::Search),
+            }
+        })
+        .collect()
+}
+
+#[cfg(target_os = "ios")]
+mod platform {
+    use super::{Fill, Mounted, mount_tabs};
+    use alloc::rc::Rc;
+    use alloc::vec::Vec;
+    use core::cell::RefCell;
+
+    use crate::contract::{NativeLeaf, RenderContext};
+    use cocoa_ui::Retained;
+    use cocoa_ui::uikit::{TabSpec, TabsController};
+    use waterui::navigation::TabsLayout;
+    use waterui::reactive::Signal;
+
+    use crate::contract::KeepAlive;
+
+    /// `UITabBarController` with one `UIViewController` per pane.
+    #[allow(clippy::too_many_lines)]
+    pub(super) fn tabs_leaf(mut layout: TabsLayout, ctx: &RenderContext) -> NativeLeaf {
+        let mtm = ctx.mtm();
+        let tabs = TabsController::new(mtm);
+        let mut keep = KeepAlive::default();
+        let mounted = Rc::new(mount_tabs(core::mem::take(&mut layout.tabs), ctx));
+
+        let specs = Rc::new(RefCell::new(
+            mounted.iter().map(spec).collect::<Vec<TabSpec>>(),
+        ));
+
+        // A `UITabBarItem` has no stable handle through the kit — republish
+        // the whole spec set, preserving the selected index.
+        let republish: Rc<dyn Fn()> = {
+            let tabs = tabs.clone();
+            let specs = specs.clone();
+            let mounted = mounted.clone();
+            Rc::new(move || {
+                let selected = tabs.selected_index();
+                tabs.set_tabs(
+                    &specs.borrow(),
+                    &mounted
+                        .iter()
+                        .map(|tab| Retained::from(tab.pane.view()))
+                        .collect::<Vec<_>>(),
+                );
+                if let Some(selected) = selected {
+                    tabs.select(selected);
+                }
+            })
+        };
+        keep.keep(republish.clone());
+        republish();
+
+        for (index, tab) in mounted.iter().enumerate() {
+            if let Some(badge) = &tab.badge {
+                keep.bind(badge, {
+                    let specs = specs.clone();
+                    let republish = republish.clone();
+                    move |value| {
+                        specs.borrow_mut()[index].badge = if value > 0 {
+                            Some(value.to_string())
+                        } else {
+                            None
+                        };
+                        republish();
+                    }
+                });
+            }
+            keep.bind(&tab.enabled, {
+                let specs = specs.clone();
+                let republish = republish.clone();
+                move |enabled| {
+                    specs.borrow_mut()[index].enabled = enabled;
+                    republish();
+                }
+            });
+        }
+
+        // Two-way selection.
+        tabs.set_select_handler({
+            let selection = layout.selection.clone();
+            let mounted = mounted.clone();
+            move |index| {
+                if let Some(tab) = mounted.get(index) {
+                    selection.set(tab.id);
+                }
+            }
+        });
+        keep.bind(&layout.selection, {
+            let tabs = tabs.clone();
+            let mounted = mounted.clone();
+            move |id| {
+                if let Some(index) = mounted.iter().position(|tab| tab.id == id) {
+                    tabs.select(index);
+                }
+            }
+        });
+
+        let mut leaf = NativeLeaf::new(&*tabs.view().expect("tab bar view"), Fill);
+        leaf.keep(keep);
+        leaf.keep(mounted);
+        leaf
+    }
+
+    fn spec(tab: &Mounted) -> TabSpec {
+        TabSpec {
+            label: tab.label.clone(),
+            symbol: tab.symbol.clone(),
+            badge: tab.badge.as_ref().map(|badge| badge.snapshot().to_string()),
+            is_search: tab.is_search,
+            enabled: tab.enabled.snapshot(),
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod platform {
+    use super::{Fill, mount_tabs};
+    use alloc::rc::Rc;
+    use alloc::vec::Vec;
+
+    use crate::contract::{NativeLeaf, RenderContext};
+    use cocoa_ui::appkit::{HostView, Segment, SegmentedControl, SourceList};
+    use cocoa_ui::{Rect, view};
+    use waterui::navigation::{TabsLayout, tab::NativeTabStyle};
+    use waterui::reactive::Signal;
+
+    use crate::contract::KeepAlive;
+
+    /// macOS: `Sidebar` style gets a source-list column; everything else a
+    /// segmented control strip above the selected pane.
+    #[allow(clippy::too_many_lines)]
+    pub(super) fn tabs_leaf(mut layout: TabsLayout, ctx: &RenderContext) -> NativeLeaf {
+        let mtm = ctx.mtm();
+        let host = HostView::new(mtm, Rect::ZERO);
+        let mut keep = KeepAlive::default();
+        let mounted = Rc::new(mount_tabs(core::mem::take(&mut layout.tabs), ctx));
+        keep.keep(mounted.clone());
+        for tab in mounted.iter() {
+            view::add_subview(&host, tab.pane.view());
+        }
+
+        let sidebar = matches!(layout.style, NativeTabStyle::Sidebar);
+        let chrome = if sidebar {
+            let list = SourceList::new(mtm);
+            list.set_segments(
+                &mounted
+                    .iter()
+                    .map(|tab| Segment {
+                        label: tab.label.clone(),
+                        symbol: tab.symbol.clone(),
+                        image: None,
+                        enabled: tab.enabled.snapshot(),
+                        badge: tab.badge.as_ref().map(|badge| badge.snapshot().to_string()),
+                    })
+                    .collect::<Vec<_>>(),
+            );
+            view::add_subview(&host, list.view());
+            list.set_select_handler({
+                let selection = layout.selection.clone();
+                let mounted = mounted.clone();
+                move |index| {
+                    if let Some(tab) = mounted.get(index) {
+                        selection.set(tab.id);
+                    }
+                }
+            });
+            Chrome::List(Rc::new(list))
+        // (control path adds via add_subview below)
+        } else {
+            let control = SegmentedControl::new(mtm);
+            control.set_segments(
+                &mounted
+                    .iter()
+                    .map(|tab| Segment {
+                        label: tab.label.clone(),
+                        symbol: tab.symbol.clone(),
+                        image: None,
+                        enabled: tab.enabled.snapshot(),
+                        badge: tab.badge.as_ref().map(|badge| badge.snapshot().to_string()),
+                    })
+                    .collect::<Vec<_>>(),
+            );
+            view::add_subview(&host, &control);
+            control.set_select_handler({
+                let selection = layout.selection.clone();
+                let mounted = mounted.clone();
+                move |index| {
+                    if let Some(tab) = mounted.get(index) {
+                        selection.set(tab.id);
+                    }
+                }
+            });
+            Chrome::Control(control)
+        };
+        keep.keep(chrome.clone_view());
+
+        // Show the selected pane only; select() returns the index for bind.
+        let show = {
+            let mounted = mounted.clone();
+            let chrome = chrome.clone();
+            move |index: Option<usize>| {
+                for (pane_index, tab) in mounted.iter().enumerate() {
+                    view::set_hidden(tab.pane.view(), index != Some(pane_index));
+                }
+                chrome.select(index);
+            }
+        };
+        let selected = layout.selection.snapshot();
+        show(mounted.iter().position(|tab| tab.id == selected));
+
+        keep.bind(&layout.selection, {
+            let show = show.clone();
+            let mounted = mounted.clone();
+            move |id| {
+                show(mounted.iter().position(|tab| tab.id == id));
+            }
+        });
+
+        host.set_layout_handler({
+            move |host| {
+                let bounds = cocoa_ui::view::bounds(host);
+                if sidebar {
+                    let width = 220.0_f64.min(bounds.size.width / 2.0);
+                    view::set_frame(
+                        chrome.view(),
+                        Rect::new(bounds.origin.x, bounds.origin.y, width, bounds.size.height),
+                    );
+                    for tab in mounted.iter() {
+                        view::set_frame(
+                            tab.pane.view(),
+                            Rect::new(
+                                bounds.origin.x + width,
+                                bounds.origin.y,
+                                bounds.size.width - width,
+                                bounds.size.height,
+                            ),
+                        );
+                    }
+                } else {
+                    let height = 28.0_f64;
+                    view::set_frame(
+                        chrome.view(),
+                        Rect::new(
+                            bounds.origin.x + 8.0,
+                            bounds.origin.y + bounds.size.height - height - 8.0,
+                            bounds.size.width - 16.0,
+                            height,
+                        ),
+                    );
+                    for tab in mounted.iter() {
+                        view::set_frame(
+                            tab.pane.view(),
+                            Rect::new(
+                                bounds.origin.x,
+                                bounds.origin.y,
+                                bounds.size.width,
+                                bounds.size.height - height - 8.0,
+                            ),
+                        );
+                    }
+                }
+            }
+        });
+
+        let mut leaf = NativeLeaf::new(&*host, Fill);
+        leaf.keep(keep);
+        leaf.keep(show);
+        leaf
+    }
+
+    /// Either chrome variant behind one tiny interface.
+    enum Chrome {
+        /// `Sidebar` style's source list.
+        List(Rc<SourceList>),
+        /// The segmented strip.
+        Control(cocoa_ui::Retained<SegmentedControl>),
+    }
+
+    impl Chrome {
+        fn view(&self) -> &cocoa_ui::PlatformView {
+            match self {
+                Self::List(list) => list.view(),
+                Self::Control(control) => control,
+            }
+        }
+
+        fn select(&self, index: Option<usize>) {
+            match self {
+                Self::List(list) => list.select(index),
+                Self::Control(control) => {
+                    if let Some(index) = index {
+                        control.select(Some(index));
+                    }
+                }
+            }
+        }
+
+        fn clone_view(&self) -> cocoa_ui::Retained<cocoa_ui::PlatformView> {
+            cocoa_ui::view::retain_base(self.view())
+        }
+    }
+
+    impl Clone for Chrome {
+        fn clone(&self) -> Self {
+            match self {
+                Self::List(list) => Self::List(list.clone()), // Rc clone
+                Self::Control(control) => Self::Control(control.clone()),
+            }
+        }
+    }
+}

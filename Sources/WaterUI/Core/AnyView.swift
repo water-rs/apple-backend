@@ -196,7 +196,6 @@ func registerBuiltinComponentsIfNeeded() {
 
   // Interactive components
 
-  registerComponent(WuiMenu.self)
   registerComponent(WuiBadge.self)
 
   // Container components
@@ -236,9 +235,7 @@ func registerBuiltinComponentsIfNeeded() {
   registerMetadataComponent(WuiContextMenu.self)
   registerMetadataComponent(WuiAnchoredOverlay.self)
   registerMetadataComponent(WuiHittable.self)
-  registerMetadataComponent(WuiNavigationLinkHint.self)
-  registerMetadataComponent(WuiNavigationTransitionSourceView.self)
-  registerMetadataComponent(WuiNavigationTransitionDestinationView.self)
+
 
   // Material background (blur effect)
   registerMetadataComponent(WuiMaterialBackground.self)
@@ -258,10 +255,6 @@ func registerBuiltinComponentsIfNeeded() {
   #endif
 
   // Navigation components
-  registerComponent(WuiNavigationStack.self)
-  registerComponent(WuiNavigationView.self)
-  registerComponent(WuiNavigationSplitView.self)
-  registerComponent(WuiTabs.self)
 
   // GPU components. Off when the app disabled WaterUI's `gpu` feature, which
   // is what exports the GPU symbols these components bind to.
