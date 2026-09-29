@@ -1223,19 +1223,45 @@ mod platform_impl {
             Some(row_view)
         }
 
-        fn row_height(&self, _table: &TableView, row: usize) -> f64 {
-            let state = self.state.borrow();
-            match state.flat_layout.get(row) {
-                Some(FlatEntry::Header(_)) => 38.0,
-                Some(FlatEntry::Footer(_)) => 32.0,
-                Some(FlatEntry::Row(flat)) => state
-                    .item_ids
-                    .get(*flat)
-                    .and_then(|id| state.measured_heights.get(id))
-                    .copied()
-                    .unwrap_or(30.0),
-                None => 30.0,
-            }
+        fn row_height(&self, table: &TableView, row: usize) -> f64 {
+            let (flat, id, insets) = {
+                let state = self.state.borrow();
+                match state.flat_layout.get(row) {
+                    Some(FlatEntry::Header(_)) => return 38.0,
+                    Some(FlatEntry::Footer(_)) => return 32.0,
+                    Some(FlatEntry::Row(flat)) => {
+                        let flat = *flat;
+                        let Some(id) = state.item_ids.get(flat).copied() else {
+                            return 30.0;
+                        };
+                        if let Some(height) = state.measured_heights.get(&id) {
+                            return *height;
+                        }
+                        let Some(item) = state.contents.get_view(flat) else {
+                            return 30.0;
+                        };
+                        (flat, id, state.insets_for(item.insets.as_ref()))
+                    }
+                    None => return 30.0,
+                }
+            };
+            // `tableView:heightOfRow:` fires before `viewFor:` for a row,
+            // so the measurement cache `viewFor` fills cannot be the only
+            // source — measure the rendered content on demand, the same
+            // arithmetic `viewFor` stores back.
+            let leaf = self.state.borrow().renderer.render(
+                self.state
+                    .borrow()
+                    .contents
+                    .get_view(flat)
+                    .expect("list item index is in bounds")
+                    .content,
+            );
+            let width = view::bounds(table).size.width - insets.left - insets.right;
+            let mut state = self.state.borrow_mut();
+            let measured = state.measure_row(leaf.layout(), width, insets);
+            state.measured_heights.insert(id, measured);
+            measured
         }
 
         fn is_group_row(&self, _table: &TableView, row: usize) -> bool {
