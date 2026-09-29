@@ -132,12 +132,15 @@ mod imp {
         window.set_alpha_value(0.0);
 
         // Title: declared, or the application name when empty — the
-        // resolution `display_title` performs for every backend.
+        // resolution `display_title` performs for every backend. The env
+        // channel reports nothing for a bundle launched directly, so the
+        // bundle's own display name is the fallback — `WuiMain` showed the
+        // application name the same way.
         let title = declaration.display_title();
-        window.set_title(&title.snapshot());
+        window.set_title(&display_or_app_title(&title.snapshot()));
         keepalive.watch(&title, {
             let window = window.clone();
-            move |context| window.set_title(context.value())
+            move |context| window.set_title(&display_or_app_title(context.value()))
         });
 
         // Frame, two-way: declared changes apply to the window (animated
@@ -530,6 +533,19 @@ mod imp {
 
     /// `applyWindowBackground`'s write: the resolved color, the opacity
     /// answer, and the shadow the window always keeps.
+    /// The window title a declaration resolves to: the declared string when
+    /// present, otherwise the bundle's display name, then the bundle name,
+    /// then the process name — `WaterUIMainMenu.appName`'s order, and what
+    /// the Swift host's window showed when the env channel reported nothing.
+    fn display_or_app_title(title: &str) -> alloc::string::String {
+        if !title.is_empty() {
+            return title.into();
+        }
+        cocoa_ui::bundle::info_string("CFBundleDisplayName")
+            .or_else(|| cocoa_ui::bundle::info_string("CFBundleName"))
+            .unwrap_or_else(cocoa_ui::process::name)
+    }
+
     fn apply_background(
         window: &cocoa_ui::appkit::Window,
         color: waterui::graphics::color::ResolvedColor,
