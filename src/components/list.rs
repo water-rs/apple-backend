@@ -928,6 +928,20 @@ mod platform_impl {
             state.measure_row(leaf.layout(), width, insets)
         }
 
+        fn section_header_height(&self, _table: &TableView, section: usize) -> f64 {
+            // `SwiftUI`'s list is a `UICollectionView` compositional layout
+            // reserving a 35pt header region above a label-less section,
+            // while a plain `.insetGrouped` `UITableView` only leaves
+            // ~17.7pt — the first card would sit ~17pt high. Later
+            // sections already total 35pt from header+footer spacing.
+            let state = self.state.borrow();
+            if section == 0 && state.groups.first().is_some_and(|g| g.label.is_none()) {
+                35.0
+            } else {
+                f64::NAN
+            }
+        }
+
         fn is_row_deletable(&self, _table: &TableView, index: IndexPath) -> bool {
             let state = self.state.borrow();
             if state.on_delete.is_none() {
