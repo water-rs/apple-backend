@@ -25,6 +25,10 @@ pub mod context_menu;
 pub mod cursor;
 #[cfg(feature = "date_picker")]
 pub mod date_picker;
+#[cfg(feature = "draggable")]
+pub mod draggable;
+#[cfg(feature = "drop_destination")]
+pub mod drop_destination;
 pub mod empty;
 #[cfg(feature = "fixed_container")]
 pub mod fixed_container;
@@ -34,6 +38,8 @@ pub mod focused;
 pub mod ignore_safe_area;
 #[cfg(feature = "hittable")]
 pub mod hittable;
+#[cfg(feature = "gesture")]
+pub mod gesture;
 #[cfg(feature = "image")]
 pub mod image;
 #[cfg(feature = "layout_priority")]

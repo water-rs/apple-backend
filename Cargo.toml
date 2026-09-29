@@ -26,10 +26,13 @@ default = [
     "context_menu",
     "cursor",
     "date_picker",
+    "draggable",
+    "drop_destination",
     "fixed_container",
     "focused",
     "ignore_safe_area",
     "hittable",
+    "gesture",
     "image",
     "layout_priority",
     "lifecycle_hook",
@@ -65,10 +68,14 @@ container = []
 context_menu = []
 cursor = []
 date_picker = []
+draggable = []
+drop_destination = []
 fixed_container = []
 focused = []
 ignore_safe_area = []
 hittable = []
+gesture = []
+layout_priority = []
 image = []
 layout_priority = []
 lifecycle_hook = []

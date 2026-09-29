@@ -203,7 +203,6 @@ func registerBuiltinComponentsIfNeeded() {
   // Metadata components (wrappers that modify env/appearance)
   registerMetadataComponent(WuiStandardDynamicRange.self)
   registerMetadataComponent(WuiHighDynamicRange.self)
-  registerMetadataComponent(WuiGesture.self)
   registerMetadataComponent(WuiShadow.self)
   registerMetadataComponent(WuiBorder.self)
   registerMetadataComponent(WuiClipShape.self)
@@ -216,10 +215,6 @@ func registerBuiltinComponentsIfNeeded() {
   registerMetadataComponent(WuiMaterialBackground.self)
   // Glass background (Liquid Glass)
   registerMetadataComponent(WuiGlassBackground.self)
-
-  // Drag and drop components
-  registerMetadataComponent(WuiDraggable.self)
-  registerMetadataComponent(WuiDropDestination.self)
 
   // Media components. Off when the app dropped WaterUI's `media` capability,
   // which is what exports the `waterui_video_*`/`waterkit_audio_*` symbols

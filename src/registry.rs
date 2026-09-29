@@ -63,8 +63,14 @@ pub fn install(dispatcher: &mut Dispatcher) {
     // seam can hand it to the fallback.
     #[cfg(feature = "anchored_overlay")]
     crate::components::anchored_overlay::install(dispatcher);
+    #[cfg(feature = "draggable")]
+    crate::components::draggable::install(dispatcher);
+    #[cfg(feature = "drop_destination")]
+    crate::components::drop_destination::install(dispatcher);
     #[cfg(feature = "focused")]
     crate::components::focused::install(dispatcher);
+    #[cfg(feature = "gesture")]
+    crate::components::gesture::install(dispatcher);
     #[cfg(feature = "layout_priority")]
     crate::components::layout_priority::install(dispatcher);
     #[cfg(feature = "menu")]
