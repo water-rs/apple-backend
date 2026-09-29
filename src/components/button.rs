@@ -26,6 +26,7 @@ use waterui_core::handler::BoxedAction;
 use waterui_core::interaction::Disabled;
 use waterui_core::layout::{ProposalSize, Size, StretchAxis, SubView, ViewDimensions};
 
+#[cfg(target_os = "macos")]
 use crate::components::control_size::platform_control_size;
 use crate::contract::NativeLeaf;
 use crate::dispatch::Dispatcher;
