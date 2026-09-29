@@ -351,8 +351,11 @@ impl SubView for TextSubView {
             Some(_) => cocoa_ui::text::WrapWidth::Unbreakable,
         };
         let metrics = self.label.measure(wrap);
+        // `cocoa_ui::text::measure` reports the cell-fitting width, two
+        // points past the bare text bounds; `WuiTextBase` measures the bare
+        // bounds, so the inset comes back out here.
         let mut dimensions = ViewDimensions::new(Size::new(
-            metrics.size.width as f32,
+            (metrics.size.width - 2.0).max(0.0) as f32,
             metrics.size.height as f32,
         ));
         if let Some(first) = metrics.first_baseline {
@@ -404,6 +407,11 @@ fn label_leaf(
 ) -> (NativeLeaf, Rc<RefCell<TextState>>, Retained<Label>) {
     let mtm = ctx.mtm();
     let host = HostView::new(mtm, cocoa_ui::geometry::Rect::ZERO);
+    // `labelWithString:` keeps the minimal cell insets of an AppKit label;
+    // `Label::new` (`initWithFrame:`) keeps NSTextField's 4pt padding.
+    #[cfg(target_os = "macos")]
+    let label = Label::label_with_string(mtm, "");
+    #[cfg(not(target_os = "macos"))]
     let label = Label::new(mtm);
     label.set_line_limit(line_limit.map_or(0, NonZero::get));
     let host_view: &PlatformView = &host;
@@ -412,22 +420,24 @@ fn label_leaf(
         let label = label.clone();
         move |view| {
             let bounds = cocoa_ui::view::bounds(view);
-            // `NSTextField`'s cell insets its text roughly 1.75pt inside
-            // the frame and needs about 3.5pt past the bare text bounds
-            // before it wraps; the offset and the added width place ink
-            // exactly on the leaf's own bounds. `UILabel` draws at the
-            // frame's origin and wraps at `preferredMaxLayoutWidth`, so
-            // it takes the bounds unchanged.
-            let frame = if cfg!(target_os = "macos") {
+            // A `labelWithString:` field keeps its text's alignment rect
+            // inside the frame (`-[NSView alignmentRectInsets]`); expand
+            // the frame by those insets so the ink lands exactly on the
+            // leaf's bounds. `UILabel` draws at the frame's origin and
+            // wraps at `preferredMaxLayoutWidth`, so it takes the bounds
+            // unchanged.
+            #[cfg(target_os = "macos")]
+            let frame = {
+                let insets = label.alignment_rect_insets();
                 cocoa_ui::geometry::Rect::new(
-                    -2.0,
-                    0.0,
-                    bounds.size.width + 4.0,
-                    bounds.size.height,
+                    bounds.origin.x - insets.left,
+                    bounds.origin.y - insets.top,
+                    bounds.size.width + insets.left + insets.right,
+                    bounds.size.height + insets.top + insets.bottom,
                 )
-            } else {
-                bounds
             };
+            #[cfg(not(target_os = "macos"))]
+            let frame = bounds;
             cocoa_ui::view::set_frame(as_view(&label), frame);
         }
     });
