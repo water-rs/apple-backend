@@ -158,10 +158,10 @@ func wuiSeamResolve(anyview: OpaquePointer, env: WuiEnvironment) -> any WuiCompo
 @MainActor
 final class WuiRustLeaf: PlatformView, WuiComponent, WuiPrimaryContentProviding {
   static var rawId: CWaterUI.WuiTypeId {
-    // A rust leaf answers the id of the view it wrapped — unused by the
-    // registry, which never looks this type up; `resolve` constructs it
-    // directly.
-    fatalError("WuiRustLeaf is constructed by the seam, not the registry")
+    // A rust leaf is never registered, so no real type hash can belong to it.
+    // Capture walks call `type(of:).viewId` on every component they pass, so a
+    // zero sentinel keeps `isMetadataComponent` false without trapping.
+    CWaterUI.WuiTypeId(low: 0, high: 0)
   }
 
   private let leaf: WateruiLeaf

@@ -519,9 +519,25 @@ fn metadata_animated(metadata: &Metadata) -> bool {
 /// `updateFromRust`: membership changes apply as batched row updates only
 /// for a single plain section in a window; every other shape reloads.
 /// `applyBindingSelection` runs afterward either way.
+///
+/// Applying a change may emit back into `contents` (row mounts mutate the
+/// collection), making the watch fire reentrantly while this borrow is held;
+/// that emission is requeued on the main queue and applied once released.
 fn apply_contents_change(state: &Rc<RefCell<Shared>>, table: &TableView, ids: Vec<ItemId>) {
     let (diff, single_plain) = {
-        let mut borrowed = state.borrow_mut();
+        let Ok(mut borrowed) = state.try_borrow_mut() else {
+            let state = Rc::clone(state);
+            let table = cocoa_ui::objc2::rc::Weak::new(table);
+            cocoa_ui::main_queue::enqueue_local(
+                cocoa_ui::MainThreadMarker::new().expect("apply_contents_change runs on main"),
+                move |_mtm| {
+                    if let Some(table) = table.load() {
+                        apply_contents_change(&state, &table, ids);
+                    }
+                },
+            );
+            return;
+        };
         let old_ids = core::mem::replace(&mut borrowed.item_ids, ids);
         borrowed.regroup();
         let seen: HashSet<ItemId> = borrowed.item_ids.iter().copied().collect();
