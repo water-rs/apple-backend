@@ -5,12 +5,12 @@
 //! the [`crate::contract`] is a `cocoa-ui` addition, never a reactivity type
 //! crossing into the kit.
 
-#[cfg(feature = "anchored_overlay")]
-pub mod anchored_overlay;
 #[cfg(feature = "accessibility_identifier")]
 pub mod accessibility_identifier;
 #[cfg(feature = "accessibility_metadata")]
 pub mod accessibility_metadata;
+#[cfg(feature = "anchored_overlay")]
+pub mod anchored_overlay;
 #[cfg(feature = "badge")]
 pub mod badge;
 #[cfg(feature = "border")]
@@ -40,14 +40,14 @@ pub mod empty;
 pub mod fixed_container;
 #[cfg(feature = "focused")]
 pub mod focused;
-#[cfg(feature = "glass_background")]
-pub mod glass_background;
-#[cfg(feature = "ignore_safe_area")]
-pub mod ignore_safe_area;
-#[cfg(feature = "hittable")]
-pub mod hittable;
 #[cfg(feature = "gesture")]
 pub mod gesture;
+#[cfg(feature = "glass_background")]
+pub mod glass_background;
+#[cfg(feature = "hittable")]
+pub mod hittable;
+#[cfg(feature = "ignore_safe_area")]
+pub mod ignore_safe_area;
 #[cfg(feature = "image")]
 pub mod image;
 #[cfg(feature = "layer_transform")]
@@ -56,24 +56,24 @@ pub mod layer_transform;
 pub mod layout_priority;
 #[cfg(feature = "lifecycle_hook")]
 pub mod lifecycle_hook;
+#[cfg(feature = "list")]
+pub mod list;
 #[cfg(feature = "material_background")]
 pub mod material_background;
 #[cfg(feature = "menu")]
 pub mod menu;
-#[cfg(feature = "list")]
-pub mod list;
 #[cfg(any(feature = "menu", feature = "context_menu"))]
 mod menu_items;
 #[cfg(feature = "multi_date_picker")]
 pub mod multi_date_picker;
 #[cfg(feature = "navigation")]
 pub mod navigation;
+#[cfg(feature = "offset")]
+pub mod offset;
 #[cfg(feature = "on_event")]
 pub mod on_event;
 #[cfg(feature = "on_key_press")]
 pub mod on_key_press;
-#[cfg(feature = "offset")]
-pub mod offset;
 #[cfg(feature = "opacity")]
 pub mod opacity;
 #[cfg(feature = "picker")]

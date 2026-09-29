@@ -12,6 +12,7 @@ use crate::dispatch::Dispatcher;
 
 /// Fills `dispatcher` with every claim the backend owns. Called exactly
 /// once, before the first render, inside [`crate::dispatch::dispatcher`].
+#[allow(clippy::too_many_lines)] // a flat registration table is meant to be long
 pub fn install(dispatcher: &mut Dispatcher) {
     // Core — the unit view, always claimed: an unclaimed `Native<()>` crosses
     // the seam into a `body()` panic, which `panic = "abort"` makes fatal.
@@ -113,7 +114,6 @@ pub fn install(dispatcher: &mut Dispatcher) {
     crate::components::secure::install(dispatcher);
     #[cfg(feature = "with_env")]
     crate::components::with_env::install(dispatcher);
-
 
     // Interaction metadata — the non-gesture interaction leaves.
     #[cfg(feature = "accessibility_identifier")]

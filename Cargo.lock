@@ -756,6 +756,7 @@ dependencies = [
  "bitflags 2.13.2",
  "block2",
  "dispatch2",
+ "keyboard-types",
  "libc",
  "mach2",
  "objc2",

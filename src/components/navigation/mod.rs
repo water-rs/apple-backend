@@ -55,7 +55,7 @@ pub fn extract_title_text(view: &PlatformView) -> Option<String> {
             return Some(attributed);
         }
     }
-    for subview in cocoa_ui::view::subviews(view).iter() {
+    for subview in &cocoa_ui::view::subviews(view) {
         if let Some(found) = extract_title_text(subview) {
             return Some(found);
         }
@@ -77,7 +77,7 @@ pub fn extract_title_text(view: &PlatformView) -> Option<String> {
             return Some(text);
         }
     }
-    for subview in cocoa_ui::view::subviews(view).iter() {
+    for subview in &cocoa_ui::view::subviews(view) {
         if let Some(found) = extract_title_text(subview) {
             return Some(found);
         }

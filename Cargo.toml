@@ -92,7 +92,6 @@ hittable = []
 gesture = []
 layout_priority = []
 image = []
-layout_priority = []
 lifecycle_hook = []
 layer_transform = []
 list = []
@@ -146,7 +145,6 @@ objc2-foundation = { version = "0.3", default-features = false, features = [
     "NSDate",
     "NSValue",
 ] }
-objc2 = "0.6"
 objc2-core-foundation = { version = "0.3", default-features = false, features = [
     "std",
 ] }
