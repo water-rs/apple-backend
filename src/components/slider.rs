@@ -15,7 +15,7 @@ use alloc::rc::Rc;
 use alloc::string::String;
 use core::cell::RefCell;
 
-use cocoa_ui::slider::{ControlSize, ValueAnimation};
+use cocoa_ui::slider::ValueAnimation;
 use cocoa_ui::{PlatformView, Rect, Retained};
 use waterui::animation::Animation;
 use waterui::component::slider::SliderConfig;
@@ -24,6 +24,7 @@ use waterui::reactive::watcher::Metadata;
 use waterui_core::interaction::Disabled;
 use waterui_core::layout::{ProposalSize, Size, StretchAxis, SubView, ViewDimensions};
 
+use crate::components::control_size::platform_control_size;
 use crate::contract::{Mounted, NativeLeaf};
 use crate::dispatch::Dispatcher;
 
@@ -280,19 +281,6 @@ fn value_animation(metadata: &Metadata) -> Option<ValueAnimation> {
     }
 }
 
-/// The `NSControl.ControlSize` mapping `WuiSlider` applies: `AppKit` has no
-/// extra-large size, so `Large` and `ExtraLarge` both map to `Large`.
-const fn platform_control_size(size: waterui::component::ControlSize) -> ControlSize {
-    match size {
-        waterui::component::ControlSize::ExtraSmall => ControlSize::Mini,
-        waterui::component::ControlSize::Small => ControlSize::Small,
-        waterui::component::ControlSize::Large | waterui::component::ControlSize::ExtraLarge => {
-            ControlSize::Large
-        }
-        _ => ControlSize::Regular,
-    }
-}
-
 /// A styled string as spoken text: plain text with the bidi control
 /// characters interpolation inserts for layout stripped, as
 /// `WuiControlAccessibility.apply` does for labels and tooltips.
@@ -329,7 +317,13 @@ pub fn install(dispatcher: &mut Dispatcher) {
         let mtm = ctx.mtm();
         let host = HostView::new(mtm, Rect::ZERO);
         let slider = Slider::new(mtm);
-        slider.set_control_size(platform_control_size(config.size));
+        // `Slider`'s documented default size is `ExtraSmall`; the mapping is
+        // relative to it, so a bare slider draws at the platform's regular
+        // track like a bare `NSSlider`/`UISlider` does.
+        slider.set_control_size(platform_control_size(
+            config.size,
+            waterui::component::ControlSize::ExtraSmall,
+        ));
         slider.set_range(*config.range.start(), *config.range.end());
         slider.set_value(
             clamped(
@@ -495,16 +489,6 @@ mod tests {
             }
             other => panic!("expected a timed duration for spring, got {other:?}"),
         }
-    }
-
-    #[test]
-    fn platform_control_size_collapses_extra_large() {
-        use waterui::component::ControlSize as Wui;
-        assert_eq!(platform_control_size(Wui::ExtraSmall), ControlSize::Mini);
-        assert_eq!(platform_control_size(Wui::Small), ControlSize::Small);
-        assert_eq!(platform_control_size(Wui::Medium), ControlSize::Regular);
-        assert_eq!(platform_control_size(Wui::Large), ControlSize::Large);
-        assert_eq!(platform_control_size(Wui::ExtraLarge), ControlSize::Large);
     }
 
     #[test]

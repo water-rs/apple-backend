@@ -27,6 +27,7 @@ pub mod color_picker;
 pub mod container;
 #[cfg(feature = "context_menu")]
 pub mod context_menu;
+pub mod control_size;
 #[cfg(feature = "cursor")]
 pub mod cursor;
 #[cfg(feature = "date_picker")]

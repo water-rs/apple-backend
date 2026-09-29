@@ -26,13 +26,14 @@ use waterui_core::handler::BoxedAction;
 use waterui_core::interaction::Disabled;
 use waterui_core::layout::{ProposalSize, Size, StretchAxis, SubView, ViewDimensions};
 
+use crate::components::control_size::platform_control_size;
 use crate::contract::NativeLeaf;
 use crate::dispatch::Dispatcher;
 
 #[cfg(target_os = "macos")]
 mod platform {
     pub(super) use cocoa_ui::appkit::{Button, HitTest, HostView, colors};
-    pub(super) use cocoa_ui::objc2_app_kit::{NSBezelStyle, NSColor};
+    pub(super) use cocoa_ui::objc2_app_kit::{NSBezelStyle, NSColor, NSControlSize};
 
     /// An owned handle to the platform button: `Retained` on `AppKit`.
     pub(super) type OwnedButton = cocoa_ui::Retained<Button>;
@@ -176,10 +177,33 @@ fn configure_button(
     (insets.left as f32, insets.top as f32)
 }
 
+/// A `cocoa-ui` control size as `NSControlSize`.
+#[cfg(target_os = "macos")]
+const fn ns_control_size(size: cocoa_ui::slider::ControlSize) -> platform::NSControlSize {
+    match size {
+        cocoa_ui::slider::ControlSize::Mini => platform::NSControlSize::Mini,
+        cocoa_ui::slider::ControlSize::Small => platform::NSControlSize::Small,
+        cocoa_ui::slider::ControlSize::Regular => platform::NSControlSize::Regular,
+        cocoa_ui::slider::ControlSize::Large => platform::NSControlSize::Large,
+    }
+}
+
 /// Sets the button's bezel for `style` and reports the padding the bezel
 /// cell keeps around its content.
 #[cfg(target_os = "macos")]
-fn configure_button(button: &Button, style: ButtonStyle) -> (f32, f32) {
+fn configure_button(
+    button: &Button,
+    style: ButtonStyle,
+    size: waterui::component::ControlSize,
+) -> (f32, f32) {
+    // `Button`'s documented default is `Small`; a bare button therefore
+    // draws at `regular` like a bare `NSButton`.
+    button
+        .control()
+        .setControlSize(ns_control_size(platform_control_size(
+            size,
+            waterui::component::ControlSize::Small,
+        )));
     match style {
         ButtonStyle::Automatic | ButtonStyle::Bordered | ButtonStyle::BorderedProminent => {
             button.set_bordered(true);
@@ -274,7 +298,7 @@ pub fn install(dispatcher: &mut Dispatcher) {
         #[cfg(target_os = "ios")]
         let padding = configure_button(&button, style, mtm);
         #[cfg(target_os = "macos")]
-        let padding = configure_button(&button, style);
+        let padding = configure_button(&button, style, config.size);
 
         let accessibility_label = config.label.accessibility_label();
         let label_leaf = ctx.with_env(&label_env).render(AnyView::new(config.label));
