@@ -189,7 +189,10 @@ mod capture {
         let Some(scene) = cocoa_ui::bitmap::any_window_scene() else {
             return (pixels, pixel_width as u32, pixel_height as u32);
         };
-        let window = cocoa_ui::bitmap::make_offscreen_window(&scene, actual);
+        let Some(mtm) = cocoa_ui::MainThreadMarker::new() else {
+            return (pixels, pixel_width as u32, pixel_height as u32);
+        };
+        let window = cocoa_ui::bitmap::make_offscreen_window(mtm, &scene, actual);
         cocoa_ui::bitmap::show_capture_window(&window, view, actual);
 
         cocoa_ui::bitmap::begin_layer_flip(&context, actual.height);

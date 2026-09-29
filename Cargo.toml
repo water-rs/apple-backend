@@ -21,12 +21,8 @@ default = [
     "accessibility_metadata",
     "badge",
     "button",
-<<<<<<< HEAD
     "clip_shape",
-||||||| parent of 812a701c8 (feat(graphics): port GPU surface, picture, gradient, shape, effect and renderer components to Rust leaves)
-=======
     "gpu_surface",
->>>>>>> 812a701c8 (feat(graphics): port GPU surface, picture, gradient, shape, effect and renderer components to Rust leaves)
     "color_picker",
     "container",
     "context_menu",
@@ -86,12 +82,8 @@ accessibility_metadata = []
 badge = []
 border = []
 button = []
-<<<<<<< HEAD
 clip_shape = []
-||||||| parent of 812a701c8 (feat(graphics): port GPU surface, picture, gradient, shape, effect and renderer components to Rust leaves)
-=======
 gpu_surface = []
->>>>>>> 812a701c8 (feat(graphics): port GPU surface, picture, gradient, shape, effect and renderer components to Rust leaves)
 color_picker = []
 container = []
 context_menu = []
@@ -169,10 +161,6 @@ objc2-metal = { version = "0.3", features = [
     "MTLResource",
     "MTLTexture",
 ] }
-objc2-foundation = { version = "0.3", default-features = false, features = [
-    "NSAttributedString",
-    "NSDate",
-] }
 cocoa-ui = { path = "../cocoa-ui" }
 waterkit-screen = { git = "https://github.com/water-rs/waterkit", rev = "e5290913ee8adb22843fd60047f6a845f2391c5b" }
 executor-core = { version = "0.7.1", features = ["std"] }
@@ -180,9 +168,6 @@ async-channel = "2"
 futures = "0.3"
 native-executor = "0.8.0"
 kurbo = "0.13"
-objc2 = "0.6"
-objc2-quartz-core = "0.3"
-objc2-core-graphics = "0.3"
 dispatch2 = "0.3"
 libc = "0.2"
 tracing = "0.1"
@@ -190,7 +175,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-oslog = "0.2"
 tracing-panic = "0.1"
 
-<<<<<<< HEAD
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = [
     "NSAttributedString",
@@ -212,14 +196,7 @@ objc2-quartz-core = { version = "0.3", default-features = false, features = [
     "objc2-core-graphics",
 ] }
 
-||||||| parent of 812a701c8 (feat(graphics): port GPU surface, picture, gradient, shape, effect and renderer components to Rust leaves)
-objc2-foundation = { version = "0.3", default-features = false, features = [
-    "NSAttributedString",
-    "NSDate",
-] }
 
-=======
->>>>>>> 812a701c8 (feat(graphics): port GPU surface, picture, gradient, shape, effect and renderer components to Rust leaves)
 # The framework's own `[patch.crates-io]`, translated for this consumer the
 # same way `water`'s scaffolds do it: member path pins become git pins at the
 # resolved `dev` revision, the rest ride verbatim.
