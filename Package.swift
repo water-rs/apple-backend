@@ -20,8 +20,7 @@ let package = Package(
     .target(name: "CWaterUI"),
     .target(
       name: "WaterUI",
-      dependencies: ["CWaterUI"],
-      resources: [.process("Resources")]
+      dependencies: ["CWaterUI"]
     ),
     .target(
       name: "WaterUICEF",
