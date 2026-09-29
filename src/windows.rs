@@ -263,6 +263,11 @@ mod imp {
         // empty while the window exists.
         apply_state(&window, declaration.state.snapshot());
         window.make_key_and_order_front();
+        // The leaf tree is mounted before the window becomes key, so AppKit's
+        // automatic first-responder pick lands on the first editable field;
+        // the Swift backend showed its windows before content mounted, so
+        // none was ever picked. Clear the pick to match that launch state.
+        window.clear_first_responder();
         window.display_if_needed();
         window.fade_in(0.12);
 
