@@ -169,6 +169,35 @@ void *waterui_apple_make_gpu_surface_view(void *surface, void *env);
 /// process runs as an macOS accessory (menu-bar-only) app.
 void waterui_apple_main(bool accessory);
 
+/// The declared first window as the embed path's `WuiWindowContext` carries
+/// it: `title`/`frame`/`state` are the generated FFI crate's `WuiComputed_*`/
+/// `WuiBinding_*` pointers (transparent wrappers the Rust side borrows),
+/// `toolbar` an owning `WuiAnyView` transfer or NULL.
+typedef struct WateruiRootWindowDecl {
+  void *env;
+  void *title;
+  void *frame;
+  void *state;
+  void *toolbar;
+  int32_t style;
+  bool closable;
+  bool resizable;
+} WateruiRootWindowDecl;
+
+/// Installs the environment's `WindowManager` — the Rust port of
+/// `installWindowManager`. Call on the main thread.
+void waterui_apple_install_window_manager(void *env);
+
+/// macOS only: binds the app's first declared window to an `NSWindow` the
+/// host already created. Returns the binding the host keeps for the window's
+/// life, or NULL when `window`/a required field is null or the call is not
+/// on the main thread.
+void *waterui_apple_bind_root_window(void *ns_window,
+                                   WateruiRootWindowDecl decl);
+
+/// Releases a root-window binding; NULL is a no-op.
+void waterui_apple_root_window_binding_free(void *binding);
+
 #ifdef __cplusplus
 }
 #endif

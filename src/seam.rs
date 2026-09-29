@@ -899,3 +899,129 @@ pub unsafe extern "C" fn waterui_apple_install_toolbar(window: *const c_void, vi
             .collect(),
     );
 }
+
+/// The declared first window as the embed path carries it.
+///
+/// The signal slots hold the generated FFI crate's `WuiComputed_*`/
+/// `WuiBinding_*` pointers, `#[repr(transparent)]` heap wrappers over the
+/// Rust signal types, so a borrow reads through to `Computed`/`Binding`
+/// directly — the same convention `WuiAnyView` pointers already follow on
+/// this seam. `toolbar` is an owning `AnyView` transfer like the render
+/// seam's `view`.
+#[repr(C)]
+#[derive(Debug)]
+pub struct WateruiRootWindowDecl {
+    /// `Environment` (`WuiEnv`), borrowed for the call.
+    pub env: *mut c_void,
+    /// `Computed<Str>` (`WuiComputed_Str`), borrowed for the call; required.
+    pub title: *mut c_void,
+    /// `Binding<Rect>` (`WuiBinding_Rect`), borrowed for the call; required.
+    pub frame: *mut c_void,
+    /// `Binding<WindowState>` (`WuiBinding_WindowState`), borrowed for the
+    /// call; required.
+    pub state: *mut c_void,
+    /// `AnyView` (`WuiAnyView`), owned by this call when non-null.
+    pub toolbar: *mut c_void,
+    /// `WindowStyle`: 0 titled, 1 borderless, 2 full-size-content.
+    pub style: i32,
+    /// Whether the window is closable.
+    pub closable: bool,
+    /// Whether the window is resizable.
+    pub resizable: bool,
+}
+
+/// Installs the window-manager service — `installWindowManager` ported:
+/// the embed path's `waterui_env_install_window_manager` replacement, since
+/// the manager is native Rust now.
+///
+/// # Safety
+///
+/// `env` must be a live `Environment`, borrowed for the call. Call on the
+/// main thread.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn waterui_apple_install_window_manager(env: *mut Environment) {
+    // SAFETY: the caller contract borrows a live `Environment`.
+    crate::windows::install_manager(unsafe { &mut *env });
+}
+
+/// `bindRootWindow` ported.
+///
+/// Binds the app's first declared window to a window the host already
+/// created. Returns the binding the host keeps for the window's life —
+/// [`waterui_apple_root_window_binding_free`] releases it.
+///
+/// # Safety
+///
+/// `window` must be a live `NSWindow` (+0 — the binding retains it), and
+/// `decl`'s pointer fields must satisfy their per-field contracts. Call on
+/// the main thread.
+#[cfg(target_os = "macos")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn waterui_apple_bind_root_window(
+    window: *mut c_void,
+    decl: WateruiRootWindowDecl,
+) -> *mut c_void {
+    use waterui::reactive::{Binding, Computed};
+    use waterui::window::{WindowState, WindowStyle as WuiStyle};
+    use waterui_core::layout::Rect;
+
+    let Some(mtm) = cocoa_ui::MainThreadMarker::new() else {
+        return ptr::null_mut();
+    };
+    // SAFETY: `window` is a live platform pointer the binding retains.
+    let Some(window) = (unsafe { Retained::retain(window.cast()) }) else {
+        return ptr::null_mut();
+    };
+
+    // SAFETY: per the struct contract — borrowed live signals.
+    let env: &Environment = unsafe { &*decl.env.cast() };
+    // SAFETY: per the struct contract — `title` is required.
+    let title: &Computed<waterui::Str> = unsafe { &*decl.title.cast() };
+    // SAFETY: per the struct contract — `frame` is required.
+    let frame: &Binding<Rect> = unsafe { &*decl.frame.cast() };
+    // SAFETY: per the struct contract — `state` is required.
+    let state: &Binding<WindowState> = unsafe { &*decl.state.cast() };
+
+    let toolbar = if decl.toolbar.is_null() {
+        None
+    } else {
+        // SAFETY: an owning `AnyView` transfer — same ownership rule as
+        // `waterui_apple_resolve`'s `view`.
+        Some(unsafe { *Box::from_raw(decl.toolbar.cast::<AnyView>()) })
+    };
+    let style = match decl.style {
+        0 => WuiStyle::Titled,
+        1 => WuiStyle::Borderless,
+        2 => WuiStyle::FullSizeContentView,
+        _ => WuiStyle::default(),
+    };
+
+    let binding = crate::windows::bind_root_window(
+        window,
+        env,
+        title,
+        frame,
+        state,
+        toolbar,
+        style,
+        decl.closable,
+        decl.resizable,
+        mtm,
+    );
+    Box::into_raw(Box::new(binding)).cast()
+}
+
+/// Releases a root-window binding; null is a no-op.
+///
+/// # Safety
+///
+/// `binding` must be a pointer returned by
+/// [`waterui_apple_bind_root_window`] and released at most once.
+#[cfg(target_os = "macos")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn waterui_apple_root_window_binding_free(binding: *mut c_void) {
+    if !binding.is_null() {
+        // SAFETY: the caller contract hands back the box exactly once.
+        drop(unsafe { Box::from_raw(binding.cast::<crate::windows::RootWindowBinding>()) });
+    }
+}

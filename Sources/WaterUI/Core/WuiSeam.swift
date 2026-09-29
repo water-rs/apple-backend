@@ -556,7 +556,7 @@ public func wateruiSwiftPrepareEnv(
     let environment = WuiEnvironment(cloned)
     let nativeServices = WuiNativeServices()
     nativeServices.environment = environment
-    installWindowManager(env: env, services: nativeServices)
+    waterui_apple_install_window_manager(UnsafeMutableRawPointer(env))
     waterui_apple_install_view_renderer(UnsafeMutableRawPointer(env))
     callback(context)
   }
@@ -725,3 +725,67 @@ extension PlatformView {
     return subviews.allSatisfy { $0.rendersNothing }
   }
 }
+
+#if canImport(AppKit) && !canImport(UIKit)
+  // MARK: - Root-window binding (macOS)
+
+  /// The application's main window, bound to the `Window` that declared it.
+  ///
+  /// Owns the Rust-side binding: the watchers and delegate reporting the
+  /// declaration describes live in `waterui-apple` now; releasing this value
+  /// unbinds them.
+  @MainActor
+  public final class WuiRootWindowBinding {
+    private let raw: UnsafeMutableRawPointer
+
+    fileprivate init(raw: UnsafeMutableRawPointer) {
+      self.raw = raw
+    }
+
+    deinit {
+      // The binding's watchers are main-thread values; a `@MainActor`
+      // object's deinit only runs there, so the release does too.
+      MainActor.assumeIsolated {
+        waterui_apple_root_window_binding_free(raw)
+      }
+    }
+  }
+
+  /// Binds the application's main window to the window a host already created.
+  ///
+  /// Binding twice would leave two sets of watchers fighting over one window,
+  /// so a host binds once and keeps the result for as long as the window lives.
+  @MainActor
+  public func bindRootWindow(
+    _ window: NSWindow,
+    to declaration: WuiWindowContext,
+    env: WuiEnvironment
+  ) -> WuiRootWindowBinding {
+    guard let title = declaration.title else {
+      fatalError("Main window title signal is null")
+    }
+    guard let frame = declaration.frame else {
+      fatalError("Main window frame binding is null")
+    }
+    guard let state = declaration.state else {
+      fatalError("Main window state binding is null")
+    }
+    let decl = WateruiRootWindowDecl(
+      env: UnsafeMutableRawPointer(env.inner),
+      title: UnsafeMutableRawPointer(title),
+      frame: UnsafeMutableRawPointer(frame),
+      state: UnsafeMutableRawPointer(state),
+      toolbar: declaration.toolbar.map { UnsafeMutableRawPointer($0) },
+      style: Int32(declaration.style.rawValue),
+      closable: declaration.closable,
+      resizable: declaration.resizable
+    )
+    guard
+      let raw = waterui_apple_bind_root_window(
+        Unmanaged.passUnretained(window).toOpaque(), decl)
+    else {
+      fatalError("waterui_apple_bind_root_window must run on the main thread")
+    }
+    return WuiRootWindowBinding(raw: raw)
+  }
+#endif

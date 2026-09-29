@@ -328,6 +328,180 @@ mod imp {
         mask
     }
 
+    /// What a bound root window owns while the binding lives: the adopted
+    /// window and the watchers talking to it. Dropping the binding stops the
+    /// watchers — the platform delegate hooks fire only while the kit window
+    /// wrapper lives, which the host guarantees for its own window.
+    pub struct RootWindowBinding {
+        _window: Rc<cocoa_ui::appkit::Window>,
+        _keepalive: Rc<RefCell<Option<KeepAlive>>>,
+    }
+
+    /// `WuiRootWindowBinding`'s port: binds the app's first declared window to
+    /// an `NSWindow` the host already created — the embed path.
+    ///
+    /// The frame is the one exception to "the declaration wins": the host's
+    /// window already has a position on a real screen, so the real (outer)
+    /// frame is published into the binding instead, then the binding drives
+    /// the window in both directions — as the Swift binding did, including its
+    /// outer-frame convention (unlike `realize`, which treats the binding as
+    /// content-space).
+    #[expect(clippy::too_many_arguments, reason = "the declared window's surface")]
+    pub fn bind_root_window(
+        window: Retained<cocoa_ui::objc2_app_kit::NSWindow>,
+        env: &Environment,
+        title: &waterui::reactive::Computed<waterui::Str>,
+        frame: &waterui::reactive::Binding<super::WRect>,
+        state: &waterui::reactive::Binding<WindowState>,
+        toolbar: Option<waterui::AnyView>,
+        style: WuiStyle,
+        closable: bool,
+        resizable: bool,
+        mtm: MainThreadMarker,
+    ) -> RootWindowBinding {
+        let window = Rc::new(cocoa_ui::appkit::Window::adopt(mtm, window));
+        let mut keepalive = KeepAlive::default();
+
+        // Adopt the declared style — the toolbar coordinator owns
+        // full-size-content, so a host window already carrying it keeps it.
+        let mut mask = style_mask(style, closable, resizable);
+        if window
+            .style_mask()
+            .contains(WindowStyle::FULL_SIZE_CONTENT_VIEW)
+        {
+            mask |= WindowStyle::FULL_SIZE_CONTENT_VIEW;
+        }
+        window.set_style_mask(mask);
+
+        // The declared toolbar goes through the window's one `NSToolbar`,
+        // exactly as a realized window's does.
+        if let Some(toolbar) = toolbar {
+            let toolbar_leaf = crate::dispatch::dispatcher(mtm)
+                .render(toolbar, env, mtm)
+                .expect("window toolbar must render: no handler or fallback claims it");
+            install_toolbar(window.native(), toolbar_leaf.view());
+            keepalive.keep(toolbar_leaf);
+        }
+
+        // An empty title means the host already set the application name —
+        // keep it; otherwise the declared title drives the window.
+        if !title.snapshot().is_empty() {
+            window.set_title(&title.snapshot());
+        }
+        keepalive.watch(title, {
+            let window = window.clone();
+            move |context| {
+                let declared = context.value();
+                if !declared.is_empty() {
+                    window.set_title(declared);
+                }
+            }
+        });
+
+        wire_frame(&window, &mut keepalive, frame);
+        let keepalive = wire_state(&window, keepalive, state);
+
+        RootWindowBinding {
+            _window: window,
+            _keepalive: keepalive,
+        }
+    }
+
+    /// The bound window's frame wiring, outer-frame style: the host's real
+    /// frame seeds the binding (adopting never moves the window), declared
+    /// changes apply with declared animations, platform moves and resizes
+    /// publish back — each direction guarded so the other's write does not
+    /// echo.
+    fn wire_frame(
+        window: &Rc<cocoa_ui::appkit::Window>,
+        keepalive: &mut KeepAlive,
+        frame: &waterui::reactive::Binding<super::WRect>,
+    ) {
+        frame.set(into_layout_rect(window.frame()));
+        let applying = Rc::new(Cell::new(false));
+        keepalive.watch(frame, {
+            let window = window.clone();
+            let applying = applying.clone();
+            move |context| {
+                let declared = into_kit_rect(*context.value());
+                if window.frame() != declared {
+                    applying.set(true);
+                    window.set_frame(
+                        declared,
+                        context.metadata().try_get::<Animation>().is_some(),
+                    );
+                    applying.set(false);
+                }
+            }
+        });
+        let publish = {
+            let window = window.clone();
+            let frame = frame.clone();
+            move || {
+                if !applying.get() {
+                    frame.set(into_layout_rect(window.frame()));
+                }
+            }
+        };
+        window.on_resize({
+            let publish = publish.clone();
+            move || publish()
+        });
+        window.on_move(publish);
+    }
+
+    /// The bound window's state wiring, the same two-way shape; a user close
+    /// publishes `Closed` then drops the watchers — the teardown order
+    /// `windowWillClose` enforced. Returns the keepalive behind the
+    /// close-clears-it cell.
+    fn wire_state(
+        window: &Rc<cocoa_ui::appkit::Window>,
+        mut keepalive: KeepAlive,
+        state: &waterui::reactive::Binding<WindowState>,
+    ) -> Rc<RefCell<Option<KeepAlive>>> {
+        let applying = Rc::new(Cell::new(false));
+        keepalive.watch(state, {
+            let window = window.clone();
+            let applying = applying.clone();
+            move |context| {
+                applying.set(true);
+                apply_state(&window, *context.value());
+                applying.set(false);
+            }
+        });
+        let publish = {
+            let state = state.clone();
+            move |to: WindowState| {
+                if !applying.get() {
+                    state.set(to);
+                }
+            }
+        };
+        let keepalive = Rc::new(RefCell::new(Some(keepalive)));
+        window.on_close({
+            let publish = publish.clone();
+            let keepalive = keepalive.clone();
+            move || {
+                publish(WindowState::Closed);
+                let _ = keepalive.borrow_mut().take();
+            }
+        });
+        window.on_miniaturized({
+            let publish = publish.clone();
+            move || publish(WindowState::Minimized)
+        });
+        window.on_deminiaturized({
+            let publish = publish.clone();
+            move || publish(WindowState::Normal)
+        });
+        window.on_entered_fullscreen({
+            let publish = publish.clone();
+            move || publish(WindowState::Fullscreen)
+        });
+        window.on_exited_fullscreen(move || publish(WindowState::Normal));
+        keepalive
+    }
+
     /// Applies `state` to the platform window — `applyState`'s switch.
     fn apply_state(window: &cocoa_ui::appkit::Window, state: WindowState) {
         match state {
@@ -583,10 +757,10 @@ mod imp {
 }
 
 pub use imp::install_manager;
+#[cfg(target_os = "macos")]
+pub use imp::{RootWindowBinding, bind_root_window, realize, track};
 #[cfg(target_os = "ios")]
 pub use imp::{connect, declare};
-#[cfg(target_os = "macos")]
-pub use imp::{realize, track};
 
 /// A waterui layout rect, as the kit sees it.
 #[cfg(target_os = "macos")]

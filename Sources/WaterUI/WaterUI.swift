@@ -892,29 +892,6 @@ public final class ThemeBridge {
 final class WuiNativeServices: @unchecked Sendable {
   weak var environment: WuiEnvironment?
 
-  #if os(macOS)
-    let windowManager = WindowManagerImpl()
-  #endif
-}
-
-@MainActor
-func retainWuiNativeServices(_ services: WuiNativeServices) -> UnsafeMutableRawPointer {
-  Unmanaged.passRetained(services).toOpaque()
-}
-
-private struct WuiOwnedNativeServicesContext: @unchecked Sendable {
-  let pointer: UnsafeMutableRawPointer
-}
-
-let dropWuiNativeServices: @convention(c) (UnsafeMutableRawPointer?) -> Void = { context in
-  guard let context else {
-    fatalError("WaterUI native services received a null owned context")
-  }
-  precondition(Thread.isMainThread, "WaterUI native services must be dropped on the UI executor")
-  let ownedContext = WuiOwnedNativeServicesContext(pointer: context)
-  MainActor.assumeIsolated {
-    Unmanaged<WuiNativeServices>.fromOpaque(ownedContext.pointer).release()
-  }
 }
 
 /// Represents a window in the application.
@@ -990,7 +967,7 @@ public final class WuiRootContext {
     #if WATERUI_WEBVIEW
       installWebViewController(env: initEnvPtr)
     #endif
-    installWindowManager(env: initEnvPtr, services: nativeServices)
+    waterui_apple_install_window_manager(UnsafeMutableRawPointer(initEnvPtr))
     waterui_apple_install_view_renderer(UnsafeMutableRawPointer(initEnvPtr))
 
     // 2. Detect system color scheme
