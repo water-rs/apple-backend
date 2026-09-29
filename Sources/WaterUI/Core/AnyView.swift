@@ -197,8 +197,6 @@ func registerBuiltinComponentsIfNeeded() {
 
   // Interactive components
 
-  registerComponent(WuiDatePicker.self)
-  registerComponent(WuiMultiDatePicker.self)
   registerComponent(WuiMenu.self)
   registerComponent(WuiBadge.self)
 

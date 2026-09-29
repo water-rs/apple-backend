@@ -18,8 +18,10 @@ workspace = true
 default = [
     "button",
     "color_picker",
+    "date_picker",
     "focused",
     "image",
+    "multi_date_picker",
     "picker",
     "progress",
     "resolved_color",
@@ -33,8 +35,10 @@ default = [
 ]
 button = []
 color_picker = []
+date_picker = []
 focused = []
 image = []
+multi_date_picker = []
 picker = []
 progress = []
 resolved_color = []
@@ -64,6 +68,7 @@ tracing-panic = "0.1"
 
 objc2-foundation = { version = "0.3", default-features = false, features = [
     "NSAttributedString",
+    "NSDate",
 ] }
 
 # The framework's own `[patch.crates-io]`, translated for this consumer the
