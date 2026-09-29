@@ -244,7 +244,7 @@ mod platform {
     use crate::contract::{NativeLeaf, RenderContext};
     use cocoa_ui::appkit::{Column, ColumnWidth, HostView, SplitViewController, WindowToolbar};
     use cocoa_ui::objc2_app_kit::NSWindowStyleMask;
-    use cocoa_ui::{Rect, Retained, view};
+    use cocoa_ui::{MainThreadMarker, Rect, Retained, view};
     use waterui::navigation::{NavigationSplitColumnVisibility, NavigationSplitLayout};
 
     use crate::contract::KeepAlive;
@@ -347,11 +347,17 @@ mod platform {
             },
         ]);
 
-        // A titled window's toolbar shows the sidebar toggle beside the
-        // traffic lights; the coordinator is keyed per window, so attaching
-        // here shares the instance the navigation pages publish into.
+        host_leaf(mtm, split)
+    }
+
+    /// Wraps the split controller's view in a host view: the controller
+    /// fills the host's bounds, and on a titled window the host registers it
+    /// with the window's toolbar as the sidebar toggle. The coordinator is
+    /// keyed per window, so attaching here shares the instance the
+    /// navigation pages publish into.
+    fn host_leaf(mtm: MainThreadMarker, split: Rc<Split>) -> NativeLeaf {
         let host = HostView::new(mtm, Rect::ZERO);
-        view::add_subview(&host, &nav_for_binds.view());
+        view::add_subview(&host, &split.nav.view());
         host.set_layout_handler(|host| {
             let bounds = view::bounds(host);
             if let Some(sub) = view::subviews(host).first() {
@@ -359,7 +365,7 @@ mod platform {
             }
         });
         host.set_window_handler({
-            let nav = nav_for_binds.clone();
+            let nav = split.nav.clone();
             move |host| {
                 let Some(window) = view::window(host) else {
                     return;
