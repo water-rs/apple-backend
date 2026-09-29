@@ -289,12 +289,12 @@ mod platform {
     use core::mem;
 
     use cocoa_ui::appkit::{
-        HostView, HostedItem, Label, SearchField, ToolbarChild, ToolbarContent, WindowToolbar,
-        first_button, header_material_view, symbol_image,
+        HostView, HostedItem, HostedSearch, Label, SearchField, ToolbarChild, ToolbarContent,
+        WindowToolbar, first_button, header_material_view, symbol_image,
     };
     use cocoa_ui::objc2_app_kit::NSWindowStyleMask;
     use cocoa_ui::text::WrapWidth;
-    use cocoa_ui::{Rect, view};
+    use cocoa_ui::{Rect, Retained, view};
     use waterui::Str;
     use waterui::navigation::{NavigationController, NavigationToolbarPlacement, NavigationView};
     use waterui::reactive::Signal;
@@ -391,6 +391,9 @@ mod platform {
             }
         });
 
+        // A second copy for the toolbar publisher: the layout handler below
+        // captures the field for the in-content header.
+        let field_for_toolbar = search_field.clone();
         host.set_layout_handler({
             let hidden = bar.hidden.clone();
             let bar = bar.clone();
@@ -480,6 +483,7 @@ mod platform {
             let bar = bar.clone();
             let host_weak = host.clone();
             let toolbar = toolbar.clone();
+            let search_field = field_for_toolbar;
             move |host| {
                 let Some(window) = view::window(host) else {
                     return;
@@ -493,7 +497,7 @@ mod platform {
                     let owner = Rc::as_ptr(&bar) as usize;
                     slot.as_ref()
                         .expect("attached")
-                        .set_content(toolbar_content(&bar), owner);
+                        .set_content(toolbar_content(&bar, search_field.as_ref()), owner);
                     view::set_hidden(&header, true);
                     host_weak.set_needs_layout();
                 } else if let Some(attached) = slot.take() {
@@ -512,7 +516,10 @@ mod platform {
     }
 
     /// The toolbar contribution of the standalone bar.
-    fn toolbar_content(bar: &BarState) -> ToolbarContent {
+    fn toolbar_content(
+        bar: &Rc<BarState>,
+        search_field: Option<&Retained<SearchField>>,
+    ) -> ToolbarContent {
         ToolbarContent {
             shows_back: false,
             on_back: None,
@@ -538,7 +545,13 @@ mod platform {
                 view: cocoa_ui::view::retain_base(item.leaf.view()),
                 size: bar_item_frame(item).size,
             }),
-            search: None,
+            // The field is shared with the in-content header, which the
+            // toolbar hides — rehosting it here keeps one field, its text
+            // and its focus.
+            search: search_field.map(|field| HostedSearch {
+                field: field.clone(),
+                source_id: Rc::as_ptr(bar) as usize,
+            }),
         }
     }
 

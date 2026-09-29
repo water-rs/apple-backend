@@ -194,7 +194,8 @@ mod platform {
     use alloc::vec::Vec;
 
     use crate::contract::{NativeLeaf, RenderContext};
-    use cocoa_ui::appkit::{HostView, Segment, SegmentedControl, SourceList};
+    use cocoa_ui::appkit::{HostView, Segment, SegmentedControl, SourceList, WindowToolbar};
+    use cocoa_ui::objc2_app_kit::NSWindowStyleMask;
     use cocoa_ui::{Rect, view};
     use waterui::navigation::{TabsLayout, tab::NativeTabStyle};
     use waterui::reactive::Signal;
@@ -291,6 +292,28 @@ mod platform {
             }
         });
 
+        // A titled window carries the segmented strip in its unified
+        // titlebar instead of in-content; untitled windows keep the strip.
+        let in_toolbar = Rc::new(core::cell::Cell::new(false));
+        host.set_window_handler({
+            let chrome = chrome.clone();
+            let in_toolbar = in_toolbar.clone();
+            move |host| {
+                let Some(window) = view::window(host) else {
+                    return;
+                };
+                let titled = window.styleMask().contains(NSWindowStyleMask::Titled);
+                if let Chrome::Control(_) = &chrome {
+                    if titled {
+                        WindowToolbar::attached(&window)
+                            .set_tabs(Some(cocoa_ui::view::retain_base(chrome.view())));
+                    }
+                    in_toolbar.set(titled);
+                }
+                host.set_needs_layout();
+            }
+        });
+
         host.set_layout_handler({
             move |host| {
                 let bounds = cocoa_ui::view::bounds(host);
@@ -310,6 +333,10 @@ mod platform {
                                 bounds.size.height,
                             ),
                         );
+                    }
+                } else if in_toolbar.get() {
+                    for tab in mounted.iter() {
+                        view::set_frame(tab.pane.view(), bounds);
                     }
                 } else {
                     let height = 28.0_f64;
