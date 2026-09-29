@@ -146,6 +146,10 @@ pub fn install(dispatcher: &mut Dispatcher) {
     #[cfg(feature = "table")]
     crate::components::table::install(dispatcher);
 
+    // Data — the map leaf, bridging `MapConfig` onto `MKMapView`.
+    #[cfg(feature = "map")]
+    crate::components::map::install(dispatcher);
+
     // Wave C — overlays.
     #[cfg(feature = "badge")]
     crate::components::badge::install(dispatcher);
