@@ -37,10 +37,17 @@ default = [
     "hittable",
     "gesture",
     "image",
+    "layer_transform",
     "layout_priority",
     "lifecycle_hook",
     "material_background",
     "menu",
+    "offset",
+    "rotation",
+    "scale",
+    "border",
+    "shadow",
+    "opacity",
     "list",
     "multi_date_picker",
     "navigation",
@@ -66,6 +73,7 @@ anchored_overlay = []
 accessibility_identifier = []
 accessibility_metadata = []
 badge = []
+border = []
 button = []
 clip_shape = []
 color_picker = []
@@ -86,9 +94,12 @@ layout_priority = []
 image = []
 layout_priority = []
 lifecycle_hook = []
+layer_transform = []
 list = []
 material_background = []
 menu = []
+offset = []
+opacity = []
 multi_date_picker = []
 navigation = []
 on_event = []
@@ -98,9 +109,12 @@ plain = []
 progress = []
 resolved_color = []
 retain = []
+rotation = ["layer_transform"]
+scale = ["layer_transform"]
 scroll = []
 secure = []
 secure_field = []
+shadow = []
 slider = []
 spacer = []
 stepper = []

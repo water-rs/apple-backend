@@ -87,6 +87,20 @@ pub fn install(dispatcher: &mut Dispatcher) {
     #[cfg(feature = "material_background")]
     crate::components::material_background::install(dispatcher);
 
+    // Visual metadata — transforms and decorations: purely visual wrappers
+    // that move or decorate their content without touching layout.
+    #[cfg(feature = "offset")]
+    crate::components::offset::install(dispatcher);
+    #[cfg(feature = "rotation")]
+    crate::components::rotation::install(dispatcher);
+    #[cfg(feature = "scale")]
+    crate::components::scale::install(dispatcher);
+    #[cfg(feature = "border")]
+    crate::components::border::install(dispatcher);
+    #[cfg(feature = "shadow")]
+    crate::components::shadow::install(dispatcher);
+    #[cfg(feature = "opacity")]
+    crate::components::opacity::install(dispatcher);
     // Environment + lifecycle metadata — the environment overlay,
     // safe-area escape, capture protection, one-shot hooks and retention.
     #[cfg(feature = "ignore_safe_area")]

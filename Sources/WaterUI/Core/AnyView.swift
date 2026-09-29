@@ -201,12 +201,6 @@ func registerBuiltinComponentsIfNeeded() {
   registerComponent(WuiDynamic.self)
 
   // Metadata components (wrappers that modify env/appearance)
-  registerMetadataComponent(WuiShadow.self)
-  registerMetadataComponent(WuiBorder.self)
-  registerMetadataComponent(WuiOpacity.self)
-  registerMetadataComponent(WuiScale.self)
-  registerMetadataComponent(WuiRotation.self)
-  registerMetadataComponent(WuiOffset.self)
 
 
   // Media components. Off when the app dropped WaterUI's `media` capability,

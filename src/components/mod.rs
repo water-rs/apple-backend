@@ -13,6 +13,8 @@ pub mod accessibility_identifier;
 pub mod accessibility_metadata;
 #[cfg(feature = "badge")]
 pub mod badge;
+#[cfg(feature = "border")]
+pub mod border;
 #[cfg(feature = "button")]
 pub mod button;
 #[cfg(feature = "clip_shape")]
@@ -48,6 +50,8 @@ pub mod hittable;
 pub mod gesture;
 #[cfg(feature = "image")]
 pub mod image;
+#[cfg(feature = "layer_transform")]
+pub mod layer_transform;
 #[cfg(feature = "layout_priority")]
 pub mod layout_priority;
 #[cfg(feature = "lifecycle_hook")]
@@ -68,6 +72,10 @@ pub mod navigation;
 pub mod on_event;
 #[cfg(feature = "on_key_press")]
 pub mod on_key_press;
+#[cfg(feature = "offset")]
+pub mod offset;
+#[cfg(feature = "opacity")]
+pub mod opacity;
 #[cfg(feature = "picker")]
 pub mod picker;
 #[cfg(feature = "plain")]
@@ -78,12 +86,18 @@ pub mod progress;
 pub mod resolved_color;
 #[cfg(feature = "retain")]
 pub mod retain;
+#[cfg(feature = "rotation")]
+pub mod rotation;
+#[cfg(feature = "scale")]
+pub mod scale;
 #[cfg(feature = "scroll")]
 pub mod scroll;
 #[cfg(feature = "secure")]
 pub mod secure;
 #[cfg(feature = "secure_field")]
 pub mod secure_field;
+#[cfg(feature = "shadow")]
+pub mod shadow;
 #[cfg(feature = "slider")]
 pub mod slider;
 #[cfg(feature = "spacer")]
