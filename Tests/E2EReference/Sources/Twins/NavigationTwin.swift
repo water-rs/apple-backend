@@ -175,7 +175,19 @@ struct NavigationTwin: View {
       }
       .navigationTitle("Inbox")
       .navigationSubtitle("\(unreadCount) unread")
-      .searchable(text: $query, prompt: "Search mail")
+      // iOS 26's automatic placement inside TabView hoists the field toward
+      // the tab-bar search slot and leaves an empty drawer stub; the
+      // navigation-bar drawer is the field this twin is for. macOS has no
+      // navigationBarDrawer — its automatic placement already draws it.
+      #if os(iOS)
+        .searchable(
+          text: $query,
+          placement: .navigationBarDrawer(displayMode: .always),
+          prompt: "Search mail"
+        )
+      #else
+        .searchable(text: $query, prompt: "Search mail")
+      #endif
       .toolbar {
         ToolbarItem(placement: .navigation) {
           Button(editing ? "Done" : "Edit") {}
