@@ -9,6 +9,7 @@
 
 use alloc::sync::Arc;
 
+use cocoa_ui::objc2::AllocAnyThread;
 use waterui::graphics::picture::Picture;
 use waterui::graphics::scene2d_cpu::Rasterizer;
 use waterui::reactive::Signal;
@@ -68,17 +69,25 @@ fn rasterize(
     ) else {
         return;
     };
+    // The recording's own colours are the content: a template image would
+    // discard them and recolour the alpha mask from the platform tint.
     #[cfg(target_os = "macos")]
-    let platform_image = cocoa_ui::bitmap::template_image(
+    let platform_image = cocoa_ui::objc2_app_kit::NSImage::initWithCGImage_size(
+        cocoa_ui::objc2_app_kit::NSImage::alloc(),
         &image,
         cocoa_ui::Size::new(
             f64::from(picture.size().width),
             f64::from(picture.size().height),
-        ),
+        )
+        .into(),
     );
     #[cfg(target_os = "ios")]
-    let platform_image =
-        cocoa_ui::bitmap::template_image(&image, scale).expect("CGImage → UIImage never fails");
+    let platform_image = cocoa_ui::objc2_ui_kit::UIImage::initWithCGImage_scale_orientation(
+        cocoa_ui::objc2_ui_kit::UIImage::alloc(),
+        &image,
+        scale,
+        cocoa_ui::objc2_ui_kit::UIImageOrientation::Up,
+    );
     view.set_image(Some(&platform_image));
 }
 
