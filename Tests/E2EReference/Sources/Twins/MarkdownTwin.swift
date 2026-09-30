@@ -103,7 +103,9 @@ struct MarkdownTwin: View {
 
                 Text("Visit [WaterUI on GitHub](https://github.com/water-rs/waterui) for more information.")
             }
-            .padding(14)
+            // `padding_with([52, 14, 14, 14])` — the deeper top inset reserves
+            // the height the floating Find row occupies.
+            .padding(EdgeInsets(top: 52, leading: 14, bottom: 14, trailing: 14))
             .frame(maxWidth: .infinity, alignment: .leading)
             }
 
