@@ -73,6 +73,12 @@
       return coordinator
     }
 
+    /// Whether a coordinator — and with it full-size content — is attached
+    /// to `window`.
+    static func isAttached(to window: NSWindow) -> Bool {
+      coordinators.object(forKey: window) != nil
+    }
+
     private weak var window: NSWindow?
     private let toolbar = NSToolbar(identifier: "dev.waterui.window")
 
