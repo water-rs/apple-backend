@@ -105,8 +105,9 @@ mod platform {
     use alloc::vec::Vec;
 
     use crate::contract::{NativeLeaf, RenderContext};
-    use cocoa_ui::Retained;
-    use cocoa_ui::uikit::{TabSpec, TabsController};
+    use cocoa_ui::geometry::Rect;
+    use cocoa_ui::uikit::{HostView, TabSpec, TabsController};
+    use cocoa_ui::{Retained, view};
     use waterui::navigation::TabsLayout;
     use waterui::reactive::Signal;
     use waterui_core::layout::ProposalSize;
@@ -193,7 +194,28 @@ mod platform {
             }
         });
 
-        let mut leaf = NativeLeaf::new(&*tabs.view().expect("tab bar view"), Fill);
+        // A `UITabBarController` lays its own content out against the screen
+        // edges — its content region reaches the top chrome and the tab bar
+        // owns the bottom inset — so the leaf reports `WuiSafeAreaManaging`
+        // through a kit host: the window root hands it the whole window, not
+        // the safe-area rect.
+        let host = HostView::new(mtm, Rect::ZERO);
+        host.set_manages_safe_area(true);
+        let tabs_view = tabs.view().expect("tab bar view");
+        view::add_subview(&host, &tabs_view);
+        host.set_primary_content_handler({
+            let tabs_view = tabs_view.clone();
+            move |_| Some(tabs_view.clone())
+        });
+        host.set_layout_handler(|host| {
+            let bounds = view::bounds(host);
+            if let Some(sub) = view::subviews(host).first() {
+                view::set_frame(sub, bounds);
+            }
+        });
+        let mut leaf = NativeLeaf::new(&*host, Fill);
+        leaf.keep(host);
+        leaf.keep(tabs_view);
         leaf.keep(keep);
         leaf.keep(mounted);
         leaf

@@ -259,12 +259,8 @@ fn contains_navigation_link(view: &cocoa_ui::PlatformView) -> bool {
 /// search region already occupies the space above the first card, so the
 /// 35pt label-less reserve must not stack on top of it.
 fn has_search_chrome(table: &TableView) -> bool {
-    cocoa_ui::uikit::view_controller::enclosing_controller(table).is_some_and(|controller| {
-        controller
-            .navigationItem()
-            .searchController()
-            .is_some()
-    })
+    cocoa_ui::uikit::view_controller::enclosing_controller(table)
+        .is_some_and(|controller| controller.navigationItem().searchController().is_some())
 }
 
 /// The selection mode `ListConfig` carries — `WuiList`'s
@@ -955,8 +951,7 @@ mod platform_impl {
             if search {
                 table.set_section_header_top_padding(0.0);
             }
-            if section == 0 && state.groups.first().is_some_and(|g| g.label.is_none()) && !search
-            {
+            if section == 0 && state.groups.first().is_some_and(|g| g.label.is_none()) && !search {
                 35.0
             } else {
                 f64::NAN

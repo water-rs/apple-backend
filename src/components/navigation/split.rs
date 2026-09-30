@@ -102,8 +102,10 @@ mod platform {
 
     use crate::contract::{NativeLeaf, RenderContext};
     use cocoa_ui::Retained;
+    use cocoa_ui::geometry::Rect;
     use cocoa_ui::objc2_ui_kit::UISplitViewControllerColumn;
-    use cocoa_ui::uikit::{NavContentController, SplitController};
+    use cocoa_ui::uikit::{HostView, NavContentController, SplitController};
+    use cocoa_ui::view;
     use waterui::navigation::{NavigationSplitColumnVisibility, NavigationSplitLayout};
 
     use crate::contract::KeepAlive;
@@ -135,6 +137,7 @@ mod platform {
 
     /// The sidebar column is a navigation-content host around the sidebar
     /// leaf; middle/detail columns are rebuilt on selection changes.
+    #[allow(clippy::too_many_lines)]
     pub(super) fn split_leaf(layout: NavigationSplitLayout, ctx: &RenderContext) -> NativeLeaf {
         let (
             sidebar,
@@ -229,7 +232,27 @@ mod platform {
             f64::from(sidebar_width.max()),
         );
 
-        let mut leaf = NativeLeaf::new(&*nav_for_binds.view().expect("split view"), Fill);
+        // A `UISplitViewController` owns its columns' bars and insets —
+        // `WuiSafeAreaManaging` in the baseline — so the leaf reports it
+        // through a kit host and the window root hands it the whole window,
+        // not the safe-area rect.
+        let host = HostView::new(mtm, Rect::ZERO);
+        host.set_manages_safe_area(true);
+        let split_view = nav_for_binds.view().expect("split view");
+        view::add_subview(&host, &split_view);
+        host.set_primary_content_handler({
+            let split_view = split_view.clone();
+            move |_| Some(split_view.clone())
+        });
+        host.set_layout_handler(|host| {
+            let bounds = view::bounds(host);
+            if let Some(sub) = view::subviews(host).first() {
+                view::set_frame(sub, bounds);
+            }
+        });
+        let mut leaf = NativeLeaf::new(&*host, Fill);
+        leaf.keep(host);
+        leaf.keep(split_view);
         leaf.keep(split);
         leaf
     }

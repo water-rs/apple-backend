@@ -109,10 +109,12 @@ mod platform {
 
     use cocoa_ui::MainThreadMarker;
     use cocoa_ui::Retained;
+    use cocoa_ui::geometry::Rect as KitRect;
     use cocoa_ui::objc2_ui_kit::{UIBarButtonItem, UIControlEvents};
     use cocoa_ui::uikit::{
-        LargeTitle, NavContentController, NavPage, NavSearch, bar_item, first_button,
+        HostView, LargeTitle, NavContentController, NavPage, NavSearch, bar_item, first_button,
     };
+    use cocoa_ui::view;
     use waterui::Environment;
     use waterui::Str;
     use waterui::navigation::{
@@ -267,15 +269,33 @@ mod platform {
             });
             self.pages.borrow_mut().push(Rc::new(root));
             let _ = self.nav.set(nav);
-            NativeLeaf::new(
-                &*self
-                    .nav
-                    .get()
-                    .expect("installed")
-                    .view()
-                    .expect("navigation view"),
-                Fill,
-            )
+            // A `UINavigationController` owns the bar and the scroll insets of
+            // the content it hosts — `WuiSafeAreaManaging` in the baseline —
+            // so the leaf reports it through a kit host and the window root
+            // hands it the whole window, not the safe-area rect.
+            let host = HostView::new(self.mtm, KitRect::ZERO);
+            host.set_manages_safe_area(true);
+            let nav_view = self
+                .nav
+                .get()
+                .expect("installed")
+                .view()
+                .expect("navigation view");
+            view::add_subview(&host, &nav_view);
+            host.set_primary_content_handler({
+                let nav_view = nav_view.clone();
+                move |_| Some(nav_view.clone())
+            });
+            host.set_layout_handler(|host| {
+                let bounds = view::bounds(host);
+                if let Some(sub) = view::subviews(host).first() {
+                    view::set_frame(sub, bounds);
+                }
+            });
+            let mut leaf = NativeLeaf::new(&*host, Fill);
+            leaf.keep(host);
+            leaf.keep(nav_view);
+            leaf
         }
 
         /// Renders one page: content plus `Bar` chrome on `navigationItem`.
@@ -531,10 +551,14 @@ mod platform {
         let config = NavSearch {
             placeholder: search_prompt(search, env).snapshot().to_plain().to_string(),
             text: search.text.snapshot().to_string(),
-            // `.integrated` hides the pill; scroll tracking never attaches
-            // here, so the bar stays pinned.
-            placement: cocoa_ui::uikit::SearchBarPlacement::Stacked,
-            hides_when_scrolling: false,
+            // On iOS 26 every resolved placement rests the integrated bar
+            // at zero height under a `UITabBarController` — the reference's
+            // collapsed capsule is SwiftUI's own `UIKitSearchBar` mounted as
+            // a nav-bar subview, which plain `UIKit` never produces. Until
+            // that capsule is mounted manually, pinning `hides` keeps the
+            // expanded bar in the same slot — visibly nearer than nothing.
+            placement: Some(cocoa_ui::uikit::SearchBarPlacement::Stacked),
+            hides_when_scrolling: Some(false),
         };
         let binding = search.text.clone();
         controller.set_search_change_handler(move |text| {
