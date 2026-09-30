@@ -324,6 +324,14 @@ mod platform {
                     view::set_hidden(tab.pane.view(), index != Some(pane_index));
                 }
                 chrome.select(index);
+                // A pane's own view wraps the navigation container inside it,
+                // so hiding the pane never reaches the stack's host and its
+                // chrome handler never runs: flip every chrome-aware host in
+                // the pane so hidden stacks withdraw and the visible stack
+                // publishes — `setNavigationChromeActive(_:)`.
+                for (pane_index, tab) in mounted.iter().enumerate() {
+                    flip_chrome_hosts(tab.pane.view(), index != Some(pane_index));
+                }
             }
         };
         let selected = layout.selection.snapshot();
@@ -413,6 +421,20 @@ mod platform {
         leaf.keep(keep);
         leaf.keep(show);
         leaf
+    }
+
+    /// Flips `isHidden` on every `HostView` in the pane's subtree that asked
+    /// for hidden notifications, so a navigation container nested inside the
+    /// pane sees the same visibility flip the pane itself just got.
+    fn flip_chrome_hosts(view: &cocoa_ui::PlatformView, hidden: bool) {
+        for subview in view::subviews(view) {
+            if let Some(host) = subview.downcast_ref::<HostView>()
+                && host.wants_hidden_events()
+            {
+                view::set_hidden(&subview, hidden);
+            }
+            flip_chrome_hosts(&subview, hidden);
+        }
     }
 
     /// Either chrome variant behind one tiny interface.

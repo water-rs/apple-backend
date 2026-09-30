@@ -482,37 +482,59 @@ mod platform {
         });
 
         // Titled windows: publish the chrome into the window toolbar and hide
-        // the in-content header.
+        // the in-content header — while the bar is visible and the view is
+        // effectively shown; a hidden bar or a pane hidden inside a container
+        // withdraws.
         let toolbar = Rc::new(RefCell::new(
             Option::<cocoa_ui::Retained<WindowToolbar>>::None,
         ));
-        host.set_window_handler({
+        let publish_bar = {
             let bar = bar.clone();
             let host_weak = host.clone();
             let toolbar = toolbar.clone();
+            let header = header.clone();
             let search_field = field_for_toolbar;
-            move |host| {
+            move |host: &HostView| {
                 let Some(window) = view::window(host) else {
                     return;
                 };
                 let titled = window.styleMask().contains(NSWindowStyleMask::Titled);
                 let mut slot = toolbar.borrow_mut();
-                if titled {
-                    if slot.is_none() {
-                        *slot = Some(WindowToolbar::attached(&window));
+                if !titled {
+                    if let Some(attached) = slot.take() {
+                        attached.clear_content(Rc::as_ptr(&bar) as usize);
+                        view::set_hidden(&header, false);
+                        host_weak.set_needs_layout();
                     }
-                    let owner = Rc::as_ptr(&bar) as usize;
-                    slot.as_ref()
-                        .expect("attached")
-                        .set_content(toolbar_content(&bar, search_field.as_ref()), owner);
-                    view::set_hidden(&header, true);
-                    host_weak.set_needs_layout();
-                } else if let Some(attached) = slot.take() {
-                    attached.clear_content(Rc::as_ptr(&bar) as usize);
-                    view::set_hidden(&header, false);
-                    host_weak.set_needs_layout();
+                    return;
                 }
+                if slot.is_none() {
+                    *slot = Some(WindowToolbar::attached(&window));
+                }
+                let owner = Rc::as_ptr(&bar) as usize;
+                if bar.hidden.snapshot() || view::is_hidden_in_hierarchy(host) {
+                    slot.as_ref().expect("attached").clear_content(owner);
+                    return;
+                }
+                slot.as_ref()
+                    .expect("attached")
+                    .set_content(toolbar_content(&bar, search_field.as_ref()), owner);
+                view::set_hidden(&header, true);
+                host_weak.set_needs_layout();
             }
+        };
+        host.set_window_handler({
+            let publish = publish_bar.clone();
+            move |host| publish(host)
+        });
+        host.set_hidden_handler({
+            let publish = publish_bar.clone();
+            move |host, _hidden| publish(host)
+        });
+        keep.watch(&bar.hidden, {
+            let publish = publish_bar;
+            let host = host.clone();
+            move |_| publish(host.as_ref())
         });
         keep.keep(toolbar);
 

@@ -409,16 +409,31 @@ mod platform {
                 view::set_frame(sub, bounds);
             }
         });
-        host.set_window_handler({
+        let offer_sidebar = {
             let nav = split.nav.clone();
-            move |host| {
+            move |host: &HostView| {
                 let Some(window) = view::window(host) else {
                     return;
                 };
-                if window.styleMask().contains(NSWindowStyleMask::Titled) {
+                if !window.styleMask().contains(NSWindowStyleMask::Titled) {
+                    return;
+                }
+                // A pane hidden inside a tab container contributes no sidebar
+                // chrome: claim only while the split is effectively visible.
+                if view::is_hidden_in_hierarchy(host) {
+                    WindowToolbar::attached(&window).set_sidebar_split(None);
+                } else {
                     WindowToolbar::attached(&window).set_sidebar_split(Some(&nav));
                 }
             }
+        };
+        host.set_window_handler({
+            let offer = offer_sidebar.clone();
+            move |host| offer(host)
+        });
+        host.set_hidden_handler({
+            let offer = offer_sidebar.clone();
+            move |host, _hidden| offer(host)
         });
         let mut leaf = NativeLeaf::new(&*host, Fill);
         leaf.keep(split);

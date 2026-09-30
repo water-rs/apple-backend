@@ -881,12 +881,13 @@ mod platform {
         /// withdraws it — `updateWindowToolbar()`'s `topEntry` snapshot.
         fn publish(&self) {
             let toolbar = self.toolbar.borrow().clone();
-            let Some(toolbar) = toolbar else { return };
+            let Some(toolbar) = toolbar else {
+                return;
+            };
             let owner = std::ptr::from_ref(self) as usize;
             let withdraw = |stack: &Self| {
                 toolbar.clear_content(owner);
                 stack.search_field.replace(None);
-                let _ = stack;
             };
             if !self.chrome_active.get() {
                 withdraw(self);
