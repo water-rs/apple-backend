@@ -402,14 +402,16 @@ mod platform {
         // captures the field for the in-content header.
         let field_for_toolbar = search_field.clone();
         host.set_layout_handler({
-            let hidden = bar.hidden.clone();
             let bar = bar.clone();
             let header = header.clone();
             move |host| {
                 let title = &title;
                 let search_field = &search_field;
                 let bounds = view::bounds(host);
-                let bar_height = if hidden.snapshot() { 0.0 } else { 52.0 };
+                // The in-content bar reserves space only while it is shown:
+                // a hidden bar and one promoted into the window toolbar get
+                // the same zero-height layout.
+                let bar_height = if view::is_hidden(&header) { 0.0 } else { 52.0 };
                 if bar_height > 0.0 {
                     let y = bounds.origin.y + bounds.size.height - bar_height;
                     view::set_frame(
@@ -492,7 +494,6 @@ mod platform {
             let bar = bar.clone();
             let host_weak = host.clone();
             let toolbar = toolbar.clone();
-            let header = header.clone();
             let search_field = field_for_toolbar;
             move |host: &HostView| {
                 let Some(window) = view::window(host) else {
