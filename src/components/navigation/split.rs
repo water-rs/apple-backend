@@ -402,7 +402,17 @@ mod platform {
     /// navigation pages publish into.
     fn host_leaf(mtm: MainThreadMarker, split: Rc<Split>) -> NativeLeaf {
         let host = HostView::new(mtm, Rect::ZERO);
-        view::add_subview(&host, &split.nav.view());
+        // An `NSSplitViewController` owns its columns' insets — the sidebar
+        // runs the window's full height behind the unified toolbar — so the
+        // leaf manages its own safe area and the root hands it the whole
+        // window, not the safe-area rect (as the iOS leaf already does).
+        host.set_manages_safe_area(true);
+        let split_view = split.nav.view();
+        host.set_primary_content_handler({
+            let split_view = split_view.clone();
+            move |_| Some(split_view.clone())
+        });
+        view::add_subview(&host, &split_view);
         host.set_layout_handler(|host| {
             let bounds = view::bounds(host);
             if let Some(sub) = view::subviews(host).first() {
