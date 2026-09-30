@@ -938,6 +938,10 @@ public struct WuiWindowContext {
   public let state: OpaquePointer?
   /// The reactive background, consumed when it is resolved.
   public let background: OpaquePointer?
+  /// Whether frames wait for the display's refresh.
+  public let presentMode: WuiPresentMode
+  /// The colour range the window's output asks for.
+  public let colorSpace: WuiWindowColorSpace
 
   init(from window: WuiWindow) {
     self.content = window.content
@@ -949,6 +953,8 @@ public struct WuiWindowContext {
     self.frame = window.frame
     self.state = window.state
     self.background = window.background
+    self.presentMode = window.present_mode
+    self.colorSpace = window.color_space
   }
 }
 

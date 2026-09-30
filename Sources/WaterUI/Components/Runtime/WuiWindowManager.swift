@@ -275,6 +275,8 @@ func installWindowManager(env: OpaquePointer, services: WuiNativeServices) {
 
       window.isReleasedWhenClosed = false
       resources.window = window
+      applyWindowOutput(
+        presentMode: wuiWindow.present_mode, colorSpace: wuiWindow.color_space, to: window)
       window.title = titleObservation.value.toString()
 
       // The declared toolbar goes through the window toolbar coordinator, as
@@ -424,6 +426,56 @@ func installWindowManager(env: OpaquePointer, services: WuiNativeServices) {
       mask.remove(.closable)
     }
     return mask
+  }
+
+  /// Applies a window's creation-time output requests (water-rs/waterui#1300).
+  ///
+  /// The colour request becomes the window's backing-store colour space:
+  /// sRGB for the standard range, Display P3 for a wide gamut. An AppKit
+  /// backing store has no high-dynamic-range colour space, so HDR can only be
+  /// preferred, where it takes the widest one — Display P3 — and a preferred
+  /// range narrows to what the window's screen can show. A required range the
+  /// screen or AppKit cannot give is an error, as is unsynchronized
+  /// presentation: the backend's GPU content reaches the screen through Core
+  /// Animation, which presents every frame in step with the display.
+  @MainActor
+  private func applyWindowOutput(
+    presentMode: WuiPresentMode,
+    colorSpace: WuiWindowColorSpace,
+    to window: NSWindow
+  ) {
+    guard presentMode == WuiPresentMode_DisplaySynchronized else {
+      fatalError(
+        "A macOS window cannot present unsynchronized from the display: WaterUI's GPU content is composited by Core Animation"
+      )
+    }
+    let screenIsWide = (window.screen ?? NSScreen.main)?.canRepresent(.p3) ?? false
+    let wide: Bool
+    switch colorSpace.request {
+    case WuiColorSpaceRequest_Negotiated:
+      return
+    case WuiColorSpaceRequest_Preferred:
+      wide = colorSpace.range != WuiWindowColorRange_Standard && screenIsWide
+    case WuiColorSpaceRequest_Required:
+      switch colorSpace.range {
+      case WuiWindowColorRange_Standard:
+        wide = false
+      case WuiWindowColorRange_WideGamut:
+        guard screenIsWide else {
+          fatalError("The window's screen cannot show the required wide-gamut output")
+        }
+        wide = true
+      case WuiWindowColorRange_HighDynamicRange:
+        fatalError(
+          "A macOS window cannot require high-dynamic-range output: an AppKit backing store has no HDR colour space"
+        )
+      default:
+        fatalError("Unsupported window colour range: \(colorSpace.range.rawValue)")
+      }
+    default:
+      fatalError("Unsupported window colour request: \(colorSpace.request.rawValue)")
+    }
+    window.colorSpace = wide ? .displayP3 : .sRGB
   }
 
   /// The style mask to give a window that is already on screen.
@@ -617,6 +669,8 @@ func installWindowManager(env: OpaquePointer, services: WuiNativeServices) {
       }
 
       resources.window = window
+      applyWindowOutput(
+        presentMode: declaration.presentMode, colorSpace: declaration.colorSpace, to: window)
       // The toolbar coordinator owns full-size content — a sidebar's full
       // height depends on it — and it may have attached while the content was
       // resolving, before this declaration is adopted. Adopting the declared
