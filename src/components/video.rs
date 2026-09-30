@@ -1667,6 +1667,11 @@ fn build_player_leaf(
         let host = HostView::new(mtm, cocoa_ui::Rect::ZERO);
         let child = view.view();
         let parent: &cocoa_ui::PlatformView = AsRef::as_ref(&*host);
+        // A `UIViewController`'s view is created at screen size and follows
+        // no parent; pin it to the host's bounds so it stays inside the
+        // leaf's layout frame instead of covering the window.
+        child.setFrame(parent.bounds());
+        cocoa_ui::view::set_autoresizing_flexible_size(&child);
         cocoa_ui::view::add_subview(parent, &child);
         host.set_window_handler({
             let view = Rc::clone(view);
