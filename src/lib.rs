@@ -60,43 +60,41 @@ pub(crate) mod windows;
 #[macro_export]
 macro_rules! export_app {
     ($app:path) => {
-        const _: () = {
-            /// The application's entry: the generated `main.swift` calls this
-            /// and nothing else.
-            ///
-            /// `accessory` selects the macOS activation policy
-            /// (`NSApplication.ActivationPolicy.accessory`); it is unused on
-            /// iOS.
-            ///
-            /// # Safety
-            ///
-            /// Call once, on the platform main thread, as the process entry.
-            #[unsafe(no_mangle)]
-            pub unsafe extern "C" fn waterui_apple_main(accessory: bool) {
-                let mut env = ::waterui::configure_environment!(::waterui::Environment::new());
-                // SAFETY: this is the process's entry on the main thread, and
-                // `env` lives in this frame — `run` never returns, so the
-                // borrow outlives every use the seam keeps.
-                unsafe {
-                    ::waterui_apple::entry::run(
-                        |mut env| {
-                            // The realizations this backend brings — the
-                            // `MapKit` hook `waterui_map_gpu::install` yields
-                            // to, the packaged CEF runtime — are declared on
-                            // the environment before the application installs
-                            // its own, exactly as `waterui_init` does on the
-                            // embedding path. They run inside `run`'s launch
-                            // handler so `spawn_local` users such as the CEF
-                            // message pump see the local executor `run`
-                            // installs at startup.
-                            ::waterui_ffi::__configure_native_realizations(&mut env);
-                            $app(env)
-                        },
-                        &mut env,
-                        accessory,
-                    );
-                }
+        /// The application's entry: the generated `main.swift` calls this
+        /// and nothing else.
+        ///
+        /// `accessory` selects the macOS activation policy
+        /// (`NSApplication.ActivationPolicy.accessory`); it is unused on
+        /// iOS.
+        ///
+        /// # Safety
+        ///
+        /// Call once, on the platform main thread, as the process entry.
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn waterui_apple_main(accessory: bool) {
+            let mut env = ::waterui::configure_environment!(::waterui::Environment::new());
+            // SAFETY: this is the process's entry on the main thread, and
+            // `env` lives in this frame — `run` never returns, so the
+            // borrow outlives every use the seam keeps.
+            unsafe {
+                ::waterui_apple::entry::run(
+                    |mut env| {
+                        // The realizations this backend brings — the
+                        // `MapKit` hook `waterui_map_gpu::install` yields
+                        // to, the packaged CEF runtime — are declared on
+                        // the environment before the application installs
+                        // its own, exactly as `waterui_init` does on the
+                        // embedding path. They run inside `run`'s launch
+                        // handler so `spawn_local` users such as the CEF
+                        // message pump see the local executor `run`
+                        // installs at startup.
+                        ::waterui_ffi::__configure_native_realizations(&mut env);
+                        $app(env)
+                    },
+                    &mut env,
+                    accessory,
+                );
             }
-        };
+        }
     };
 }
