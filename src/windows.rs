@@ -705,20 +705,14 @@ mod imp {
         let leaf = crate::dispatch::dispatcher(mtm)
             .render(content, env, mtm)
             .expect("window content must render: no handler or fallback claims it");
-        // The declared root can be a controller's root view — a tab bar or
-        // navigation stack. Without real containment `UIKit` never delivers
-        // `viewWillLayoutSubviews` or the appearance callbacks to it, so
-        // chrome that integrates in them (a `UISearchController`'s bar)
-        // collapses.
-        if let Some(child) = cocoa_ui::uikit::view_controller::owning_controller(leaf.view())
-            && cocoa_ui::objc2::rc::Retained::as_ptr(&child)
-                != cocoa_ui::objc2::rc::Retained::as_ptr(&pending.controller).cast()
-        {
-            cocoa_ui::uikit::view_controller::add_child(&pending.controller, &child);
-            host.add_subview(leaf.view());
-            cocoa_ui::uikit::view_controller::did_move_to_parent(&child);
-        } else {
-            host.add_subview(leaf.view());
+        host.add_subview(leaf.view());
+        // The declared root can carry view controllers — a tab bar or a
+        // navigation stack, often under a `HostView` wrapper. Without real
+        // containment `UIKit` never delivers `viewWillLayoutSubviews` or the
+        // appearance callbacks to them, so chrome that integrates in them
+        // (a `UISearchController`'s bar) collapses.
+        for controller in crate::contract::adopt_controllers(leaf.view()) {
+            cocoa_ui::uikit::view_controller::did_move_to_parent(&controller);
         }
         let leaf_view = cocoa_ui::view::retain_base(leaf.view());
 
