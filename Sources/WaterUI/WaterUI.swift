@@ -936,6 +936,8 @@ public struct WuiWindowContext {
   public let frame: OpaquePointer?
   /// The state binding.
   public let state: OpaquePointer?
+  /// The reactive background, consumed when it is resolved.
+  public let background: OpaquePointer?
 
   init(from window: WuiWindow) {
     self.content = window.content
@@ -946,6 +948,7 @@ public struct WuiWindowContext {
     self.title = window.title
     self.frame = window.frame
     self.state = window.state
+    self.background = window.background
   }
 }
 
