@@ -325,7 +325,8 @@ impl SubView for MultiSubView {
         clippy::cast_possible_truncation,
         reason = "the layout contract is f32; measured points always fit"
     )]
-    fn measure(&self, _proposal: ProposalSize) -> ViewDimensions {
+    fn measure(&self, proposal: ProposalSize) -> ViewDimensions {
+        let _ = proposal;
         let state = self.state.borrow();
         let label_size = measure_label(&state);
         let mut width = f64::from(label_size.width);
@@ -335,6 +336,15 @@ impl SubView for MultiSubView {
         {
             let calendar_size = state.calendar.intrinsic_size();
             width = width.max(calendar_size.width);
+            // `WuiMultiDatePicker` measured through
+            // `systemLayoutSizeFitting(proposal.width)`: the calendar
+            // compresses to the offered width, so the leaf never answers
+            // wider — otherwise the scroll chain re-measures at the
+            // overflow and the whole content column widens past the
+            // viewport.
+            if let Some(bound) = proposal.width.filter(|w| w.is_finite() && *w > 0.0) {
+                width = width.min(f64::from(bound));
+            }
             height += SPACING + calendar_size.height;
         }
 
