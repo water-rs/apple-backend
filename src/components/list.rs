@@ -254,6 +254,19 @@ fn contains_navigation_link(view: &cocoa_ui::PlatformView) -> bool {
     }
 }
 
+#[cfg(target_os = "ios")]
+/// The enclosing navigation item carries a `UISearchController` — its
+/// search region already occupies the space above the first card, so the
+/// 35pt label-less reserve must not stack on top of it.
+fn has_search_chrome(table: &TableView) -> bool {
+    cocoa_ui::uikit::view_controller::enclosing_controller(table).is_some_and(|controller| {
+        controller
+            .navigationItem()
+            .searchController()
+            .is_some()
+    })
+}
+
 /// The selection mode `ListConfig` carries — `WuiList`'s
 /// `SelectionController`.
 enum SelectionMode {
@@ -928,14 +941,19 @@ mod platform_impl {
             state.measure_row(leaf.layout(), width, insets)
         }
 
-        fn section_header_height(&self, _table: &TableView, section: usize) -> f64 {
+        fn section_header_height(&self, table: &TableView, section: usize) -> f64 {
             // `SwiftUI`'s list is a `UICollectionView` compositional layout
             // reserving a 35pt header region above a label-less section,
             // while a plain `.insetGrouped` `UITableView` only leaves
             // ~17.7pt — the first card would sit ~17pt high. Later
             // sections already total 35pt from header+footer spacing.
+            // A navigation item carrying a `UISearchController` fills the
+            // slot the reserve mimics, so the stock spacing applies there.
             let state = self.state.borrow();
-            if section == 0 && state.groups.first().is_some_and(|g| g.label.is_none()) {
+            if section == 0
+                && state.groups.first().is_some_and(|g| g.label.is_none())
+                && !has_search_chrome(table)
+            {
                 35.0
             } else {
                 f64::NAN
