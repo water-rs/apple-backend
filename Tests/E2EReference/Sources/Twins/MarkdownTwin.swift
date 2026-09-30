@@ -22,7 +22,11 @@ import SwiftUI
 
 struct MarkdownTwin: View {
     var body: some View {
-        ScrollView {
+        // The example's `zstack`: the document scroll under a padded overlay
+        // column — `hstack((button("Find"), spacer()))` on top, the search bar
+        // row `when` hides while closed, and a trailing `spacer()`.
+        ZStack {
+            ScrollView {
             VStack(alignment: .leading, spacing: 10) {
                 Text("WaterUI Markdown").font(.title).fontWeight(.bold)
                 Text("WaterUI supports rendering **Markdown** content natively across all platforms.")
@@ -101,6 +105,18 @@ struct MarkdownTwin: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            // The overlay's `.padding()`: `button("Find")` leading, the
+            // rest of the column empty while the search row is closed.
+            VStack {
+                HStack {
+                    Button("Find") {}
+                    Spacer()
+                }
+                Spacer()
+            }
+            .padding()
         }
     }
 
