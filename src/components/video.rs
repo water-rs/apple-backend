@@ -1446,31 +1446,40 @@ fn coordinator(
     (Coordinator { state }, player)
 }
 
-/// Wires every binding watcher onto the leaf: each change pushes into the
-/// coordinator, which pushes into the player.
+/// Wires the bindings onto the leaf. The configuration bindings (source,
+/// desired state, audio, seek/step generations) are `bind`ed so their
+/// current values apply at mount — the same init-time application the
+/// Swift coordinator performed — plus every later change. The remaining
+/// watchers only report backend-originated state, so they subscribe for
+/// changes alone.
 #[allow(clippy::too_many_lines)]
 fn bind(leaf: &mut NativeLeaf, coordinator: &Coordinator) {
     let state = &coordinator.state;
+    // Clone the bindings out before wiring: `leaf.bind` applies the current
+    // value synchronously, and a `Ref` borrowed only for the field access
+    // would live until the end of the whole `bind` call — running `update`
+    // inside it while the cell is still borrowed.
+    let bindings = state.borrow().bindings.clone();
 
-    leaf.watch(&state.borrow().bindings.source, {
+    leaf.bind(&bindings.source, {
         let state = Rc::downgrade(state);
-        move |change| {
+        move |media| {
             if let Some(state) = state.upgrade() {
-                update(&state, |state| state.load(change.into_value()));
+                update(&state, |state| state.load(media));
             }
         }
     });
-    leaf.watch(&state.borrow().bindings.desired_playing, {
+    leaf.bind(&bindings.desired_playing, {
         let state = Rc::downgrade(state);
-        move |change| {
+        move |desired| {
             if let Some(state) = state.upgrade() {
                 update(&state, |state| {
-                    state.apply_desired_playing(*change.value());
+                    state.apply_desired_playing(desired);
                 });
             }
         }
     });
-    leaf.watch(&state.borrow().bindings.volume, {
+    leaf.bind(&bindings.volume, {
         let state = Rc::downgrade(state);
         move |_| {
             if let Some(state) = state.upgrade() {
@@ -1478,7 +1487,7 @@ fn bind(leaf: &mut NativeLeaf, coordinator: &Coordinator) {
             }
         }
     });
-    leaf.watch(&state.borrow().bindings.muted, {
+    leaf.bind(&bindings.muted, {
         let state = Rc::downgrade(state);
         move |_| {
             if let Some(state) = state.upgrade() {
@@ -1486,7 +1495,7 @@ fn bind(leaf: &mut NativeLeaf, coordinator: &Coordinator) {
             }
         }
     });
-    leaf.watch(&state.borrow().bindings.playback_rate, {
+    leaf.bind(&bindings.playback_rate, {
         let state = Rc::downgrade(state);
         move |_| {
             if let Some(state) = state.upgrade() {
@@ -1497,7 +1506,7 @@ fn bind(leaf: &mut NativeLeaf, coordinator: &Coordinator) {
             }
         }
     });
-    leaf.watch(&state.borrow().bindings.preserve_pitch, {
+    leaf.bind(&bindings.preserve_pitch, {
         let state = Rc::downgrade(state);
         move |_| {
             if let Some(state) = state.upgrade() {
@@ -1505,31 +1514,31 @@ fn bind(leaf: &mut NativeLeaf, coordinator: &Coordinator) {
             }
         }
     });
-    leaf.watch(&state.borrow().bindings.seek_generation, {
+    leaf.bind(&bindings.seek_generation, {
         let state = Rc::downgrade(state);
-        move |change| {
+        move |generation| {
             if let Some(state) = state.upgrade() {
-                update(&state, |state| state.apply_seek(*change.value()));
+                update(&state, |state| state.apply_seek(generation));
             }
         }
     });
-    leaf.watch(&state.borrow().bindings.step_forward_generation, {
+    leaf.bind(&bindings.step_forward_generation, {
         let state = Rc::downgrade(state);
-        move |change| {
+        move |generation| {
             if let Some(state) = state.upgrade() {
-                update(&state, |state| state.apply_step(true, *change.value()));
+                update(&state, |state| state.apply_step(true, generation));
             }
         }
     });
-    leaf.watch(&state.borrow().bindings.step_backward_generation, {
+    leaf.bind(&bindings.step_backward_generation, {
         let state = Rc::downgrade(state);
-        move |change| {
+        move |generation| {
             if let Some(state) = state.upgrade() {
-                update(&state, |state| state.apply_step(false, *change.value()));
+                update(&state, |state| state.apply_step(false, generation));
             }
         }
     });
-    leaf.watch(&state.borrow().bindings.subtitle_selection, {
+    leaf.watch(&bindings.subtitle_selection, {
         let state = Rc::downgrade(state);
         move |_| {
             if let Some(state) = state.upgrade()
@@ -1539,7 +1548,7 @@ fn bind(leaf: &mut NativeLeaf, coordinator: &Coordinator) {
             }
         }
     });
-    leaf.watch(&state.borrow().bindings.audio_track_selection, {
+    leaf.watch(&bindings.audio_track_selection, {
         let state = Rc::downgrade(state);
         move |_| {
             if let Some(state) = state.upgrade()
@@ -1549,7 +1558,7 @@ fn bind(leaf: &mut NativeLeaf, coordinator: &Coordinator) {
             }
         }
     });
-    leaf.watch(&state.borrow().bindings.video_track_selection, {
+    leaf.watch(&bindings.video_track_selection, {
         let state = Rc::downgrade(state);
         move |_| {
             if let Some(state) = state.upgrade()
@@ -1559,7 +1568,7 @@ fn bind(leaf: &mut NativeLeaf, coordinator: &Coordinator) {
             }
         }
     });
-    leaf.watch(&state.borrow().bindings.has_next, {
+    leaf.watch(&bindings.has_next, {
         let state = Rc::downgrade(state);
         move |_| {
             if let Some(state) = state.upgrade() {
@@ -1567,7 +1576,7 @@ fn bind(leaf: &mut NativeLeaf, coordinator: &Coordinator) {
             }
         }
     });
-    leaf.watch(&state.borrow().bindings.has_previous, {
+    leaf.watch(&bindings.has_previous, {
         let state = Rc::downgrade(state);
         move |_| {
             if let Some(state) = state.upgrade() {
@@ -1575,7 +1584,7 @@ fn bind(leaf: &mut NativeLeaf, coordinator: &Coordinator) {
             }
         }
     });
-    leaf.watch(&state.borrow().bindings.phase, {
+    leaf.watch(&bindings.phase, {
         let state = Rc::downgrade(state);
         move |_| {
             if let Some(state) = state.upgrade() {
