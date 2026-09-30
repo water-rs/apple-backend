@@ -136,6 +136,7 @@ impl SubView for VideoSubView {
 
 /// The bindings the coordinator watches and writes — lifted verbatim off
 /// `PlaybackConfiguration`.
+#[derive(Clone)]
 struct Bindings {
     source: Computed<MediaItem>,
     subtitle_selection: Binding<SubtitleSelection>,
@@ -217,6 +218,78 @@ enum SelectionKind {
     Video,
 }
 
+/// A side effect that must run with the state cell free: a binding write,
+/// an event emission, or a media-session push. Binding watchers fire
+/// synchronously on `set`, so writing a binding while `state` is borrowed
+/// reenters the cell — a `borrow_mut` on that stack panics. Methods
+/// compute and queue these under the borrow; [`update`] applies them
+/// after it is released.
+enum Deferred {
+    /// `bindings.phase`.
+    Phase(PlaybackPhase),
+    /// `bindings.position_seconds`.
+    PositionSeconds(f64),
+    /// `bindings.duration_seconds`.
+    DurationSeconds(f64),
+    /// `bindings.live_window`.
+    LiveWindow(Option<LiveWindow>),
+    /// `bindings.track_catalog`.
+    TrackCatalog(TrackCatalog),
+    /// `bindings.desired_playing`.
+    DesiredPlaying(bool),
+    /// `bindings.seek_target_seconds`.
+    SeekTargetSeconds(f64),
+    /// `bindings.seek_generation`.
+    SeekGeneration(u64),
+    /// `State::emit` — the app handler can write bindings, so it too must
+    /// run off the borrow.
+    Emit(Event),
+    /// `State::push_playback_state` — reads the bindings it reports, so it
+    /// must run after the queued writes above it.
+    PushPlaybackState,
+}
+
+/// Runs `f` with the state mutably borrowed, then applies the side
+/// effects it queued — binding writes, events, session pushes — with the
+/// cell free, so watchers and event handlers never reenter a borrow.
+///
+/// Applying can queue more work (a watcher may drive `update` itself), so
+/// the drain loops until empty.
+fn update(state: &Rc<RefCell<State>>, f: impl FnOnce(&mut State)) {
+    f(&mut state.borrow_mut());
+    loop {
+        let (deferred, bindings, handler) = {
+            let mut state = state.borrow_mut();
+            (
+                core::mem::take(&mut state.deferred),
+                state.bindings.clone(),
+                state.emit.clone(),
+            )
+        };
+        if deferred.is_empty() {
+            return;
+        }
+        for effect in deferred {
+            match effect {
+                Deferred::Phase(phase) => bindings.phase.set(phase),
+                Deferred::PositionSeconds(value) => bindings.position_seconds.set(value),
+                Deferred::DurationSeconds(value) => bindings.duration_seconds.set(value),
+                Deferred::LiveWindow(value) => bindings.live_window.set(value),
+                Deferred::TrackCatalog(value) => bindings.track_catalog.set(value),
+                Deferred::DesiredPlaying(value) => bindings.desired_playing.set(value),
+                Deferred::SeekTargetSeconds(value) => bindings.seek_target_seconds.set(value),
+                Deferred::SeekGeneration(value) => bindings.seek_generation.set(value),
+                Deferred::Emit(event) => {
+                    if let Some(handler) = &handler {
+                        handler.call(event);
+                    }
+                }
+                Deferred::PushPlaybackState => state.borrow_mut().push_playback_state(),
+            }
+        }
+    }
+}
+
 /// The coordinator's whole state; touched only on the main thread.
 #[allow(clippy::struct_excessive_bools)]
 struct State {
@@ -234,7 +307,7 @@ struct State {
     bindings: Bindings,
     playback_policy: PlaybackPolicy,
     loops: bool,
-    emit: Option<BoundVideoEventHandler>,
+    emit: Option<Rc<BoundVideoEventHandler>>,
     buffering: bool,
     buffering_since: Option<f64>,
     ducked: bool,
@@ -247,6 +320,9 @@ struct State {
     session: MediaSessionBridge,
     /// Whether the current item's end was already handled.
     ended: bool,
+    /// Binding writes, events, and session pushes queued while this cell
+    /// is borrowed; [`update`] applies them after it is released.
+    deferred: Vec<Deferred>,
 }
 
 impl core::fmt::Debug for State {
@@ -262,25 +338,56 @@ impl core::fmt::Debug for State {
 }
 
 impl State {
-    /// Emits an event to the view's handler, if one was bound.
-    fn emit(&self, event: Event) {
-        if let Some(handler) = &self.emit {
-            handler.call(event);
-        }
+    /// Queues an event for the view's handler — handlers can write
+    /// bindings, so delivery waits for [`update`] to release the borrow.
+    fn emit(&mut self, event: Event) {
+        self.deferred.push(Deferred::Emit(event));
     }
 
     /// Emits a non-fatal error event.
-    fn emit_error(&self, message: impl Into<String>) {
+    fn emit_error(&mut self, message: impl Into<String>) {
         self.emit(Event::Error {
             message: message.into(),
         });
     }
 
-    /// Writes the phase binding when it differs, keeping writes minimal.
-    fn set_phase(&self, phase: PlaybackPhase) {
-        if self.bindings.phase.snapshot() != phase {
-            self.bindings.phase.set(phase);
+    /// The phase the queued writes leave behind — the binding value when
+    /// nothing is queued.
+    fn effective_phase(&self) -> PlaybackPhase {
+        self.deferred
+            .iter()
+            .rev()
+            .find_map(|effect| match effect {
+                Deferred::Phase(phase) => Some(*phase),
+                _ => None,
+            })
+            .unwrap_or_else(|| self.bindings.phase.snapshot())
+    }
+
+    /// The desired-playing flag the queued writes leave behind.
+    fn effective_desired_playing(&self) -> bool {
+        self.deferred
+            .iter()
+            .rev()
+            .find_map(|effect| match effect {
+                Deferred::DesiredPlaying(desired) => Some(*desired),
+                _ => None,
+            })
+            .unwrap_or_else(|| self.bindings.desired_playing.snapshot())
+    }
+
+    /// Queues the phase write when it differs, keeping writes minimal.
+    /// The write itself lands once [`update`] releases the borrow.
+    fn set_phase(&mut self, phase: PlaybackPhase) {
+        if self.effective_phase() != phase {
+            self.deferred.push(Deferred::Phase(phase));
         }
+    }
+
+    /// Queues a media-session playback-state push; it reads the bindings
+    /// it reports, so it lands after the queued writes above it.
+    fn defer_push_playback_state(&mut self) {
+        self.deferred.push(Deferred::PushPlaybackState);
     }
 
     /// Effective output volume: the duck gate scales by `0.2`, per the Swift
@@ -318,10 +425,11 @@ impl State {
         self.buffering_since = None;
         self.last_buffer_level_ms = None;
         self.started_at = uptime_seconds();
-        self.bindings.duration_seconds.set(0.0);
-        self.bindings.position_seconds.set(0.0);
-        self.bindings.live_window.set(None);
-        self.bindings.track_catalog.set(TrackCatalog::default());
+        self.deferred.push(Deferred::DurationSeconds(0.0));
+        self.deferred.push(Deferred::PositionSeconds(0.0));
+        self.deferred.push(Deferred::LiveWindow(None));
+        self.deferred
+            .push(Deferred::TrackCatalog(TrackCatalog::default()));
         self.push_metadata(&media);
 
         if media.delivery == Delivery::Dash {
@@ -352,7 +460,7 @@ impl State {
         self.player
             .set_item(self.item.as_deref().map(PlayerItem::raw));
         self.apply_audio();
-        self.push_playback_state();
+        self.defer_push_playback_state();
     }
 
     /// The playback policy mirrored onto the item, per the Swift
@@ -395,7 +503,7 @@ impl State {
             let weak = self.weak.clone();
             move || {
                 if let Some(shared) = weak.upgrade() {
-                    shared.borrow_mut().status_did_change();
+                    update(&shared, Self::status_did_change);
                 }
             }
         });
@@ -403,7 +511,7 @@ impl State {
             let weak = self.weak.clone();
             move || {
                 if let Some(shared) = weak.upgrade() {
-                    shared.borrow_mut().buffer_did_change();
+                    update(&shared, Self::buffer_did_change);
                 }
             }
         });
@@ -411,7 +519,7 @@ impl State {
             let weak = self.weak.clone();
             move || {
                 if let Some(shared) = weak.upgrade() {
-                    shared.borrow_mut().buffer_did_change();
+                    update(&shared, Self::buffer_did_change);
                 }
             }
         });
@@ -419,7 +527,7 @@ impl State {
             let weak = self.weak.clone();
             move || {
                 if let Some(shared) = weak.upgrade() {
-                    shared.borrow_mut().update_live_window();
+                    update(&shared, Self::update_live_window);
                 }
             }
         });
@@ -427,7 +535,7 @@ impl State {
             let weak = self.weak.clone();
             move || {
                 if let Some(shared) = weak.upgrade() {
-                    shared.borrow_mut().update_live_window();
+                    update(&shared, Self::update_live_window);
                 }
             }
         });
@@ -435,7 +543,7 @@ impl State {
             let weak = self.weak.clone();
             move || {
                 if let Some(shared) = weak.upgrade() {
-                    shared.borrow_mut().item_did_end();
+                    update(&shared, Self::item_did_end);
                 }
             }
         });
@@ -461,7 +569,7 @@ impl State {
                 if self.bindings.desired_playing.snapshot() {
                     self.start_playing();
                 }
-                self.push_playback_state();
+                self.defer_push_playback_state();
             }
             ItemStatus::Failed => {
                 let message = item
@@ -469,7 +577,7 @@ impl State {
                     .unwrap_or_else(|| "AVPlayerItem failed without an error description".into());
                 self.emit_error(message);
                 self.set_phase(PlaybackPhase::Failed);
-                self.push_playback_state();
+                self.defer_push_playback_state();
             }
         }
     }
@@ -500,12 +608,12 @@ impl State {
                 },
             );
         }
-        self.push_playback_state();
+        self.defer_push_playback_state();
     }
 
     /// Periodic tick: position, duration, buffered level, metrics, live window.
     fn tick(&mut self, position: f64) {
-        self.bindings.position_seconds.set(position);
+        self.deferred.push(Deferred::PositionSeconds(position));
         if let Some(item) = self.item.clone() {
             self.report_duration(&item);
             self.update_live_window();
@@ -521,7 +629,7 @@ impl State {
                 metrics: self.metrics(&item, position),
             });
         }
-        self.push_playback_state();
+        self.defer_push_playback_state();
     }
 
     /// The backend-independent metrics snapshot for the current source.
@@ -542,19 +650,19 @@ impl State {
     }
 
     /// Duration write-back, guarding the indefinite case (`0` while unknown).
-    fn report_duration(&self, item: &PlayerItem) {
+    fn report_duration(&mut self, item: &PlayerItem) {
         if let Some(seconds) = item.duration_seconds()
             && seconds.is_finite()
             && seconds >= 0.0
         {
-            self.bindings.duration_seconds.set(seconds);
+            self.deferred.push(Deferred::DurationSeconds(seconds));
         }
     }
 
     /// Live-window write-back from the seekable ranges + recommended offset.
-    fn update_live_window(&self) {
+    fn update_live_window(&mut self) {
         let window = self.item.as_deref().and_then(live_window);
-        self.bindings.live_window.set(window);
+        self.deferred.push(Deferred::LiveWindow(window));
     }
 
     /// Loads both media-selection groups and the video variants, then merges
@@ -567,25 +675,27 @@ impl State {
             let weak = self.weak.clone();
             let guard = item.load_media_selection_group(characteristic, move |group, error| {
                 let Some(shared) = weak.upgrade() else { return };
-                let mut state = shared.borrow_mut();
-                if let Some(message) = error {
-                    state.emit_error(message);
-                    return;
-                }
-                let Some(group) = group else { return };
-                state.merge_catalog(kind, &group);
+                update(&shared, |state| {
+                    if let Some(message) = error {
+                        state.emit_error(message);
+                        return;
+                    }
+                    let Some(group) = group else { return };
+                    state.merge_catalog(kind, &group);
+                });
             });
             self.guards.push(guard);
         }
         let weak = self.weak.clone();
         let guard = item.load_video_variants(move |variants, error| {
             let Some(shared) = weak.upgrade() else { return };
-            let mut state = shared.borrow_mut();
-            if let Some(message) = error {
-                state.emit_error(message);
-                return;
-            }
-            state.merge_video_catalog(variants);
+            update(&shared, |state| {
+                if let Some(message) = error {
+                    state.emit_error(message);
+                    return;
+                }
+                state.merge_video_catalog(variants);
+            });
         });
         self.guards.push(guard);
     }
@@ -623,7 +733,7 @@ impl State {
             ),
             SelectionKind::Video => catalog,
         };
-        self.bindings.track_catalog.set(catalog);
+        self.deferred.push(Deferred::TrackCatalog(catalog));
         if matches!(kind, SelectionKind::Subtitle | SelectionKind::Audio) {
             self.reapply_selection(kind);
         }
@@ -658,7 +768,7 @@ impl State {
                 })
                 .collect(),
         );
-        self.bindings.track_catalog.set(catalog);
+        self.deferred.push(Deferred::TrackCatalog(catalog));
         self.reapply_selection(SelectionKind::Video);
     }
 
@@ -681,29 +791,30 @@ impl State {
         let guard =
             item.load_media_selection_group(MediaCharacteristic::Legible, move |group, error| {
                 let Some(shared) = weak.upgrade() else { return };
-                let state = shared.borrow();
-                if let Some(message) = error {
-                    state.emit_error(message);
-                    return;
-                }
-                let (Some(group), Some(item)) = (group, state.item.clone()) else {
-                    return;
-                };
-                match selection {
-                    SubtitleSelection::Auto => item.select_media_option_automatically(&group),
-                    SubtitleSelection::Off => item.select_media_option(None, &group),
-                    SubtitleSelection::Track(index) => {
-                        let options = media_options(&group);
-                        let Some(option) = options.get(index) else {
-                            state.emit_error(format!(
-                                "subtitle track {index} is out of range ({} options)",
-                                options.len()
-                            ));
-                            return;
-                        };
-                        item.select_media_option(Some(option), &group);
+                update(&shared, |state| {
+                    if let Some(message) = error {
+                        state.emit_error(message);
+                        return;
                     }
-                }
+                    let (Some(group), Some(item)) = (group, state.item.clone()) else {
+                        return;
+                    };
+                    match selection {
+                        SubtitleSelection::Auto => item.select_media_option_automatically(&group),
+                        SubtitleSelection::Off => item.select_media_option(None, &group),
+                        SubtitleSelection::Track(index) => {
+                            let options = media_options(&group);
+                            let Some(option) = options.get(index) else {
+                                state.emit_error(format!(
+                                    "subtitle track {index} is out of range ({} options)",
+                                    options.len()
+                                ));
+                                return;
+                            };
+                            item.select_media_option(Some(option), &group);
+                        }
+                    }
+                });
             });
         self.guards.push(guard);
     }
@@ -715,28 +826,29 @@ impl State {
         let guard =
             item.load_media_selection_group(MediaCharacteristic::Audible, move |group, error| {
                 let Some(shared) = weak.upgrade() else { return };
-                let state = shared.borrow();
-                if let Some(message) = error {
-                    state.emit_error(message);
-                    return;
-                }
-                let (Some(group), Some(item)) = (group, state.item.clone()) else {
-                    return;
-                };
-                match selection {
-                    AudioTrackSelection::Auto => item.select_media_option_automatically(&group),
-                    AudioTrackSelection::Track(index) => {
-                        let options = media_options(&group);
-                        let Some(option) = options.get(index) else {
-                            state.emit_error(format!(
-                                "audio track {index} is out of range ({} options)",
-                                options.len()
-                            ));
-                            return;
-                        };
-                        item.select_media_option(Some(option), &group);
+                update(&shared, |state| {
+                    if let Some(message) = error {
+                        state.emit_error(message);
+                        return;
                     }
-                }
+                    let (Some(group), Some(item)) = (group, state.item.clone()) else {
+                        return;
+                    };
+                    match selection {
+                        AudioTrackSelection::Auto => item.select_media_option_automatically(&group),
+                        AudioTrackSelection::Track(index) => {
+                            let options = media_options(&group);
+                            let Some(option) = options.get(index) else {
+                                state.emit_error(format!(
+                                    "audio track {index} is out of range ({} options)",
+                                    options.len()
+                                ));
+                                return;
+                            };
+                            item.select_media_option(Some(option), &group);
+                        }
+                    }
+                });
             });
         self.guards.push(guard);
     }
@@ -753,28 +865,29 @@ impl State {
                 let weak = self.weak.clone();
                 let guard = item.load_video_variants(move |mut variants, error| {
                     let Some(shared) = weak.upgrade() else { return };
-                    let state = shared.borrow();
-                    if let Some(message) = error {
-                        state.emit_error(message);
-                        return;
-                    }
-                    variants.sort_by(|a, b| {
-                        variant_quality(a)
-                            .partial_cmp(&variant_quality(b))
-                            .unwrap_or(core::cmp::Ordering::Equal)
+                    update(&shared, |state| {
+                        if let Some(message) = error {
+                            state.emit_error(message);
+                            return;
+                        }
+                        variants.sort_by(|a, b| {
+                            variant_quality(a)
+                                .partial_cmp(&variant_quality(b))
+                                .unwrap_or(core::cmp::Ordering::Equal)
+                        });
+                        let Some(variant) = variants.get(index) else {
+                            state.emit_error(format!(
+                                "video track {index} is out of range ({} variants)",
+                                variants.len()
+                            ));
+                            return;
+                        };
+                        let Some(item) = &state.item else { return };
+                        item.set_preferred_peak_bit_rate(variant_declared_bit_rate(variant));
+                        item.set_preferred_maximum_resolution(
+                            variant_presentation_size(variant).unwrap_or(CocoaSize::new(0.0, 0.0)),
+                        );
                     });
-                    let Some(variant) = variants.get(index) else {
-                        state.emit_error(format!(
-                            "video track {index} is out of range ({} variants)",
-                            variants.len()
-                        ));
-                        return;
-                    };
-                    let Some(item) = &state.item else { return };
-                    item.set_preferred_peak_bit_rate(variant_declared_bit_rate(variant));
-                    item.set_preferred_maximum_resolution(
-                        variant_presentation_size(variant).unwrap_or(CocoaSize::new(0.0, 0.0)),
-                    );
                 });
                 self.guards.push(guard);
             }
@@ -791,8 +904,8 @@ impl State {
         let target = self.bindings.seek_target_seconds.snapshot();
         let clamped = self.clamp_seek(target);
         self.player.seek_to_seconds(clamped);
-        self.bindings.position_seconds.set(clamped);
-        self.push_playback_state();
+        self.deferred.push(Deferred::PositionSeconds(clamped));
+        self.defer_push_playback_state();
     }
 
     /// The Swift clamp: last seekable range, else `[0, duration]`.
@@ -846,11 +959,11 @@ impl State {
             self.start_playing();
         } else {
             self.player.pause();
-            if self.bindings.phase.snapshot() == PlaybackPhase::Playing {
+            if self.effective_phase() == PlaybackPhase::Playing {
                 self.set_phase(PlaybackPhase::Paused);
             }
         }
-        self.push_playback_state();
+        self.defer_push_playback_state();
     }
 
     /// Plays at the requested rate — `rate` zero falls back to `play()`.
@@ -882,11 +995,11 @@ impl State {
             if self.controller.next().is_err() {
                 self.set_phase(PlaybackPhase::Ended);
             }
-            self.push_playback_state();
+            self.defer_push_playback_state();
             return;
         }
         self.set_phase(PlaybackPhase::Ended);
-        self.push_playback_state();
+        self.defer_push_playback_state();
     }
 
     /// The media-session metadata push, dedup'd — the Swift
@@ -998,11 +1111,11 @@ impl State {
     #[allow(clippy::needless_pass_by_value)]
     fn handle_media_command(&mut self, command: MediaCommand) {
         match command {
-            MediaCommand::Play => self.bindings.desired_playing.set(true),
-            MediaCommand::Pause => self.bindings.desired_playing.set(false),
+            MediaCommand::Play => self.deferred.push(Deferred::DesiredPlaying(true)),
+            MediaCommand::Pause => self.deferred.push(Deferred::DesiredPlaying(false)),
             MediaCommand::PlayPause => {
-                let playing = self.bindings.phase.snapshot() == PlaybackPhase::Playing;
-                self.bindings.desired_playing.set(!playing);
+                let playing = self.effective_phase() == PlaybackPhase::Playing;
+                self.deferred.push(Deferred::DesiredPlaying(!playing));
             }
             MediaCommand::Stop => {
                 self.ducked = false;
@@ -1022,11 +1135,10 @@ impl State {
                 }
             }
             MediaCommand::Seek(position) => {
-                self.bindings
-                    .seek_target_seconds
-                    .set(position.as_secs_f64());
+                self.deferred
+                    .push(Deferred::SeekTargetSeconds(position.as_secs_f64()));
                 let next = self.bindings.seek_generation.snapshot().wrapping_add(1);
-                self.bindings.seek_generation.set(next);
+                self.deferred.push(Deferred::SeekGeneration(next));
             }
             MediaCommand::SeekForward(delta) => self.seek_relative(delta.as_secs_f64()),
             MediaCommand::SeekBackward(delta) => self.seek_relative(-delta.as_secs_f64()),
@@ -1035,42 +1147,41 @@ impl State {
                 self.apply_audio();
                 if self.resume_after_transient_loss {
                     self.resume_after_transient_loss = false;
-                    self.bindings.desired_playing.set(true);
+                    self.deferred.push(Deferred::DesiredPlaying(true));
                 }
             }
             MediaCommand::AudioFocusLost => {
                 self.ducked = false;
                 self.apply_audio();
-                self.bindings.desired_playing.set(false);
+                self.deferred.push(Deferred::DesiredPlaying(false));
                 self.resume_after_transient_loss = false;
             }
             MediaCommand::AudioFocusLostTransient => {
-                if self.bindings.phase.snapshot() == PlaybackPhase::Playing {
+                if self.effective_phase() == PlaybackPhase::Playing {
                     self.resume_after_transient_loss = true;
                 }
-                self.bindings.desired_playing.set(false);
+                self.deferred.push(Deferred::DesiredPlaying(false));
             }
             MediaCommand::AudioFocusLostDuck => {
                 self.ducked = true;
                 self.apply_audio();
             }
             MediaCommand::AudioBecomingNoisy => {
-                self.bindings.desired_playing.set(false);
+                self.deferred.push(Deferred::DesiredPlaying(false));
             }
             _ => {}
         }
-        self.apply_desired_playing(self.bindings.desired_playing.snapshot());
+        self.apply_desired_playing(self.effective_desired_playing());
     }
 
     /// Position ± delta, committed through the seek bindings like the Swift
     /// `SeekForward`/`SeekBackward` branches did.
-    fn seek_relative(&self, delta: f64) {
+    fn seek_relative(&mut self, delta: f64) {
         let position = self.bindings.position_seconds.snapshot();
-        self.bindings
-            .seek_target_seconds
-            .set((position + delta).max(0.0));
+        self.deferred
+            .push(Deferred::SeekTargetSeconds((position + delta).max(0.0)));
         let next = self.bindings.seek_generation.snapshot().wrapping_add(1);
-        self.bindings.seek_generation.set(next);
+        self.deferred.push(Deferred::SeekGeneration(next));
     }
 
     /// Full teardown — the Swift coordinator's `deinit`: player released,
@@ -1099,7 +1210,7 @@ fn pump_media_commands(
         let bound = bound.clone();
         main_queue::enqueue(move |mtm| {
             if let Some(shared) = bound.get(mtm).upgrade() {
-                shared.borrow_mut().handle_media_command(command);
+                update(&shared, |state| state.handle_media_command(command));
             }
         });
     }
@@ -1226,7 +1337,7 @@ impl core::fmt::Debug for Coordinator {
 
 impl Drop for Coordinator {
     fn drop(&mut self) {
-        self.state.borrow_mut().teardown();
+        update(&self.state, State::teardown);
     }
 }
 
@@ -1274,7 +1385,8 @@ fn coordinator(
         },
         playback_policy: playback.playback_policy,
         loops,
-        emit: playback.on_event,
+        emit: playback.on_event.map(Rc::new),
+        deferred: Vec::new(),
         buffering: false,
         buffering_since: None,
         ducked: false,
@@ -1295,17 +1407,18 @@ fn coordinator(
         let state = Rc::downgrade(&state);
         move || {
             if let Some(state) = state.upgrade() {
-                let mut state = state.borrow_mut();
-                match state.player.time_control_status() {
-                    TimeControlStatus::Playing => state.set_phase(PlaybackPhase::Playing),
-                    TimeControlStatus::Paused => {
-                        if !state.buffering {
-                            state.set_phase(PlaybackPhase::Paused);
+                update(&state, |state| {
+                    match state.player.time_control_status() {
+                        TimeControlStatus::Playing => state.set_phase(PlaybackPhase::Playing),
+                        TimeControlStatus::Paused => {
+                            if !state.buffering {
+                                state.set_phase(PlaybackPhase::Paused);
+                            }
                         }
+                        TimeControlStatus::WaitingToPlay => state.buffer_did_change(),
                     }
-                    TimeControlStatus::WaitingToPlay => state.buffer_did_change(),
-                }
-                state.push_playback_state();
+                    state.defer_push_playback_state();
+                });
             }
         }
     });
@@ -1313,9 +1426,10 @@ fn coordinator(
         let state = Rc::downgrade(&state);
         move || {
             if let Some(state) = state.upgrade() {
-                let state = state.borrow();
-                state.emit(Event::ExternalPlaybackChanged {
-                    active: state.player.is_external_playback_active(),
+                update(&state, |state| {
+                    state.emit(Event::ExternalPlaybackChanged {
+                        active: state.player.is_external_playback_active(),
+                    });
                 });
             }
         }
@@ -1324,7 +1438,7 @@ fn coordinator(
         let state = Rc::downgrade(&state);
         move |position| {
             if let Some(state) = state.upgrade() {
-                state.borrow_mut().tick(position);
+                update(&state, |state| state.tick(position));
             }
         }
     });
@@ -1342,7 +1456,7 @@ fn bind(leaf: &mut NativeLeaf, coordinator: &Coordinator) {
         let state = Rc::downgrade(state);
         move |change| {
             if let Some(state) = state.upgrade() {
-                state.borrow_mut().load(change.into_value());
+                update(&state, |state| state.load(change.into_value()));
             }
         }
     });
@@ -1350,7 +1464,9 @@ fn bind(leaf: &mut NativeLeaf, coordinator: &Coordinator) {
         let state = Rc::downgrade(state);
         move |change| {
             if let Some(state) = state.upgrade() {
-                state.borrow_mut().apply_desired_playing(*change.value());
+                update(&state, |state| {
+                    state.apply_desired_playing(*change.value());
+                });
             }
         }
     });
@@ -1393,7 +1509,7 @@ fn bind(leaf: &mut NativeLeaf, coordinator: &Coordinator) {
         let state = Rc::downgrade(state);
         move |change| {
             if let Some(state) = state.upgrade() {
-                state.borrow_mut().apply_seek(*change.value());
+                update(&state, |state| state.apply_seek(*change.value()));
             }
         }
     });
@@ -1401,7 +1517,7 @@ fn bind(leaf: &mut NativeLeaf, coordinator: &Coordinator) {
         let state = Rc::downgrade(state);
         move |change| {
             if let Some(state) = state.upgrade() {
-                state.borrow_mut().apply_step(true, *change.value());
+                update(&state, |state| state.apply_step(true, *change.value()));
             }
         }
     });
@@ -1409,7 +1525,7 @@ fn bind(leaf: &mut NativeLeaf, coordinator: &Coordinator) {
         let state = Rc::downgrade(state);
         move |change| {
             if let Some(state) = state.upgrade() {
-                state.borrow_mut().apply_step(false, *change.value());
+                update(&state, |state| state.apply_step(false, *change.value()));
             }
         }
     });
@@ -1419,7 +1535,7 @@ fn bind(leaf: &mut NativeLeaf, coordinator: &Coordinator) {
             if let Some(state) = state.upgrade()
                 && let Some(item) = state.borrow().item.clone()
             {
-                state.borrow_mut().apply_subtitle_selection(&item);
+                update(&state, |state| state.apply_subtitle_selection(&item));
             }
         }
     });
@@ -1429,7 +1545,7 @@ fn bind(leaf: &mut NativeLeaf, coordinator: &Coordinator) {
             if let Some(state) = state.upgrade()
                 && let Some(item) = state.borrow().item.clone()
             {
-                state.borrow_mut().apply_audio_track_selection(&item);
+                update(&state, |state| state.apply_audio_track_selection(&item));
             }
         }
     });
@@ -1439,7 +1555,7 @@ fn bind(leaf: &mut NativeLeaf, coordinator: &Coordinator) {
             if let Some(state) = state.upgrade()
                 && let Some(item) = state.borrow().item.clone()
             {
-                state.borrow_mut().apply_video_track_selection(&item);
+                update(&state, |state| state.apply_video_track_selection(&item));
             }
         }
     });
@@ -1481,12 +1597,11 @@ fn render_video(config: NativeVideoConfig, ctx: &RenderContext<'_>) -> NativeLea
     let surface = PlayerLayerView::new(mtm, gravity(config.content_mode));
     let (coordinator, player) = coordinator(mtm, config.playback, config.loops);
     surface.set_player(Some(&player));
-    coordinator
-        .state
-        .borrow()
-        .emit(Event::PlaybackOutputPathChanged {
+    update(&coordinator.state, |state| {
+        state.emit(Event::PlaybackOutputPathChanged {
             path: PlaybackOutputPath::PlatformManaged,
         });
+    });
 
     let mut leaf = NativeLeaf::new(
         surface.view(),
@@ -1514,20 +1629,19 @@ fn render_video_player(config: NativeVideoPlayerConfig, ctx: &RenderContext<'_>)
     view.set_allows_picture_in_picture(true);
     let (coordinator, player) = coordinator(mtm, config.playback, false);
     view.set_player(Some(&player));
-    coordinator
-        .state
-        .borrow()
-        .emit(Event::PlaybackOutputPathChanged {
+    update(&coordinator.state, |state| {
+        state.emit(Event::PlaybackOutputPathChanged {
             path: PlaybackOutputPath::PlatformManaged,
         });
+    });
     view.set_pip_handler({
         let state = Rc::downgrade(&coordinator.state);
         move |event| {
             if let Some(state) = state.upgrade() {
                 let active = matches!(event, PipEvent::Started);
-                state
-                    .borrow()
-                    .emit(Event::PictureInPictureChanged { active });
+                update(&state, |state| {
+                    state.emit(Event::PictureInPictureChanged { active });
+                });
             }
         }
     });
