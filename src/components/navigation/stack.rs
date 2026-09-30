@@ -117,8 +117,8 @@ mod platform {
     use waterui::Str;
     use waterui::navigation::{
         AnyNavigationTransition, NativeNavigationTransition, NavigationController,
-        NavigationDestinationState, NavigationTitleDisplayMode, NavigationTransaction,
-        NavigationTransactionId, NavigationView,
+        NavigationDestinationState, NavigationSearch, NavigationTitleDisplayMode,
+        NavigationTransaction, NavigationTransactionId, NavigationView,
     };
     use waterui::reactive::Signal;
     use waterui_core::layout::ProposalSize;
@@ -329,29 +329,7 @@ mod platform {
                 }));
             }
             if let Some(search) = bar.search.as_ref() {
-                page.search = Some(NavSearch {
-                    placeholder: search_prompt(search, ctx.env())
-                        .snapshot()
-                        .to_plain()
-                        .to_string(),
-                    text: search.text.snapshot().to_string(),
-                    // SwiftUI's `.searchable` draws the pill stacked under
-                    // the title on iPhone; `.automatic` is `.integrated` on
-                    // iOS 26, which hides inside the (hidden) toolbar.
-                    placement: cocoa_ui::uikit::SearchBarPlacement::Stacked,
-                });
-                let binding = search.text.clone();
-                controller.set_search_change_handler(move |text| {
-                    binding.set(Str::from(text));
-                });
-                let target = controller.clone();
-                keep.bind(&search.text.clone(), move |text| {
-                    target.set_search_text(text.as_ref());
-                });
-                let target = controller.clone();
-                keep.bind(&search_prompt(search, ctx.env()), move |prompt| {
-                    target.set_search_placeholder(&prompt.to_plain());
-                });
+                page.search = Some(attach_search(search, ctx.env(), &controller, &mut keep));
             }
             page.hidden = bar.hidden.snapshot();
             controller.set_page(&page);
@@ -540,6 +518,37 @@ mod platform {
                 removed,
             });
         }
+    }
+
+    /// The page's search config plus the live bindings that keep the
+    /// drawer's text and placeholder signals flowing both ways.
+    fn attach_search(
+        search: &NavigationSearch,
+        env: &Environment,
+        controller: &Retained<NavContentController>,
+        keep: &mut KeepAlive,
+    ) -> NavSearch {
+        let config = NavSearch {
+            placeholder: search_prompt(search, env).snapshot().to_plain().to_string(),
+            text: search.text.snapshot().to_string(),
+            // `.integrated` hides the pill; scroll tracking never attaches
+            // here, so the bar stays pinned.
+            placement: cocoa_ui::uikit::SearchBarPlacement::Stacked,
+            hides_when_scrolling: false,
+        };
+        let binding = search.text.clone();
+        controller.set_search_change_handler(move |text| {
+            binding.set(Str::from(text));
+        });
+        let target = controller.clone();
+        keep.bind(&search.text.clone(), move |text| {
+            target.set_search_text(text.as_ref());
+        });
+        let target = controller.clone();
+        keep.bind(&search_prompt(search, env), move |prompt| {
+            target.set_search_placeholder(&prompt.to_plain());
+        });
+        config
     }
 }
 
