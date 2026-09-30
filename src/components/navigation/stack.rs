@@ -551,14 +551,20 @@ mod platform {
         let config = NavSearch {
             placeholder: search_prompt(search, env).snapshot().to_plain().to_string(),
             text: search.text.snapshot().to_string(),
+            placement: None,
+            hides_when_scrolling: None,
             // On iOS 26 every resolved placement rests the integrated bar
-            // at zero height under a `UITabBarController` — the reference's
-            // collapsed capsule is SwiftUI's own `UIKitSearchBar` mounted as
-            // a nav-bar subview, which plain `UIKit` never produces. Until
-            // that capsule is mounted manually, pinning `hides` keeps the
-            // expanded bar in the same slot — visibly nearer than nothing.
-            placement: Some(cocoa_ui::uikit::SearchBarPlacement::Stacked),
-            hides_when_scrolling: Some(false),
+            // at zero height under a `UITabBarController`, and `SwiftUI`'s
+            // collapsed capsule is its own `UIKitSearchBar` mounted in the
+            // slot — `UIKit` never produces it. Mount one at the measured
+            // geometry: a 40.67pt slot carrying a 24.67pt pill field,
+            // 27.5pt in from each edge.
+            custom_bar: Some(cocoa_ui::uikit::SearchBarMetrics {
+                slot_height: 40.67,
+                field_height: 24.67,
+                field_inset: 27.5,
+                field_y: 1.0,
+            }),
         };
         let binding = search.text.clone();
         controller.set_search_change_handler(move |text| {
