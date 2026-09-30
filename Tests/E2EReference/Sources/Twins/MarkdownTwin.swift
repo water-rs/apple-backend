@@ -22,11 +22,18 @@ import SwiftUI
 
 struct MarkdownTwin: View {
     var body: some View {
-        // The example's `zstack`: the document scroll under a padded overlay
-        // column — `hstack((button("Find"), spacer()))` on top, the search bar
-        // row `when` hides while closed, and a trailing `spacer()`.
-        ZStack {
-            ScrollView {
+        // The example's column: `hstack((button("Find"), spacer()))` above a
+        // `zstack` whose top layer is the `when`-hidden search row — the
+        // Find control never overlays the document; only the open panel does.
+        VStack(spacing: 10) {
+            HStack {
+                Button("Find") {}
+                Spacer()
+            }
+            .padding(EdgeInsets(top: 14, leading: 14, bottom: 0, trailing: 14))
+
+            ZStack {
+                ScrollView {
             VStack(alignment: .leading, spacing: 10) {
                 Text("WaterUI Markdown").font(.title).fontWeight(.bold)
                 Text("WaterUI supports rendering **Markdown** content natively across all platforms.")
@@ -103,22 +110,18 @@ struct MarkdownTwin: View {
 
                 Text("Visit [WaterUI on GitHub](https://github.com/water-rs/waterui) for more information.")
             }
-            // `padding_with([52, 14, 14, 14])` — the deeper top inset reserves
-            // the height the floating Find row occupies.
-            .padding(EdgeInsets(top: 52, leading: 14, bottom: 14, trailing: 14))
+            .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            // The overlay's `.padding()`: `button("Find")` leading, the
-            // rest of the column empty while the search row is closed.
-            VStack {
-                HStack {
-                    Button("Find") {}
+                // `vstack((when(open, search_bar), spacer())).padding()` —
+                // the search row contributes nothing while the panel is
+                // closed, so the overlay column is just a spacer.
+                VStack {
                     Spacer()
                 }
-                Spacer()
+                .padding()
             }
-            .padding()
         }
     }
 
