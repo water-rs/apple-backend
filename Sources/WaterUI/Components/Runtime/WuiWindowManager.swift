@@ -48,6 +48,9 @@ private let showWindowImpl: @convention(c) (UnsafeMutableRawPointer?, WuiWindow)
         services.windowManager.showWindow(invocation.window, env: env)
       }
     #else
+      // iOS ignores the window API's Maximized state, level, attention and
+      // resize increments along with multi-window itself: a scene is a
+      // single full-screen surface with no stacking between applications.
       fatalError("WaterUI multi-window is unsupported on iOS")
     #endif
   }
@@ -71,6 +74,14 @@ private let showWindowImpl: @convention(c) (UnsafeMutableRawPointer?, WuiWindow)
     var maxSizeObservation: WuiComputedObservation<CWaterUI.WuiSize>?
     var backgroundObservation: WuiComputedObservation<WuiResolvedColor>?
 
+    var levelObservation: WuiComputedObservation<CWaterUI.WuiWindowLevel>?
+    var attentionBinding: WuiBinding<CWaterUI.WuiUserAttention>?
+    var attentionWatcher: WatcherGuard?
+    /// The outstanding `NSApp.requestUserAttention` token, kept so the
+    /// request can be cancelled when it is spent or withdrawn.
+    var attentionRequest: Int?
+    var resizeIncrementsObservation: WuiComputedObservation<CWaterUI.WuiSize>?
+
     func stopWatchers() {
       titleObservation = nil
       frameWatcher = nil
@@ -78,6 +89,10 @@ private let showWindowImpl: @convention(c) (UnsafeMutableRawPointer?, WuiWindow)
       minSizeObservation = nil
       maxSizeObservation = nil
       backgroundObservation = nil
+      levelObservation = nil
+      attentionWatcher = nil
+      resizeIncrementsObservation = nil
+      cancelAttentionRequest()
     }
 
     @MainActor deinit {
@@ -135,6 +150,8 @@ private let showWindowImpl: @convention(c) (UnsafeMutableRawPointer?, WuiWindow)
           window.deminiaturize(nil)
         } else if window.styleMask.contains(.fullScreen) {
           window.toggleFullScreen(nil)
+        } else if window.isZoomed {
+          window.zoom(nil)
         }
       case WuiWindowState_Closed:
         window.close()
@@ -142,12 +159,53 @@ private let showWindowImpl: @convention(c) (UnsafeMutableRawPointer?, WuiWindow)
         if !window.isMiniaturized {
           window.miniaturize(nil)
         }
+      case WuiWindowState_Maximized:
+        // `zoom` is the macOS maximize: the window fills its screen's
+        // visible frame, keeping the menu bar and dock.
+        if !window.isZoomed {
+          window.zoom(nil)
+        }
       case WuiWindowState_Fullscreen:
         if !window.styleMask.contains(.fullScreen) {
           window.toggleFullScreen(nil)
         }
       default:
         fatalError("Unsupported Window state: \(state.rawValue)")
+      }
+    }
+
+    /// Applies the pending user-attention request: a dock-icon bounce on
+    /// macOS. `WuiUserAttention_None` withdraws an outstanding one.
+    func applyAttention(_ request: WuiUserAttention) {
+      cancelAttentionRequest()
+      switch request {
+      case WuiUserAttention_None:
+        break
+      case WuiUserAttention_Informational:
+        attentionRequest = NSApp.requestUserAttention(.informationalRequest)
+      case WuiUserAttention_Critical:
+        attentionRequest = NSApp.requestUserAttention(.criticalRequest)
+      default:
+        fatalError("Unsupported user attention: \(request.rawValue)")
+      }
+    }
+
+    /// The window gained focus: any attention request is spent. The contract
+    /// hands the binding back as `None`, and the NSApplication request is
+    /// cancelled with it.
+    func settleAttention() {
+      cancelAttentionRequest()
+      guard let attentionBinding else {
+        fatalError("Window attention binding was not installed")
+      }
+      guard attentionBinding.value != WuiUserAttention_None else { return }
+      attentionBinding.set(WuiUserAttention_None)
+    }
+
+    private func cancelAttentionRequest() {
+      if let attentionRequest {
+        NSApp.cancelUserAttentionRequest(attentionRequest)
+        self.attentionRequest = nil
       }
     }
 
@@ -352,6 +410,54 @@ func installWindowManager(env: OpaquePointer, services: WuiNativeServices) {
         )
       }
 
+      // Window::level: where the window stacks relative to other
+      // applications' windows.
+      guard let rawLevel = wuiWindow.level else {
+        fatalError("Window level signal is null")
+      }
+      let levelObservation = WuiComputedObservation(
+        WuiComputed<CWaterUI.WuiWindowLevel>(
+          OpaquePointer(UnsafeMutableRawPointer(rawLevel))
+        )
+      ) { [weak window] level, _ in
+        window?.level = level == WuiWindowLevel_AlwaysOnTop ? .floating : .normal
+      }
+      resources.levelObservation = levelObservation
+      window.level = levelObservation.value == WuiWindowLevel_AlwaysOnTop ? .floating : .normal
+
+      // Window::attention: the pending user-attention request. A write asks
+      // for the dock bounce; the delegate's `windowDidBecomeKey` settles it
+      // back to `None` once the window is focused.
+      guard let rawAttention = wuiWindow.attention else {
+        fatalError("Window attention binding is null")
+      }
+      let attentionBinding = WuiBinding<CWaterUI.WuiUserAttention>(
+        OpaquePointer(UnsafeMutableRawPointer(rawAttention))
+      )
+      resources.attentionBinding = attentionBinding
+      resources.attentionWatcher = attentionBinding.watch { [weak resources] request, _ in
+        resources?.applyAttention(request)
+      }
+      resources.applyAttention(attentionBinding.value)
+
+      // Window::resize_increments: the steps the content size moves in while
+      // the user resizes.
+      if let rawIncrements = wuiWindow.resize_increments {
+        let observation = WuiComputedObservation(
+          WuiComputed<CWaterUI.WuiSize>(
+            OpaquePointer(UnsafeMutableRawPointer(rawIncrements))
+          )
+        ) { [weak window] size, _ in
+          window?.contentResizeIncrements = NSSize(
+            width: CGFloat(size.width), height: CGFloat(size.height))
+        }
+        resources.resizeIncrementsObservation = observation
+        let size = observation.value
+        window.contentResizeIncrements = NSSize(
+          width: CGFloat(size.width), height: CGFloat(size.height)
+        )
+      }
+
       // Track the window
       activeWindows.append(window)
 
@@ -523,6 +629,19 @@ func installWindowManager(env: OpaquePointer, services: WuiNativeServices) {
         fatalError("Window resize notification has no NSWindow")
       }
       resources?.publishFrame(of: window)
+      // A zoom or unzoom through the window chrome arrives as this resize:
+      // publish the maximized flag so `Window::state` tracks the real
+      // window. Fullscreen transitions own their own notifications.
+      if !window.isMiniaturized && !window.styleMask.contains(.fullScreen) {
+        resources?.publishState(
+          window.isZoomed ? WuiWindowState_Maximized : WuiWindowState_Normal)
+      }
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+      // Focus settled the request: write `None` back per the contract and
+      // stop the dock bounce.
+      resources?.settleAttention()
     }
 
     func windowDidMiniaturize(_ notification: Notification) {
@@ -629,6 +748,50 @@ func installWindowManager(env: OpaquePointer, services: WuiNativeServices) {
       resources.stateBinding = stateBinding
       resources.stateWatcher = stateBinding.watch { [weak resources] state, _ in
         resources?.applyState(state)
+      }
+
+      // Level, attention and resize increments bind the same way as on a
+      // manager-created window — the host owns the NSWindow but the
+      // declaration drives these attributes.
+      guard let rawLevel = declaration.level else {
+        fatalError("Main window level signal is null")
+      }
+      let levelObservation = WuiComputedObservation(
+        WuiComputed<CWaterUI.WuiWindowLevel>(
+          OpaquePointer(UnsafeMutableRawPointer(rawLevel))
+        )
+      ) { [weak window] level, _ in
+        window?.level = level == WuiWindowLevel_AlwaysOnTop ? .floating : .normal
+      }
+      resources.levelObservation = levelObservation
+      window.level = levelObservation.value == WuiWindowLevel_AlwaysOnTop ? .floating : .normal
+
+      guard let rawAttention = declaration.attention else {
+        fatalError("Main window attention binding is null")
+      }
+      let attentionBinding = WuiBinding<CWaterUI.WuiUserAttention>(
+        OpaquePointer(UnsafeMutableRawPointer(rawAttention))
+      )
+      resources.attentionBinding = attentionBinding
+      resources.attentionWatcher = attentionBinding.watch { [weak resources] request, _ in
+        resources?.applyAttention(request)
+      }
+      resources.applyAttention(attentionBinding.value)
+
+      if let rawIncrements = declaration.resizeIncrements {
+        let observation = WuiComputedObservation(
+          WuiComputed<CWaterUI.WuiSize>(
+            OpaquePointer(UnsafeMutableRawPointer(rawIncrements))
+          )
+        ) { [weak window] size, _ in
+          window?.contentResizeIncrements = NSSize(
+            width: CGFloat(size.width), height: CGFloat(size.height))
+        }
+        resources.resizeIncrementsObservation = observation
+        let size = observation.value
+        window.contentResizeIncrements = NSSize(
+          width: CGFloat(size.width), height: CGFloat(size.height)
+        )
       }
 
       // The host owns this window's lifetime, so closing it is the host's

@@ -197,6 +197,27 @@ extension WuiComputed where T == Float {
   }
 }
 
+extension WuiComputed where T == CWaterUI.WuiWindowLevel {
+  convenience init(_ inner: OpaquePointer) {
+    self.init(
+      inner: inner,
+      read: waterui_read_computed_window_level,
+      watch: { inner, f in
+        guard
+          let guardPointer = waterui_watch_computed_window_level(
+            inner,
+            makeWindowLevelWatcher(f)
+          )
+        else {
+          fatalError("Failed to watch the window-level signal")
+        }
+        return WatcherGuard(guardPointer)
+      },
+      drop: waterui_drop_computed_window_level
+    )
+  }
+}
+
 extension WuiComputed where T == CWaterUI.WuiSize {
   convenience init(_ inner: OpaquePointer) {
     self.init(
