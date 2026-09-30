@@ -91,6 +91,12 @@ pub struct NativeLeaf {
     keepalive: KeepAlive,
     layout: Rc<dyn SubView>,
     view: Retained<PlatformView>,
+    /// The view controller `view` is the root view of, once [`mount`] has
+    /// parented it under the controller enclosing the parent — `UIKit`
+    /// only forwards appearance and layout callbacks down a real
+    /// containment chain.
+    #[cfg(target_os = "ios")]
+    attached_controller: Option<Retained<cocoa_ui::objc2_ui_kit::UIViewController>>,
 }
 
 impl fmt::Debug for NativeLeaf {
@@ -109,6 +115,8 @@ impl NativeLeaf {
             keepalive: KeepAlive::default(),
             layout: Rc::new(crate::measure_memo::MemoizingSubView::new(Box::new(layout))),
             view: cocoa_ui::view::retain_base(view),
+            #[cfg(target_os = "ios")]
+            attached_controller: None,
         }
     }
 
@@ -167,10 +175,42 @@ impl NativeLeaf {
     /// Adds this leaf's view to `parent` and returns the handle that owns
     /// both; dropping the handle removes the view and releases the leaf.
     #[must_use]
-    pub fn mount(self, parent: &PlatformView) -> Mounted {
+    #[cfg_attr(
+        not(target_os = "ios"),
+        expect(unused_mut, reason = "mount mutates only on iOS")
+    )]
+    pub fn mount(mut self, parent: &PlatformView) -> Mounted {
         Self::install_intrinsic_measure(&self.view, &self.layout);
+        #[cfg(target_os = "ios")]
+        {
+            self.attached_controller = attach_controller(parent, &self.view);
+        }
         cocoa_ui::view::add_subview(parent, &self.view);
+        #[cfg(target_os = "ios")]
+        if let Some(controller) = &self.attached_controller {
+            cocoa_ui::uikit::view_controller::did_move_to_parent(controller);
+        }
         Mounted(Some(self))
+    }
+
+    /// Detaches the view — ending `UIKit` containment first when `mount`
+    /// established it — and hands the leaf back, for moving it elsewhere.
+    #[cfg_attr(
+        not(target_os = "ios"),
+        expect(
+            clippy::needless_pass_by_ref_mut,
+            reason = "the contained-controller take is iOS-only"
+        )
+    )]
+    fn detach(&mut self) {
+        #[cfg(target_os = "ios")]
+        if let Some(controller) = self.attached_controller.take() {
+            cocoa_ui::uikit::view_controller::will_move_to_parent(&controller);
+            cocoa_ui::view::remove_from_superview(&self.view);
+            cocoa_ui::uikit::view_controller::remove_from_parent(&controller);
+            return;
+        }
+        cocoa_ui::view::remove_from_superview(&self.view);
     }
 
     /// A leaf built from a `WateruiSubView` that crossed the seam: `view` is
@@ -182,6 +222,8 @@ impl NativeLeaf {
                 SeamSubView::new(&view, layout),
             ))),
             view,
+            #[cfg(target_os = "ios")]
+            attached_controller: None,
         }
     }
 
@@ -273,19 +315,39 @@ impl Mounted {
     /// When called on a `Mounted` that is already unmounting.
     #[must_use]
     pub fn unmount(mut self) -> NativeLeaf {
-        let leaf = self.0.take().expect("a live Mounted");
-        cocoa_ui::view::remove_from_superview(leaf.view());
+        let mut leaf = self.0.take().expect("a live Mounted");
+        leaf.detach();
         leaf
     }
 }
 
 impl Drop for Mounted {
     fn drop(&mut self) {
-        if let Some(leaf) = self.0.take() {
-            cocoa_ui::view::remove_from_superview(leaf.view());
+        if let Some(mut leaf) = self.0.take() {
+            leaf.detach();
             drop(leaf);
         }
     }
+}
+
+/// Parents `view`'s owning `UIViewController` under the controller whose
+/// hierarchy contains `parent`, when both exist and differ. Without the
+/// containment chain `UIKit` never calls `viewWillLayoutSubviews` or the
+/// appearance callbacks on the embedded controller — a `UISearchController`
+/// installed on its `navigationItem` then collapses to zero height.
+#[cfg(target_os = "ios")]
+fn attach_controller(
+    parent: &PlatformView,
+    view: &PlatformView,
+) -> Option<Retained<cocoa_ui::objc2_ui_kit::UIViewController>> {
+    use cocoa_ui::uikit::view_controller::{add_child, enclosing_controller, owning_controller};
+    let child = owning_controller(view)?;
+    let enclosing = enclosing_controller(parent)?;
+    if Retained::as_ptr(&child) == Retained::as_ptr(&enclosing) {
+        return None;
+    }
+    add_child(&enclosing, &child);
+    Some(child)
 }
 
 /// What a handler sees while it renders.
