@@ -74,17 +74,27 @@ macro_rules! export_app {
             #[unsafe(no_mangle)]
             pub unsafe extern "C" fn waterui_apple_main(accessory: bool) {
                 let mut env = ::waterui::configure_environment!(::waterui::Environment::new());
-                // The realizations this backend brings — the `MapKit` hook
-                // `waterui_map_gpu::install` yields to, the packaged CEF
-                // runtime — are declared on the environment before the
-                // application installs its own, exactly as `waterui_init`
-                // does on the embedding path.
-                ::waterui_ffi::__configure_native_realizations(&mut env);
                 // SAFETY: this is the process's entry on the main thread, and
                 // `env` lives in this frame — `run` never returns, so the
                 // borrow outlives every use the seam keeps.
                 unsafe {
-                    ::waterui_apple::entry::run($app, &mut env, accessory);
+                    ::waterui_apple::entry::run(
+                        |mut env| {
+                            // The realizations this backend brings — the
+                            // `MapKit` hook `waterui_map_gpu::install` yields
+                            // to, the packaged CEF runtime — are declared on
+                            // the environment before the application installs
+                            // its own, exactly as `waterui_init` does on the
+                            // embedding path. They run inside `run`'s launch
+                            // handler so `spawn_local` users such as the CEF
+                            // message pump see the local executor `run`
+                            // installs at startup.
+                            ::waterui_ffi::__configure_native_realizations(&mut env);
+                            $app(env)
+                        },
+                        &mut env,
+                        accessory,
+                    );
                 }
             }
         };
