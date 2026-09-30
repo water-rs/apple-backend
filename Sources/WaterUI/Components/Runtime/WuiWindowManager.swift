@@ -146,26 +146,46 @@ private let showWindowImpl: @convention(c) (UnsafeMutableRawPointer?, WuiWindow)
       }
       switch state {
       case WuiWindowState_Normal:
+        // Restore unwinds every other state the window may be in — each
+        // `else if` would leave the rest standing.
         if window.isMiniaturized {
           window.deminiaturize(nil)
-        } else if window.styleMask.contains(.fullScreen) {
+        }
+        if window.styleMask.contains(.fullScreen) {
           window.toggleFullScreen(nil)
-        } else if window.isZoomed {
+        }
+        if window.isZoomed {
           window.zoom(nil)
         }
       case WuiWindowState_Closed:
         window.close()
       case WuiWindowState_Minimized:
+        // A fullscreen window cannot miniaturize — leave it first. Zoom
+        // survives minimization and stays so the window comes back zoomed.
+        if window.styleMask.contains(.fullScreen) {
+          window.toggleFullScreen(nil)
+        }
         if !window.isMiniaturized {
           window.miniaturize(nil)
         }
       case WuiWindowState_Maximized:
         // `zoom` is the macOS maximize: the window fills its screen's
-        // visible frame, keeping the menu bar and dock.
+        // visible frame, keeping the menu bar and dock. It is a no-op on a
+        // miniaturized or fullscreen window, so unwind both first.
+        if window.isMiniaturized {
+          window.deminiaturize(nil)
+        }
+        if window.styleMask.contains(.fullScreen) {
+          window.toggleFullScreen(nil)
+        }
         if !window.isZoomed {
           window.zoom(nil)
         }
       case WuiWindowState_Fullscreen:
+        // Fullscreen is ignored on a miniaturized window.
+        if window.isMiniaturized {
+          window.deminiaturize(nil)
+        }
         if !window.styleMask.contains(.fullScreen) {
           window.toggleFullScreen(nil)
         }
