@@ -534,6 +534,7 @@ for example in ${shard_examples[@]+"${shard_examples[@]}"}; do
   fi
 
   startup_ms=""
+  no_first_paint=0
   for _ in $(seq 1 30); do
     startup_ms="$(sed -n 's/.*waterui_first_paint_ms=\([0-9][0-9]*\).*/\1/p' "${marker_log}" | head -1)"
     [[ -n "${startup_ms}" ]] && break
@@ -558,8 +559,9 @@ for example in ${shard_examples[@]+"${shard_examples[@]}"}; do
     printf '  "%s": %s,\n' "${example}" "${startup_ms}" >> "${startup_entries}"
     fp_cell="${startup_ms} ms"
   else
-    echo "::warning::${example} did not report a first-paint time"
+    echo "::error::${example} did not report a first-paint time"
     printf '  "%s": null,\n' "${example}" >> "${startup_entries}"
+    no_first_paint=1
   fi
 
   if ! capture_settled "${shot}"; then
@@ -573,6 +575,24 @@ for example in ${shard_examples[@]+"${shard_examples[@]}"}; do
     fi
     failures+=("${example}: capture")
     report+=("| \`${example}\` | capture failed | — | ${fp_cell} | ${size_cell} | ${mem_cell} |")
+    printf '  "%s": null,\n' "${example}" >> "${memory_entries}"
+    echo "::endgroup::"
+    continue
+  fi
+
+  # A live app that never reports `waterui_first_paint_ms` is a launch
+  # failure, not a launch: the capture above may show the home screen, so
+  # record the example as failed instead of "launched".
+  if (( no_first_paint )); then
+    kill "${stream_pid}" 2>/dev/null || true
+    if [[ "${platform}" == "ios" ]]; then
+      xcrun simctl terminate "${SIMULATOR_UDID}" "${bundle_id}" >/dev/null 2>&1 || true
+      xcrun simctl uninstall "${SIMULATOR_UDID}" "${bundle_id}" >/dev/null 2>&1 || true
+    else
+      kill "${app_pid}" 2>/dev/null || true
+    fi
+    failures+=("${example}: no first paint")
+    report+=("| \`${example}\` | no first paint | — | — | ${size_cell} | ${mem_cell} |")
     printf '  "%s": null,\n' "${example}" >> "${memory_entries}"
     echo "::endgroup::"
     continue
