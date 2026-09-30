@@ -948,11 +948,14 @@ mod platform_impl {
             // ~17.7pt — the first card would sit ~17pt high. Later
             // sections already total 35pt from header+footer spacing.
             // A navigation item carrying a `UISearchController` fills the
-            // slot the reserve mimics, so the stock spacing applies there.
+            // slot the reserve mimics, so the stock spacing applies there —
+            // the `.insetGrouped` top padding goes with it.
             let state = self.state.borrow();
-            if section == 0
-                && state.groups.first().is_some_and(|g| g.label.is_none())
-                && !has_search_chrome(table)
+            let search = section == 0 && has_search_chrome(table);
+            if search {
+                table.set_section_header_top_padding(0.0);
+            }
+            if section == 0 && state.groups.first().is_some_and(|g| g.label.is_none()) && !search
             {
                 35.0
             } else {
