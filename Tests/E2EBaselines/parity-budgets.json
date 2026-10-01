@@ -6,5 +6,8 @@
   "ios": {
     "liquid_glass": 0.03,
     "navigation": 0.09
+  },
+  "ios@27": {
+    "navigation": 0.12
   }
 }

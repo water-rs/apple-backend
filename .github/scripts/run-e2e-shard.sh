@@ -320,20 +320,50 @@ capture_reference() {
   fi
 }
 
-# The allowed diff fraction for this twin on this platform: the recorded
-# budget when the twin is known-divergent, the strict default otherwise.
+# The allowed diff fraction for this twin on this platform. A "<platform>@<os
+# major>" section wins over the plain platform key, which wins over the strict
+# default: "ios@27" records the navigation exception — SwiftUI's private bar
+# collapses the large title for a stacked search bar on iOS 27 while stock
+# UINavigationBar keeps it for identical public inputs, so the twin's extra
+# diff there is a platform behavior change, not a backend regression.
+parity_os_major=""
 parity_budget() {
   local budget=""
   if [[ -f "${parity_budgets}" ]]; then
+    if [[ -z "${parity_os_major}" ]]; then
+      if [[ "${platform}" == "ios" ]]; then
+        parity_os_major="$(xcrun simctl list devices --json | python3 -c '
+import json, re, sys
+for runtime, group in json.load(sys.stdin)["devices"].items():
+    if any(d.get("udid") == sys.argv[1] for d in group):
+        m = re.search(r"iOS-(\d+)", runtime)
+        if m:
+            print(m.group(1))
+        break
+' "${SIMULATOR_UDID}")" || return 1
+        if [[ -z "${parity_os_major}" ]]; then
+          echo "::error::parity_budget: cannot derive iOS major: SIMULATOR_UDID=${SIMULATOR_UDID} not found in 'xcrun simctl list devices', or its runtime name has no iOS-<major> match." >&2
+          return 1
+        fi
+      else
+        parity_os_major="$(sw_vers -productVersion | cut -d. -f1)" || return 1
+        if [[ -z "${parity_os_major}" ]]; then
+          echo "::error::parity_budget: cannot derive macOS major: 'sw_vers -productVersion' returned no version." >&2
+          return 1
+        fi
+      fi
+    fi
     budget="$(python3 -c '
 import json, sys
-try:
-  budgets = json.load(open(sys.argv[1]))
-  value = budgets.get(sys.argv[2], {}).get(sys.argv[3], "")
-  print(value)
-except Exception:
-  print("")
-' "${parity_budgets}" "${platform}" "$1")"
+budgets = json.load(open(sys.argv[1]))
+platform, major, example = sys.argv[2], sys.argv[3], sys.argv[4]
+value = ""
+if major:
+  value = budgets.get(f"{platform}@{major}", {}).get(example, "")
+if value == "":
+  value = budgets.get(platform, {}).get(example, "")
+print(value)
+' "${parity_budgets}" "${platform}" "${parity_os_major}" "$1")" || return 1
   fi
   echo "${budget:-${DIFF_BUDGET:-0.02}}"
 }
