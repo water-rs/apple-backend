@@ -43,7 +43,6 @@ default = [
     "layer_transform",
     "layout_priority",
     "lifecycle_hook",
-    "map",
     "material_background",
     "menu",
     "offset",
@@ -110,7 +109,9 @@ image = []
 lifecycle_hook = []
 layer_transform = []
 list = []
-map = ["dep:waterui-map"]
+# `cocoa-ui/map` brings `MKMapView`, the `MapKit` framework link and the
+# `CoreLocation` types; an app that never uses the leaf gets none of it.
+map = ["dep:waterui-map", "cocoa-ui/map"]
 material_background = []
 menu = []
 offset = []
