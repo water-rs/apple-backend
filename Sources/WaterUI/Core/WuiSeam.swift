@@ -768,13 +768,29 @@ extension PlatformView {
     guard let state = declaration.state else {
       fatalError("Main window state binding is null")
     }
+    guard let style = declaration.style else {
+      fatalError("Main window style signal is null")
+    }
+    guard let level = declaration.level else {
+      fatalError("Main window level signal is null")
+    }
+    guard let attention = declaration.attention else {
+      fatalError("Main window attention binding is null")
+    }
+    guard let background = declaration.background else {
+      fatalError("Main window background signal is null")
+    }
     let decl = WateruiRootWindowDecl(
       env: UnsafeMutableRawPointer(env.inner),
       title: UnsafeMutableRawPointer(title),
       frame: UnsafeMutableRawPointer(frame),
       state: UnsafeMutableRawPointer(state),
       toolbar: declaration.toolbar.map { UnsafeMutableRawPointer($0) },
-      style: Int32(declaration.style.rawValue),
+      style: UnsafeMutableRawPointer(style),
+      level: UnsafeMutableRawPointer(level),
+      attention: UnsafeMutableRawPointer(attention),
+      resize_increments: declaration.resizeIncrements.map { UnsafeMutableRawPointer($0) },
+      background: UnsafeMutableRawPointer(background),
       closable: declaration.closable,
       resizable: declaration.resizable
     )

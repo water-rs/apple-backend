@@ -896,8 +896,21 @@ pub struct WateruiRootWindowDecl {
     pub state: *mut c_void,
     /// `AnyView` (`WuiAnyView`), owned by this call when non-null.
     pub toolbar: *mut c_void,
-    /// `WindowStyle`: 0 titled, 1 borderless, 2 full-size-content.
-    pub style: i32,
+    /// `Computed<WindowStyle>` (`WuiComputed_WindowStyle`), borrowed for the
+    /// call; required.
+    pub style: *mut c_void,
+    /// `Computed<WindowLevel>` (`WuiComputed_WindowLevel`), borrowed for the
+    /// call; required.
+    pub level: *mut c_void,
+    /// `Binding<Option<UserAttention>>` (`WuiBinding_Option_UserAttention`),
+    /// borrowed for the call; required.
+    pub attention: *mut c_void,
+    /// `Computed<Size>` (`WuiComputed_Size`), borrowed for the call;
+    /// optional.
+    pub resize_increments: *mut c_void,
+    /// `Computed<WindowBackground>` (`WuiComputed_WindowBackground`),
+    /// borrowed for the call; required.
+    pub background: *mut c_void,
     /// Whether the window is closable.
     pub closable: bool,
     /// Whether the window is resizable.
@@ -936,8 +949,8 @@ pub unsafe extern "C" fn waterui_apple_bind_root_window(
     decl: WateruiRootWindowDecl,
 ) -> *mut c_void {
     use waterui::reactive::{Binding, Computed};
-    use waterui::window::{WindowState, WindowStyle as WuiStyle};
-    use waterui_core::layout::Rect;
+    use waterui::window::{UserAttention, WindowBackground, WindowLevel, WindowState, WindowStyle};
+    use waterui_core::layout::{Rect, Size};
 
     let Some(mtm) = cocoa_ui::MainThreadMarker::new() else {
         return ptr::null_mut();
@@ -963,12 +976,20 @@ pub unsafe extern "C" fn waterui_apple_bind_root_window(
         // `waterui_apple_resolve`'s `view`.
         Some(unsafe { *Box::from_raw(decl.toolbar.cast::<AnyView>()) })
     };
-    let style = match decl.style {
-        0 => WuiStyle::Titled,
-        1 => WuiStyle::Borderless,
-        2 => WuiStyle::FullSizeContentView,
-        _ => WuiStyle::default(),
+    // SAFETY: per the struct contract — `style` is required.
+    let style: &Computed<WindowStyle> = unsafe { &*decl.style.cast() };
+    // SAFETY: per the struct contract — `level` is required.
+    let level: &Computed<WindowLevel> = unsafe { &*decl.level.cast() };
+    // SAFETY: per the struct contract — `attention` is required.
+    let attention: &Binding<Option<UserAttention>> = unsafe { &*decl.attention.cast() };
+    let resize_increments = if decl.resize_increments.is_null() {
+        None
+    } else {
+        // SAFETY: per the struct contract — a borrowed live signal when set.
+        Some(unsafe { &*decl.resize_increments.cast::<Computed<Size>>() })
     };
+    // SAFETY: per the struct contract — `background` is required.
+    let background: &Computed<WindowBackground> = unsafe { &*decl.background.cast() };
 
     let binding = crate::windows::bind_root_window(
         window,
@@ -978,6 +999,10 @@ pub unsafe extern "C" fn waterui_apple_bind_root_window(
         state,
         toolbar,
         style,
+        level,
+        attention,
+        resize_increments,
+        background,
         decl.closable,
         decl.resizable,
         mtm,

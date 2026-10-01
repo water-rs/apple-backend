@@ -176,16 +176,21 @@ void *waterui_apple_make_gpu_surface_view(void *surface, void *env);
 void waterui_apple_main(bool accessory);
 
 /// The declared first window as the embed path's `WuiWindowContext` carries
-/// it: `title`/`frame`/`state` are the generated FFI crate's `WuiComputed_*`/
-/// `WuiBinding_*` pointers (transparent wrappers the Rust side borrows),
-/// `toolbar` an owning `WuiAnyView` transfer or NULL.
+/// it: `title`/`frame`/`state`/`style`/`level`/`attention`/
+/// `resize_increments`/`background` are the generated FFI crate's
+/// `WuiComputed_*`/`WuiBinding_*` pointers (transparent wrappers the Rust
+/// side borrows), `toolbar` an owning `WuiAnyView` transfer or NULL.
 typedef struct WateruiRootWindowDecl {
   void *env;
   void *title;
   void *frame;
   void *state;
   void *toolbar;
-  int32_t style;
+  void *style;
+  void *level;
+  void *attention;
+  void *resize_increments;
+  void *background;
   bool closable;
   bool resizable;
 } WateruiRootWindowDecl;

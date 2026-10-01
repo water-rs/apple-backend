@@ -21,14 +21,16 @@ mod imp {
     use core::ffi::c_void;
 
     use super::{into_kit_rect, into_kit_size, into_layout_rect};
-    use cocoa_ui::appkit::{HostView, WindowStyle};
+    use cocoa_ui::appkit::{AttentionRequest, HostView, WindowStyle};
+    use cocoa_ui::objc2_app_kit::{NSFloatingWindowLevel, NSNormalWindowLevel};
     use cocoa_ui::{MainThreadMarker, Retained};
     use waterui::animation::Animation;
-    use waterui::reactive::{Signal, SignalExt};
-    use waterui::resolve::Resolvable;
-    use waterui::theme::color::Background;
-    use waterui::window::WindowStyle as WuiStyle;
-    use waterui::window::{Window, WindowBackground, WindowState};
+    use waterui::graphics::color::ResolvedColor;
+    use waterui::reactive::{Binding, Computed, Signal};
+    use waterui::window::{
+        UserAttention, Window, WindowBackground, WindowLevel, WindowState, WindowStyle as WuiStyle,
+        resolve_background,
+    };
     use waterui_backend_core::Environment;
 
     use crate::contract::KeepAlive;
@@ -92,7 +94,7 @@ mod imp {
         let mut keepalive = KeepAlive::default();
 
         let style = style_mask(
-            declaration.style,
+            declaration.style.snapshot(),
             declaration.closable,
             declaration.resizable,
         );
@@ -148,32 +150,28 @@ mod imp {
                 }
             }
         };
+        // State, two-way the same way; a chrome zoom arrives as a resize,
+        // so the state publish joins the frame publish on that hook.
+        let (applying_state, publish_state) = state_publisher(&declaration.state);
         window.on_resize({
             let publish = publish_frame.clone();
-            move || publish()
+            let publish_state = publish_state.clone();
+            let window = window.clone();
+            move || {
+                publish();
+                publish_zoom_state(&window, &*publish_state);
+            }
         });
         window.on_move(publish_frame);
 
-        // State, two-way the same way.
-        let applying_state = Rc::new(Cell::new(false));
         keepalive.watch(&declaration.state, {
             let window = window.clone();
-            let applying = applying_state.clone();
             move |context| {
-                applying.set(true);
+                applying_state.set(true);
                 apply_state(&window, *context.value());
-                applying.set(false);
+                applying_state.set(false);
             }
         });
-        let publish_state = {
-            let state = declaration.state.clone();
-            let applying = applying_state;
-            move |to: WindowState| {
-                if !applying.get() {
-                    state.set(to);
-                }
-            }
-        };
         window.on_close({
             let publish = publish_state.clone();
             move || publish(WindowState::Closed)
@@ -209,19 +207,38 @@ mod imp {
             });
         }
 
-        // Background: a declared color resolves through the environment; an
-        // opaque window reads the theme's Background slot, exactly as the
-        // Swift manager did.
-        let background: waterui::reactive::Computed<waterui::graphics::color::ResolvedColor> =
-            match &declaration.background {
-                WindowBackground::Opaque => Background.resolve(env).computed(),
-                WindowBackground::Color(color) => color.resolve(env),
-            };
-        apply_background(&window, background.snapshot());
-        keepalive.watch(&background, {
-            let window = window.clone();
-            move |context| apply_background(&window, *context.value())
-        });
+        // Level: where the window stacks relative to other applications'
+        // windows — a change after the window is shown is re-applied.
+        wire_level(&window, &mut keepalive, &declaration.level);
+
+        // Attention: a write asks for the dock-icon bounce; the window
+        // gaining focus settles the binding back to `None`.
+        wire_attention(&window, &mut keepalive, &declaration.attention, mtm);
+
+        // Resize increments: the steps the content size moves in while the
+        // user resizes.
+        wire_resize_increments(
+            &window,
+            &mut keepalive,
+            declaration.resize_increments.as_ref(),
+        );
+
+        // Style: the window started with the declared mask; every later
+        // change is re-applied — `observeStyle`'s half of the port.
+        wire_style(
+            &window,
+            &mut keepalive,
+            &declaration.style,
+            declaration.closable,
+            declaration.resizable,
+        );
+
+        // Background: the framework resolves the reactive background to one
+        // colour signal — the theme background for opaque, the declared
+        // colour otherwise — that follows a change of background and of
+        // colour alike, as `observeWindowBackground` did.
+        let background = declaration.resolved_background(env);
+        wire_background(&window, &mut keepalive, &background);
 
         // Content: the declared tree becomes one leaf whose view fills the
         // host each layout pass, at the safe-area-aware frame the seam
@@ -333,11 +350,15 @@ mod imp {
     pub fn bind_root_window(
         window: Retained<cocoa_ui::objc2_app_kit::NSWindow>,
         env: &Environment,
-        title: &waterui::reactive::Computed<waterui::Str>,
-        frame: &waterui::reactive::Binding<super::WRect>,
-        state: &waterui::reactive::Binding<WindowState>,
+        title: &Computed<waterui::Str>,
+        frame: &Binding<super::WRect>,
+        state: &Binding<WindowState>,
         toolbar: Option<waterui::AnyView>,
-        style: WuiStyle,
+        style: &Computed<WuiStyle>,
+        level: &Computed<WindowLevel>,
+        attention: &Binding<Option<UserAttention>>,
+        resize_increments: Option<&Computed<super::WSize>>,
+        background: &Computed<WindowBackground>,
         closable: bool,
         resizable: bool,
         mtm: MainThreadMarker,
@@ -345,16 +366,11 @@ mod imp {
         let window = Rc::new(cocoa_ui::appkit::Window::adopt(mtm, window));
         let mut keepalive = KeepAlive::default();
 
-        // Adopt the declared style — the toolbar coordinator owns
-        // full-size-content, so a host window already carrying it keeps it.
-        let mut mask = style_mask(style, closable, resizable);
-        if window
-            .style_mask()
-            .contains(WindowStyle::FULL_SIZE_CONTENT_VIEW)
-        {
-            mask |= WindowStyle::FULL_SIZE_CONTENT_VIEW;
-        }
-        window.set_style_mask(mask);
+        // Adopt the declared style, now and when it changes — adopting must
+        // not strip the full-size-content bit a toolbar coordinator that
+        // attached before this declaration put in place.
+        apply_style(&window, style.snapshot(), closable, resizable);
+        wire_style(&window, &mut keepalive, style, closable, resizable);
 
         // The declared toolbar goes through the window's one `NSToolbar`,
         // exactly as a realized window's does.
@@ -381,8 +397,19 @@ mod imp {
             }
         });
 
-        wire_frame(&window, &mut keepalive, frame);
-        let keepalive = wire_state(&window, keepalive, state);
+        // Level, attention and resize increments bind the same way as on a
+        // manager-created window — the host owns the `NSWindow` but the
+        // declaration drives these attributes.
+        wire_level(&window, &mut keepalive, level);
+        wire_attention(&window, &mut keepalive, attention, mtm);
+        wire_resize_increments(&window, &mut keepalive, resize_increments);
+
+        let resolved = resolve_background(background, env);
+        wire_background(&window, &mut keepalive, &resolved);
+
+        let (applying_state, publish_state) = state_publisher(state);
+        wire_frame(&window, &mut keepalive, frame, &publish_state);
+        let keepalive = wire_state(&window, keepalive, state, applying_state, publish_state);
 
         RootWindowBinding {
             _window: window,
@@ -394,11 +421,13 @@ mod imp {
     /// frame seeds the binding (adopting never moves the window), declared
     /// changes apply with declared animations, platform moves and resizes
     /// publish back — each direction guarded so the other's write does not
-    /// echo.
+    /// echo. `publish_state` joins the resize hook, since a chrome zoom
+    /// arrives as a resize.
     fn wire_frame(
         window: &Rc<cocoa_ui::appkit::Window>,
         keepalive: &mut KeepAlive,
-        frame: &waterui::reactive::Binding<super::WRect>,
+        frame: &Binding<super::WRect>,
+        publish_state: &Rc<dyn Fn(WindowState)>,
     ) {
         frame.set(into_layout_rect(window.frame()));
         let applying = Rc::new(Cell::new(false));
@@ -428,38 +457,36 @@ mod imp {
         };
         window.on_resize({
             let publish = publish.clone();
-            move || publish()
+            let publish_state = publish_state.clone();
+            let window = window.clone();
+            move || {
+                publish();
+                publish_zoom_state(&window, &*publish_state);
+            }
         });
         window.on_move(publish);
     }
 
     /// The bound window's state wiring, the same two-way shape; a user close
     /// publishes `Closed` then drops the watchers — the teardown order
-    /// `windowWillClose` enforced. Returns the keepalive behind the
-    /// close-clears-it cell.
+    /// `windowWillClose` enforced. `applying`/`publish` come from
+    /// [`state_publisher`] so the resize hook shares them. Returns the
+    /// keepalive behind the close-clears-it cell.
     fn wire_state(
         window: &Rc<cocoa_ui::appkit::Window>,
         mut keepalive: KeepAlive,
-        state: &waterui::reactive::Binding<WindowState>,
+        state: &Binding<WindowState>,
+        applying: Rc<Cell<bool>>,
+        publish: Rc<dyn Fn(WindowState)>,
     ) -> Rc<RefCell<Option<KeepAlive>>> {
-        let applying = Rc::new(Cell::new(false));
         keepalive.watch(state, {
             let window = window.clone();
-            let applying = applying.clone();
             move |context| {
                 applying.set(true);
                 apply_state(&window, *context.value());
                 applying.set(false);
             }
         });
-        let publish = {
-            let state = state.clone();
-            move |to: WindowState| {
-                if !applying.get() {
-                    state.set(to);
-                }
-            }
-        };
         let keepalive = Rc::new(RefCell::new(Some(keepalive)));
         window.on_close({
             let publish = publish.clone();
@@ -485,28 +512,221 @@ mod imp {
         keepalive
     }
 
+    /// The `applying` guard and the binding publish a window's state wiring
+    /// shares between its watcher and its delegate hooks.
+    type StatePublish = (Rc<Cell<bool>>, Rc<dyn Fn(WindowState)>);
+
+    /// The two halves of the state bridge: the `applying` guard both
+    /// directions share, and the closure platform events call to write the
+    /// binding back — deduplicated, as `publishState` was.
+    fn state_publisher(state: &Binding<WindowState>) -> StatePublish {
+        let applying = Rc::new(Cell::new(false));
+        let publish = {
+            let state = state.clone();
+            let applying = applying.clone();
+            move |to: WindowState| {
+                if !applying.get() && state.snapshot() != to {
+                    state.set(to);
+                }
+            }
+        };
+        (applying, Rc::new(publish))
+    }
+
+    /// A zoom or unzoom through the window chrome arrives as a resize:
+    /// publishes `Maximized`/`Normal` so the binding tracks the real
+    /// window — `windowDidResize`'s second half. Fullscreen and
+    /// miniaturization own their own notifications.
+    fn publish_zoom_state(
+        window: &cocoa_ui::appkit::Window,
+        publish: &(dyn Fn(WindowState) + 'static),
+    ) {
+        if !window.is_miniaturized() && !window.is_fullscreen() {
+            publish(if window.is_zoomed() {
+                WindowState::Maximized
+            } else {
+                WindowState::Normal
+            });
+        }
+    }
+
     /// Applies `state` to the platform window — `applyState`'s switch.
     fn apply_state(window: &cocoa_ui::appkit::Window, state: WindowState) {
         match state {
             WindowState::Normal => {
+                // Restore unwinds every other state the window may be in —
+                // an `else if` chain would leave the rest standing.
                 if window.is_miniaturized() {
                     window.deminiaturize();
-                } else if window.is_fullscreen() {
+                }
+                if window.is_fullscreen() {
                     window.toggle_fullscreen();
+                }
+                if window.is_zoomed() {
+                    window.zoom();
                 }
             }
             WindowState::Closed => window.close(),
             WindowState::Minimized => {
+                // A fullscreen window cannot miniaturize — leave it first.
+                // Zoom survives minimization and stays so the window comes
+                // back zoomed.
+                if window.is_fullscreen() {
+                    window.toggle_fullscreen();
+                }
                 if !window.is_miniaturized() {
                     window.miniaturize();
                 }
             }
+            WindowState::Maximized => {
+                // `zoom` is the macOS maximize: the window fills its
+                // screen's visible frame, keeping the menu bar and Dock. It
+                // is a no-op on a miniaturized or full-screen window, so
+                // unwind both first.
+                if window.is_miniaturized() {
+                    window.deminiaturize();
+                }
+                if window.is_fullscreen() {
+                    window.toggle_fullscreen();
+                }
+                if !window.is_zoomed() {
+                    window.zoom();
+                }
+            }
             WindowState::Fullscreen => {
+                // Fullscreen is ignored on a miniaturized window.
+                if window.is_miniaturized() {
+                    window.deminiaturize();
+                }
                 if !window.is_fullscreen() {
                     window.toggle_fullscreen();
                 }
             }
         }
+    }
+
+    /// The style mask to give a window that is already on screen —
+    /// `effectiveStyleMask`'s port. On top of the declared style it keeps
+    /// what the window's chrome and live state own: the full-size-content
+    /// bit a toolbar coordinator installs, and full screen.
+    fn apply_style(
+        window: &cocoa_ui::appkit::Window,
+        style: WuiStyle,
+        closable: bool,
+        resizable: bool,
+    ) {
+        let owned = WindowStyle::FULL_SIZE_CONTENT_VIEW | WindowStyle::FULL_SCREEN;
+        let mask = style_mask(style, closable, resizable) | (window.style_mask() & owned);
+        window.set_style_mask(mask);
+    }
+
+    /// `observeStyle`'s subscription: every change after the window is
+    /// shown re-applies the declared style.
+    fn wire_style<S>(
+        window: &Rc<cocoa_ui::appkit::Window>,
+        keepalive: &mut KeepAlive,
+        style: &S,
+        closable: bool,
+        resizable: bool,
+    ) where
+        S: Signal<Output = WuiStyle>,
+    {
+        keepalive.watch(style, {
+            let window = window.clone();
+            move |context| apply_style(&window, *context.value(), closable, resizable)
+        });
+    }
+
+    /// `Window::level`'s wiring: the declared stacking level applies now
+    /// and re-applies on change.
+    fn wire_level(
+        window: &Rc<cocoa_ui::appkit::Window>,
+        keepalive: &mut KeepAlive,
+        level: &Computed<WindowLevel>,
+    ) {
+        keepalive.bind(level, {
+            let window = window.clone();
+            move |level| {
+                window.set_level(match level {
+                    WindowLevel::Normal => NSNormalWindowLevel,
+                    WindowLevel::AlwaysOnTop => NSFloatingWindowLevel,
+                });
+            }
+        });
+    }
+
+    /// `Window::attention`'s wiring: a write asks for the dock-icon bounce
+    /// at the matching urgency — a `None` withdraws an outstanding request —
+    /// and the window gaining focus settles the binding back to `None`, the
+    /// contract `settleAttention` implemented.
+    fn wire_attention(
+        window: &Rc<cocoa_ui::appkit::Window>,
+        keepalive: &mut KeepAlive,
+        attention: &Binding<Option<UserAttention>>,
+        mtm: MainThreadMarker,
+    ) {
+        let app = cocoa_ui::appkit::Application::shared(mtm);
+        // The outstanding request's token, kept so the request can be
+        // cancelled when it is spent or withdrawn.
+        let outstanding = Rc::new(Cell::new(None));
+        let apply = {
+            let app = app.clone();
+            let outstanding = outstanding.clone();
+            move |request: Option<UserAttention>| {
+                if let Some(token) = outstanding.take() {
+                    app.cancel_user_attention_request(token);
+                }
+                if let Some(kind) = request {
+                    let kind = match kind {
+                        UserAttention::Informational => AttentionRequest::Informational,
+                        UserAttention::Critical => AttentionRequest::Critical,
+                    };
+                    outstanding.set(Some(app.request_user_attention(kind)));
+                }
+            }
+        };
+        apply(attention.snapshot());
+        keepalive.watch(attention, move |context| apply(*context.value()));
+
+        window.on_became_key({
+            let attention = attention.clone();
+            move || {
+                if let Some(token) = outstanding.take() {
+                    app.cancel_user_attention_request(token);
+                }
+                if attention.snapshot().is_some() {
+                    attention.set(None);
+                }
+            }
+        });
+    }
+
+    /// `Window::resize_increments`'s wiring: while declared, the content
+    /// size moves in its steps — applied now and re-applied on change.
+    fn wire_resize_increments(
+        window: &Rc<cocoa_ui::appkit::Window>,
+        keepalive: &mut KeepAlive,
+        increments: Option<&Computed<super::WSize>>,
+    ) {
+        if let Some(increments) = increments {
+            keepalive.bind(increments, {
+                let window = window.clone();
+                move |size| window.set_content_resize_increments(into_kit_size(size))
+            });
+        }
+    }
+
+    /// `observeWindowBackground`'s wiring: the resolved colour applies now
+    /// and follows every change.
+    fn wire_background(
+        window: &Rc<cocoa_ui::appkit::Window>,
+        keepalive: &mut KeepAlive,
+        resolved: &Computed<ResolvedColor>,
+    ) {
+        keepalive.bind(resolved, {
+            let window = window.clone();
+            move |color| apply_background(&window, color)
+        });
     }
 
     /// `applyWindowBackground`'s write: the resolved color, the opacity
@@ -554,11 +774,8 @@ mod imp {
 
     use cocoa_ui::uikit::{ColorSchemeObservation, HostView, ViewController, WindowScene};
     use cocoa_ui::{MainThreadMarker, Retained};
-    use waterui::Resolvable;
     use waterui::Signal;
-    use waterui::signal::IntoComputed;
-    use waterui::theme::color::Background;
-    use waterui::window::{Window, WindowBackground};
+    use waterui::window::Window;
     use waterui_backend_core::Environment;
 
     use crate::contract::KeepAlive;
@@ -773,14 +990,11 @@ mod imp {
         let mut keepalive = KeepAlive::default();
         let host = Retained::from(pending.controller.host_view());
 
-        // Background: a declared color resolves through the environment; an
-        // opaque window reads the theme's Background slot, exactly as the
-        // Swift controller painted `view.backgroundColor`.
-        let background: waterui::reactive::Computed<waterui::graphics::color::ResolvedColor> =
-            match &declaration.background {
-                WindowBackground::Opaque => Background.resolve(env).into_computed(),
-                WindowBackground::Color(color) => color.resolve(env),
-            };
+        // Background: the framework resolves the reactive background to one
+        // colour signal — the theme background for opaque, the declared
+        // colour otherwise — that follows a change of background and of
+        // colour alike.
+        let background = declaration.resolved_background(env);
         apply_background(&host, &background.snapshot());
         keepalive.watch(&background, {
             let host = host.clone();
