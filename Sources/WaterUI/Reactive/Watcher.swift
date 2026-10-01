@@ -269,6 +269,45 @@ func makeWindowStateWatcher(
   return watcher
 }
 
+@MainActor
+func makeWindowLevelWatcher(
+  _ f: @escaping (CWaterUI.WuiWindowLevel, WuiWatcherMetadata) -> Void
+) -> OpaquePointer {
+  let data = wrap(f)
+  let call:
+    @convention(c) (UnsafeMutableRawPointer?, CWaterUI.WuiWindowLevel, OpaquePointer?) -> Void = {
+      data, value, metadata in
+      callWrapper(data, value, metadata)
+    }
+  let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
+    dropWrapper($0, CWaterUI.WuiWindowLevel.self)
+  }
+  guard let watcher = waterui_new_watcher_window_level(data, call, drop) else {
+    fatalError("Failed to create window-level watcher")
+  }
+  return watcher
+}
+
+@MainActor
+func makeUserAttentionWatcher(
+  _ f: @escaping (CWaterUI.WuiUserAttention, WuiWatcherMetadata) -> Void
+) -> OpaquePointer {
+  let data = wrap(f)
+  let call:
+    @convention(c) (UnsafeMutableRawPointer?, CWaterUI.WuiUserAttention, OpaquePointer?) -> Void =
+    {
+      data, value, metadata in
+      callWrapper(data, value, metadata)
+    }
+  let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
+    dropWrapper($0, CWaterUI.WuiUserAttention.self)
+  }
+  guard let watcher = waterui_new_watcher_user_attention(data, call, drop) else {
+    fatalError("Failed to create user-attention watcher")
+  }
+  return watcher
+}
+
 #if !WATERUI_NO_MEDIA
 @MainActor
 func makeSubtitleSelectionWatcher(
