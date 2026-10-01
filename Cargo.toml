@@ -285,6 +285,10 @@ waterui-winui = { git = "https://github.com/water-rs/waterui-winui", rev = "8309
 
 [workspace]
 members = []
+# The e2e workflows check the framework and the CLI out inside this
+# repository (`.github/scripts/setup-e2e.sh`); they are their own packages,
+# not members of this workspace.
+exclude = ["waterui", "water-cli"]
 resolver = "3"
 
 [workspace.package]
