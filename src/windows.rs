@@ -549,7 +549,7 @@ mod imp {
     use alloc::collections::vec_deque::VecDeque;
     use alloc::rc::Rc;
     use alloc::vec::Vec;
-    use core::cell::RefCell;
+    use core::cell::{Cell, RefCell};
     use core::ffi::c_void;
 
     use cocoa_ui::uikit::{ColorSchemeObservation, HostView, ViewController, WindowScene};
@@ -588,9 +588,16 @@ mod imp {
         /// Scenes connected ahead of their declaration, in connection order.
         static PENDING: RefCell<VecDeque<Pending>> =
             const { RefCell::new(VecDeque::new()) };
-        /// Declarations still waiting on a scene, in declaration order.
-        static DECLARED: RefCell<VecDeque<Window>> =
-            const { RefCell::new(VecDeque::new()) };
+        /// The app's window declarations, kept for the process: `Window` is
+        /// a `ViewBuilder` factory — `build_content` answers a fresh tree
+        /// per call — so a scene that connects after the declarations are
+        /// claimed renders a new instance of the main window rather than
+        /// waiting on a declaration that already exists. `WindowGroup`
+        /// semantics: scene *n* gets declaration *n* while they last, and
+        /// every further scene a fresh instance of the first (main) one.
+        static DECLARED: RefCell<Vec<Window>> = const { RefCell::new(Vec::new()) };
+        /// How many declarations have been claimed by a scene, in order.
+        static CLAIMED: Cell<usize> = const { Cell::new(0) };
         /// The environment `app` returned, stored once `declare` runs: a
         /// scene connecting afterward realizes its declaration under it,
         /// since the app's own installs are invisible to the launch env.
@@ -606,9 +613,25 @@ mod imp {
         }));
     }
 
+    /// Picks the declaration a newly connected scene instantiates: the next
+    /// unclaimed one, or a fresh instance of the main window once every
+    /// declaration is claimed (a second iPad scene, an app-switcher relaunch).
+    fn claim_index() -> Option<usize> {
+        let len = DECLARED.with(|declared| declared.borrow().len());
+        let claimed = CLAIMED.with(Cell::get);
+        if len == 0 {
+            None
+        } else if claimed < len {
+            CLAIMED.with(|c| c.set(claimed + 1));
+            Some(claimed)
+        } else {
+            Some(0)
+        }
+    }
+
     /// Connects `scene`: the platform window must exist at connection time,
-    /// so it is built eagerly — with an empty root — and the first queued
-    /// declaration fills it; with none waiting, the scene queues in
+    /// so it is built eagerly — with an empty root — and its declaration
+    /// fills it; with no declarations landed yet, the scene queues in
     /// `PENDING` until [`declare`] runs.
     pub fn connect(
         scene: &WindowScene,
@@ -633,46 +656,81 @@ mod imp {
             controller,
             observation,
         };
-        let declaration = DECLARED.with(|declared| declared.borrow_mut().pop_front());
-        if let Some(declaration) = declaration {
-            // `declare` ran before this declaration was queued, so the app
-            // env exists and carries the app's own installs; the launch
-            // env is the fallback only for a path that cannot happen.
-            let app_env =
-                APP_ENV.with(|app_env| app_env.borrow().clone().unwrap_or_else(|| env.clone()));
-            HOSTS.with(|hosts| {
-                hosts
-                    .borrow_mut()
-                    .push(realize(&declaration, pending, &app_env, mtm));
-            });
-        } else {
-            PENDING.with(|pending_scenes| {
-                pending_scenes.borrow_mut().push_back(pending);
-            });
+        match claim_index() {
+            Some(index) => {
+                // `declare` ran before this scene connected, so the app env
+                // exists and carries the app's own installs; the launch env
+                // is the fallback only for a path that cannot happen.
+                let app_env =
+                    APP_ENV.with(|app_env| app_env.borrow().clone().unwrap_or_else(|| env.clone()));
+                DECLARED.with(|declared| {
+                    let declared = declared.borrow();
+                    HOSTS.with(|hosts| {
+                        hosts
+                            .borrow_mut()
+                            .push(realize(&declared[index], pending, &app_env, mtm));
+                    });
+                });
+            }
+            None => {
+                PENDING.with(|pending_scenes| {
+                    pending_scenes.borrow_mut().push_back(pending);
+                });
+            }
         }
         window
     }
 
-    /// Delivers the application's declared windows — `AppParts::windows` — to
-    /// the scenes waiting on them, or queues them for future connections.
-    /// `env` is the env `app` returned; it is stored so `connect` realizes
-    /// declarations queued ahead of its scene under the same env.
+    /// Stores the application's declared windows — `AppParts::windows` — and
+    /// fills every scene waiting on one: scene *i* claims declaration *i*
+    /// while they last, and the overflow each gets a fresh instance of the
+    /// main window. `env` is the env `app` returned; it is stored so
+    /// `connect` realizes declarations under the same env.
     pub fn declare(windows: Vec<Window>, env: &Environment, mtm: MainThreadMarker) {
         APP_ENV.with(|app_env| {
             *app_env.borrow_mut() = Some(env.clone());
         });
-        for declaration in windows {
+        DECLARED.with(|declared| *declared.borrow_mut() = windows);
+        loop {
             let pending = PENDING.with(|pending_scenes| pending_scenes.borrow_mut().pop_front());
-            if let Some(pending) = pending {
+            let Some(pending) = pending else { break };
+            let index = claim_index().expect("declare landed at least one window");
+            DECLARED.with(|declared| {
+                let declared = declared.borrow();
                 HOSTS.with(|hosts| {
                     hosts
                         .borrow_mut()
-                        .push(realize(&declaration, pending, env, mtm));
+                        .push(realize(&declared[index], pending, env, mtm));
                 });
-            } else {
-                DECLARED.with(|declared| declared.borrow_mut().push_back(declaration));
-            }
+            });
         }
+        open_second_scene_when_flagged();
+    }
+
+    /// E2E hook for the overflow-scene path: launched with
+    /// `--waterui-e2e-second-scene`, the app asks `UIKit` for a second scene a
+    /// few seconds after its windows land — the only way to exercise
+    /// multi-scene realization without driving the simulator's multitasking
+    /// UI. Shipping apps never pass the flag.
+    fn open_second_scene_when_flagged() {
+        const FLAG: &str = "--waterui-e2e-second-scene";
+        if !std::env::args().any(|arg| arg == FLAG) {
+            return;
+        }
+        let Ok(when) = dispatch2::DispatchTime::try_from(std::time::Duration::from_secs(3)) else {
+            return;
+        };
+        let _ = dispatch2::DispatchQueue::main().after(when, || {
+            let mtm =
+                MainThreadMarker::new().expect("the main queue's work runs on the main thread");
+            let application = cocoa_ui::objc2_ui_kit::UIApplication::sharedApplication(mtm);
+            // A nil activation request yields a fresh scene session; the
+            // replacement API wants the session object first.
+            #[allow(deprecated)]
+            application.requestSceneSessionActivation_userActivity_options_errorHandler(
+                None, None, None, None,
+            );
+        });
     }
 
     /// Fills a connected scene's window with `declaration`'s content: the
