@@ -1655,14 +1655,15 @@ mod tests {
     }
 
     #[test]
-    #[expect(clippy::float_cmp, reason = "exact constants")]
     fn min_row_height_prefers_the_configured_floor() {
-        assert_eq!(min_row_height(Some(40.0), 24.0), 40.0);
-        assert_eq!(min_row_height(None, 24.0), 24.0);
+        assert_eq!(
+            min_row_height(Some(40.0), 24.0).to_bits(),
+            40.0_f64.to_bits()
+        );
+        assert_eq!(min_row_height(None, 24.0).to_bits(), 24.0_f64.to_bits());
     }
 
     #[test]
-    #[expect(clippy::float_cmp, reason = "exact constants")]
     fn row_height_floors_at_the_minimum() {
         let insets = KitInsets {
             top: 4.0,
@@ -1670,7 +1671,7 @@ mod tests {
             left: 10.0,
             right: 10.0,
         };
-        assert_eq!(row_height(10.0, insets, 24.0), 24.0);
-        assert_eq!(row_height(40.0, insets, 24.0), 48.0);
+        assert_eq!(row_height(10.0, insets, 24.0).to_bits(), 24.0_f64.to_bits());
+        assert_eq!(row_height(40.0, insets, 24.0).to_bits(), 48.0_f64.to_bits());
     }
 }

@@ -53,4 +53,4 @@ jobs:
       - name: Clippy (iOS simulator)
         run: cargo clippy --workspace --all-targets --locked --target aarch64-apple-ios-sim -- -D warnings
       - name: Test
-        run: cargo test -p waterui-apple-kit --locked
+        run: cargo test -p waterui-apple --locked
