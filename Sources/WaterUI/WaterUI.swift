@@ -943,6 +943,8 @@ public struct WuiWindowContext {
   public let attention: OpaquePointer?
   /// The optional resize-increments signal. iOS ignores it.
   public let resizeIncrements: OpaquePointer?
+  /// The reactive background, consumed when it is resolved.
+  public let background: OpaquePointer?
 
   init(from window: WuiWindow) {
     self.content = window.content
@@ -956,6 +958,7 @@ public struct WuiWindowContext {
     self.level = window.level
     self.attention = window.attention
     self.resizeIncrements = window.resize_increments
+    self.background = window.background
   }
 }
 
