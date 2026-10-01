@@ -905,14 +905,23 @@ public struct WuiWindowContext {
   public let resizable: Bool
   /// Optional toolbar content (nil if none).
   public let toolbar: OpaquePointer?
-  /// The visual style of the window.
-  public let style: WuiWindowStyle
+  /// The visual style signal; its changes are re-applied to the window.
+  public let style: OpaquePointer?
   /// The title binding.
   public let title: OpaquePointer?
   /// The frame binding.
   public let frame: OpaquePointer?
   /// The state binding.
   public let state: OpaquePointer?
+  /// The stacking-level signal. iOS ignores it — a scene has no stacking
+  /// between applications.
+  public let level: OpaquePointer?
+  /// The attention-request binding. iOS ignores it.
+  public let attention: OpaquePointer?
+  /// The optional resize-increments signal. iOS ignores it.
+  public let resizeIncrements: OpaquePointer?
+  /// The reactive background, consumed when it is resolved.
+  public let background: OpaquePointer?
 
   init(from window: WuiWindow) {
     self.content = window.content
@@ -923,6 +932,10 @@ public struct WuiWindowContext {
     self.title = window.title
     self.frame = window.frame
     self.state = window.state
+    self.level = window.level
+    self.attention = window.attention
+    self.resizeIncrements = window.resize_increments
+    self.background = window.background
   }
 }
 
@@ -930,25 +943,42 @@ public struct WuiWindowContext {
 public final class WuiRootContext {
   public let env: WuiEnvironment
   private let app: WuiApp
-  private let mainWindow: WuiWindowContext
+  /// The application's first declared window, the one `rootView` hosts; `nil`
+  /// when the application declares none (macOS only — see `init`).
+  public let window: WuiWindowContext?
+  /// What the host does once the application has no open window.
+  public let lastWindowPolicy: WuiLastWindowPolicy
   private let themeBridge: ThemeBridge
   private var menuBarTree: WuiMenuTree?
   private var localeObserver: NSObjectProtocol?
 
-  /// The root platform view
+  /// The root platform view: the content of the application's first window.
+  ///
+  /// A host asks for it only when `window` is non-nil; an application that
+  /// declares no window has no root view to host.
   #if canImport(UIKit)
     public private(set) lazy var rootView: UIView = {
-      WuiAnyView(anyview: mainWindow.content, env: env)
+      WuiAnyView(anyview: hostedWindow.content, env: env)
     }()
   #elseif canImport(AppKit)
     public private(set) lazy var rootView: NSView = {
-      WuiAnyView(anyview: mainWindow.content, env: env)
+      WuiAnyView(anyview: hostedWindow.content, env: env)
     }()
   #endif
 
-  /// The main window configuration
-  public var window: WuiWindowContext {
-    mainWindow
+  private var hostedWindow: WuiWindowContext {
+    guard let window else {
+      fatalError(
+        "WaterUI root view requested, but the application declares no window; "
+          + "check WuiRootContext.window before hosting it")
+    }
+    return window
+  }
+
+  /// Whether AppKit should terminate the application once its last window
+  /// closes, as the application's last-window policy says.
+  public var terminatesAfterLastWindowClosed: Bool {
+    lastWindowPolicy == WuiLastWindowPolicy_Quit
   }
 
   public init() async {
@@ -993,14 +1023,23 @@ public final class WuiRootContext {
     // by replacing its inner with the valid app.env
     env.inner = app.env
 
-    // 7. Extract main window (first window in array)
+    // 7. The first declared window is the one the root view hosts. macOS
+    // allows an application with none: it stays resident or quits, as its
+    // last-window policy says. iOS has no windowless foreground state.
     let windowSlice = app.windows.vtable.slice(app.windows.data)
-    guard windowSlice.len > 0, let windowsPtr = windowSlice.head else {
-      fatalError("waterui_app() returned App with no windows")
-    }
+    let firstWindow: WuiWindowContext? =
+      windowSlice.len > 0 ? windowSlice.head.map { WuiWindowContext(from: $0.pointee) } : nil
+    #if canImport(UIKit)
+      guard firstWindow != nil else {
+        fatalError(
+          "WaterUI on iOS requires a window: the application declares none, "
+            + "and iOS has no windowless foreground state")
+      }
+    #endif
     self.env = env
     self.app = app
-    self.mainWindow = WuiWindowContext(from: windowsPtr.pointee)
+    self.window = firstWindow
+    self.lastWindowPolicy = app.last_window_policy
     self.themeBridge = themeBridge
     themeBridge.bindToEnvironmentColorScheme(env: env)
     localeObserver = NotificationCenter.default.addObserver(
@@ -1250,6 +1289,7 @@ public final class WuiRootContext {
     private var backgroundObservation: WuiComputedObservation<WuiResolvedColor>?
     private var rootWindowBinding: WuiRootWindowBinding?
 
+    /// Starts the WaterUI runtime and hosts the application's first window.
     public override init(frame frameRect: NSRect) {
       super.init(frame: frameRect)
       wantsLayer = true
@@ -1259,6 +1299,18 @@ public final class WuiRootContext {
         self.context = context
         self.setupView(context)
       }
+    }
+
+    /// Hosts the first window of a runtime the host already started.
+    ///
+    /// A host that decides from the application whether to open a window at
+    /// all — an application may declare none — starts `WuiRootContext` first
+    /// and hands it here once `context.window` says there is one to show.
+    public init(context: WuiRootContext, frame frameRect: NSRect) {
+      super.init(frame: frameRect)
+      wantsLayer = true
+      self.context = context
+      setupView(context)
     }
 
     /// Hands this view's window to the main window that declared it.
@@ -1273,7 +1325,11 @@ public final class WuiRootContext {
 
     private func bindRootWindowIfReady() {
       guard rootWindowBinding == nil, let context, let window else { return }
-      rootWindowBinding = bindRootWindow(window, to: context.window, env: context.env)
+      guard let declared = context.window else {
+        fatalError(
+          "WaterUIView hosts the application's first window, but the application declares none")
+      }
+      rootWindowBinding = bindRootWindow(window, to: declared, env: context.env)
     }
 
     @available(*, unavailable)
