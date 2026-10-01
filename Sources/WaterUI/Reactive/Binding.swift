@@ -364,6 +364,28 @@ extension WuiBinding where T == CWaterUI.WuiWindowState {
   }
 }
 
+extension WuiBinding where T == CWaterUI.WuiUserAttention {
+  convenience init(_ inner: OpaquePointer) {
+    self.init(
+      inner: inner,
+      read: waterui_read_binding_user_attention,
+      watch: { inner, f in
+        guard
+          let guardPointer = waterui_watch_binding_user_attention(
+            inner,
+            makeUserAttentionWatcher(f)
+          )
+        else {
+          fatalError("Failed to watch the user-attention binding")
+        }
+        return WatcherGuard(guardPointer)
+      },
+      set: waterui_set_binding_user_attention,
+      drop: waterui_drop_binding_user_attention
+    )
+  }
+}
+
 // WuiColor is an opaque pointer type
 extension WuiBinding where T == OpaquePointer {
   /// Creates a binding for Color (opaque WuiColor pointer)

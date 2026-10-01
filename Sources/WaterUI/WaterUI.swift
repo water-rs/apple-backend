@@ -928,14 +928,21 @@ public struct WuiWindowContext {
   public let resizable: Bool
   /// Optional toolbar content (nil if none).
   public let toolbar: OpaquePointer?
-  /// The visual style of the window.
-  public let style: WuiWindowStyle
+  /// The visual style signal; its changes are re-applied to the window.
+  public let style: OpaquePointer?
   /// The title binding.
   public let title: OpaquePointer?
   /// The frame binding.
   public let frame: OpaquePointer?
   /// The state binding.
   public let state: OpaquePointer?
+  /// The stacking-level signal. iOS ignores it — a scene has no stacking
+  /// between applications.
+  public let level: OpaquePointer?
+  /// The attention-request binding. iOS ignores it.
+  public let attention: OpaquePointer?
+  /// The optional resize-increments signal. iOS ignores it.
+  public let resizeIncrements: OpaquePointer?
 
   init(from window: WuiWindow) {
     self.content = window.content
@@ -946,6 +953,9 @@ public struct WuiWindowContext {
     self.title = window.title
     self.frame = window.frame
     self.state = window.state
+    self.level = window.level
+    self.attention = window.attention
+    self.resizeIncrements = window.resize_increments
   }
 }
 
