@@ -741,7 +741,7 @@ mod imp {
             let application = cocoa_ui::objc2_ui_kit::UIApplication::sharedApplication(mtm);
             // Bring the backgrounded scene back to the foreground so a capture
             // of each window proves both render and hold independent state.
-            for session in application.openSessions().iter() {
+            for session in application.openSessions() {
                 let Some(scene) = session.scene() else {
                     continue;
                 };

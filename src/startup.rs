@@ -67,19 +67,18 @@ fn ignore_sigpipe() {
 fn display_refresh_rate() -> waterui::task::RefreshRate {
     use waterui::task::RefreshRate;
 
-    match max_frames_per_second() {
-        Some(millihertz) => RefreshRate::from_millihertz(millihertz),
-        // Metadata the platform does not expose is not a fault of the app:
-        // the budget only scales stall diagnostics, so it takes the nominal
-        // rate.
-        None => {
+    // Metadata the platform does not expose is not a fault of the app: the
+    // budget only scales stall diagnostics, so it takes the nominal rate.
+    max_frames_per_second().map_or_else(
+        || {
             tracing::info!(
                 target: "waterui::runtime_guard",
                 "display refresh rate is unavailable; budgeting frames at the nominal rate"
             );
             RefreshRate::HEADLESS
-        }
-    }
+        },
+        RefreshRate::from_millihertz,
+    )
 }
 
 /// The fastest attached screen's refresh rate in millihertz.
@@ -102,11 +101,10 @@ fn max_frames_per_second() -> Option<core::num::NonZeroU32> {
         .map(|fps| {
             // `maximumFramesPerSecond` is bounded to the hardware's few
             // hundred Hz, so the millihertz value is nonzero and fits a `u32`.
-            #[expect(
-                clippy::cast_sign_loss,
-                reason = "the value is positive on this branch"
-            )]
-            core::num::NonZeroU32::new(fps as u32 * 1000).expect("a refresh rate of at least 1 Hz")
+            core::num::NonZeroU32::new(
+                u32::try_from(fps).expect("the filtered positive rate fits a `u32`") * 1000,
+            )
+            .expect("a refresh rate of at least 1 Hz")
         })
 }
 
@@ -127,11 +125,10 @@ fn max_frames_per_second() -> Option<core::num::NonZeroU32> {
         .max()
         .filter(|fps| *fps > 0)
         .map(|fps| {
-            #[expect(
-                clippy::cast_sign_loss,
-                reason = "the value is positive on this branch"
-            )]
-            core::num::NonZeroU32::new(fps as u32 * 1000).expect("a refresh rate of at least 1 Hz")
+            core::num::NonZeroU32::new(
+                u32::try_from(fps).expect("the filtered positive rate fits a `u32`") * 1000,
+            )
+            .expect("a refresh rate of at least 1 Hz")
         })
 }
 
