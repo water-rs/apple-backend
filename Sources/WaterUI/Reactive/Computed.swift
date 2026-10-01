@@ -234,6 +234,27 @@ extension WuiComputed where T == CWaterUI.WuiSize {
   }
 }
 
+extension WuiComputed where T == CWaterUI.WuiWindowStyle {
+  convenience init(_ inner: OpaquePointer) {
+    self.init(
+      inner: inner,
+      read: waterui_read_computed_window_style,
+      watch: { inner, f in
+        guard
+          let guardPointer = waterui_watch_computed_window_style(
+            inner,
+            makeWindowStyleWatcher(f)
+          )
+        else {
+          fatalError("Failed to watch the window-style signal")
+        }
+        return WatcherGuard(guardPointer)
+      },
+      drop: waterui_drop_computed_window_style
+    )
+  }
+}
+
 extension WuiComputed where T == CWaterUI.WuiColorScheme {
   convenience init(_ inner: OpaquePointer) {
     self.init(
