@@ -73,6 +73,7 @@ pub fn passthrough_leaf(
     let host = HostView::new(ctx.mtm(), cocoa_ui::Rect::ZERO);
     let host_view: &PlatformView = &host;
     let mounted = ctx.render(content).mount(host_view);
+    crate::primary_content::forward(&host, mounted.view());
     host.set_layout_handler({
         let child = cocoa_ui::view::retain_base(mounted.view());
         move |view| cocoa_ui::view::set_frame(&child, cocoa_ui::view::bounds(view))

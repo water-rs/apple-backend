@@ -1057,6 +1057,7 @@ pub fn install(dispatcher: &mut Dispatcher) {
         // `cacheDisplay` walks the view tree and ignores a hidden backing
         // layer.
         let mounted = ctx.render(content).mount(&view);
+        crate::primary_content::forward(&view, mounted.view());
         let child_view = cocoa_ui::view::retain_base(mounted.view());
         #[cfg(target_os = "macos")]
         cocoa_ui::view::ensure_layer_backed(&child_view);

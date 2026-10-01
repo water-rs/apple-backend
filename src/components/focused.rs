@@ -131,6 +131,7 @@ pub fn install(dispatcher: &mut Dispatcher) {
         let host = HostView::new(mtm, Rect::ZERO);
         let host_view: &PlatformView = &host;
         let mounted = ctx.render(metadata.content).mount(host_view);
+        crate::primary_content::forward(&host, mounted.view());
 
         // The wrapper lays its child out over its full bounds —
         // `WuiFocused`'s `contentView.frame = bounds`.

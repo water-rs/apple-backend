@@ -156,6 +156,7 @@ fn render(config: BadgeConfig, ctx: &RenderContext<'_>) -> NativeLeaf {
     let host = HostView::new(mtm, Rect::ZERO);
     let host_view: &PlatformView = &host;
     let content = ctx.render(content_builder.build()).mount(host_view);
+    crate::primary_content::forward(&host, content.view());
     let indicator = BadgeView::new(mtm, BADGE_METRICS);
     cocoa_ui::view::add_subview(host_view, &indicator);
 

@@ -144,6 +144,7 @@ pub fn install(dispatcher: &mut Dispatcher) {
         let host = HostView::new(mtm, Rect::ZERO);
         layer::ensure_layer(&host);
         let mounted = ctx.render(metadata.content).mount(&host);
+        crate::primary_content::forward(&host, mounted.view());
         view::set_translates_autoresizing(mounted.view(), true);
 
         // `configureBorderLayer`: all four edges go through the layer's own

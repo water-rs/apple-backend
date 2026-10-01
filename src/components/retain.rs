@@ -91,10 +91,7 @@ pub fn install(dispatcher: &mut Dispatcher) {
         // `WuiPrimaryContentProviding`: the primary-content chain descends
         // into the content — a scroll surface under a retain wrapper keeps
         // managing its own safe area instead of being framed inside it.
-        host.set_primary_content_handler({
-            let state = Rc::clone(&state);
-            move |_host| Some(view::retain_base(state.child.view()))
-        });
+        crate::primary_content::forward(&host, state.child.view());
 
         // `setPlacementProposal`: the proposal selected for this wrapper is
         // the proposal its content was negotiated with.

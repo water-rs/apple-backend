@@ -943,6 +943,7 @@ pub fn install(dispatcher: &mut Dispatcher) {
 
         // `setupChildView`: the unfiltered child sits underneath and hidden.
         let mounted = ctx.render(erased.take_content()).mount(&view);
+        crate::primary_content::forward(&view, mounted.view());
         let child_view = cocoa_ui::view::retain_base(mounted.view());
         #[cfg(target_os = "macos")]
         cocoa_ui::view::ensure_layer_backed(&child_view);

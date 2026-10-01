@@ -182,6 +182,19 @@ pub fn install(dispatcher: &mut Dispatcher) {
             }
         });
 
+        // `WuiPrimaryContentProviding`: the primary-content chain descends
+        // into whichever child is mounted now.
+        crate::primary_content::forward_current(&host, {
+            let state = Rc::clone(&state);
+            move |_host| {
+                state
+                    .borrow()
+                    .child
+                    .as_ref()
+                    .map(|child| view::retain_base(child.view()))
+            }
+        });
+
         // `setPlacementProposal`: store the negotiated offer and forward it
         // to the current child.
         let sink_guard = proposal::register_sink(&host, {

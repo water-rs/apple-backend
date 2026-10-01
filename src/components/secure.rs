@@ -94,6 +94,7 @@ pub fn install(dispatcher: &mut Dispatcher) {
         };
 
         let mounted = ctx.render(metadata.content).mount(host_view);
+        crate::primary_content::forward(&host, mounted.view());
         view::set_translates_autoresizing(mounted.view(), true);
 
         let state = Rc::new(SecureState {

@@ -418,6 +418,7 @@ pub fn install(dispatcher: &mut Dispatcher) {
         let host = HostView::new(mtm, KitRect::ZERO);
         let host_view: &PlatformView = &host;
         let mounted = ctx.render(metadata.content).mount(host_view);
+        crate::primary_content::forward(&host, mounted.view());
         let overlay = ctx.render(metadata.value.content);
 
         let state = Rc::new(OverlayState {

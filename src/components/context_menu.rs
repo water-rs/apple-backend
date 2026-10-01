@@ -217,6 +217,7 @@ pub fn install(dispatcher: &mut Dispatcher) {
         let mtm = ctx.mtm();
         let host = HostView::new(mtm, Rect::ZERO);
         let mounted = ctx.render(metadata.content).mount(&host);
+        crate::primary_content::forward(&host, mounted.view());
         view::set_translates_autoresizing(mounted.view(), true);
 
         // `preview` is a `UIKit` primitive; on `AppKit` the `AnyView`

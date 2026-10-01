@@ -42,6 +42,7 @@ pub(crate) mod locale;
 pub(crate) mod measure_memo;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 pub(crate) mod menus;
+pub(crate) mod primary_content;
 pub(crate) mod proposal;
 mod registry;
 pub(crate) mod startup;

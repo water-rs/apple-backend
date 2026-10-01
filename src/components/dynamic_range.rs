@@ -84,6 +84,7 @@ fn dynamic_range_leaf(
     let host_view: &PlatformView = &host;
 
     let mounted = ctx.render(content).mount(host_view);
+    crate::primary_content::forward(&host, mounted.view());
     view::set_translates_autoresizing(mounted.view(), true);
 
     dynamic_range::apply_to_view(mode, host_view);
