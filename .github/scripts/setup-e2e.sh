@@ -74,24 +74,11 @@ checkout_commit https://github.com/water-rs/cli.git "${cli_sha}" "${cli_dir}"
 
 # `backends/apple` is consumed by example builds as a SwiftPM path dependency,
 # not through git; replacing the directory wholesale with the tested tree is
-# the whole point of the suite.
-rm -rf "${waterui_dir}/backends/apple"
-mkdir -p "${waterui_dir}/backends/apple"
-git -C "${repo_root}" archive HEAD | tar -x -C "${waterui_dir}/backends/apple"
-
-# The Rust library the examples link is waterui's own checkout; the Swift side
-# must see its declarations, not the snapshot the backend repo last synced.
-cp "${waterui_dir}/ffi/waterui.h" "${waterui_dir}/backends/apple/Sources/CWaterUI/include/waterui.h"
-
-# Apple-specific examples live in this repository (Examples/README.md); staged
-# into the framework checkout they are workspace members like any other
-# example, so discovery, the shards, baselines, and twins all see them.
-for example_dir in "${repo_root}"/Examples/*/; do
-  [[ -f "${example_dir}/Cargo.toml" ]] || continue
-  example="$(basename "${example_dir}")"
-  rm -rf "${waterui_dir}/examples/${example}"
-  cp -R "${example_dir}" "${waterui_dir}/examples/${example}"
-done
+# the whole point of the suite. stage-twin-workspace.sh owns the staging —
+# tested tree + synced FFI header + this repo's Examples — as a checksum
+# rsync that keeps the staged cargo target cache alive across re-stages
+# (#287); this script just drives it.
+"${repo_root}/.github/scripts/stage-twin-workspace.sh" "${waterui_dir}" --apple-repo "${repo_root}"
 
 if [[ -n "${GITHUB_ENV:-}" ]]; then
   {
