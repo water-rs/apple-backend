@@ -65,35 +65,74 @@ fn ignore_sigpipe() {
 /// The refresh rate of the displays this host drives, for the executor's
 /// frame budget.
 fn display_refresh_rate() -> waterui::task::RefreshRate {
-    use core::num::NonZeroU32;
     use waterui::task::RefreshRate;
 
-    match waterkit_screen::max_refresh_rate() {
-        Ok(rate) => {
-            // `waterkit_screen::RefreshRate` is bounded to `1.0..=480.0` Hz,
-            // so the millihertz value is nonzero and fits a `u32`.
-            #[expect(
-                clippy::cast_possible_truncation,
-                clippy::cast_sign_loss,
-                reason = "the source range is 1.0..=480.0 Hz"
-            )]
-            let millihertz = (f64::from(rate.get()) * 1000.0).round() as u32;
-            RefreshRate::from_millihertz(
-                NonZeroU32::new(millihertz).expect("a refresh rate of at least 1 Hz"),
-            )
-        }
+    match max_frames_per_second() {
+        Some(millihertz) => RefreshRate::from_millihertz(millihertz),
         // Metadata the platform does not expose is not a fault of the app:
         // the budget only scales stall diagnostics, so it takes the nominal
         // rate.
-        Err(error) => {
+        None => {
             tracing::info!(
                 target: "waterui::runtime_guard",
-                ?error,
                 "display refresh rate is unavailable; budgeting frames at the nominal rate"
             );
             RefreshRate::HEADLESS
         }
     }
+}
+
+/// The fastest attached screen's refresh rate in millihertz.
+///
+/// `maximumFramesPerSecond` is the `CADisplayLink` ceiling every renderer
+/// already respects; the budget takes the maximum across screens because it
+/// bounds stall diagnostics for the whole process, not one window. `None`
+/// when the platform reports no usable rate.
+#[cfg(target_os = "macos")]
+fn max_frames_per_second() -> Option<core::num::NonZeroU32> {
+    use cocoa_ui::MainThreadMarker;
+    use cocoa_ui::objc2_app_kit::NSScreen;
+
+    let mtm = MainThreadMarker::new().expect("startup runs on the main thread");
+    NSScreen::screens(mtm)
+        .iter()
+        .map(|screen| screen.maximumFramesPerSecond())
+        .max()
+        .filter(|fps| *fps > 0)
+        .map(|fps| {
+            // `maximumFramesPerSecond` is bounded to the hardware's few
+            // hundred Hz, so the millihertz value is nonzero and fits a `u32`.
+            #[expect(
+                clippy::cast_sign_loss,
+                reason = "the value is positive on this branch"
+            )]
+            core::num::NonZeroU32::new(fps as u32 * 1000).expect("a refresh rate of at least 1 Hz")
+        })
+}
+
+/// The iOS analogue of [`max_frames_per_second`].
+#[cfg(not(target_os = "macos"))]
+fn max_frames_per_second() -> Option<core::num::NonZeroU32> {
+    use cocoa_ui::MainThreadMarker;
+    use cocoa_ui::objc2_ui_kit::UIScreen;
+
+    let mtm = MainThreadMarker::new().expect("startup runs on the main thread");
+    // `screens` is deprecated in favour of scene-session discovery, but at
+    // startup no scene session exists yet — this is the only API that can
+    // answer inside this window.
+    #[expect(deprecated, reason = "no scene session exists at process startup")]
+    UIScreen::screens(mtm)
+        .iter()
+        .map(|screen| screen.maximumFramesPerSecond())
+        .max()
+        .filter(|fps| *fps > 0)
+        .map(|fps| {
+            #[expect(
+                clippy::cast_sign_loss,
+                reason = "the value is positive on this branch"
+            )]
+            core::num::NonZeroU32::new(fps as u32 * 1000).expect("a refresh rate of at least 1 Hz")
+        })
 }
 
 /// The `tracing` filter this process runs with: `RUST_LOG` wins outright,

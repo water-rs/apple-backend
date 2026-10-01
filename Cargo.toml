@@ -177,7 +177,6 @@ objc2-metal = { version = "0.3", features = [
     "MTLTexture",
 ] }
 cocoa-ui = { path = "../cocoa-ui" }
-waterkit-screen = { git = "https://github.com/water-rs/waterkit", rev = "e5290913ee8adb22843fd60047f6a845f2391c5b" }
 # Optional component dependencies — a port's feature gates them so an app
 # that never uses the component links none of it.
 waterui-webview = { git = "https://github.com/water-rs/waterui", rev = "ec7d5ad2022f3b3cadf149d372adb18a3f4da74a", optional = true }
