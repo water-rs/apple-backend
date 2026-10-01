@@ -110,12 +110,12 @@ struct LocaleTwin: View {
         HStack {
           Text("Short:")
           Spacer(minLength: 0)
-          Text(festivalDate, format: .dateTime.month(.twoDigits).day(.twoDigits).year(.twoDigits))
+          Text(festivalDateString(.short))
         }
         HStack {
           Text("Long:")
           Spacer(minLength: 0)
-          Text(festivalDate, format: .dateTime.month(.wide).day().year())
+          Text(festivalDateString(.long))
         }
         HStack {
           Text("Timezone:")
@@ -149,6 +149,14 @@ struct LocaleTwin: View {
         }
       }
     }
+  }
+
+  private func festivalDateString(_ style: DateFormatter.Style) -> String {
+    let f = DateFormatter()
+    f.dateStyle = style
+    f.timeStyle = .none
+    f.locale = Locale(identifier: "en-US")
+    return f.string(from: festivalDate)
   }
 
   private var kickoffString: String {
