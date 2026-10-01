@@ -97,18 +97,6 @@ final class WuiRawArray {
     self.inner = innerArray
   }
 
-  func toArray<T>() -> [T] {
-    let slice = (inner!.vtable.slice)(inner!.data)
-    let len = Int(slice.len)
-    guard len > 0, let head = slice.head else {
-      return []
-    }
-
-    let typedHead = head.assumingMemoryBound(to: T.self)
-    let buffer = UnsafeBufferPointer<T>(start: typedHead, count: len)
-    return Array(buffer)
-  }
-
   func withUnsafeBufferPointer<T, R>(_ body: (UnsafeBufferPointer<T>) -> R) -> R {
     let slice = (inner!.vtable.slice)(inner!.data)
     let len = Int(slice.len)
@@ -147,10 +135,6 @@ struct WuiArray<T> {
     self.inner.intoInner()
   }
 
-  func toArray() -> [T] {
-    self.inner.toArray()
-  }
-
   func map<U>(_ transform: (T) -> U) -> [U] {
     self.inner.withUnsafeBufferPointer { buffer in
       buffer.map(transform)
@@ -174,116 +158,10 @@ extension WuiArray where T == CWaterUI.WuiId {
     let raw = unsafeBitCast(inner, to: CWaterUI.WuiArray.self)
     self.init(c: raw)
   }
-
-  func intoWuiIdArray() -> CWaterUI.WuiArray_WuiId {
-    unsafeBitCast(inner.intoInner(), to: CWaterUI.WuiArray_WuiId.self)
-  }
-}
-
-extension WuiArray where T == CWaterUI.WuiDate {
-  init(_ inner: CWaterUI.WuiArray_WuiDate) {
-    let raw = unsafeBitCast(inner, to: CWaterUI.WuiArray.self)
-    self.init(c: raw)
-  }
-
-  func intoWuiDateArray() -> CWaterUI.WuiArray_WuiDate {
-    unsafeBitCast(inner.intoInner(), to: CWaterUI.WuiArray_WuiDate.self)
-  }
-}
-
-extension WuiArray where T == CWaterUI.WuiResolvedGradientStop {
-  init(_ inner: CWaterUI.WuiArray_WuiResolvedGradientStop) {
-    let raw = unsafeBitCast(inner, to: CWaterUI.WuiArray.self)
-    self.init(c: raw)
-  }
-}
-
-extension WuiArray<OpaquePointer> {
-  init(_ inner: CWaterUI.WuiArray_____WuiAnyView) {
-    let raw = unsafeBitCast(inner, to: CWaterUI.WuiArray.self)
-    self.init(c: raw)
-  }
-}
-
-extension WuiArray where T == CWaterUI.WuiHorizontalGuide {
-  init(_ inner: CWaterUI.WuiArray_WuiHorizontalGuide) {
-    let raw = unsafeBitCast(inner, to: CWaterUI.WuiArray.self)
-    self.init(c: raw)
-  }
-}
-
-extension WuiArray where T == CWaterUI.WuiVerticalGuide {
-  init(_ inner: CWaterUI.WuiArray_WuiVerticalGuide) {
-    let raw = unsafeBitCast(inner, to: CWaterUI.WuiArray.self)
-    self.init(c: raw)
-  }
-}
-
-extension WuiArray where T == CWaterUI.WuiSubviewPlacement {
-  init(_ inner: CWaterUI.WuiArray_WuiSubviewPlacement) {
-    let raw = unsafeBitCast(inner, to: CWaterUI.WuiArray.self)
-    self.init(c: raw)
-  }
-}
-
-extension WuiArray where T == CWaterUI.WuiStretchAxis {
-  func intoWuiStretchAxisArray() -> CWaterUI.WuiArray_WuiStretchAxis {
-    unsafeBitCast(inner.intoInner(), to: CWaterUI.WuiArray_WuiStretchAxis.self)
-  }
 }
 
 extension WuiArray<CWaterUI.WuiStyledChunk> {
   init(_ inner: CWaterUI.WuiArray_WuiStyledChunk) {
-    let raw = unsafeBitCast(inner, to: CWaterUI.WuiArray.self)
-    self.init(c: raw)
-  }
-}
-
-extension WuiArray<CWaterUI.WuiStr> {
-  init(_ inner: CWaterUI.WuiArray_WuiStr) {
-    let raw = unsafeBitCast(inner, to: CWaterUI.WuiArray.self)
-    self.init(c: raw)
-  }
-
-  func intoWuiStrArray() -> CWaterUI.WuiArray_WuiStr {
-    unsafeBitCast(inner.intoInner(), to: CWaterUI.WuiArray_WuiStr.self)
-  }
-}
-
-extension WuiArray<CWaterUI.WuiVideoAudioTrackInfo> {
-  func intoVideoAudioTrackInfoArray() -> CWaterUI.WuiArray_WuiVideoAudioTrackInfo {
-    unsafeBitCast(inner.intoInner(), to: CWaterUI.WuiArray_WuiVideoAudioTrackInfo.self)
-  }
-}
-
-extension WuiArray<CWaterUI.WuiVideoTrackInfo> {
-  func intoVideoTrackInfoArray() -> CWaterUI.WuiArray_WuiVideoTrackInfo {
-    unsafeBitCast(inner.intoInner(), to: CWaterUI.WuiArray_WuiVideoTrackInfo.self)
-  }
-}
-
-extension WuiArray<CWaterUI.WuiVideoSubtitleTrackInfo> {
-  func intoVideoSubtitleTrackInfoArray() -> CWaterUI.WuiArray_WuiVideoSubtitleTrackInfo {
-    unsafeBitCast(inner.intoInner(), to: CWaterUI.WuiArray_WuiVideoSubtitleTrackInfo.self)
-  }
-}
-
-extension WuiArray<CWaterUI.WuiNavigationView> {
-  init(_ inner: CWaterUI.WuiArray_WuiNavigationView) {
-    let raw = unsafeBitCast(inner, to: CWaterUI.WuiArray.self)
-    self.init(c: raw)
-  }
-}
-
-extension WuiArray<CWaterUI.WuiNavigationToolbarItem> {
-  init(_ inner: CWaterUI.WuiArray_WuiNavigationToolbarItem) {
-    let raw = unsafeBitCast(inner, to: CWaterUI.WuiArray.self)
-    self.init(c: raw)
-  }
-}
-
-extension WuiArray<CWaterUI.WuiTab> {
-  init(_ inner: CWaterUI.WuiArray_WuiTab) {
     let raw = unsafeBitCast(inner, to: CWaterUI.WuiArray.self)
     self.init(c: raw)
   }
@@ -309,12 +187,5 @@ public struct WuiStr {
 
   public func intoInner() -> CWaterUI.WuiStr {
     unsafeBitCast(self.inner.intoInner(), to: CWaterUI.WuiStr.self)
-  }
-
-  func intoRustOwnedPointer() -> UnsafeMutablePointer<CWaterUI.WuiStr> {
-    guard let pointer = waterui_str_box(intoInner()) else {
-      fatalError("waterui_str_box returned null")
-    }
-    return pointer
   }
 }

@@ -40,11 +40,6 @@ final class WuiAnyViews {
     precondition((0 ..< count).contains(index), "WuiAnyViews index is out of bounds")
     return waterui_anyviews_get_view(inner, UInt(index))!
   }
-
-  /// Returns a WuiAnyView which is already a UIView/NSView.
-  func getView(at index: Int, env: WuiEnvironment) -> WuiAnyView {
-    WuiAnyView(anyview: takeRawView(at: index), env: env)
-  }
 }
 
 /// Watches a sub-range `[start, end)` of `WuiAnyViews` IDs.

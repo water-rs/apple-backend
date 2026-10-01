@@ -43,16 +43,4 @@ func installGpuRuntime(env: OpaquePointer) async {
     )
   }
 }
-
-@MainActor
-func wuiMetalDevice(environment: WuiEnvironment) -> MTLDevice {
-  guard let pointer = waterui_apple_gpu_metal_device(UnsafeMutableRawPointer(environment.inner)) else {
-    fatalError("WaterUI environment has no GPU runtime Metal device")
-  }
-  let object = Unmanaged<AnyObject>.fromOpaque(pointer).takeUnretainedValue()
-  guard let device = object as? MTLDevice else {
-    fatalError("WaterUI GPU runtime returned a non-MTLDevice object")
-  }
-  return device
-}
 #endif  // !WATERUI_NO_GPU

@@ -45,22 +45,6 @@ class WuiColor {
     self.inner = inner
   }
 
-  func resolve(in env: WuiEnvironment) -> WuiComputed<WuiResolvedColor> {
-    guard let inner else {
-      fatalError("WuiColor pointer was already consumed")
-    }
-    let computed = waterui_resolve_color(inner, env.inner)
-    return WuiComputed(computed!)
-  }
-
-  func intoInner() -> OpaquePointer {
-    guard let inner else {
-      fatalError("WuiColor pointer was already consumed")
-    }
-    self.inner = nil
-    return inner
-  }
-
   @MainActor deinit {
     if let inner {
       waterui_drop_color(inner)
@@ -244,13 +228,3 @@ class WuiColor {
     }
   }
 #endif
-
-extension WuiResolvedColor {
-  func toPlatformColor(allowHdr: Bool = true) -> PlatformColor {
-    #if canImport(UIKit)
-      return toUIColor(allowHdr: allowHdr)
-    #elseif canImport(AppKit)
-      return toNSColor(allowHdr: allowHdr)
-    #endif
-  }
-}

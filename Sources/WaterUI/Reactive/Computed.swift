@@ -72,89 +72,6 @@ extension WuiComputedObservation where T == WuiResolvedColor {
     self.init(WuiComputed<WuiResolvedColor>(pointer), onChange: onChange)
   }
 }
-
-extension WuiComputedObservation where T == WuiResolvedFontValue {
-  convenience init(
-    themeFont slot: WuiFontSlot,
-    env: WuiEnvironment,
-    onChange: @escaping (WuiResolvedFontValue, WuiWatcherMetadata) -> Void
-  ) {
-    guard let pointer = waterui_theme_font(env.inner, slot) else {
-      fatalError("WaterUI theme is missing required font slot \(slot.rawValue)")
-    }
-    self.init(WuiComputed<WuiResolvedFontValue>(pointer), onChange: onChange)
-  }
-
-  /// Observes the themed body font and applies it immediately and on every
-  /// change. Text controls must keep their control font in sync with the
-  /// theme: the control's cell measures and its editor types with that font,
-  /// so a mismatch clips oversized attributed content and makes typing start
-  /// in the platform default size.
-  static func bodyFont(
-    env: WuiEnvironment,
-    apply: @escaping (WuiResolvedFontValue) -> Void
-  ) -> WuiComputedObservation<WuiResolvedFontValue> {
-    let observation = WuiComputedObservation(
-      themeFont: WuiFontSlot_Body,
-      env: env
-    ) { font, _ in
-      apply(font)
-    }
-    apply(observation.value)
-    return observation
-  }
-}
-
-extension WuiComputed where T == WuiStr {
-  convenience init(_ inner: OpaquePointer) {
-    self.init(
-      inner: inner,
-      read: { inner in WuiStr(waterui_read_computed_str(inner)) },
-      watch: { inner, f in
-        let g = waterui_watch_computed_str(inner, makeStrWatcher(f))
-        return WatcherGuard(g!)
-      },
-      drop: waterui_drop_computed_str
-    )
-  }
-}
-
-extension WuiComputed where T == Int32 {
-  convenience init(_ inner: OpaquePointer) {
-    self.init(
-      inner: inner,
-      read: waterui_read_computed_i32,
-      watch: { inner, f in
-        let g = waterui_watch_computed_i32(inner, makeIntWatcher(f))
-        return WatcherGuard(g!)
-      },
-      drop: waterui_drop_computed_i32
-    )
-  }
-}
-#if !WATERUI_NO_MEDIA
-
-extension WuiComputed where T == CWaterUI.WuiVideoDelivery {
-  convenience init(_ inner: OpaquePointer) {
-    self.init(
-      inner: inner,
-      read: waterui_read_computed_video_delivery,
-      watch: { inner, f in
-        let guardPointer = waterui_watch_computed_video_delivery(
-          inner,
-          makeVideoDeliveryWatcher(f)
-        )
-        guard let guardPointer else {
-          fatalError("Failed to watch video delivery")
-        }
-        return WatcherGuard(guardPointer)
-      },
-      drop: waterui_drop_computed_video_delivery
-    )
-  }
-}
-
-#endif  // !WATERUI_NO_MEDIA
 extension WuiComputed where T == Bool {
   convenience init(_ inner: OpaquePointer) {
     self.init(
@@ -165,92 +82,6 @@ extension WuiComputed where T == Bool {
         return WatcherGuard(g!)
       },
       drop: waterui_drop_computed_bool
-    )
-  }
-}
-
-extension WuiComputed where T == Double {
-  convenience init(_ inner: OpaquePointer) {
-    self.init(
-      inner: inner,
-      read: waterui_read_computed_f64,
-      watch: { inner, f in
-        let g = waterui_watch_computed_f64(inner, makeDoubleWatcher(f))
-        return WatcherGuard(g!)
-      },
-      drop: waterui_drop_computed_f64
-    )
-  }
-}
-
-extension WuiComputed where T == Float {
-  convenience init(_ inner: OpaquePointer) {
-    self.init(
-      inner: inner,
-      read: waterui_read_computed_f32,
-      watch: { inner, f in
-        let g = waterui_watch_computed_f32(inner, makeFloatWatcher(f))
-        return WatcherGuard(g!)
-      },
-      drop: waterui_drop_computed_f32
-    )
-  }
-}
-
-extension WuiComputed where T == CWaterUI.WuiWindowLevel {
-  convenience init(_ inner: OpaquePointer) {
-    self.init(
-      inner: inner,
-      read: waterui_read_computed_window_level,
-      watch: { inner, f in
-        guard
-          let guardPointer = waterui_watch_computed_window_level(
-            inner,
-            makeWindowLevelWatcher(f)
-          )
-        else {
-          fatalError("Failed to watch the window-level signal")
-        }
-        return WatcherGuard(guardPointer)
-      },
-      drop: waterui_drop_computed_window_level
-    )
-  }
-}
-
-extension WuiComputed where T == CWaterUI.WuiSize {
-  convenience init(_ inner: OpaquePointer) {
-    self.init(
-      inner: inner,
-      read: waterui_read_computed_size,
-      watch: { inner, f in
-        guard let guardPointer = waterui_watch_computed_size(inner, makeSizeWatcher(f)) else {
-          fatalError("Failed to watch the size signal")
-        }
-        return WatcherGuard(guardPointer)
-      },
-      drop: waterui_drop_computed_size
-    )
-  }
-}
-
-extension WuiComputed where T == CWaterUI.WuiWindowStyle {
-  convenience init(_ inner: OpaquePointer) {
-    self.init(
-      inner: inner,
-      read: waterui_read_computed_window_style,
-      watch: { inner, f in
-        guard
-          let guardPointer = waterui_watch_computed_window_style(
-            inner,
-            makeWindowStyleWatcher(f)
-          )
-        else {
-          fatalError("Failed to watch the window-style signal")
-        }
-        return WatcherGuard(guardPointer)
-      },
-      drop: waterui_drop_computed_window_style
     )
   }
 }
@@ -276,22 +107,6 @@ extension WuiComputed where T == CWaterUI.WuiColorScheme {
   }
 }
 
-extension WuiComputed where T == WuiResolvedFontValue {
-  convenience init(_ inner: OpaquePointer) {
-    self.init(
-      inner: inner,
-      read: { inner in
-        WuiResolvedFontValue(consuming: waterui_read_computed_resolved_font(inner))
-      },
-      watch: { inner, f in
-        let g = waterui_watch_computed_resolved_font(inner, makeResolvedFontWatcher(f))
-        return WatcherGuard(g!)
-      },
-      drop: waterui_drop_computed_resolved_font
-    )
-  }
-}
-
 extension WuiComputed where T == WuiResolvedColor {
   convenience init(_ inner: OpaquePointer) {
     self.init(
@@ -308,22 +123,6 @@ extension WuiComputed where T == WuiResolvedColor {
   }
 }
 
-extension WuiComputed where T == WuiBitmap {
-  convenience init(_ inner: OpaquePointer) {
-    self.init(
-      inner: inner,
-      read: { inner in
-        return waterui_read_computed_bitmap(inner)
-      },
-      watch: { inner, f in
-        let g = waterui_watch_computed_bitmap(inner, makeBitmapWatcher(f))
-        return WatcherGuard(g!)
-      },
-      drop: waterui_drop_computed_bitmap
-    )
-  }
-}
-
 extension WuiComputed where T == WuiStyledStr {
   convenience init(_ inner: OpaquePointer) {
     self.init(
@@ -336,39 +135,6 @@ extension WuiComputed where T == WuiStyledStr {
         return WatcherGuard(g!)
       },
       drop: waterui_drop_computed_styled_str
-    )
-  }
-}
-
-extension WuiComputed where T == WuiCursorStyle {
-  convenience init(_ inner: OpaquePointer) {
-    self.init(
-      inner: inner,
-      read: { inner in
-        return waterui_read_computed_cursor_style(inner)
-      },
-      watch: { inner, f in
-        let g = waterui_watch_computed_cursor_style(inner, makeCursorStyleWatcher(f))
-        return WatcherGuard(g!)
-      },
-      drop: waterui_drop_computed_cursor_style
-    )
-  }
-}
-
-extension WuiComputed where T == WuiHorizontalAlignment {
-  convenience init(_ inner: OpaquePointer) {
-    self.init(
-      inner: inner,
-      read: { inner in
-        return waterui_read_computed_horizontal_alignment(inner)
-      },
-      watch: { inner, f in
-        let g = waterui_watch_computed_horizontal_alignment(
-          inner, makeHorizontalAlignmentWatcher(f))
-        return WatcherGuard(g!)
-      },
-      drop: waterui_drop_computed_horizontal_alignment
     )
   }
 }

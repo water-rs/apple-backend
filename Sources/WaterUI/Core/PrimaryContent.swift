@@ -25,22 +25,6 @@ protocol WuiPrimaryContentProviding {
   var wuiPrimaryContent: PlatformView? { get }
 }
 
-/// Follows the primary-content chain from `view` down to the first view that
-/// either answers for itself ([`WuiSafeAreaManaging`]) or wraps nothing
-/// further.
-@MainActor
-func wuiResolvedPrimaryContent(of view: PlatformView) -> PlatformView {
-  var current = view
-  // A Rust-created scroll view cannot conform to WuiSafeAreaManaging, so
-  // any platform scroll view ends the descent the way a conformer does.
-  while !(current is WuiSafeAreaManaging) && !(current is PlatformScrollView),
-    let next = (current as? WuiPrimaryContentProviding)?.wuiPrimaryContent
-  {
-    current = next
-  }
-  return current
-}
-
 // The bars that follow a scroll surface — large title, tab bar minimize,
 // scroll-edge effects — are UIKit's; AppKit couples nothing to a scroll view.
 #if canImport(UIKit)
@@ -177,15 +161,17 @@ func wuiKitManagesSafeArea(_ view: PlatformView) -> Bool {
   return (view.value(forKey: "cocoaUiManagesSafeArea") as? Bool) ?? false
 }
 
-/// The edges `view` erases from the safe-area insets its subtree sees —
-/// what `cocoaUiIgnoredSafeAreaEdges` reports: bits 0–3 the `Edges` mask
-/// (bit 0 top, bit 1 leading, bit 2 bottom, bit 3 trailing), bit 4 marking
-/// the view an ignore-safe-area wrapper.
-@MainActor
-func wuiKitIgnoredSafeAreaEdges(_ view: PlatformView) -> Int? {
-  guard view.responds(to: Selector(("cocoaUiIgnoredSafeAreaEdges"))) else { return nil }
-  return view.value(forKey: "cocoaUiIgnoredSafeAreaEdges") as? Int
-}
+#if canImport(UIKit)
+  /// The edges `view` erases from the safe-area insets its subtree sees —
+  /// what `cocoaUiIgnoredSafeAreaEdges` reports: bits 0–3 the `Edges` mask
+  /// (bit 0 top, bit 1 leading, bit 2 bottom, bit 3 trailing), bit 4 marking
+  /// the view an ignore-safe-area wrapper.
+  @MainActor
+  func wuiKitIgnoredSafeAreaEdges(_ view: PlatformView) -> Int? {
+    guard view.responds(to: Selector(("cocoaUiIgnoredSafeAreaEdges"))) else { return nil }
+    return view.value(forKey: "cocoaUiIgnoredSafeAreaEdges") as? Int
+  }
+#endif
 
 /// The frame a wrapper gives its single content view: the whole of its bounds
 /// when the content handles the safe area itself, the safe-area part otherwise.

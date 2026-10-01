@@ -27,19 +27,6 @@ public enum WuiStretchAxis: UInt32 {
   /// Expands along parent stack's cross axis (e.g., Divider)
   /// In VStack: expands horizontally. In HStack: expands vertically.
   case crossAxis = 5
-
-  /// Convert to the C FFI enum type
-  var ffiValue: CWaterUI.WuiStretchAxis {
-    CWaterUI.WuiStretchAxis(rawValue: self.rawValue)
-  }
-
-  /// Initialize from C FFI enum type
-  init(_ ffi: CWaterUI.WuiStretchAxis) {
-    guard let axis = WuiStretchAxis(rawValue: ffi.rawValue) else {
-      fatalError("Unsupported WaterUI stretch axis: \(ffi.rawValue)")
-    }
-    self = axis
-  }
 }
 
 // MARK: - WuiViewId
@@ -74,11 +61,6 @@ struct WuiViewId: Hashable {
   func hash(into hasher: inout Hasher) {
     hasher.combine(low)
     hasher.combine(high)
-  }
-
-  /// Convert to debug string (shows hex representation)
-  func toString() -> String {
-    String(format: "0x%016llx%016llx", high, low)
   }
 }
 
@@ -1427,9 +1409,3 @@ public final class WuiRootContext {
     }
   }
 #endif
-
-extension Logger {
-  static let waterui = Logger(subsystem: "dev.waterui", category: "WaterUI")
-  /// GPU surfaces, view effects, filters, and the Metal capture pipeline.
-  static let graphics = Logger(subsystem: "dev.waterui", category: "Graphics")
-}

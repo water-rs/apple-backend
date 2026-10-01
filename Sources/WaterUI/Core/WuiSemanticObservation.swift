@@ -50,33 +50,3 @@ final class WuiStableSemanticCollection<ID: Hashable, Node: AnyObject> {
     return ordered
   }
 }
-
-@MainActor
-final class WuiStableViewCollection {
-  private let source: WuiAnyViews
-  private let env: WuiEnvironment
-  private let nodes = WuiStableSemanticCollection<Int32, WuiAnyView>()
-  private var watcher: WatcherGuard?
-
-  private(set) var ordered: [WuiAnyView] = []
-
-  init(
-    consuming source: OpaquePointer,
-    env: WuiEnvironment,
-    onChange: @escaping (WuiWatcherMetadata) -> Void
-  ) {
-    self.source = WuiAnyViews(source)
-    self.env = env
-    watcher = watchAnyViewsIds(self.source) { [weak self] ids, metadata in
-      self?.reconcile(ids: ids)
-      onChange(metadata)
-    }
-    reconcile(ids: self.source.allIds())
-  }
-
-  private func reconcile(ids: [Int32]) {
-    ordered = nodes.reconcile(ids: ids) { [source, env] index, _ in
-      source.getView(at: index, env: env)
-    }
-  }
-}

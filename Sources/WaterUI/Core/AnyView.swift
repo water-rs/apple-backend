@@ -43,10 +43,6 @@ private func waitForFirstPaintReadyParticipants(
 var componentRegistry: [WuiViewId: (OpaquePointer, WuiEnvironment) -> any WuiComponent] =
   [:]
 
-/// Set of metadata component IDs (components that wrap content but aren't "real" content themselves)
-@MainActor
-private var metadataComponentIds: Set<WuiViewId> = []
-
 /// Internal flag to track if builtin components have been registered
 @MainActor
 private var builtinComponentsRegistered = false
@@ -60,60 +56,6 @@ public func registerComponent<T: WuiComponent>(_ type: T.Type) {
     type.init(anyview: anyview, env: env)
   }
 }
-
-/// Register a metadata component type (wrappers that modify env/appearance but aren't content).
-@MainActor
-private func registerMetadataComponent<T: WuiComponent>(_ type: T.Type) {
-  registerComponent(type)
-  metadataComponentIds.insert(type.viewId)
-}
-
-/// Check if a component is a metadata component (wrapper that modifies env/appearance).
-@MainActor
-func isMetadataComponent(_ component: any WuiComponent) -> Bool {
-  metadataComponentIds.contains(type(of: component).viewId)
-}
-
-/// Advances an erased view to the first one a component factory claims.
-///
-/// This is the walk `WuiAnyView.resolve` runs — the view's id against the
-/// component registry, `waterui_view_body` when the id is not registered —
-/// stopped one step short of building anything. That makes it an exact answer
-/// to "what will this view become", and reaching a registered id is the proof
-/// that nothing realizable sits in between: any view that could draw is a
-/// registered component that would have stopped the walk first. A `Native` /
-/// `Metadata` wrapper the registry does not claim stops the walk too — the
-/// seam takes it from there (`WuiSeam.swift`).
-///
-/// The walk consumes the views it steps through, as `resolve` does; the pointer
-/// it returns is the live handle and the caller owns it.
-@MainActor
-func wuiResolvedViewPointer(_ anyview: OpaquePointer, env: WuiEnvironment) -> OpaquePointer {
-  registerBuiltinComponentsIfNeeded()
-  var current = anyview
-  while true {
-    let viewId = WuiViewId(waterui_view_id(current))
-    if componentRegistry[viewId] != nil {
-      return current
-    }
-    if wateruiAppleNeedsFallback(current) {
-      return current
-    }
-    current = waterui_view_body(current, env.inner)
-  }
-}
-
-/// A metadata component that draws something of its own in place of the content
-/// it wraps: a filter host showing its filtered output.
-///
-/// A capture descends through metadata wrappers to reach the content underneath
-/// them, which is right for every wrapper that only decorates its child and
-/// wrong for these: their content is deliberately hidden and their own
-/// presentation is the thing an enclosing capture has to read. Descending past
-/// one captures its hidden, unfiltered child instead — which is why a filter
-/// inside a filter captured nothing (waterui#521).
-@MainActor
-protocol WuiPresentsOwnContent: AnyObject {}
 
 // MARK: - Root Theme Controller
 
@@ -571,11 +513,6 @@ func registerBuiltinComponentsIfNeeded() {
         ancestor = current.superview
       }
       return false
-    }
-
-    func refreshWindowMinSize(force: Bool = false) {
-      guard isWindowRootContent() else { return }
-      updateWindowMinSizeIfNeeded(force: force)
     }
 
     private func scheduleWindowMinSizeUpdate() {

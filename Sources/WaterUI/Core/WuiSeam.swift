@@ -98,7 +98,7 @@ private func unclaimedLeaf() -> WateruiLeaf {
 /// this before `waterui_view_body`, mirroring the Rust dispatcher's order.
 /// Borrows `view`.
 @_silgen_name("waterui_apple_needs_fallback")
-func wateruiAppleNeedsFallback(_ view: OpaquePointer) -> Bool
+func wateruiAppleNeedsFallback(_: OpaquePointer) -> Bool
 
 /// Resolves `view` through the Rust dispatcher: claims a registered type,
 /// expands an unclaimed `Native` to its `with_fallback` view, or reports a
@@ -106,7 +106,7 @@ func wateruiAppleNeedsFallback(_ view: OpaquePointer) -> Bool
 /// owns and re-walks.
 @_silgen_name("waterui_apple_resolve")
 func wateruiAppleResolve(
-  _ view: OpaquePointer, _ env: OpaquePointer
+  _: OpaquePointer, _: OpaquePointer
 ) -> WateruiResolution
 
 // MARK: - The shared resolve walk
