@@ -610,7 +610,6 @@ public func wateruiSwiftWhenReady(
   }
 }
 
-
 /// The frame a leaf's platform view takes inside `host`, after safe-area
 /// rules: the host's whole bounds when the leaf manages its own safe area,
 /// otherwise the host's safe-area-inset rect. Both views are borrowed.

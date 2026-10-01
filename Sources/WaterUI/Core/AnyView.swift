@@ -196,7 +196,6 @@ func registerBuiltinComponentsIfNeeded() {
 
   // Metadata components (wrappers that modify env/appearance)
 
-
   // Media components. Off when the app dropped WaterUI's `media` capability,
   // which is what exports the `waterui_video_*`/`waterkit_audio_*` symbols
   // these components bind to.

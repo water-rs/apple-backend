@@ -891,7 +891,6 @@ public final class ThemeBridge {
 @MainActor
 final class WuiNativeServices: @unchecked Sendable {
   weak var environment: WuiEnvironment?
-
 }
 
 /// Represents a window in the application.
