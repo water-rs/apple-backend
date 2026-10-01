@@ -129,6 +129,37 @@ fi
 
 echo "Running ${#shard_examples[@]} examples on ${platform}: ${shard_examples[*]}"
 
+if [[ "${platform}" == "ios" ]]; then
+  # A `simctl launch` opens the app over whatever is currently frontmost, and
+  # iOS answers with the status-bar "back to <app>" breadcrumb — pixels the
+  # parity compare counts. The harness terminates every app it starts before
+  # the next launch, so the only breadcrumb source is a foreign app left
+  # frontmost outside the run (a diagnostic launch, an aborted previous run).
+  # Rebooting is the deterministic way to guarantee SpringBoard is frontmost
+  # for the first launch; every launch afterwards inherits that clean state.
+  xcrun simctl shutdown "${SIMULATOR_UDID}" >/dev/null 2>&1 || true
+  if ! xcrun simctl boot "${SIMULATOR_UDID}" >/dev/null 2>&1; then
+    echo "::error::Failed to boot simulator ${SIMULATOR_UDID} for a clean launch state."
+    exit 1
+  fi
+  xcrun simctl bootstatus "${SIMULATOR_UDID}" -b
+
+  # Pin the status bar for the whole shard — WaterUI and twin captures alike —
+  # so the clock, battery and signal pixels compare equal on every shot. The
+  # override persists until it is cleared at the end of the shard (the EXIT
+  # trap covers failure paths too).
+  if ! xcrun simctl status_bar "${SIMULATOR_UDID}" override \
+    --time "9:41" \
+    --batteryState charged --batteryLevel 100 \
+    --wifiMode active --wifiBars 3 \
+    --cellularMode active --cellularBars 4 \
+    --dataNetwork wifi; then
+    echo "::error::Failed to set the status bar override on ${SIMULATOR_UDID}."
+    exit 1
+  fi
+  trap 'xcrun simctl status_bar "${SIMULATOR_UDID}" clear >/dev/null 2>&1 || true' EXIT
+fi
+
 # One frame from the current platform target. macOS captures need the pid that
 # owns the window; the running example is the default, the SwiftUI reference
 # host passes its own.
@@ -320,20 +351,50 @@ capture_reference() {
   fi
 }
 
-# The allowed diff fraction for this twin on this platform: the recorded
-# budget when the twin is known-divergent, the strict default otherwise.
+# The allowed diff fraction for this twin on this platform. A "<platform>@<os
+# major>" section wins over the plain platform key, which wins over the strict
+# default: "ios@27" records the navigation exception — SwiftUI's private bar
+# collapses the large title for a stacked search bar on iOS 27 while stock
+# UINavigationBar keeps it for identical public inputs, so the twin's extra
+# diff there is a platform behavior change, not a backend regression.
+parity_os_major=""
 parity_budget() {
   local budget=""
   if [[ -f "${parity_budgets}" ]]; then
+    if [[ -z "${parity_os_major}" ]]; then
+      if [[ "${platform}" == "ios" ]]; then
+        parity_os_major="$(xcrun simctl list devices --json | python3 -c '
+import json, re, sys
+for runtime, group in json.load(sys.stdin)["devices"].items():
+    if any(d.get("udid") == sys.argv[1] for d in group):
+        m = re.search(r"iOS-(\d+)", runtime)
+        if m:
+            print(m.group(1))
+        break
+' "${SIMULATOR_UDID}")" || return 1
+        if [[ -z "${parity_os_major}" ]]; then
+          echo "::error::parity_budget: cannot derive iOS major: SIMULATOR_UDID=${SIMULATOR_UDID} not found in 'xcrun simctl list devices', or its runtime name has no iOS-<major> match." >&2
+          return 1
+        fi
+      else
+        parity_os_major="$(sw_vers -productVersion | cut -d. -f1)" || return 1
+        if [[ -z "${parity_os_major}" ]]; then
+          echo "::error::parity_budget: cannot derive macOS major: 'sw_vers -productVersion' returned no version." >&2
+          return 1
+        fi
+      fi
+    fi
     budget="$(python3 -c '
 import json, sys
-try:
-  budgets = json.load(open(sys.argv[1]))
-  value = budgets.get(sys.argv[2], {}).get(sys.argv[3], "")
-  print(value)
-except Exception:
-  print("")
-' "${parity_budgets}" "${platform}" "$1")"
+budgets = json.load(open(sys.argv[1]))
+platform, major, example = sys.argv[2], sys.argv[3], sys.argv[4]
+value = ""
+if major:
+  value = budgets.get(f"{platform}@{major}", {}).get(example, "")
+if value == "":
+  value = budgets.get(platform, {}).get(example, "")
+print(value)
+' "${parity_budgets}" "${platform}" "${parity_os_major}" "$1")" || return 1
   fi
   echo "${budget:-${DIFF_BUDGET:-0.02}}"
 }
@@ -534,6 +595,7 @@ for example in ${shard_examples[@]+"${shard_examples[@]}"}; do
   fi
 
   startup_ms=""
+  no_first_paint=0
   for _ in $(seq 1 30); do
     startup_ms="$(sed -n 's/.*waterui_first_paint_ms=\([0-9][0-9]*\).*/\1/p' "${marker_log}" | head -1)"
     [[ -n "${startup_ms}" ]] && break
@@ -558,8 +620,9 @@ for example in ${shard_examples[@]+"${shard_examples[@]}"}; do
     printf '  "%s": %s,\n' "${example}" "${startup_ms}" >> "${startup_entries}"
     fp_cell="${startup_ms} ms"
   else
-    echo "::warning::${example} did not report a first-paint time"
+    echo "::error::${example} did not report a first-paint time"
     printf '  "%s": null,\n' "${example}" >> "${startup_entries}"
+    no_first_paint=1
   fi
 
   if ! capture_settled "${shot}"; then
@@ -573,6 +636,24 @@ for example in ${shard_examples[@]+"${shard_examples[@]}"}; do
     fi
     failures+=("${example}: capture")
     report+=("| \`${example}\` | capture failed | — | ${fp_cell} | ${size_cell} | ${mem_cell} |")
+    printf '  "%s": null,\n' "${example}" >> "${memory_entries}"
+    echo "::endgroup::"
+    continue
+  fi
+
+  # A live app that never reports `waterui_first_paint_ms` is a launch
+  # failure, not a launch: the capture above may show the home screen, so
+  # record the example as failed instead of "launched".
+  if (( no_first_paint )); then
+    kill "${stream_pid}" 2>/dev/null || true
+    if [[ "${platform}" == "ios" ]]; then
+      xcrun simctl terminate "${SIMULATOR_UDID}" "${bundle_id}" >/dev/null 2>&1 || true
+      xcrun simctl uninstall "${SIMULATOR_UDID}" "${bundle_id}" >/dev/null 2>&1 || true
+    else
+      kill "${app_pid}" 2>/dev/null || true
+    fi
+    failures+=("${example}: no first paint")
+    report+=("| \`${example}\` | no first paint | — | — | ${size_cell} | ${mem_cell} |")
     printf '  "%s": null,\n' "${example}" >> "${memory_entries}"
     echo "::endgroup::"
     continue

@@ -25,20 +25,6 @@ protocol WuiPrimaryContentProviding {
   var wuiPrimaryContent: PlatformView? { get }
 }
 
-/// Follows the primary-content chain from `view` down to the first view that
-/// either answers for itself ([`WuiSafeAreaManaging`]) or wraps nothing
-/// further.
-@MainActor
-func wuiResolvedPrimaryContent(of view: PlatformView) -> PlatformView {
-  var current = view
-  while !(current is WuiSafeAreaManaging),
-    let next = (current as? WuiPrimaryContentProviding)?.wuiPrimaryContent
-  {
-    current = next
-  }
-  return current
-}
-
 // The bars that follow a scroll surface — large title, tab bar minimize,
 // scroll-edge effects — are UIKit's; AppKit couples nothing to a scroll view.
 #if canImport(UIKit)
@@ -64,14 +50,21 @@ func wuiResolvedPrimaryContent(of view: PlatformView) -> PlatformView {
   /// the primary-content chain.
   @MainActor
   func wuiScrollSurface(of view: PlatformView) -> PlatformScrollView? {
-    if view is WuiSafeAreaManaging {
+    if view is WuiSafeAreaManaging || view is PlatformScrollView {
       return view as? PlatformScrollView
     }
     let candidates: [PlatformView]
     if let stack = view as? WuiScrollSurfaceProviding {
       candidates = stack.wuiScrollSurfaceCandidates
-    } else if let wrapper = view as? WuiPrimaryContentProviding {
-      candidates = wrapper.wuiPrimaryContent.map { [$0] } ?? []
+    } else if view.responds(to: Selector(("cocoaUiScrollSurfaceCandidates"))),
+      let kit = view.value(forKey: "cocoaUiScrollSurfaceCandidates") as? [PlatformView]
+    {
+      candidates = kit
+    } else if let content =
+      (view as? WuiPrimaryContentProviding)?.wuiPrimaryContent
+      ?? wuiKitPrimaryContent(view)
+    {
+      candidates = [content]
     } else {
       candidates = []
     }
@@ -97,10 +90,13 @@ func wuiResolvedPrimaryContent(of view: PlatformView) -> PlatformView {
 /// it stays inside the safe area.
 @MainActor
 func wuiHandlesSafeArea(_ view: PlatformView) -> Bool {
-  if view is WuiSafeAreaManaging || view is WuiFixedContainer {
+  if view is WuiSafeAreaManaging || view is PlatformScrollView || wuiKitManagesSafeArea(view) {
     return true
   }
-  if let wrapper = view as? WuiPrimaryContentProviding, let content = wrapper.wuiPrimaryContent {
+  if let content =
+    (view as? WuiPrimaryContentProviding)?.wuiPrimaryContent
+    ?? wuiKitPrimaryContent(view)
+  {
     return wuiHandlesSafeArea(content)
   }
   return false
@@ -109,7 +105,8 @@ func wuiHandlesSafeArea(_ view: PlatformView) -> Bool {
 extension PlatformView {
   /// The part of the bounds inside the safe area.
   ///
-  /// On iOS a `WuiIgnoreSafeArea` — this view or an enclosing one — erases its
+  /// On iOS an ignore-safe-area wrapper — this view or an enclosing one,
+  /// its edges reported through `cocoaUiIgnoredSafeAreaEdges` — erases its
   /// edges from the insets its subtree sees, up to the next view that owns
   /// its insets (a scroll surface or chrome container starts afresh). UIKit computes every view's
   /// `safeAreaInsets` from geometry alone, so the erasure is applied here
@@ -120,9 +117,16 @@ extension PlatformView {
       var insets = safeAreaInsets
       var ancestor: PlatformView? = self
       while let view = ancestor {
-        if let ignoring = view as? WuiIgnoreSafeArea {
-          insets = ignoring.erasingIgnoredEdges(from: insets)
-        } else if view is WuiSafeAreaManaging {
+        if let ignored = wuiKitIgnoredSafeAreaEdges(view), ignored & 0x10 != 0 {
+          insets = UIEdgeInsets(
+            top: ignored & 1 != 0 ? 0 : insets.top,
+            left: ignored & 2 != 0 ? 0 : insets.left,
+            bottom: ignored & 4 != 0 ? 0 : insets.bottom,
+            right: ignored & 8 != 0 ? 0 : insets.right
+          )
+        } else if view is WuiSafeAreaManaging || view is PlatformScrollView
+          || wuiKitManagesSafeArea(view)
+        {
           break
         }
         ancestor = view.superview
@@ -141,6 +145,33 @@ extension PlatformView {
     #endif
   }
 }
+
+// KVC fallbacks for the kit views behind a Rust leaf: `cocoaUiPrimaryContent`,
+// `cocoaUiManagesSafeArea`, `cocoaUiScrollSurfaceCandidates` are defined on the
+// kit `HostView` and answer the same questions the Swift protocols did.
+@MainActor
+func wuiKitPrimaryContent(_ view: PlatformView) -> PlatformView? {
+  guard view.responds(to: Selector(("cocoaUiPrimaryContent"))) else { return nil }
+  return view.value(forKey: "cocoaUiPrimaryContent") as? PlatformView
+}
+
+@MainActor
+func wuiKitManagesSafeArea(_ view: PlatformView) -> Bool {
+  guard view.responds(to: Selector(("cocoaUiManagesSafeArea"))) else { return false }
+  return (view.value(forKey: "cocoaUiManagesSafeArea") as? Bool) ?? false
+}
+
+#if canImport(UIKit)
+  /// The edges `view` erases from the safe-area insets its subtree sees —
+  /// what `cocoaUiIgnoredSafeAreaEdges` reports: bits 0–3 the `Edges` mask
+  /// (bit 0 top, bit 1 leading, bit 2 bottom, bit 3 trailing), bit 4 marking
+  /// the view an ignore-safe-area wrapper.
+  @MainActor
+  func wuiKitIgnoredSafeAreaEdges(_ view: PlatformView) -> Int? {
+    guard view.responds(to: Selector(("cocoaUiIgnoredSafeAreaEdges"))) else { return nil }
+    return view.value(forKey: "cocoaUiIgnoredSafeAreaEdges") as? Int
+  }
+#endif
 
 /// The frame a wrapper gives its single content view: the whole of its bounds
 /// when the content handles the safe area itself, the safe-area part otherwise.

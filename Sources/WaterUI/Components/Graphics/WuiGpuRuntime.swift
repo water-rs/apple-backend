@@ -1,63 +1,46 @@
 // Compiled out when the app disables WaterUI's `gpu` feature: the
 // `waterui_*` GPU symbols this file binds do not exist in that build.
 #if !WATERUI_NO_GPU
-import CWaterUI
+@_exported import CWaterUI
 import Metal
 
-private struct WuiOwnedGpuRuntime: @unchecked Sendable {
-  let pointer: OpaquePointer
-}
+private final class WuiGpuRuntimeInstallRequest: @unchecked Sendable {
+  let continuation: CheckedContinuation<Void, Never>
 
-private final class WuiGpuRuntimeCreateRequest: @unchecked Sendable {
-  let continuation: CheckedContinuation<WuiOwnedGpuRuntime, Never>
-
-  init(continuation: CheckedContinuation<WuiOwnedGpuRuntime, Never>) {
+  init(continuation: CheckedContinuation<Void, Never>) {
     self.continuation = continuation
   }
 }
 
-private let wuiGpuRuntimeCreateComplete:
-  @convention(c) (UnsafeMutableRawPointer?, OpaquePointer?) -> Void = { context, runtime in
-    guard let context else {
-      fatalError("GpuRuntime creation completed without its continuation context")
-    }
-    guard let runtime else {
-      fatalError("GpuRuntime creation completed without a runtime")
-    }
-    let request = Unmanaged<WuiGpuRuntimeCreateRequest>.fromOpaque(context).takeUnretainedValue()
-    request.continuation.resume(returning: WuiOwnedGpuRuntime(pointer: runtime))
-  }
-
-private let wuiGpuRuntimeCreateContextDrop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
+private let wuiGpuRuntimeInstallComplete: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
   context in
   guard let context else {
-    fatalError("GpuRuntime creation dropped a null continuation context")
+    fatalError("GpuRuntime install completed without its continuation context")
   }
-  Unmanaged<WuiGpuRuntimeCreateRequest>.fromOpaque(context).release()
+  let request = Unmanaged<WuiGpuRuntimeInstallRequest>.fromOpaque(context).takeUnretainedValue()
+  request.continuation.resume()
 }
 
+private let wuiGpuRuntimeInstallContextDrop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
+  context in
+  guard let context else {
+    fatalError("GpuRuntime install dropped a null continuation context")
+  }
+  Unmanaged<WuiGpuRuntimeInstallRequest>.fromOpaque(context).release()
+}
+
+/// Installs the Rust-side `GpuRuntime` into `env` — the Rust host installs
+/// before `waterui_swift_prepare_env`; the Swift launch path calls this.
 @MainActor
-func createWuiGpuRuntime() async -> OpaquePointer {
-  let runtime: WuiOwnedGpuRuntime = await withCheckedContinuation { continuation in
-    let request = WuiGpuRuntimeCreateRequest(continuation: continuation)
-    waterui_gpu_runtime_create(
+func installGpuRuntime(env: OpaquePointer) async {
+  await withCheckedContinuation { continuation in
+    let request = WuiGpuRuntimeInstallRequest(continuation: continuation)
+    waterui_apple_install_gpu_runtime(
+      UnsafeMutableRawPointer(env),
       Unmanaged.passRetained(request).toOpaque(),
-      wuiGpuRuntimeCreateComplete,
-      wuiGpuRuntimeCreateContextDrop
+      wuiGpuRuntimeInstallComplete,
+      wuiGpuRuntimeInstallContextDrop
     )
   }
-  return runtime.pointer
-}
-
-@MainActor
-func wuiMetalDevice(environment: WuiEnvironment) -> MTLDevice {
-  guard let pointer = waterui_gpu_runtime_metal_device(environment.inner) else {
-    fatalError("WaterUI environment has no GPU runtime Metal device")
-  }
-  let object = Unmanaged<AnyObject>.fromOpaque(pointer).takeUnretainedValue()
-  guard let device = object as? MTLDevice else {
-    fatalError("WaterUI GPU runtime returned a non-MTLDevice object")
-  }
-  return device
 }
 #endif  // !WATERUI_NO_GPU

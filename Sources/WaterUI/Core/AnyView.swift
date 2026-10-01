@@ -5,7 +5,7 @@
 //  Created by Lexo Liu on 8/1/24.
 //
 
-import CWaterUI
+@_exported import CWaterUI
 import Foundation
 import os
 
@@ -37,14 +37,11 @@ private func waitForFirstPaintReadyParticipants(
 
 // MARK: - Component Registry
 
-/// Internal registry for component factories using pointer-based ID lookup
+/// Internal registry for component factories using pointer-based ID lookup.
+/// The seam's claims check (`WuiSeam.swift`) reads it.
 @MainActor
-private var componentRegistry: [WuiViewId: (OpaquePointer, WuiEnvironment) -> any WuiComponent] =
+var componentRegistry: [WuiViewId: (OpaquePointer, WuiEnvironment) -> any WuiComponent] =
   [:]
-
-/// Set of metadata component IDs (components that wrap content but aren't "real" content themselves)
-@MainActor
-private var metadataComponentIds: Set<WuiViewId> = []
 
 /// Internal flag to track if builtin components have been registered
 @MainActor
@@ -59,58 +56,6 @@ public func registerComponent<T: WuiComponent>(_ type: T.Type) {
     type.init(anyview: anyview, env: env)
   }
 }
-
-/// Register a metadata component type (wrappers that modify env/appearance but aren't content).
-@MainActor
-private func registerMetadataComponent<T: WuiComponent>(_ type: T.Type) {
-  registerComponent(type)
-  metadataComponentIds.insert(type.viewId)
-}
-
-/// Check if a component is a metadata component (wrapper that modifies env/appearance).
-@MainActor
-func isMetadataComponent(_ component: any WuiComponent) -> Bool {
-  metadataComponentIds.contains(type(of: component).viewId)
-}
-
-/// Advances an erased view to the first one a component factory claims.
-///
-/// This is the walk `WuiAnyView.resolve` runs — the view's id against the
-/// component registry, `waterui_view_body` when the id is not registered —
-/// stopped one step short of building anything. That makes it an exact answer
-/// to "what will this view become", and reaching a registered id is the proof
-/// that nothing realizable sits in between: any view that could draw is a
-/// registered component that would have stopped the walk first.
-///
-/// The walk consumes the views it steps through, as `resolve` does; the pointer
-/// it returns is the live handle and the caller owns it.
-@MainActor
-func wuiResolvedViewPointer(_ anyview: OpaquePointer, env: WuiEnvironment) -> OpaquePointer {
-  registerBuiltinComponentsIfNeeded()
-  var current = anyview
-  while true {
-    let viewId = WuiViewId(waterui_view_id(current))
-    if componentRegistry[viewId] != nil {
-      return current
-    }
-    guard let next = waterui_view_body(current, env.inner) else {
-      fatalError("Unsupported component type: \(viewId.toString())")
-    }
-    current = next
-  }
-}
-
-/// A metadata component that draws something of its own in place of the content
-/// it wraps: a filter host showing its filtered output.
-///
-/// A capture descends through metadata wrappers to reach the content underneath
-/// them, which is right for every wrapper that only decorates its child and
-/// wrong for these: their content is deliberately hidden and their own
-/// presentation is the thing an enclosing capture has to read. Descending past
-/// one captures its hidden, unfiltered child instead — which is why a filter
-/// inside a filter captured nothing (waterui#521).
-@MainActor
-protocol WuiPresentsOwnContent: AnyObject {}
 
 // MARK: - Root Theme Controller
 
@@ -178,127 +123,28 @@ final class RootThemeController {
   }
 }
 
-/// Register builtin components (called once on first WuiAnyView creation)
+/// Register builtin components (called once on first WuiAnyView creation,
+/// and once by the seam's claims check).
 @MainActor
-private func registerBuiltinComponentsIfNeeded() {
+func registerBuiltinComponentsIfNeeded() {
   guard !builtinComponentsRegistered else { return }
   builtinComponentsRegistered = true
 
   // Basic components
-  registerComponent(WuiEmpty.self)
-  registerComponent(WuiPlain.self)
-  registerComponent(WuiText.self)
-  registerComponent(WuiSpacer.self)
-  registerComponent(WuiColorView.self)
-  registerComponent(WuiResolvedColorView.self)
-  registerComponent(WuiResolvedGradientView.self)
-  registerComponent(WuiResolvedShape.self)
-  registerComponent(WuiSystemIcon.self)
-  registerComponent(WuiPictureView.self)
 
   // Interactive components
-  registerComponent(WuiButton.self)
-  registerComponent(WuiToggle.self)
-  registerComponent(WuiSlider.self)
-  registerComponent(WuiTextField.self)
-  registerComponent(WuiSecureField.self)
-  registerComponent(WuiStepper.self)
-  registerComponent(WuiDatePicker.self)
-  registerComponent(WuiMultiDatePicker.self)
-  registerComponent(WuiColorPicker.self)
-  registerComponent(WuiPicker.self)
-  registerComponent(WuiProgress.self)
-  registerComponent(WuiMenu.self)
-  registerComponent(WuiBadge.self)
 
   // Container components
-  registerComponent(WuiFixedContainer.self)
-  registerComponent(WuiContainer.self)
-  registerComponent(WuiScroll.self)
-  registerComponent(WuiList.self)
-  registerComponent(WuiTable.self)
-
-  // Dynamic components
-  registerComponent(WuiDynamic.self)
 
   // Metadata components (wrappers that modify env/appearance)
-  registerMetadataComponent(WuiWithEnv.self)
-  registerMetadataComponent(WuiSecure.self)
-  registerMetadataComponent(WuiStandardDynamicRange.self)
-  registerMetadataComponent(WuiHighDynamicRange.self)
-  registerMetadataComponent(WuiGesture.self)
-  registerMetadataComponent(WuiLifecycleHook.self)
-  registerMetadataComponent(WuiOnEvent.self)
-  registerMetadataComponent(WuiOnKeyPress.self)
-  registerMetadataComponent(WuiCursor.self)
-  registerMetadataComponent(WuiAccessibilityIdentifier.self)
-  registerMetadataComponent(WuiAccessibilityLabel.self)
-  registerMetadataComponent(WuiAccessibilityValue.self)
-  registerMetadataComponent(WuiAccessibilityRole.self)
-  registerMetadataComponent(WuiAccessibilityHidden.self)
-  registerMetadataComponent(WuiAccessibilityChildren.self)
-  registerMetadataComponent(WuiAccessibilityState.self)
-  registerMetadataComponent(WuiAccessibilityStateSignal.self)
-  registerMetadataComponent(WuiShadow.self)
-  registerMetadataComponent(WuiBorder.self)
-  registerMetadataComponent(WuiClipShape.self)
-  registerMetadataComponent(WuiOpacity.self)
-  registerMetadataComponent(WuiScale.self)
-  registerMetadataComponent(WuiRotation.self)
-  registerMetadataComponent(WuiOffset.self)
-  registerMetadataComponent(WuiFocused.self)
-  registerMetadataComponent(WuiIgnoreSafeArea.self)
-  registerMetadataComponent(WuiRetain.self)
-  registerMetadataComponent(WuiContextMenu.self)
-  registerMetadataComponent(WuiAnchoredOverlay.self)
-  registerMetadataComponent(WuiHittable.self)
-  registerMetadataComponent(WuiNavigationLinkHint.self)
-  registerMetadataComponent(WuiNavigationTransitionSourceView.self)
-  registerMetadataComponent(WuiNavigationTransitionDestinationView.self)
-  registerMetadataComponent(WuiLayoutPriority.self)
-
-  // Material background (blur effect)
-  registerMetadataComponent(WuiMaterialBackground.self)
-  // Glass background (Liquid Glass)
-  registerMetadataComponent(WuiGlassBackground.self)
-
-  // Drag and drop components
-  registerMetadataComponent(WuiDraggable.self)
-  registerMetadataComponent(WuiDropDestination.self)
 
   // Media components. Off when the app dropped WaterUI's `media` capability,
   // which is what exports the `waterui_video_*`/`waterkit_audio_*` symbols
   // these components bind to.
   #if !WATERUI_NO_MEDIA
-    registerComponent(WuiVideo.self)
-    registerComponent(WuiVideoPlayer.self)
   #endif
 
   // Navigation components
-  registerComponent(WuiNavigationStack.self)
-  registerComponent(WuiNavigationView.self)
-  registerComponent(WuiNavigationSplitView.self)
-  registerComponent(WuiTabs.self)
-
-  // GPU components. Off when the app disabled WaterUI's `gpu` feature, which
-  // is what exports the GPU symbols these components bind to.
-  #if !WATERUI_NO_GPU
-    registerComponent(WuiGpuSurface.self)
-    registerComponent(WuiViewEffect.self)
-    registerMetadataComponent(WuiAppliedFilter.self)
-  #endif
-
-  // WebView component. On only when the app's graph carries `waterui-webview`,
-  // which is what exports the `waterui_webview_*` symbols it binds to.
-  #if WATERUI_WEBVIEW
-    registerComponent(WuiWebViewComponent.self)
-  #endif
-
-  // Map component. Off unless the app enabled WaterUI's `map` feature, which
-  // is what exports the map symbols this component binds to.
-  #if WATERUI_MAP
-    registerComponent(WuiMapViewComponent.self)
-  #endif
 }
 
 // MARK: - WuiAnyView
@@ -501,18 +347,7 @@ private func registerBuiltinComponentsIfNeeded() {
     internal static func resolve(anyview: OpaquePointer, env: WuiEnvironment)
       -> any WuiComponent
     {
-      let viewId = WuiViewId(waterui_view_id(anyview))
-
-      // Look up registered component factory - O(1) pointer-based lookup
-      if let factory = componentRegistry[viewId] {
-        return factory(anyview, env)
-      }
-
-      if let next = waterui_view_body(anyview, env.inner) {
-        return resolve(anyview: next, env: env)
-      }
-
-      fatalError("Unsupported component type: \(viewId.toString())")
+      wuiSeamResolve(anyview: anyview, env: env)
     }
   }
 
@@ -680,11 +515,6 @@ private func registerBuiltinComponentsIfNeeded() {
       return false
     }
 
-    func refreshWindowMinSize(force: Bool = false) {
-      guard isWindowRootContent() else { return }
-      updateWindowMinSizeIfNeeded(force: force)
-    }
-
     private func scheduleWindowMinSizeUpdate() {
       guard !pendingWindowMinSizeUpdate else { return }
       pendingWindowMinSizeUpdate = true
@@ -817,18 +647,7 @@ private func registerBuiltinComponentsIfNeeded() {
     internal static func resolve(anyview: OpaquePointer, env: WuiEnvironment)
       -> any WuiComponent
     {
-      let viewId = WuiViewId(waterui_view_id(anyview))
-
-      // Look up registered component factory - O(1) pointer-based lookup
-      if let factory = componentRegistry[viewId] {
-        return factory(anyview, env)
-      }
-
-      if let next = waterui_view_body(anyview, env.inner) {
-        return resolve(anyview: next, env: env)
-      }
-
-      fatalError("Unsupported component type: \(viewId.toString())")
+      wuiSeamResolve(anyview: anyview, env: env)
     }
   }
 #endif

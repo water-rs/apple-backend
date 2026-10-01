@@ -1,4 +1,4 @@
-import CWaterUI
+@_exported import CWaterUI
 
 #if canImport(UIKit)
   import UIKit
@@ -39,11 +39,6 @@ final class WuiAnyViews {
   func takeRawView(at index: Int) -> OpaquePointer {
     precondition((0 ..< count).contains(index), "WuiAnyViews index is out of bounds")
     return waterui_anyviews_get_view(inner, UInt(index))!
-  }
-
-  /// Returns a WuiAnyView which is already a UIView/NSView.
-  func getView(at index: Int, env: WuiEnvironment) -> WuiAnyView {
-    WuiAnyView(anyview: takeRawView(at: index), env: env)
   }
 }
 

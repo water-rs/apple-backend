@@ -4,7 +4,7 @@
 //
 //  Created by Lexo Liu on 10/21/24.
 //
-import CWaterUI
+@_exported import CWaterUI
 
 #if canImport(UIKit)
   import UIKit
@@ -43,22 +43,6 @@ class WuiColor {
   private var inner: OpaquePointer?
   init(_ inner: OpaquePointer) {
     self.inner = inner
-  }
-
-  func resolve(in env: WuiEnvironment) -> WuiComputed<WuiResolvedColor> {
-    guard let inner else {
-      fatalError("WuiColor pointer was already consumed")
-    }
-    let computed = waterui_resolve_color(inner, env.inner)
-    return WuiComputed(computed!)
-  }
-
-  func intoInner() -> OpaquePointer {
-    guard let inner else {
-      fatalError("WuiColor pointer was already consumed")
-    }
-    self.inner = nil
-    return inner
   }
 
   @MainActor deinit {
@@ -244,13 +228,3 @@ class WuiColor {
     }
   }
 #endif
-
-extension WuiResolvedColor {
-  func toPlatformColor(allowHdr: Bool = true) -> PlatformColor {
-    #if canImport(UIKit)
-      return toUIColor(allowHdr: allowHdr)
-    #elseif canImport(AppKit)
-      return toNSColor(allowHdr: allowHdr)
-    #endif
-  }
-}

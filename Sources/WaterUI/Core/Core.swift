@@ -5,7 +5,7 @@
 //  Created by Lexo Liu on 9/30/25.
 //
 
-import CWaterUI
+@_exported import CWaterUI
 
 extension WuiId: @retroactive Equatable, @retroactive Hashable {
     public static func == (lhs: WuiId, rhs: WuiId) -> Bool {

@@ -1,0 +1,56 @@
+name: Rust CI
+
+permissions:
+  contents: read
+
+on:
+  # Integration branches only: a topic branch that also has a pull request
+  # would otherwise run the job twice for one commit, and it draws from the
+  # org's five-slot macOS pool. Only changes that can affect the Rust
+  # workspace start it.
+  push:
+    branches: [main, dev]
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - "kit/**"
+      - .github/workflows/rust.yml
+  pull_request:
+    branches: ["**"]
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - "kit/**"
+      - .github/workflows/rust.yml
+
+concurrency:
+  group: rust-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # One job for every target: the three clippy passes and the tests share the
+  # dependency cache, and one runner working through them in a row gets
+  # through the macOS queue sooner than a matrix waiting on three. The iOS
+  # passes need the iOS SDK, which only a macOS runner has.
+  rust:
+    name: rust
+    runs-on: macos-26
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+          targets: aarch64-apple-darwin, aarch64-apple-ios, aarch64-apple-ios-sim
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Clippy (macOS)
+        run: cargo clippy --workspace --all-targets --locked --target aarch64-apple-darwin -- -D warnings
+      - name: Clippy (iOS)
+        run: cargo clippy --workspace --all-targets --locked --target aarch64-apple-ios -- -D warnings
+      - name: Clippy (iOS simulator)
+        run: cargo clippy --workspace --all-targets --locked --target aarch64-apple-ios-sim -- -D warnings
+      - name: Test
+        run: cargo test -p waterui-apple --locked

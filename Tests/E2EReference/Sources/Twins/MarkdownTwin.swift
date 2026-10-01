@@ -22,7 +22,18 @@ import SwiftUI
 
 struct MarkdownTwin: View {
     var body: some View {
-        ScrollView {
+        // The example's column: `hstack((button("Find"), spacer()))` above a
+        // `zstack` whose top layer is the `when`-hidden search row — the
+        // Find control never overlays the document; only the open panel does.
+        VStack(spacing: 10) {
+            HStack {
+                Button("Find") {}
+                Spacer()
+            }
+            .padding(EdgeInsets(top: 14, leading: 14, bottom: 0, trailing: 14))
+
+            ZStack {
+                ScrollView {
             VStack(alignment: .leading, spacing: 10) {
                 Text("WaterUI Markdown").font(.title).fontWeight(.bold)
                 Text("WaterUI supports rendering **Markdown** content natively across all platforms.")
@@ -101,6 +112,16 @@ struct MarkdownTwin: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+                // `vstack((when(open, search_bar), spacer())).padding()` —
+                // the search row contributes nothing while the panel is
+                // closed, so the overlay column is just a spacer.
+                VStack {
+                    Spacer()
+                }
+                .padding()
+            }
         }
     }
 

@@ -1,4 +1,4 @@
-import CWaterUI
+@_exported import CWaterUI
 import Foundation
 import OSLog
 import SwiftUI
@@ -27,19 +27,6 @@ public enum WuiStretchAxis: UInt32 {
   /// Expands along parent stack's cross axis (e.g., Divider)
   /// In VStack: expands horizontally. In HStack: expands vertically.
   case crossAxis = 5
-
-  /// Convert to the C FFI enum type
-  var ffiValue: CWaterUI.WuiStretchAxis {
-    CWaterUI.WuiStretchAxis(rawValue: self.rawValue)
-  }
-
-  /// Initialize from C FFI enum type
-  init(_ ffi: CWaterUI.WuiStretchAxis) {
-    guard let axis = WuiStretchAxis(rawValue: ffi.rawValue) else {
-      fatalError("Unsupported WaterUI stretch axis: \(ffi.rawValue)")
-    }
-    self = axis
-  }
 }
 
 // MARK: - WuiViewId
@@ -74,11 +61,6 @@ struct WuiViewId: Hashable {
   func hash(into hasher: inout Hasher) {
     hasher.combine(low)
     hasher.combine(high)
-  }
-
-  /// Convert to debug string (shows hex representation)
-  func toString() -> String {
-    String(format: "0x%016llx%016llx", high, low)
   }
 }
 
@@ -891,30 +873,6 @@ public final class ThemeBridge {
 @MainActor
 final class WuiNativeServices: @unchecked Sendable {
   weak var environment: WuiEnvironment?
-
-  #if os(macOS)
-    let windowManager = WindowManagerImpl()
-  #endif
-}
-
-@MainActor
-func retainWuiNativeServices(_ services: WuiNativeServices) -> UnsafeMutableRawPointer {
-  Unmanaged.passRetained(services).toOpaque()
-}
-
-private struct WuiOwnedNativeServicesContext: @unchecked Sendable {
-  let pointer: UnsafeMutableRawPointer
-}
-
-let dropWuiNativeServices: @convention(c) (UnsafeMutableRawPointer?) -> Void = { context in
-  guard let context else {
-    fatalError("WaterUI native services received a null owned context")
-  }
-  precondition(Thread.isMainThread, "WaterUI native services must be dropped on the UI executor")
-  let ownedContext = WuiOwnedNativeServicesContext(pointer: context)
-  MainActor.assumeIsolated {
-    Unmanaged<WuiNativeServices>.fromOpaque(ownedContext.pointer).release()
-  }
 }
 
 /// Represents a window in the application.
@@ -1013,16 +971,15 @@ public final class WuiRootContext {
     // A build without WaterUI's `gpu` feature exports no GPU runtime symbols
     // and has nothing to install one for.
     #if !WATERUI_NO_GPU
-      let gpuRuntime = await createWuiGpuRuntime()
-      waterui_env_install_gpu_runtime(initEnvPtr, gpuRuntime)
+      await installGpuRuntime(env: initEnvPtr)
     #endif
     let nativeServices = WuiNativeServices()
     nativeServices.environment = env
     #if WATERUI_WEBVIEW
-      installWebViewController(env: initEnvPtr)
+      waterui_apple_install_webview(UnsafeMutableRawPointer(initEnvPtr))
     #endif
-    installWindowManager(env: initEnvPtr, services: nativeServices)
-    installViewRenderer(env: initEnvPtr, services: nativeServices)
+    waterui_apple_install_window_manager(UnsafeMutableRawPointer(initEnvPtr))
+    waterui_apple_install_view_renderer(UnsafeMutableRawPointer(initEnvPtr))
 
     // 2. Detect system color scheme
     #if canImport(UIKit)
@@ -1452,9 +1409,3 @@ public final class WuiRootContext {
     }
   }
 #endif
-
-extension Logger {
-  static let waterui = Logger(subsystem: "dev.waterui", category: "WaterUI")
-  /// GPU surfaces, view effects, filters, and the Metal capture pipeline.
-  static let graphics = Logger(subsystem: "dev.waterui", category: "Graphics")
-}

@@ -1,0 +1,6 @@
+[env]
+# `aarch64-apple-ios-sim` reaches clang as `arm64-apple-ios-sim`, whose
+# 'sim' ABI spelling clang rejects; bindgen (tracing-oslog) needs the
+# canonical '-simulator' triple instead. Later -target wins over the one
+# bindgen synthesizes.
+BINDGEN_EXTRA_CLANG_ARGS_aarch64_apple_ios_sim = "-target arm64-apple-ios-simulator"

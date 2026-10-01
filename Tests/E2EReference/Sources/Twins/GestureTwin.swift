@@ -1,6 +1,7 @@
-// Twin of examples/gesture: six gesture demo sections, each a labelled box
+// Twin of examples/gesture: seven gesture demo sections, each a labelled box
 // with a tinted background and a counter label. Initial state only — all
-// counters are zero and the chained status reads "Waiting for tap...".
+// counters are zero, four tabs are open, and the chained status reads
+// "Waiting for tap...".
 
 import SwiftUI
 
@@ -9,6 +10,7 @@ private let doubleTapColor = srgbHex(0x4CAF50)
 private let longPressColor = srgbHex(0xFF9800)
 private let dragColor = srgbHex(0x9C27B0)
 private let chainedColor = srgbHex(0xF44336)
+private let middleClickColor = srgbHex(0x607D8B)
 private let onTapColor = srgbHex(0x00BCD4)
 
 struct GestureTwin: View {
@@ -29,7 +31,10 @@ struct GestureTwin: View {
         wuiDivider()
         chainedSection
         wuiDivider()
-        onTapSection
+        VStack(spacing: 10) {
+          middleClickSection
+          onTapSection
+        }
       }
       .padding(16)
     }
@@ -86,6 +91,24 @@ struct GestureTwin: View {
       label: "Tap then Long Press",
       color: chainedColor
     )
+  }
+
+  private var middleClickSection: some View {
+    VStack(spacing: 10) {
+      Text("Middle Click").font(.headline)
+      Text("Middle-click a tab to close it")
+      Text("4 open tabs")
+      ScrollView(.horizontal) {
+        HStack(spacing: 8) {
+          ForEach(["Overview", "Details", "Activity", "Settings"], id: \.self) { title in
+            Text(title)
+              .padding(14)
+              .background(middleClickColor.opacity(0.3))
+          }
+        }
+      }
+    }
+    .padding(14)
   }
 
   private var onTapSection: some View {
