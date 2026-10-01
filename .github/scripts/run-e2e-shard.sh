@@ -129,6 +129,37 @@ fi
 
 echo "Running ${#shard_examples[@]} examples on ${platform}: ${shard_examples[*]}"
 
+if [[ "${platform}" == "ios" ]]; then
+  # A `simctl launch` opens the app over whatever is currently frontmost, and
+  # iOS answers with the status-bar "back to <app>" breadcrumb — pixels the
+  # parity compare counts. The harness terminates every app it starts before
+  # the next launch, so the only breadcrumb source is a foreign app left
+  # frontmost outside the run (a diagnostic launch, an aborted previous run).
+  # Rebooting is the deterministic way to guarantee SpringBoard is frontmost
+  # for the first launch; every launch afterwards inherits that clean state.
+  xcrun simctl shutdown "${SIMULATOR_UDID}" >/dev/null 2>&1 || true
+  if ! xcrun simctl boot "${SIMULATOR_UDID}" >/dev/null 2>&1; then
+    echo "::error::Failed to boot simulator ${SIMULATOR_UDID} for a clean launch state."
+    exit 1
+  fi
+  xcrun simctl bootstatus "${SIMULATOR_UDID}" -b
+
+  # Pin the status bar for the whole shard — WaterUI and twin captures alike —
+  # so the clock, battery and signal pixels compare equal on every shot. The
+  # override persists until it is cleared at the end of the shard (the EXIT
+  # trap covers failure paths too).
+  if ! xcrun simctl status_bar "${SIMULATOR_UDID}" override \
+    --time "9:41" \
+    --batteryState charged --batteryLevel 100 \
+    --wifiMode active --wifiBars 3 \
+    --cellularMode active --cellularBars 4 \
+    --dataNetwork wifi; then
+    echo "::error::Failed to set the status bar override on ${SIMULATOR_UDID}."
+    exit 1
+  fi
+  trap 'xcrun simctl status_bar "${SIMULATOR_UDID}" clear >/dev/null 2>&1 || true' EXIT
+fi
+
 # One frame from the current platform target. macOS captures need the pid that
 # owns the window; the running example is the default, the SwiftUI reference
 # host passes its own.

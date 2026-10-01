@@ -98,11 +98,13 @@ struct GestureTwin: View {
       Text("Middle Click").font(.headline)
       Text("Middle-click a tab to close it")
       Text("4 open tabs")
-      HStack(spacing: 8) {
-        ForEach(["Overview", "Details", "Activity", "Settings"], id: \.self) { title in
-          Text(title)
-            .padding(14)
-            .background(middleClickColor.opacity(0.3))
+      ScrollView(.horizontal) {
+        HStack(spacing: 8) {
+          ForEach(["Overview", "Details", "Activity", "Settings"], id: \.self) { title in
+            Text(title)
+              .padding(14)
+              .background(middleClickColor.opacity(0.3))
+          }
         }
       }
     }
