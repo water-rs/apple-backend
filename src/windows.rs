@@ -21,8 +21,7 @@ mod imp {
     use core::ffi::c_void;
 
     use super::{into_kit_rect, into_kit_size, into_layout_rect};
-    use cocoa_ui::appkit::{AttentionRequest, HostView, WindowStyle};
-    use cocoa_ui::objc2_app_kit::{NSFloatingWindowLevel, NSNormalWindowLevel};
+    use cocoa_ui::appkit::{AttentionRequest, HostView, WindowLevel as KitLevel, WindowStyle};
     use cocoa_ui::{MainThreadMarker, Retained};
     use waterui::animation::Animation;
     use waterui::graphics::color::ResolvedColor;
@@ -648,8 +647,8 @@ mod imp {
             let window = window.clone();
             move |level| {
                 window.set_level(match level {
-                    WindowLevel::Normal => NSNormalWindowLevel,
-                    WindowLevel::AlwaysOnTop => NSFloatingWindowLevel,
+                    WindowLevel::Normal => KitLevel::Normal,
+                    WindowLevel::AlwaysOnTop => KitLevel::Floating,
                 });
             }
         });
