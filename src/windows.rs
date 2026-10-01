@@ -731,6 +731,34 @@ mod imp {
                 None, None, None, None,
             );
         });
+        let Ok(later) = dispatch2::DispatchTime::try_from(std::time::Duration::from_secs(10))
+        else {
+            return;
+        };
+        let _ = dispatch2::DispatchQueue::main().after(later, || {
+            let mtm =
+                MainThreadMarker::new().expect("the main queue's work runs on the main thread");
+            let application = cocoa_ui::objc2_ui_kit::UIApplication::sharedApplication(mtm);
+            // Bring the backgrounded scene back to the foreground so a capture
+            // of each window proves both render and hold independent state.
+            for session in application.openSessions().iter() {
+                let Some(scene) = session.scene() else {
+                    continue;
+                };
+                if scene.activationState()
+                    != cocoa_ui::objc2_ui_kit::UISceneActivationState::ForegroundActive
+                {
+                    #[allow(deprecated)]
+                    application.requestSceneSessionActivation_userActivity_options_errorHandler(
+                        Some(&session),
+                        None,
+                        None,
+                        None,
+                    );
+                    break;
+                }
+            }
+        });
     }
 
     /// Fills a connected scene's window with `declaration`'s content: the
