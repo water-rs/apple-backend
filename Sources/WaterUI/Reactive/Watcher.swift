@@ -308,6 +308,25 @@ func makeUserAttentionWatcher(
   return watcher
 }
 
+@MainActor
+func makeWindowStyleWatcher(
+  _ f: @escaping (CWaterUI.WuiWindowStyle, WuiWatcherMetadata) -> Void
+) -> OpaquePointer {
+  let data = wrap(f)
+  let call:
+    @convention(c) (UnsafeMutableRawPointer?, CWaterUI.WuiWindowStyle, OpaquePointer?) -> Void = {
+      data, value, metadata in
+      callWrapper(data, value, metadata)
+    }
+  let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
+    dropWrapper($0, CWaterUI.WuiWindowStyle.self)
+  }
+  guard let watcher = waterui_new_watcher_window_style(data, call, drop) else {
+    fatalError("Failed to create Window-style watcher")
+  }
+  return watcher
+}
+
 #if !WATERUI_NO_MEDIA
 @MainActor
 func makeSubtitleSelectionWatcher(

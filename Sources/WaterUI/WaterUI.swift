@@ -928,8 +928,8 @@ public struct WuiWindowContext {
   public let resizable: Bool
   /// Optional toolbar content (nil if none).
   public let toolbar: OpaquePointer?
-  /// The visual style of the window.
-  public let style: WuiWindowStyle
+  /// The visual style signal; its changes are re-applied to the window.
+  public let style: OpaquePointer?
   /// The title binding.
   public let title: OpaquePointer?
   /// The frame binding.

@@ -82,8 +82,13 @@ private let showWindowImpl: @convention(c) (UnsafeMutableRawPointer?, WuiWindow)
     var attentionRequest: Int?
     var resizeIncrementsObservation: WuiComputedObservation<CWaterUI.WuiSize>?
 
+    var styleObservation: WuiComputedObservation<CWaterUI.WuiWindowStyle>?
+    var closable = true
+    var resizable = true
+
     func stopWatchers() {
       titleObservation = nil
+      styleObservation = nil
       frameWatcher = nil
       stateWatcher = nil
       minSizeObservation = nil
@@ -229,6 +234,29 @@ private let showWindowImpl: @convention(c) (UnsafeMutableRawPointer?, WuiWindow)
       }
     }
 
+    /// Observes the declared style; every later change is re-applied to the
+    /// window. Returns the style the window starts with.
+    func observeStyle(_ rawStyle: OpaquePointer?) -> WuiWindowStyle {
+      guard let rawStyle else {
+        fatalError("Window style signal is null")
+      }
+      let observation = WuiComputedObservation(
+        WuiComputed<CWaterUI.WuiWindowStyle>(rawStyle)
+      ) { [weak self] style, _ in
+        self?.applyStyle(style)
+      }
+      styleObservation = observation
+      return observation.value
+    }
+
+    func applyStyle(_ style: WuiWindowStyle) {
+      guard let window else {
+        fatalError("Window style signal outlived its NSWindow")
+      }
+      window.styleMask = effectiveStyleMask(
+        style: style, closable: closable, resizable: resizable, of: window)
+    }
+
     func publishState(_ state: WuiWindowState) {
       guard let stateBinding else {
         fatalError("Window state binding was not installed")
@@ -304,9 +332,12 @@ func installWindowManager(env: OpaquePointer, services: WuiNativeServices) {
 
       Logger.waterui.debug("Creating window: \(titleObservation.value.toString())")
 
-      // Create window with appropriate style
+      // Create window with appropriate style; later style changes are
+      // re-applied by the observation.
+      resources.closable = wuiWindow.closable
+      resources.resizable = wuiWindow.resizable
       let styleMask = windowStyleMask(
-        style: wuiWindow.style,
+        style: resources.observeStyle(wuiWindow.style),
         closable: wuiWindow.closable,
         resizable: wuiWindow.resizable
       )
@@ -515,8 +546,6 @@ func installWindowManager(env: OpaquePointer, services: WuiNativeServices) {
     private func removeWindow(_ window: NSWindow) {
       activeWindows.removeAll { $0 === window }
     }
-
-    /// Convert WuiWindowStyle to NSWindow.StyleMask
   }
 
   /// The AppKit style mask a declared window asks for.
@@ -542,6 +571,28 @@ func installWindowManager(env: OpaquePointer, services: WuiNativeServices) {
     }
     if !closable {
       mask.remove(.closable)
+    }
+    return mask
+  }
+
+  /// The style mask to give a window that is already on screen.
+  ///
+  /// On top of the declared style it keeps what the window state and the
+  /// window chrome own: full screen, and the full-size content a toolbar
+  /// coordinator puts in place so a sidebar can run the window's full height.
+  @MainActor
+  private func effectiveStyleMask(
+    style: WuiWindowStyle,
+    closable: Bool,
+    resizable: Bool,
+    of window: NSWindow
+  ) -> NSWindow.StyleMask {
+    var mask = windowStyleMask(style: style, closable: closable, resizable: resizable)
+    if WuiWindowToolbar.isAttached(to: window) {
+      mask.insert(.fullSizeContentView)
+    }
+    if window.styleMask.contains(.fullScreen) {
+      mask.insert(.fullScreen)
     }
     return mask
   }
@@ -714,19 +765,13 @@ func installWindowManager(env: OpaquePointer, services: WuiNativeServices) {
       }
 
       resources.window = window
-      var mask = windowStyleMask(
-        style: declaration.style,
-        closable: declaration.closable,
-        resizable: declaration.resizable
-      )
       // The toolbar coordinator owns full-size content — a sidebar's full
       // height depends on it — and it may have attached while the content was
       // resolving, before this declaration is adopted. Adopting the declared
-      // style must not strip it.
-      if window.styleMask.contains(.fullSizeContentView) {
-        mask.insert(.fullSizeContentView)
-      }
-      window.styleMask = mask
+      // style, now or when it changes, must not strip it.
+      resources.closable = declaration.closable
+      resources.resizable = declaration.resizable
+      resources.applyStyle(resources.observeStyle(declaration.style))
 
       // The declared toolbar goes through the window's one `NSToolbar`, the
       // coordinator a navigation stack hands its chrome to as well: each child
