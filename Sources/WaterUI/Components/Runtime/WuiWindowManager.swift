@@ -8,7 +8,7 @@
 // # Features
 // - Creates native windows from WuiWindow configuration
 // - Supports different window styles (Titled, Borderless, FullSizeContentView)
-// - Supports window backgrounds (Opaque, Color)
+// - Applies the reactive window background (Opaque, Color) and its changes
 // - Material blur effects are handled via MaterialBackground metadata on content
 
 import CWaterUI
@@ -372,32 +372,8 @@ func installWindowManager(env: OpaquePointer, services: WuiNativeServices) {
         frame: NSRect(origin: .zero, size: contentRect.size), content: contentView)
       containerView.wantsLayer = true
 
-      switch wuiWindow.background.tag {
-      case WuiWindowBackground_Color:
-        guard let colorPtr = wuiWindow.background.color.color else {
-          fatalError("Window color background has no Color handle")
-        }
-        let ownedColor = OpaquePointer(UnsafeMutableRawPointer(colorPtr))
-        let resolved = waterui_resolve_color(ownedColor, env.inner)
-        waterui_drop_color(ownedColor)
-        guard let resolved else {
-          fatalError("Window color background could not be resolved")
-        }
-        resources.backgroundObservation = observeWindowBackground(
-          WuiComputed<WuiResolvedColor>(resolved),
-          window: window
-        )
-      case WuiWindowBackground_Opaque:
-        guard let background = waterui_theme_color(env.inner, WuiColorSlot_Background) else {
-          fatalError("Window background requires the theme Background color")
-        }
-        resources.backgroundObservation = observeWindowBackground(
-          WuiComputed<WuiResolvedColor>(background),
-          window: window
-        )
-      default:
-        fatalError("Unsupported window background: \(wuiWindow.background.tag.rawValue)")
-      }
+      resources.backgroundObservation = observeWindowBackground(
+        wuiWindow.background, env: env, window: window)
 
       // The window's content is a view *controller*, so that components built
       // out of view controllers — a split view above all — can join the
@@ -597,12 +573,26 @@ func installWindowManager(env: OpaquePointer, services: WuiNativeServices) {
     return mask
   }
 
+  /// Observes a window's reactive background, consuming the handle.
+  ///
+  /// The framework resolves the background to one colour signal — the theme
+  /// background for an opaque window, the declared colour otherwise — that
+  /// follows both a change of the background and a change of its colour.
   @MainActor
   private func observeWindowBackground(
-    _ color: WuiComputed<WuiResolvedColor>,
+    _ rawBackground: OpaquePointer?,
+    env: WuiEnvironment,
     window: NSWindow
   ) -> WuiComputedObservation<WuiResolvedColor> {
-    let observation = WuiComputedObservation(color) { [weak window] color, _ in
+    guard let rawBackground else {
+      fatalError("Window background signal is null")
+    }
+    guard let resolved = waterui_resolve_window_background(rawBackground, env.inner) else {
+      fatalError("Window background could not be resolved")
+    }
+    let observation = WuiComputedObservation(
+      WuiComputed<WuiResolvedColor>(resolved)
+    ) { [weak window] color, _ in
       guard let window else { return }
       applyWindowBackground(color, to: window)
     }
@@ -858,6 +848,9 @@ func installWindowManager(env: OpaquePointer, services: WuiNativeServices) {
           width: CGFloat(size.width), height: CGFloat(size.height)
         )
       }
+
+      resources.backgroundObservation = observeWindowBackground(
+        declaration.background, env: env, window: window)
 
       // The host owns this window's lifetime, so closing it is the host's
       // business; the delegate is here to report what the user does to it.
