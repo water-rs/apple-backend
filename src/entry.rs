@@ -94,6 +94,9 @@ mod imp {
         // installs (`install_chromium`, `.state(..)` chains) landed as
         // overlays on the clone it was handed, which the host env cannot
         // see — `insert` never propagates between clones.
+        // `mut` only serves the `webview` install below; without the port
+        // nothing borrows `app_env` mutably.
+        #[allow(unused_mut)]
         let mut app_env = parts.env;
         // The web view controller fills its slot late and only when the
         // `webview` port is enabled — an application bundling its own
@@ -241,6 +244,9 @@ mod imp {
         );
         // Same hand-off as macOS: content renders under the env `app`
         // returned — its installs are invisible to the host env.
+        // `mut` only serves the `webview` install below; without the port
+        // nothing borrows `app_env` mutably.
+        #[allow(unused_mut)]
         let mut app_env = parts.env;
         // The web view controller fills its slot late and only when the
         // `webview` port is enabled — an application bundling its own

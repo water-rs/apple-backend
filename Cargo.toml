@@ -75,9 +75,6 @@ default = [
     "toggle",
     "view_effect",
     "view_renderer",
-    "webview",
-    "video",
-    "video_player",
     "with_env",
 ]
 anchored_overlay = []
@@ -143,9 +140,15 @@ text_field = []
 toggle = []
 view_effect = []
 view_renderer = []
-webview = ["dep:waterui-webview", "dep:cookie"]
-video = []
-video_player = []
+webview = ["dep:waterui-webview", "dep:cookie", "cocoa-ui/webview"]
+# `media` is the name the `water` CLI's capability mechanism (`waterui-video`
+# in the app's resolved graph) forwards to this crate; it turns on both
+# leaves the media semantic needs.
+media = ["video", "video_player"]
+# `cocoa-ui/avkit` brings the `AVFoundation`/`AVKit` framework links; an app
+# without media compiles and links none of it.
+video = ["dep:waterui-video", "dep:waterkit-audio", "cocoa-ui/avkit"]
+video_player = ["dep:waterui-video", "dep:waterkit-audio", "cocoa-ui/avkit"]
 with_env = []
 
 [dependencies]
@@ -181,8 +184,8 @@ waterui-webview = { git = "https://github.com/water-rs/waterui", rev = "ec7d5ad2
 # The cookie type `waterui-webview`'s handle contract answers with —
 # `time`/`SameSite` rebuild cookies from `NSHTTPCookie` records.
 cookie = { version = "0.18.2", optional = true }
-waterkit-audio = { git = "https://github.com/water-rs/waterkit", rev = "e5290913ee8adb22843fd60047f6a845f2391c5b", features = ["media-session"] }
-waterui-video = { git = "https://github.com/water-rs/waterui", rev = "ec7d5ad2022f3b3cadf149d372adb18a3f4da74a" }
+waterkit-audio = { git = "https://github.com/water-rs/waterkit", rev = "e5290913ee8adb22843fd60047f6a845f2391c5b", features = ["media-session"], optional = true }
+waterui-video = { git = "https://github.com/water-rs/waterui", rev = "ec7d5ad2022f3b3cadf149d372adb18a3f4da74a", optional = true }
 executor-core = { version = "0.7.1", features = ["std"] }
 async-channel = "2"
 futures = "0.3"
