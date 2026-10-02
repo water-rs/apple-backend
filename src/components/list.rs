@@ -1471,8 +1471,7 @@ fn render(config: ListConfig, ctx: &RenderContext<'_>) -> NativeLeaf {
     let mtm = ctx.mtm();
     let table = TableView::new(mtm);
     #[cfg(target_os = "ios")]
-    let (theme_insets, stock_height) =
-        (TableView::theme_row_insets(mtm), table.stock_row_height());
+    let (theme_insets, stock_height) = (TableView::theme_row_insets(mtm), table.stock_row_height());
     #[cfg(target_os = "macos")]
     let (theme_insets, stock_height) = (
         KitInsets {
