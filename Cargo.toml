@@ -175,7 +175,7 @@ objc2-metal = { version = "0.3", features = [
     "MTLResource",
     "MTLTexture",
 ] }
-cocoa-ui = { git = "https://github.com/water-rs/cocoa-ui", rev = "5019efb1a9f7e31163532c7ab1a973fed8874b9a" }
+cocoa-ui = { git = "https://github.com/water-rs/cocoa-ui", rev = "e29cea610cba5f8a21763b7ebb331a95f4a02915" }
 # Optional component dependencies — a port's feature gates them so an app
 # that never uses the component links none of it.
 waterui-webview = { git = "https://github.com/water-rs/waterui", rev = "3fd396804cd19bfccd38529d73618b522855849e", optional = true }

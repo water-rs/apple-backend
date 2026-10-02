@@ -27,6 +27,8 @@ pub unsafe fn run(
     crate::resources::install_application(env);
     crate::dispatch::install(env);
     env.insert(crate::first_paint::FirstPaint::default());
+    #[cfg(target_os = "ios")]
+    env.insert(crate::scene_registry::SceneRegistry::<crate::windows::Scenes>::default());
     imp::launch(app, env, accessory)
 }
 
@@ -195,6 +197,7 @@ mod imp {
         app: Option<Box<dyn FnOnce(Environment) -> App>>,
         env: *mut Environment,
         declared: crate::menus::Declared,
+        scenes: crate::scene_registry::Registration<crate::windows::Scenes>,
         _theme: Rc<ThemeSignals>,
         _locale: Box<dyn Any>,
     }
@@ -237,7 +240,7 @@ mod imp {
             &app_env,
             &launch.declared,
         ));
-        crate::windows::declare(parts.windows, &app_env, mtm);
+        crate::windows::declare(&launch.scenes.state, parts.windows, &app_env, 0, mtm);
         core::mem::forget(launch);
     }
 
@@ -258,10 +261,16 @@ mod imp {
         // runs, so the declared menus sit behind this slot.
         let declared = crate::menus::declared();
         let build_menus = crate::menus::build_handler(Rc::clone(&declared));
+        let scenes = env
+            .get::<crate::scene_registry::SceneRegistry<crate::windows::Scenes>>()
+            .expect("application owns scene routing")
+            .register(crate::windows::Scenes::default());
+        let scene_state = scenes.state.clone();
         let launch = Box::new(Launch {
             app: Some(Box::new(app)),
             env: core::ptr::from_mut(env),
             declared,
+            scenes,
             _theme: Rc::clone(&theme),
             _locale: Box::new(locale),
         });
@@ -269,9 +278,8 @@ mod imp {
         // Scenes may connect before the asynchronous preparation finishes:
         // `connect` builds the platform window eagerly and the declaration
         // fills it when `prepared` lands.
-        let scene_env = env.clone();
         let handlers = ApplicationHandlers::new(move |scene| {
-            crate::windows::connect(scene, Rc::clone(&theme), &scene_env, mtm)
+            crate::windows::connect(&scene_state, scene, Rc::clone(&theme), mtm)
         })
         .build_menus(build_menus)
         .did_finish_launching(move |_| {

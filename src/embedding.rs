@@ -29,6 +29,8 @@ pub struct Mount {
     _keepalive: KeepAlive,
     #[cfg(target_os = "ios")]
     controller: Retained<cocoa_ui::uikit::ViewController>,
+    #[cfg(target_os = "ios")]
+    scenes: crate::scene_registry::Registration<crate::windows::Scenes>,
 }
 
 impl core::fmt::Debug for Mount {
@@ -74,6 +76,8 @@ pub unsafe extern "C" fn waterui_apple_runtime_create(
     let inspector = crate::startup::initialize();
     let mut env = Environment::new();
     env.insert(crate::first_paint::FirstPaint::default());
+    #[cfg(target_os = "ios")]
+    env.insert(crate::scene_registry::SceneRegistry::<crate::windows::Scenes>::default());
     waterui::inspector::install(&mut env, inspector);
     waterui::text::install_system_font_collection(&mut env);
     let mut runtime = Box::new(Runtime { env });
@@ -116,6 +120,12 @@ pub unsafe fn mount(
     // SAFETY: host points to a platform view and is retained for the mount lifetime.
     let host = unsafe { &*host.cast::<PlatformView>() };
     let mut env = runtime.env.clone();
+    #[cfg(target_os = "ios")]
+    let scenes = runtime
+        .env
+        .get::<crate::scene_registry::SceneRegistry<crate::windows::Scenes>>()
+        .expect("runtime owns scene routing")
+        .register(crate::windows::Scenes::default());
     // SAFETY: both paths remain readable for this call; from_host copies them.
     let resources = unsafe { crate::resources::from_host(assets, fonts) };
     crate::fonts::register_bundle_fonts(&resources);
@@ -190,8 +200,6 @@ pub unsafe fn mount(
     for window in windows {
         keepalive.keep(crate::windows::realize(window, &env, mtm));
     }
-    #[cfg(target_os = "ios")]
-    crate::windows::declare(windows.collect(), &env, mtm);
     #[cfg(target_os = "macos")]
     {
         use std::cell::RefCell;
@@ -249,7 +257,8 @@ pub unsafe fn mount(
             );
             cocoa_ui::view::set_background_color(&background_host, Some(&color));
         });
-        keepalive.keep(declaration);
+        let declarations = std::iter::once(declaration).chain(windows).collect();
+        crate::windows::declare(&scenes.state, declarations, &env, 1, mtm);
         keepalive.keep(parts.menu_bar);
     }
     cocoa_ui::view::layout_immediately(&root);
@@ -262,6 +271,8 @@ pub unsafe fn mount(
         _keepalive: keepalive,
         #[cfg(target_os = "ios")]
         controller,
+        #[cfg(target_os = "ios")]
+        scenes,
     }))
     .cast()
 }
@@ -275,4 +286,69 @@ pub unsafe extern "C" fn waterui_apple_mount_drop(mount: *mut c_void) {
     MainThreadMarker::new().expect("unmount runs on the main thread");
     // SAFETY: the caller transfers the live mount box exactly once.
     drop(unsafe { Box::from_raw(mount.cast::<Mount>()) });
+}
+
+/// Returns the mount's scene route, valid only in its owning runtime.
+///
+/// # Safety
+/// `mount` is a live mount handle, borrowed on the main thread.
+#[cfg(target_os = "ios")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn waterui_apple_mount_scene_id(mount: *const c_void) -> u64 {
+    MainThreadMarker::new().expect("scene routing runs on the main thread");
+    // SAFETY: the caller borrows a live mount for this call.
+    unsafe { &*mount.cast::<Mount>() }.scenes.id
+}
+
+/// Connects an embedding host's scene to the identified mount.
+/// Returns an owned `UIWindow`, or null when the mount has been destroyed.
+///
+/// # Safety
+/// `runtime` and `scene` are live runtime and `UIWindowScene` pointers, borrowed
+/// on the main thread. The host consumes the returned Objective-C retain.
+#[cfg(target_os = "ios")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn waterui_apple_scene_connect(
+    runtime: *const c_void,
+    mount_id: u64,
+    scene: *mut c_void,
+) -> *mut c_void {
+    let mtm = MainThreadMarker::new().expect("scene connection runs on the main thread");
+    // SAFETY: both pointers are live borrowed objects under the caller contract.
+    let runtime = unsafe { &*runtime.cast::<Runtime>() };
+    // SAFETY: the host passes its live UIKit scene.
+    let scene = unsafe { &*scene.cast::<cocoa_ui::objc2_ui_kit::UIWindowScene>() };
+    let registry = runtime
+        .env
+        .get::<crate::scene_registry::SceneRegistry<crate::windows::Scenes>>()
+        .expect("runtime owns scene routing");
+    let Some(scenes) = registry.get(mount_id) else {
+        return std::ptr::null_mut();
+    };
+    Retained::into_raw(crate::windows::connect_embedded(&scenes, scene, mtm)).cast()
+}
+
+/// Releases a disconnected scene's content and subscriptions.
+///
+/// # Safety
+/// `runtime` and `scene` are live borrowed objects on the main thread.
+#[cfg(target_os = "ios")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn waterui_apple_scene_disconnect(
+    runtime: *const c_void,
+    mount_id: u64,
+    scene: *mut c_void,
+) {
+    MainThreadMarker::new().expect("scene disconnection runs on the main thread");
+    // SAFETY: the host borrows the live runtime and UIKit scene for this call.
+    let runtime = unsafe { &*runtime.cast::<Runtime>() };
+    // SAFETY: the host passes its live UIKit scene.
+    let scene = unsafe { &*scene.cast::<cocoa_ui::objc2_ui_kit::UIWindowScene>() };
+    let registry = runtime
+        .env
+        .get::<crate::scene_registry::SceneRegistry<crate::windows::Scenes>>()
+        .expect("runtime owns scene routing");
+    if let Some(scenes) = registry.get(mount_id) {
+        scenes.disconnect(&scene.session().persistentIdentifier().to_string());
+    }
 }

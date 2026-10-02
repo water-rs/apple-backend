@@ -30,6 +30,8 @@ pub(crate) mod menus;
 pub(crate) mod primary_content;
 pub(crate) mod proposal;
 mod registry;
+#[cfg(any(target_os = "ios", test))]
+mod scene_registry;
 pub(crate) mod startup;
 pub(crate) mod theme;
 #[cfg(target_os = "macos")]
