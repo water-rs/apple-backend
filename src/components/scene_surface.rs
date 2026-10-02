@@ -147,6 +147,7 @@ impl SceneRenderer {
             shader_delivery(context.adapter().get_info().backend, context.device())
                 .expect("scene presentation shaders failed"),
         );
+        scene.view.borrow_mut().content_mut().rebuild_for_engine();
         scene.dirty.set(true);
         Self {
             surface,
