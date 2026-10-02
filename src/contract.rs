@@ -315,7 +315,7 @@ impl fmt::Debug for RenderContext<'_> {
 }
 
 impl<'a> RenderContext<'a> {
-    pub(crate) fn new(
+    pub(crate) const fn new(
         env: &'a Environment,
         dispatcher: Rc<crate::dispatch::Dispatcher>,
         mtm: cocoa_ui::MainThreadMarker,

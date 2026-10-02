@@ -146,28 +146,19 @@ pub unsafe fn mount(
 
     let mut keepalive = KeepAlive::default();
     #[cfg(target_os = "macos")]
-    let (root, theme) = {
-        let application = cocoa_ui::appkit::Application::shared(mtm);
-        let theme = Rc::new(crate::theme::install(&mut env, application.color_scheme()));
-        let observed = theme.clone();
-        keepalive.keep(
-            application
-                .observe_color_scheme(move |scheme| crate::theme::refresh(&observed, scheme)),
-        );
-        (HostView::new(mtm, cocoa_ui::view::bounds(host)), theme)
-    };
+    let root = create_root(&mut env, host, &mut keepalive, mtm);
     #[cfg(target_os = "ios")]
     let controller = cocoa_ui::uikit::ViewController::new(mtm);
     #[cfg(target_os = "ios")]
-    let (root, theme) = {
+    let root = {
         let theme = Rc::new(crate::theme::install(&mut env, controller.color_scheme()));
         let observed = theme.clone();
         keepalive.keep(
             controller.observe_color_scheme(move |scheme| crate::theme::refresh(&observed, scheme)),
         );
-        (controller.host_view().retain(), theme)
+        keepalive.keep(theme);
+        controller.host_view().retain()
     };
-    keepalive.keep(theme);
     keepalive.keep(crate::locale::install(&mut env, mtm));
     let parts = app(env).into_parts();
     #[allow(unused_mut)]
@@ -190,7 +181,7 @@ pub unsafe fn mount(
     cocoa_ui::view::add_subview(host, &root);
     #[cfg(target_os = "ios")]
     cocoa_ui::uikit::view_controller::did_move_to_parent(&controller);
-    let content = mount_content(&root, declaration.build_content(), &env);
+    let content = mount_content(&root, declaration.build_content(), &env, &mut keepalive);
     #[cfg(target_os = "macos")]
     for window in windows {
         keepalive.keep(crate::windows::realize(window, &env, mtm));
@@ -239,11 +230,34 @@ pub unsafe fn mount(
     .cast()
 }
 
-fn mount_content(root: &HostView, view: waterui::AnyView, env: &Environment) -> Rc<Mounted> {
+#[cfg(target_os = "macos")]
+fn create_root(
+    env: &mut Environment,
+    host: &PlatformView,
+    keepalive: &mut KeepAlive,
+    mtm: MainThreadMarker,
+) -> Retained<HostView> {
+    let application = cocoa_ui::appkit::Application::shared(mtm);
+    let theme = Rc::new(crate::theme::install(env, application.color_scheme()));
+    let observed = theme.clone();
+    keepalive.keep(application.observe_color_scheme(move |scheme| {
+        crate::theme::refresh(&observed, scheme);
+    }));
+    keepalive.keep(theme);
+    HostView::new(mtm, cocoa_ui::view::bounds(host))
+}
+
+fn mount_content(
+    root: &HostView,
+    view: waterui::AnyView,
+    env: &Environment,
+    keepalive: &mut KeepAlive,
+) -> Rc<Mounted> {
     let leaf = crate::dispatch::render(view, env);
     let content = Rc::new(leaf.mount(root));
     crate::primary_content::forward(root, content.view());
     let placed = content.clone();
+    let publish = crate::inspector::install(root, env, keepalive);
     root.set_layout_handler(move |root| {
         let frame = crate::native_layout::content_frame(placed.view(), root);
         #[expect(
@@ -256,6 +270,7 @@ fn mount_content(root: &HostView, view: waterui::AnyView, env: &Environment) -> 
         );
         crate::proposal::deliver(placed.view(), proposal);
         cocoa_ui::view::set_frame(placed.view(), frame);
+        publish(root);
     });
     content
 }

@@ -5,11 +5,17 @@ use cocoa_ui::{PlatformView, Rect, view};
 
 fn owns_safe_area(view: &PlatformView) -> bool {
     #[cfg(target_os = "macos")]
-    if view.is_kind_of::<cocoa_ui::objc2_app_kit::NSScrollView>() {
+    if view
+        .downcast_ref::<cocoa_ui::objc2_app_kit::NSScrollView>()
+        .is_some()
+    {
         return true;
     }
     #[cfg(target_os = "ios")]
-    if view.is_kind_of::<cocoa_ui::objc2_ui_kit::UIScrollView>() {
+    if view
+        .downcast_ref::<cocoa_ui::objc2_ui_kit::UIScrollView>()
+        .is_some()
+    {
         return true;
     }
     if view.respondsToSelector(objc2::sel!(cocoaUiManagesSafeArea)) {
@@ -20,7 +26,7 @@ fn owns_safe_area(view: &PlatformView) -> bool {
     }
 }
 
-pub(super) fn manages_safe_area(view: &PlatformView) -> bool {
+pub fn manages_safe_area(view: &PlatformView) -> bool {
     if owns_safe_area(view) {
         return true;
     }
@@ -28,12 +34,12 @@ pub(super) fn manages_safe_area(view: &PlatformView) -> bool {
 }
 
 #[cfg(target_os = "macos")]
-pub(super) fn safe_area_rect(view: &PlatformView) -> Rect {
+pub fn safe_area_rect(view: &PlatformView) -> Rect {
     view.safeAreaRect().into()
 }
 
 #[cfg(target_os = "ios")]
-pub(super) fn safe_area_rect(view: &PlatformView) -> Rect {
+pub fn safe_area_rect(view: &PlatformView) -> Rect {
     let mut insets = view.safeAreaInsets();
     let mut ancestor = Some(view::retain_base(view));
     while let Some(current) = ancestor {
@@ -77,7 +83,7 @@ pub(super) fn safe_area_rect(view: &PlatformView) -> Rect {
     }
 }
 
-pub(super) fn content_frame(content: &PlatformView, host: &PlatformView) -> Rect {
+pub fn content_frame(content: &PlatformView, host: &PlatformView) -> Rect {
     if manages_safe_area(content) {
         view::bounds(host)
     } else {

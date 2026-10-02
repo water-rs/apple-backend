@@ -22,6 +22,7 @@ pub(crate) mod fonts;
 #[cfg(feature = "gpu_surface")]
 mod gpu_input;
 mod gpu_runtime;
+mod inspector;
 mod invalidation;
 pub(crate) mod locale;
 pub(crate) mod measure_memo;

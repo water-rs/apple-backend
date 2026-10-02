@@ -252,12 +252,14 @@ mod imp {
         // First-paint marking happens on the leaf the fallback produced.
         crate::first_paint::mark(&leaf_view, env);
 
+        let publish = crate::inspector::install(&host, env, &mut keepalive);
         host.set_layout_handler(move |host| {
             let host_view: &cocoa_ui::PlatformView = host;
             // SAFETY: the seam borrows the views for the call; `leaf_view`
             // holds the retain for the host's lifetime.
             let frame = crate::native_layout::content_frame(&leaf_view, host_view);
             cocoa_ui::view::set_frame(&leaf_view, frame);
+            publish(host);
         });
         window.set_content_view(&host);
         keepalive.keep(leaf);
@@ -1048,12 +1050,14 @@ mod imp {
 
         crate::first_paint::mark(&leaf_view, env);
 
+        let publish = crate::inspector::install(&host, env, &mut keepalive);
         host.set_layout_handler(move |host| {
             let host_view: &cocoa_ui::PlatformView = host;
             // SAFETY: the seam borrows the views for the call; `leaf_view`
             // holds the retain for the host's lifetime.
             let frame = crate::native_layout::content_frame(&leaf_view, host_view);
             cocoa_ui::view::set_frame(&leaf_view, frame);
+            publish(host);
         });
         keepalive.keep(leaf);
         keepalive.keep(pending.observation);
@@ -1092,10 +1096,10 @@ mod imp {
 }
 
 pub use imp::install_manager;
-#[cfg(target_os = "macos")]
-pub use imp::{RootWindowBinding, bind_root_window, realize, track};
 #[cfg(target_os = "ios")]
 pub(crate) use imp::{Scenes, connect, connect_embedded, declare};
+#[cfg(target_os = "macos")]
+pub use imp::{bind_root_window, realize, track};
 
 /// A waterui layout rect, as the kit sees it.
 #[cfg(target_os = "macos")]
