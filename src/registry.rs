@@ -159,14 +159,12 @@ pub fn install(dispatcher: &mut Dispatcher) {
     #[cfg(feature = "badge")]
     crate::components::badge::install(dispatcher);
 
-    // GPU/graphics — the surface leaf first: view_effect's capture
+    // GPU/graphics — the surface leaf first: the filtered leaf's capture
     // resolves mounted surfaces through its registry.
     #[cfg(feature = "gpu_surface")]
     crate::components::gpu_surface::install(dispatcher);
-    #[cfg(feature = "view_effect")]
-    crate::components::view_effect::install(dispatcher);
-    #[cfg(feature = "applied_filter")]
-    crate::components::applied_filter::install(dispatcher);
+    #[cfg(any(feature = "applied_filter", feature = "view_effect"))]
+    crate::components::filtered::install(dispatcher);
     #[cfg(feature = "picture")]
     crate::components::picture::install(dispatcher);
     #[cfg(feature = "resolved_gradient")]

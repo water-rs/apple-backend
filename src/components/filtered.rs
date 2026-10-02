@@ -1,7 +1,9 @@
-//! The `applied_filter` leaf: `Metadata<AppliedFilter>` — the
-//! `WuiAppliedFilter` port. The hidden content view is captured offscreen
-//! through the kit's `ViewCapture`; the semantic filter renders it into an
-//! `IOSurface` pair presented through a plain layer-backed output view
+//! The filtered-content leaf: `Native<FilteredView>` — the
+//! `WuiAppliedFilter`/`WuiViewEffect` port. The hidden content view is
+//! captured offscreen through the kit's `ViewCapture`; each erased effect in
+//! the chain encodes into one shared command buffer — innermost first,
+//! chained through private intermediate targets — and the last pass lands in
+//! an `IOSurface` pair presented through a plain layer-backed output view
 //! composited on top.
 
 use std::cell::{Cell, RefCell};
@@ -15,13 +17,12 @@ use executor_core::spawn_local;
 use futures::FutureExt;
 use objc2_metal::{MTLDevice as _, MTLTexture as _};
 use waterui_backend_core::{AnyView, View};
-use waterui_core::Metadata;
 use waterui_core::layout::{ProposalSize, Size, StretchAxis, SubView, ViewDimensions};
-use waterui_graphics::filter_view::{
-    AppliedFilter, EffectContext, EffectFrameClock, EffectInput, EffectOutput, WgslModuleCache,
+use waterui_graphics::filter_view::{AnyEffect, ErasedEffect, FilteredView, ParamGuards};
+use waterui_graphics::filtrate::{
+    EffectContext, EffectFrameClock, EffectInput, EffectOutput, EffectRedrawCallback, ShapeTextures,
 };
-use waterui_graphics::gpu_surface::RedrawHandle;
-use waterui_graphics::shared_context::GpuRuntime;
+use waterui_graphics::gpu::GpuRuntime;
 use waterui_graphics::wgpu;
 
 use crate::contract::{Mounted, NativeLeaf, RenderContext};
@@ -39,12 +40,11 @@ mod platform {
 
 use platform::HostView;
 
-type WgpuFormat = wgpu::TextureFormat;
-
-/// The format an Apple host renders a filter into — `attach_host_textures`
-/// always takes the extended-range half-float target, exactly as the
-/// `CAMetalLayer` path's unconditional `rendererMode: .high` did.
-const PRESENTATION_FORMAT: WgpuFormat = WgpuFormat::Rgba16Float;
+/// The format an Apple host captures and renders filtered content in —
+/// `attach_host_textures` always takes the extended-range half-float target,
+/// exactly as the `CAMetalLayer` path's unconditional `rendererMode: .high`
+/// did.
+const PRESENTATION_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
 /// A captured content frame — `WuiAppliedFilterCaptureFrame`.
 struct CaptureFrame {
@@ -86,60 +86,34 @@ unsafe impl<T> Sync for Sendable<T> {}
 type MetalTexture = objc2::runtime::ProtocolObject<dyn objc2_metal::MTLTexture>;
 type MetalDevice = objc2::runtime::ProtocolObject<dyn objc2_metal::MTLDevice>;
 
-/// `output_dimensions_for_input`: the resolved output size wins once the
-/// filter has answered one; before that the output is the input's size.
-const fn output_dimensions_for_input(
-    resolved: (u32, u32),
-    input_width: u32,
-    input_height: u32,
-) -> (u32, u32) {
-    (
-        if resolved.0 == 0 {
-            input_width
-        } else {
-            resolved.0
-        },
-        if resolved.1 == 0 {
-            input_height
-        } else {
-            resolved.1
-        },
-    )
-}
+/// The erased effect chain the async setup publishes into: `None` while it
+/// owns the Vec, `Some` once every effect finished `setup` on the live
+/// context — innermost (content-adjacent) effect first.
+type EffectSlot = Rc<RefCell<Option<Vec<Box<dyn ErasedEffect>>>>>;
 
 /// The filter host's shared state — `WuiAppliedFilterRenderState` plus the
 /// view's frame bookkeeping.
-pub struct FilterState {
+pub struct FilteredState {
     /// The host view.
     view: Retained<HostView>,
     /// The output presentation view.
     output_view: Retained<PlatformView>,
     /// The shared Metal device — `metalDevice`.
     device: Retained<MetalDevice>,
-    /// The semantic filter; `None` while asynchronous setup owns it —
-    /// the ffi state's filter slot.
-    filter: Rc<RefCell<Option<AppliedFilter>>>,
+    /// The erased effect chain, innermost (content-adjacent) first; `None`
+    /// while asynchronous setup owns it — the ffi state's effect slot.
+    effects: EffectSlot,
     /// The GPU runtime.
     runtime: GpuRuntime,
-    /// The redraw handle shared with the semantic filter.
-    redraw_handle: RedrawHandle,
     /// The host-owned effect clock — `frame_clock` on the ffi state.
     frame_clock: RefCell<EffectFrameClock>,
     /// Setup ran to completion on the current context — `setup_ready`.
     setup_ready: Rc<Cell<bool>>,
-    /// The (input, output) formats setup was launched with — `setup_formats`.
-    setup_formats: Cell<Option<(WgpuFormat, WgpuFormat)>>,
     /// The imported capture texture of the live frame — `imported_texture`.
     imported_texture: RefCell<Option<wgpu::Texture>>,
-    /// The captured input's pixel format — `imported_format`.
-    imported_format: Cell<Option<WgpuFormat>>,
-    /// Attach-time sizes — `input_width`/`input_height`,
-    /// `output_width`/`output_height`.
+    /// Attach-time input size — `input_width`/`input_height`; the output
+    /// size equals it — the effects render at capture dimensions.
     input_size: Cell<(u32, u32)>,
-    output_size_px: Cell<(u32, u32)>,
-    /// The latest answer from `AppliedFilter::output_size` —
-    /// `resolved_output_width`/`resolved_output_height`.
-    resolved_output: Cell<(u32, u32)>,
     /// `isAttached`.
     attached: Cell<bool>,
     /// The `IOSurface` presenter on the output layer — `presenter`.
@@ -182,9 +156,9 @@ pub struct FilterState {
     observers: RefCell<Vec<cocoa_ui::notification::NotificationObserver>>,
 }
 
-impl fmt::Debug for FilterState {
+impl fmt::Debug for FilteredState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("FilterState")
+        f.debug_struct("FilteredState")
             .field("attached", &self.attached)
             .field("setup_ready", &self.setup_ready)
             .finish_non_exhaustive()
@@ -202,14 +176,9 @@ fn pixel_size(view: &PlatformView, scale: f64) -> (u32, u32) {
     (w, h)
 }
 
-/// `outputPixelFormat`: the Metal format the attached filter renders its
-/// output in.
-fn output_pixel_format(state: &FilterState) -> objc2_metal::MTLPixelFormat {
-    let format = state
-        .setup_formats
-        .get()
-        .map_or(PRESENTATION_FORMAT, |(_, output)| output);
-    cocoa_ui::metal::wgpu_to_metal_format(format)
+/// `outputPixelFormat`: the Metal format the effects render their output in.
+fn output_pixel_format() -> objc2_metal::MTLPixelFormat {
+    crate::gpu_runtime::metal_pixel_format(PRESENTATION_FORMAT)
 }
 
 /// `isPresentationOccluded`.
@@ -231,10 +200,10 @@ fn can_attach_now(view: &PlatformView) -> bool {
 }
 
 /// `configureDynamicRange`.
-fn configure_dynamic_range(state: &FilterState, mode: cocoa_ui::dynamic_range::DynamicRange) {
+fn configure_dynamic_range(state: &FilteredState, mode: cocoa_ui::dynamic_range::DynamicRange) {
     assert!(
         !state.attached.get(),
-        "AppliedFilter dynamic range cannot change while attached"
+        "FilteredView dynamic range cannot change while attached"
     );
     cocoa_ui::dynamic_range::apply_to_view(mode, &state.view);
     if let Some(presenter) = state.presenter.borrow_mut().as_mut() {
@@ -246,7 +215,10 @@ fn configure_dynamic_range(state: &FilterState, mode: cocoa_ui::dynamic_range::D
 }
 
 /// `prepareDynamicRange` — parks the change while a frame is in flight.
-fn prepare_dynamic_range(state: &FilterState, mode: cocoa_ui::dynamic_range::DynamicRange) -> bool {
+fn prepare_dynamic_range(
+    state: &FilteredState,
+    mode: cocoa_ui::dynamic_range::DynamicRange,
+) -> bool {
     if state.configured_range.get() == Some(mode) {
         state.pending_dynamic_range.borrow_mut().take();
         return true;
@@ -263,11 +235,10 @@ fn prepare_dynamic_range(state: &FilterState, mode: cocoa_ui::dynamic_range::Dyn
 /// `waterui_applied_filter_attach_host_textures` — the capture texture and
 /// output format an attached presentation implies, always at the
 /// extended-range target.
-fn attach_if_needed(state: &Rc<FilterState>, width: u32, height: u32) {
+fn attach_if_needed(state: &Rc<FilteredState>, width: u32, height: u32) {
     if state.attached.get() {
         return;
     }
-    let output_format = PRESENTATION_FORMAT;
     let gpu = state.runtime.context();
     // `assert_capture_usable_format`: the capture texture and the output
     // share one format, so the check runs at attach, not inside a frame.
@@ -275,73 +246,44 @@ fn attach_if_needed(state: &Rc<FilterState>, width: u32, height: u32) {
         | wgpu::TextureUsages::RENDER_ATTACHMENT
         | wgpu::TextureUsages::COPY_DST;
     assert!(
-        gpu.adapter
-            .get_texture_format_features(output_format)
+        gpu.adapter()
+            .get_texture_format_features(PRESENTATION_FORMAT)
             .allowed_usages
             .contains(capture_usages),
-        "applied_filter attach: output format {output_format:?} cannot be used for capture"
+        "filtered attach: output format {PRESENTATION_FORMAT:?} cannot be used for capture"
     );
-    let (output_width, output_height) =
-        output_dimensions_for_input(state.resolved_output.get(), width, height);
     assert!(
         width > 0 && height > 0,
-        "AppliedFilter attach: dimensions must be non-zero, got {width}x{height}"
+        "FilteredView attach: dimensions must be non-zero, got {width}x{height}"
     );
-    assert!(
-        output_width > 0 && output_height > 0,
-        "AppliedFilter attach: output size must be non-zero, got {output_width}x{output_height}"
-    );
-    if let Some((_, setup_output_format)) = state.setup_formats.get() {
-        assert_eq!(
-            setup_output_format, output_format,
-            "AppliedFilter output format changed after setup"
-        );
-    }
     state.input_size.set((width, height));
-    state.output_size_px.set((output_width, output_height));
     state.attached.set(true);
-    let _ = state.redraw_handle.take_dirty();
     if state.setup_ready.get() {
-        state.redraw_handle.request_redraw();
+        request_render(state);
+    } else {
+        start_setup(state);
     }
-    start_setup(state, output_format);
 }
 
 /// `detachIfNeeded` — `waterui_applied_filter_detach`.
-fn detach_if_needed(state: &FilterState) {
+fn detach_if_needed(state: &FilteredState) {
     if !state.attached.get() {
         return;
     }
     state.attached.set(false);
     state.imported_texture.borrow_mut().take();
-    state.imported_format.set(None);
     state.capture_texture.borrow_mut().take();
     state.input_size.set((0, 0));
-    state.output_size_px.set((0, 0));
-    state.resolved_output.set((0, 0));
-}
-
-/// `resolve_output_size` — the filter's current output size for `input`,
-/// recorded as `resolved_output`.
-fn resolve_output_size(state: &FilterState, input_width: u32, input_height: u32) -> (u32, u32) {
-    let (output_width, output_height) = state
-        .filter
-        .borrow()
-        .as_ref()
-        .expect("AppliedFilter output size requested while asynchronous setup is pending")
-        .output_size(input_width, input_height);
-    assert!(
-        output_width > 0 && output_height > 0,
-        "applied_filter resolve_output_size: filter produced invalid output size {output_width}x{output_height} for input {input_width}x{input_height}"
-    );
-    state.resolved_output.set((output_width, output_height));
-    (output_width, output_height)
 }
 
 /// `ensureCaptureTexture` — a private-storage render target in the
-/// filter's output format, reallocated on size/format change.
-fn ensure_capture_texture(state: &FilterState, width: u32, height: u32) -> Retained<MetalTexture> {
-    let pixel_format = output_pixel_format(state);
+/// presentation format, reallocated on size change.
+fn ensure_capture_texture(
+    state: &FilteredState,
+    width: u32,
+    height: u32,
+) -> Retained<MetalTexture> {
+    let pixel_format = output_pixel_format();
     if let Some(texture) = state.capture_texture.borrow().as_ref()
         && texture.width() == width as usize
         && texture.height() == height as usize
@@ -365,13 +307,13 @@ fn ensure_capture_texture(state: &FilterState, width: u32, height: u32) -> Retai
     let texture = state
         .device
         .newTextureWithDescriptor(&descriptor)
-        .expect("Failed to create the AppliedFilter capture texture");
+        .expect("Failed to create the filtered-content capture texture");
     *state.capture_texture.borrow_mut() = Some(texture.clone());
     texture
 }
 
 /// `initializeGpuIfNeeded`.
-fn initialize_gpu(state: &Rc<FilterState>) {
+fn initialize_gpu(state: &Rc<FilteredState>) {
     let bounds = cocoa_ui::view::bounds(&state.view);
     if bounds.size.width <= 0.0 || bounds.size.height <= 0.0 {
         return;
@@ -402,7 +344,7 @@ fn initialize_gpu(state: &Rc<FilterState>) {
 }
 
 /// `updateOutputLayerFrame`.
-fn update_output_frame(state: &FilterState) {
+fn update_output_frame(state: &FilteredState) {
     let bounds = cocoa_ui::view::bounds(&state.view);
     cocoa_ui::core_animation::without_animation(|| {
         cocoa_ui::view::set_frame(&state.output_view, bounds);
@@ -414,7 +356,7 @@ fn update_output_frame(state: &FilterState) {
 }
 
 /// `scheduleFrameIfNeeded`.
-fn schedule_frame_if_needed(state: &Rc<FilterState>) {
+fn schedule_frame_if_needed(state: &Rc<FilteredState>) {
     if state.attached.get()
         && state.setup_ready.get()
         && cocoa_ui::view::window(&state.view).is_some()
@@ -430,14 +372,14 @@ fn schedule_frame_if_needed(state: &Rc<FilterState>) {
 }
 
 /// `requestRenderIfNeeded`.
-fn request_render(state: &Rc<FilterState>) {
+fn request_render(state: &Rc<FilteredState>) {
     state.needs_render.set(true);
     schedule_frame_if_needed(state);
 }
 
 /// `requestRenderIfGeometryChanged` — only a pass that produced new
 /// geometry arms the frame clock; see `laid_out_geometry`.
-fn request_render_if_geometry_changed(state: &Rc<FilterState>) {
+fn request_render_if_geometry_changed(state: &Rc<FilteredState>) {
     let geometry = cocoa_ui::view::bounds(&state.view);
     if state
         .laid_out_geometry
@@ -451,9 +393,8 @@ fn request_render_if_geometry_changed(state: &Rc<FilterState>) {
     request_render(state);
 }
 
-/// `renderFrame` — `resolve_output_size`, then capture into the
-/// input-size texture.
-fn render_frame(state: &Rc<FilterState>) {
+/// `renderFrame` — capture the hidden content into the input-size texture.
+fn render_frame(state: &Rc<FilteredState>) {
     if !state.setup_ready.get()
         || !state.needs_render.get()
         || state.render_in_flight.get()
@@ -469,10 +410,6 @@ fn render_frame(state: &Rc<FilterState>) {
     state.needs_render.set(false);
     state.render_in_flight.set(true);
     state.clock.stop();
-    // `resolve_output_size` runs before the capture so the presenter pair
-    // the frame lands on is sized by the answer.
-    let (output_width, output_height) = resolve_output_size(state, width, height);
-    state.output_size_px.set((output_width, output_height));
     let frame = CaptureFrame {
         texture: ensure_capture_texture(state, width, height),
         width,
@@ -493,7 +430,7 @@ fn render_frame(state: &Rc<FilterState>) {
 }
 
 /// `finishCapturedFrame`.
-fn finish_captured_frame(state: &Rc<FilterState>, frame: CaptureFrame, captured: bool) {
+fn finish_captured_frame(state: &Rc<FilteredState>, frame: CaptureFrame, captured: bool) {
     if state.detach_after_capture.get() {
         state.render_in_flight.set(false);
         state.detach_after_capture.set(false);
@@ -520,17 +457,17 @@ fn finish_captured_frame(state: &Rc<FilterState>, frame: CaptureFrame, captured:
 }
 
 /// `renderCapturedFrame` — `waterui_applied_filter_render_to_metal_texture`:
-/// render the filter into a pending surface and present on its fence.
+/// encode the effect chain into one command buffer and present on its fence.
 #[allow(clippy::needless_pass_by_value)]
 #[allow(clippy::too_many_lines)]
-fn finish_prepared_frame(state: &Rc<FilterState>, frame: CaptureFrame) {
-    let (output_width, output_height) = state.output_size_px.get();
-    let pixel_format = output_pixel_format(state);
+fn finish_prepared_frame(state: &Rc<FilteredState>, frame: CaptureFrame) {
+    let (output_width, output_height) = (frame.width, frame.height);
+    let pixel_format = output_pixel_format();
     {
         let mut presenter = state.presenter.borrow_mut();
         presenter
             .as_mut()
-            .expect("AppliedFilter presenter released while rendering")
+            .expect("FilteredView presenter released while rendering")
             .configure(output_width, output_height, pixel_format);
     }
     let pending = state
@@ -538,10 +475,9 @@ fn finish_prepared_frame(state: &Rc<FilterState>, frame: CaptureFrame) {
         .borrow()
         .as_ref()
         .and_then(cocoa_ui::metal::SurfaceBuffers::next_frame)
-        .expect("AppliedFilter presenter has no texture to render into");
+        .expect("FilteredView presenter has no texture to render into");
 
-    let gpu = state.runtime.context();
-    let input_format = output_pixel_format_wgpu(state);
+    let context = state.runtime.context();
     let input_texture = {
         let mut imported = state.imported_texture.borrow_mut();
         match imported.as_ref() {
@@ -553,15 +489,15 @@ fn finish_prepared_frame(state: &Rc<FilterState>, frame: CaptureFrame) {
                 // outlives the import; the format and size describe that
                 // same texture.
                 let texture = unsafe {
-                    cocoa_ui::metal::import_texture(
-                        &gpu.device,
+                    crate::gpu_runtime::import_texture(
+                        &context,
                         frame.texture.clone(),
-                        input_format,
+                        PRESENTATION_FORMAT,
                         frame.width,
                         frame.height,
                         wgpu::TextureUsages::RENDER_ATTACHMENT
                             | wgpu::TextureUsages::TEXTURE_BINDING,
-                        "AppliedFilter Imported Input Texture",
+                        "FilteredView Imported Input Texture",
                     )
                 };
                 *imported = Some(texture.clone());
@@ -569,94 +505,125 @@ fn finish_prepared_frame(state: &Rc<FilterState>, frame: CaptureFrame) {
             }
         }
     };
-    state.imported_format.set(Some(input_format));
     state.input_size.set((frame.width, frame.height));
 
     // SAFETY: `pending.texture` is the retained texture the presenter handed
     // us for this frame; the format and size describe that texture.
     let output_wgpu_texture = unsafe {
-        cocoa_ui::metal::import_texture(
-            &gpu.device,
+        crate::gpu_runtime::import_texture(
+            &context,
             pending.texture.clone(),
             PRESENTATION_FORMAT,
             output_width,
             output_height,
             wgpu::TextureUsages::RENDER_ATTACHMENT,
-            "AppliedFilter Host Presentation Texture",
+            "FilteredView Host Presentation Texture",
         )
     };
-    let input_view = input_texture.create_view(&wgpu::TextureViewDescriptor {
-        label: Some("AppliedFilter Input View"),
-        ..Default::default()
-    });
-    let output_view = output_wgpu_texture.create_view(&wgpu::TextureViewDescriptor {
-        label: Some("AppliedFilter Output View"),
-        format: Some(PRESENTATION_FORMAT),
-        ..Default::default()
-    });
     let timing = state.frame_clock.borrow_mut().tick();
     let needs_redraw = {
-        let input = EffectInput {
-            device: &gpu.device,
-            queue: &gpu.queue,
-            texture: &input_texture,
-            view: input_view,
-            format: input_format,
-            width: frame.width,
-            height: frame.height,
-            timing,
-        };
-        let output = EffectOutput {
-            device: &gpu.device,
-            queue: &gpu.queue,
-            texture: &output_wgpu_texture,
-            view: output_view,
-            format: PRESENTATION_FORMAT,
-            width: output_width,
-            height: output_height,
-        };
-        state
-            .filter
-            .borrow_mut()
+        let device = context.device();
+        let queue = context.queue();
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("filtered content encoder"),
+        });
+        let mut needs_redraw = false;
+        let mut effects = state.effects.borrow_mut();
+        let effects = effects
             .as_mut()
-            .expect("AppliedFilter ready state is missing its semantic filter")
-            .render(&input, &output)
-            .unwrap_or_else(|error| panic!("applied_filter render: {error}"))
+            .expect("FilteredView ready state is missing its effects");
+        // An effect after the first renders the previous one's output:
+        // `effects.len() - 1` private intermediates chain the passes.
+        let intermediates: Vec<wgpu::Texture> = (0..effects.len().saturating_sub(1))
+            .map(|_| {
+                device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("FilteredView Intermediate"),
+                    size: wgpu::Extent3d {
+                        width: frame.width,
+                        height: frame.height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: PRESENTATION_FORMAT,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING
+                        | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                    view_formats: &[],
+                })
+            })
+            .collect();
+        let effect_count = effects.len();
+        for (index, effect) in effects.iter_mut().enumerate() {
+            let last = index + 1 == effect_count;
+            let input_source = if index == 0 {
+                &input_texture
+            } else {
+                &intermediates[index - 1]
+            };
+            let output_target = if last {
+                &output_wgpu_texture
+            } else {
+                &intermediates[index]
+            };
+            let input = EffectInput {
+                device,
+                queue,
+                texture: input_source,
+                view: input_source.create_view(&wgpu::TextureViewDescriptor {
+                    label: Some("FilteredView Input View"),
+                    ..Default::default()
+                }),
+                format: PRESENTATION_FORMAT,
+                width: frame.width,
+                height: frame.height,
+                timing,
+                shape: ShapeTextures::default(),
+            };
+            let output = EffectOutput {
+                device,
+                queue,
+                texture: output_target,
+                view: output_target.create_view(&wgpu::TextureViewDescriptor {
+                    label: Some("FilteredView Output View"),
+                    format: Some(PRESENTATION_FORMAT),
+                    ..Default::default()
+                }),
+                format: PRESENTATION_FORMAT,
+                width: output_width,
+                height: output_height,
+            };
+            needs_redraw |= effect
+                .encode_render(&input, &output, &mut encoder)
+                .unwrap_or_else(|error| panic!("filtered render: {error}"))
+                || effect.redraw_hint();
+        }
+        queue.submit([encoder.finish()]);
+        needs_redraw
     };
     drop(input_texture);
     drop(output_wgpu_texture);
-    let submission = gpu.queue.submit([]);
 
     // `observeGpuCaptureFence`: the frame stays in flight until its fence.
     state.frame_presentation_in_flight.set(true);
     let weak = Sendable(Rc::downgrade(state));
     let pending = Sendable(pending);
-    gpu.submission_completion_driver()
-        .on_complete(submission, move || {
-            let weak = Sendable(weak.get().clone());
-            let pending = pending;
-            cocoa_ui::main_queue::enqueue(move |_mtm| {
-                let Some(state) = weak.get().upgrade() else {
-                    return;
-                };
-                state.frame_presentation_in_flight.set(false);
-                finish_presented_frame(&state, pending.get(), needs_redraw);
-            });
+    context.queue().on_submitted_work_done(move || {
+        let weak = Sendable(weak.get().clone());
+        let pending = pending;
+        cocoa_ui::main_queue::enqueue(move |_mtm| {
+            let Some(state) = weak.get().upgrade() else {
+                return;
+            };
+            state.frame_presentation_in_flight.set(false);
+            finish_presented_frame(&state, pending.get(), needs_redraw);
         });
-}
-
-/// The capture texture's wgpu format — the input format setup was launched
-/// with, or the presentation format before setup ran.
-fn output_pixel_format_wgpu(state: &FilterState) -> WgpuFormat {
-    state
-        .setup_formats
-        .get()
-        .map_or(PRESENTATION_FORMAT, |(input, _)| input)
+    });
 }
 
 /// The fence continuation — `present`/`revealFilteredOutput`/`completeReady`.
 fn finish_presented_frame(
-    state: &Rc<FilterState>,
+    state: &Rc<FilteredState>,
     pending: &cocoa_ui::metal::PendingFrame,
     needs_redraw: bool,
 ) {
@@ -694,7 +661,7 @@ fn finish_presented_frame(
 }
 
 /// `revealFilteredOutput` / `hideFilteredOutput`.
-fn reveal_output(state: &FilterState) {
+fn reveal_output(state: &FilteredState) {
     if state.output_revealed.get() {
         return;
     }
@@ -702,105 +669,118 @@ fn reveal_output(state: &FilterState) {
     cocoa_ui::view::set_hidden(&state.output_view, false);
 }
 
-fn hide_output(state: &FilterState) {
+fn hide_output(state: &FilteredState) {
     state.output_revealed.set(false);
     cocoa_ui::view::set_hidden(&state.output_view, true);
 }
 
 /// `completeReady` — `result` narrows to the waiters' next poll.
-fn complete_ready(state: &FilterState, _result: bool) {
+fn complete_ready(state: &FilteredState, _result: bool) {
     for waker in state.ready_waiters.borrow_mut().drain(..) {
         waker.wake();
     }
 }
 
-/// `waterui_applied_filter_setup` — run `filter.setup` on the UI-local
-/// executor, retrying on device loss until it lands on the still-current
-/// context.
-fn start_setup(state: &Rc<FilterState>, output_format: WgpuFormat) {
-    let input_format = output_pixel_format_wgpu(state);
-    if let Some((setup_input, setup_output)) = state.setup_formats.get() {
-        assert_eq!(
-            setup_input, input_format,
-            "AppliedFilter input format changed after setup"
-        );
-        assert_eq!(
-            setup_output, output_format,
-            "AppliedFilter output format changed after setup"
-        );
+/// `waterui_applied_filter_setup` — run every effect's `setup` on the
+/// UI-local executor, retrying on device loss until it lands on the
+/// still-current context.
+fn start_setup(state: &Rc<FilteredState>) {
+    if state.setup_ready.get() {
         return;
     }
-    state.setup_formats.set(Some((input_format, output_format)));
-    spawn_setup(state, input_format, output_format);
+    if state.effects.borrow().is_none() {
+        // Setup is already in flight — it owns the effects until it lands.
+        return;
+    }
+    spawn_setup(state);
 }
 
 /// `spawn_applied_filter_setup`.
-fn spawn_setup(state: &Rc<FilterState>, input_format: WgpuFormat, output_format: WgpuFormat) {
-    let mut filter = state
-        .filter
+fn spawn_setup(state: &Rc<FilteredState>) {
+    let mut effects = state
+        .effects
         .borrow_mut()
         .take()
-        .expect("AppliedFilter semantic filter is unavailable before setup starts");
-    let filter_slot = Rc::clone(&state.filter);
+        .expect("FilteredView effects are unavailable before setup starts");
+    let effects_slot = Rc::downgrade(&state.effects);
     let setup_ready = Rc::clone(&state.setup_ready);
     let weak = Sendable(Rc::downgrade(state));
     let runtime = state.runtime.clone();
-    let redraw_handle = state.redraw_handle.clone();
+    let fire_redraw: EffectRedrawCallback = Arc::new(redraw_callback_for(state));
     spawn_local(async move {
         // Setup retries until it completes on the context that is still the
         // runtime's current one; a device loss mid-setup leaves corpses that
         // must not be installed, and a panic from inside `wgpu`'s purged
-        // storage is loss fallout — not a filter bug — so it retries too.
+        // storage is loss fallout — not an effect bug — so it retries too.
         loop {
-            let gpu = runtime.context();
+            let context = runtime.context();
+            let device = context.device();
+            let queue = context.queue();
             let outcome = {
-                let shader_cache = WgslModuleCache::new();
                 let ctx = EffectContext {
-                    device: &gpu.device,
-                    queue: &gpu.queue,
-                    shader_cache: &shader_cache,
-                    input_format,
-                    output_format,
+                    device,
+                    queue,
+                    input_format: PRESENTATION_FORMAT,
+                    output_format: PRESENTATION_FORMAT,
                 };
                 std::panic::AssertUnwindSafe(async {
-                    filter
-                        .setup(&ctx)
-                        .await
-                        .unwrap_or_else(|error| panic!("AppliedFilter setup failed: {error}"));
+                    for effect in &mut effects {
+                        effect
+                            .setup(&ctx)
+                            .await
+                            .unwrap_or_else(|error| panic!("filtered setup failed: {error}"));
+                    }
                 })
                 .catch_unwind()
                 .await
             };
             if let Err(payload) = outcome {
-                if gpu.device_lost_reason().is_none() {
+                if context.device_lost_reason().is_none() {
                     std::panic::resume_unwind(payload);
                 }
                 continue;
             }
-            if gpu.device_lost_reason().is_none()
-                && runtime.context().generation() == gpu.generation()
+            if context.device_lost_reason().is_none()
+                && runtime.context().generation() == context.generation()
             {
                 break;
             }
         }
-        filter_slot.replace(Some(filter));
+        let Some(slot) = effects_slot.upgrade() else {
+            return;
+        };
+        slot.borrow_mut().replace(effects);
         setup_ready.set(true);
         if let Some(state) = weak.get().upgrade() {
             schedule_frame_if_needed(&state);
         }
-        redraw_handle.request_redraw();
+        fire_redraw();
     })
     .detach();
 }
 
+/// The callback every effect fires when external state becomes dirty —
+/// `installRedrawCallback`'s target.
+fn redraw_callback_for(state: &Rc<FilteredState>) -> impl Fn() + Send + Sync + 'static {
+    let weak = Sendable(Rc::downgrade(state));
+    move || {
+        let weak = Sendable(weak.get().clone());
+        cocoa_ui::main_queue::enqueue(move |_mtm| {
+            if let Some(state) = weak.get().upgrade() {
+                handle_redraw(&state);
+            }
+        });
+    }
+}
+
 /// `handleRendererRedraw` — the semantic redraw wake.
-fn handle_redraw(state: &Rc<FilterState>) {
+fn handle_redraw(state: &Rc<FilteredState>) {
     request_render(state);
 }
 
 /// `handleWindowChange` — leaving the window defers teardown to whichever
 /// half of the frame is still in flight.
-fn handle_window_change(state: &Rc<FilterState>) {
+fn handle_window_change(state: &Rc<FilteredState>) {
     if cocoa_ui::view::window(&state.view).is_none() {
         state.clock.stop();
         state.needs_render.set(false);
@@ -826,7 +806,7 @@ fn handle_window_change(state: &Rc<FilterState>) {
 /// attach+schedule. On iOS the attach a launch-time `.inactive` state
 /// deferred is retaken from `didBecomeActive`; without these observers a
 /// filter mounted before activation presents nothing forever.
-fn update_window_observers(state: &Rc<FilterState>) {
+fn update_window_observers(state: &Rc<FilteredState>) {
     let mut observers = state.observers.borrow_mut();
     observers.clear();
     let Some(window) = cocoa_ui::view::window(&state.view) else {
@@ -868,7 +848,7 @@ fn update_window_observers(state: &Rc<FilterState>) {
 
 /// `layoutSubviews`/`layout`: frame the hidden child, refresh geometry,
 /// then ensure GPU state and a pending frame.
-fn on_layout(state: &Rc<FilterState>) {
+fn on_layout(state: &Rc<FilteredState>) {
     let bounds = cocoa_ui::view::bounds(&state.view);
     if let Some(mounted) = state.mounted.borrow().as_ref() {
         cocoa_ui::view::set_frame(mounted.view(), bounds);
@@ -881,17 +861,17 @@ fn on_layout(state: &Rc<FilterState>) {
 
 /// The layout face: measurement delegates to the hidden child —
 /// `sizeThatFits`/`measure`/`layoutPriority`/`setPlacementProposal`.
-struct FilterSubView {
-    state: Rc<FilterState>,
+struct FilteredSubView {
+    state: Rc<FilteredState>,
 }
 
-impl fmt::Debug for FilterSubView {
+impl fmt::Debug for FilteredSubView {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("FilterSubView").finish_non_exhaustive()
+        f.debug_struct("FilteredSubView").finish_non_exhaustive()
     }
 }
 
-impl SubView for FilterSubView {
+impl SubView for FilteredSubView {
     fn measure(&self, proposal: ProposalSize) -> ViewDimensions {
         self.state.mounted.borrow().as_ref().map_or_else(
             || ViewDimensions::new(Size::new(0.0, 0.0)),
@@ -918,10 +898,10 @@ impl SubView for FilterSubView {
 
 // MARK: - First-paint readiness (WuiFirstPaintReadyParticipant)
 
-/// Every live filter host view → its state, so a first-paint walk finds
+/// Every live filtered host view → its state, so a first-paint walk finds
 /// unrevealed filters anywhere in the tree.
 static FILTERS: std::sync::Mutex<
-    Option<std::collections::HashMap<usize, Sendable<Weak<FilterState>>>>,
+    Option<std::collections::HashMap<usize, Sendable<Weak<FilteredState>>>>,
 > = std::sync::Mutex::new(None);
 
 fn filter_key(view: &PlatformView) -> usize {
@@ -930,7 +910,7 @@ fn filter_key(view: &PlatformView) -> usize {
 
 /// `participatesInFirstPaintReady` — a filter whose window cannot present
 /// has no first frame to wait for.
-fn participates_in_first_paint_ready(state: &FilterState) -> bool {
+fn participates_in_first_paint_ready(state: &FilteredState) -> bool {
     let bounds = cocoa_ui::view::bounds(&state.view);
     cocoa_ui::view::window(&state.view).is_some()
         && !cocoa_ui::view::is_hidden(&state.view)
@@ -942,7 +922,7 @@ fn participates_in_first_paint_ready(state: &FilterState) -> bool {
 
 /// `requestReadyFrame` — prepare, then register `waker` against the first
 /// presented output.
-fn request_ready_frame(state: &Rc<FilterState>, waker: std::task::Waker) {
+fn request_ready_frame(state: &Rc<FilteredState>, waker: std::task::Waker) {
     if state.output_revealed.get() {
         waker.wake();
         return;
@@ -961,8 +941,8 @@ fn request_ready_frame(state: &Rc<FilterState>, waker: std::task::Waker) {
 
 /// Walks `view`'s subtree calling `f` on every registered filter — the
 /// filter half of `collectFirstPaintReadyParticipants`.
-pub fn collect_filters(view: &PlatformView, f: &mut impl FnMut(&Rc<FilterState>)) {
-    let filters = FILTERS.lock().expect("applied filter registry");
+pub fn collect_filters(view: &PlatformView, f: &mut impl FnMut(&Rc<FilteredState>)) {
+    let filters = FILTERS.lock().expect("filtered registry");
     if let Some(state) = filters
         .as_ref()
         .and_then(|filters| filters.get(&filter_key(view)))
@@ -977,7 +957,7 @@ pub fn collect_filters(view: &PlatformView, f: &mut impl FnMut(&Rc<FilterState>)
 }
 
 /// The state's own `wait`, used by [`collect_filters`] callers.
-pub fn filter_needs_frame(state: &Rc<FilterState>, waker: std::task::Waker) -> bool {
+pub fn filter_needs_frame(state: &Rc<FilteredState>, waker: std::task::Waker) -> bool {
     if !participates_in_first_paint_ready(state) || state.output_revealed.get() {
         return false;
     }
@@ -987,21 +967,21 @@ pub fn filter_needs_frame(state: &Rc<FilterState>, waker: std::task::Waker) -> b
 
 /// Dropping clears the filter's registrations and shuts the capture and
 /// render state down — `deinit`.
-struct FilterGuard {
+struct FilteredGuard {
     view: Retained<PlatformView>,
-    state: Rc<FilterState>,
+    state: Rc<FilteredState>,
 }
 
-impl fmt::Debug for FilterGuard {
+impl fmt::Debug for FilteredGuard {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("FilterGuard").finish_non_exhaustive()
+        f.debug_struct("FilteredGuard").finish_non_exhaustive()
     }
 }
 
-impl Drop for FilterGuard {
+impl Drop for FilteredGuard {
     fn drop(&mut self) {
         crate::invalidation::unregister_sink(&self.view);
-        if let Some(filters) = FILTERS.lock().expect("applied filter registry").as_mut() {
+        if let Some(filters) = FILTERS.lock().expect("filtered registry").as_mut() {
             filters.remove(&filter_key(&self.view));
         }
         self.state.clock.stop();
@@ -1011,42 +991,52 @@ impl Drop for FilterGuard {
 }
 
 /// `fuseEnclosedFilters` — folds the filters this one directly encloses
-/// into `filter`, returning the view the fused filter captures.
+/// into the chain this leaf renders, returning the view the chain captures.
 ///
 /// The resolve walk expands `body()` on everything the seam would have
 /// handed to the composer layer; when it lands on another
-/// `Metadata<AppliedFilter>` the pair collapses into one filter through
-/// [`AppliedFilter::chained`] — one capture, one presentation target and
-/// one submission instead of two (#521).
+/// `Native<FilteredView>` its effect joins the chain behind this one's —
+/// one capture, one presentation target and one submission instead of two
+/// (#521).
 fn fuse_enclosed_filters(
-    metadata: Metadata<AppliedFilter>,
+    filtered: FilteredView,
     ctx: &RenderContext<'_>,
-) -> (AnyView, AppliedFilter) {
-    let mut filter = metadata.value;
-    let mut content = metadata.content;
+) -> (AnyView, Vec<(AnyEffect, ParamGuards)>) {
+    let mut effects = Vec::new();
+    let FilteredView {
+        mut content,
+        effect,
+        guards,
+    } = filtered;
+    effects.push((effect, guards));
     loop {
         while !needs_fallback(&content) {
             content = AnyView::new(content.body(ctx.env()));
         }
-        match content.downcast::<Metadata<AppliedFilter>>() {
+        match content.downcast::<waterui_core::Native<FilteredView>>() {
             Ok(inner) => {
-                let inner = *inner;
-                filter = AppliedFilter::chained(inner.value, filter);
+                let inner = (*inner).into_inner();
                 content = inner.content;
+                effects.push((inner.effect, inner.guards));
             }
-            Err(content) => return (content, filter),
+            Err(content) => return (content, effects),
         }
     }
 }
 
-/// Installs the `applied_filter` handler.
+/// Installs the `filtered` handler — `applied_filter` and `view_effect`
+/// collapse into one leaf under the cutover's `Native<FilteredView>`.
 #[allow(clippy::too_many_lines)]
 pub fn install(dispatcher: &mut Dispatcher) {
-    dispatcher.register_view::<Metadata<AppliedFilter>>(|metadata, ctx| {
+    dispatcher.register_native::<FilteredView>(|filtered, ctx| {
         let mtm = ctx.mtm();
         let runtime = crate::gpu_runtime::runtime(ctx.env());
-        let (content, mut filter) = fuse_enclosed_filters(metadata, ctx);
-        let redraw_handle = filter.redraw_handle();
+        let (content, chained) = fuse_enclosed_filters(filtered, ctx);
+        let (sources, guard_list): (Vec<AnyEffect>, Vec<ParamGuards>) = chained.into_iter().unzip();
+        // The chain presents outermost-last: effects render content-adjacent
+        // first, so reverse the collection order.
+        let effects: Vec<Box<dyn ErasedEffect>> =
+            sources.into_iter().rev().map(AnyEffect::build).collect();
 
         let view = HostView::new(mtm, cocoa_ui::Rect::ZERO);
         #[cfg(target_os = "macos")]
@@ -1082,13 +1072,14 @@ pub fn install(dispatcher: &mut Dispatcher) {
         let output_layer =
             cocoa_ui::view::layer(&output_view).expect("output view is layer-backed");
 
-        let gpu = runtime.context();
+        let gpu_context = runtime.context();
         // SAFETY: `raw_device` is the `MTLDevice` the runtime created and
         // still owns; `retain` takes our own reference on it.
         let device = unsafe {
             Retained::<MetalDevice>::retain(
                 Retained::as_ptr(
-                    gpu.device
+                    gpu_context
+                        .device()
                         .as_hal::<wgpu_hal::api::Metal>()
                         .expect("the Apple runtime's device is Metal")
                         .raw_device(),
@@ -1111,21 +1102,16 @@ pub fn install(dispatcher: &mut Dispatcher) {
                 crate::components::gpu_surface::capturable_resolver(),
             ));
             let presenter = cocoa_ui::metal::SurfaceBuffers::new(device.clone(), output_layer);
-            FilterState {
+            FilteredState {
                 view: view.clone(),
                 output_view: output_view.clone(),
                 device,
-                filter: Rc::new(RefCell::new(Some(filter))),
+                effects: Rc::new(RefCell::new(None)),
                 runtime,
-                redraw_handle,
                 frame_clock: RefCell::new(EffectFrameClock::new()),
                 setup_ready: Rc::new(Cell::new(false)),
-                setup_formats: Cell::new(None),
                 imported_texture: RefCell::new(None),
-                imported_format: Cell::new(None),
                 input_size: Cell::new((0, 0)),
-                output_size_px: Cell::new((0, 0)),
-                resolved_output: Cell::new((0, 0)),
                 attached: Cell::new(false),
                 presenter: RefCell::new(Some(presenter)),
                 capture_texture: RefCell::new(None),
@@ -1146,6 +1132,19 @@ pub fn install(dispatcher: &mut Dispatcher) {
                 observers: RefCell::new(Vec::new()),
             }
         });
+        *state.effects.borrow_mut() = Some(effects);
+
+        // `installRedrawCallback` — every effect's redraw callback lands on
+        // the main queue.
+        let callback: EffectRedrawCallback = Arc::new(redraw_callback_for(&state));
+        for effect in state
+            .effects
+            .borrow_mut()
+            .as_mut()
+            .expect("effects installed above")
+        {
+            effect.set_redraw_callback(Arc::clone(&callback));
+        }
 
         // `capturePipeline.onRedraw`.
         {
@@ -1155,18 +1154,6 @@ pub fn install(dispatcher: &mut Dispatcher) {
                     request_render(&state);
                 }
             });
-        }
-        // `installRedrawCallback` — the semantic redraw handle.
-        {
-            let weak = Sendable(Rc::downgrade(&state));
-            state.redraw_handle.set_waker(Some(Arc::new(move || {
-                let weak = Sendable(weak.get().clone());
-                cocoa_ui::main_queue::enqueue(move |_mtm| {
-                    if let Some(state) = weak.get().upgrade() {
-                        handle_redraw(&state);
-                    }
-                });
-            })));
         }
 
         {
@@ -1209,23 +1196,26 @@ pub fn install(dispatcher: &mut Dispatcher) {
         crate::invalidation::register_sink(&view, sink_callback);
         FILTERS
             .lock()
-            .expect("applied filter registry")
+            .expect("filtered registry")
             .get_or_insert_with(std::collections::HashMap::new)
             .insert(filter_key(&view), Sendable(Rc::downgrade(&state)));
 
-        let filter_guard = FilterGuard {
+        let filter_guard = FilteredGuard {
             view: cocoa_ui::view::retain_base(&view),
             state: state.clone(),
         };
         let mut leaf = NativeLeaf::new(
             &view,
-            FilterSubView {
+            FilteredSubView {
                 state: state.clone(),
             },
         );
         leaf.keep(view);
         leaf.keep(state);
         leaf.keep(filter_guard);
+        for guards in guard_list {
+            leaf.keep(guards);
+        }
         leaf
     });
 }
@@ -1234,32 +1224,13 @@ pub fn install(dispatcher: &mut Dispatcher) {
 mod tests {
     use super::*;
 
-    /// `output_dimensions_for_input` mirrors the ffi state's resolution: the
-    /// filter's answer wins once it has given one, and before that the
-    /// output is the input's size.
-    #[test]
-    fn unresolved_output_is_input() {
-        assert_eq!(output_dimensions_for_input((0, 0), 320, 200), (320, 200));
-    }
-
-    #[test]
-    fn resolved_output_wins() {
-        assert_eq!(
-            output_dimensions_for_input((640, 400), 320, 200),
-            (640, 400)
-        );
-        // A blur grows one axis and leaves the other; zero on one axis is
-        // "unresolved", not a size.
-        assert_eq!(output_dimensions_for_input((640, 0), 320, 200), (640, 200));
-    }
-
     /// The presentation format is the extended-range half-float target the
     /// `CAMetalLayer` path always rendered in, and it maps to Metal.
     #[test]
     fn presentation_format_maps_to_metal() {
-        assert_eq!(PRESENTATION_FORMAT, WgpuFormat::Rgba16Float);
+        assert_eq!(PRESENTATION_FORMAT, wgpu::TextureFormat::Rgba16Float);
         assert_eq!(
-            cocoa_ui::metal::wgpu_to_metal_format(PRESENTATION_FORMAT),
+            crate::gpu_runtime::metal_pixel_format(PRESENTATION_FORMAT),
             objc2_metal::MTLPixelFormat::RGBA16Float
         );
     }

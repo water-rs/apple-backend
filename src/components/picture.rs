@@ -1,17 +1,15 @@
 //! The `picture` leaf: `Native<Picture>` rendered through the kit's image
 //! view — `WuiPictureView`.
 //!
-//! The `Computed<SceneRecording>` is watched imperatively: every change
+//! The `Computed<PictureRecording>` is watched imperatively: every change
 //! rasterizes the recording at the view's current backing scale through the
 //! CPU rasteriser and repaints. Layout is aspect-fit — the same
 //! `sizeThatFits` the Swift leaf measured with — and the image announces
 //! itself through the picture's `label`/`value` and the image trait.
 
-use alloc::sync::Arc;
-
 use cocoa_ui::objc2::AllocAnyThread;
-use waterui::graphics::picture::Picture;
-use waterui::graphics::scene2d_cpu::Rasterizer;
+use waterui::graphics::picture::{Picture, PictureRecording};
+use waterui::graphics::raster::Rasterizer;
 use waterui::reactive::Signal;
 use waterui_core::layout::{ProposalSize, Size, StretchAxis, SubView, ViewDimensions};
 
@@ -50,18 +48,22 @@ fn as_view(view: &ImageView) -> &cocoa_ui::PlatformView {
 /// Rasterizes `recording` at `scale` into the platform image the view
 /// displays — `captureDisplayScale` + the CPU raster path of
 /// `updatePicture`.
+///
+/// # Panics
+///
+/// When the CPU surface or the render fails — a dropped frame silently
+/// leaves stale pixels, so a rasterisation failure is an error, not a
+/// skipped paint.
 #[allow(clippy::cast_precision_loss)]
-fn rasterize(
-    picture: &Picture,
-    recording: &Arc<waterui::graphics::SceneRecording>,
-    scale: f64,
-    view: &ImageView,
-) {
+fn rasterize(picture: &Picture, recording: &PictureRecording, scale: f64, view: &ImageView) {
     let scale = scale.max(1.0);
     #[expect(clippy::cast_possible_truncation, reason = "display scales are small")]
     let (width, height) = picture.pixel_size(scale as f32);
-    let mut rasterizer = Rasterizer::new(width, height);
-    let bitmap = rasterizer.rasterize(recording, picture.transform_to(width as f32, height as f32));
+    let mut rasterizer =
+        Rasterizer::new(width, height).expect("CPU rasteriser surface creation failed");
+    let bitmap = rasterizer
+        .rasterize(recording, picture.transform_to(width as f32, height as f32))
+        .expect("CPU rasterisation failed");
     let Some(image) = cocoa_ui::bitmap::image_from_rgba(
         bitmap.data(),
         bitmap.width() as usize,
