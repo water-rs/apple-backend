@@ -376,6 +376,53 @@ class ProtocolTests(unittest.TestCase):
                 d.prepare_cli(self.m, ctx, {}, "new", sha, {})
             prep.assert_not_called()
 
+    def test_untracked_cli_source_refuses_build_and_installed_provenance(self):
+        binary = d.water_bin("new")
+        sha = "a" * 40
+        ctx = {"home": self.root, "uid": os.getuid()}
+        for installed in (False, True):
+            with self.subTest(installed=installed):
+                supplied = {}
+                if installed:
+                    binary.parent.mkdir(parents=True)
+                    binary.write_text("test executable fixture\n")
+                    supplied["new"] = {"source_sha": sha, "binary_sha256": d.file_sha256(binary)}
+                with patch.object(d, "checked_output", side_effect=[sha, "?? src/injected.rs"]) as output, \
+                        patch.object(d, "preparation_command") as prep:
+                    with self.assertRaisesRegex(d.BenchError, "untracked inputs.*provenance"):
+                        d.prepare_cli(self.m, ctx, {}, "new", sha, supplied)
+                    self.assertEqual(output.call_args.args[0][-3:],
+                                     ["status", "--porcelain", "--untracked-files=all"])
+                    prep.assert_not_called()
+                    self.assertFalse(d.STATE_PATH.exists())
+
+    def test_measured_checkouts_reject_untracked_inputs_except_exact_owned_link(self):
+        state = self.locked_state()
+        framework = d.waterui_dir("new")
+        link = framework / "backends/apple"
+        link.parent.mkdir(parents=True)
+        backend = d.backend_dir("new")
+        backend.mkdir(parents=True)
+        link.symlink_to(backend, target_is_directory=True)
+        for dirty in (None, "apple_backend", "waterui", "cli"):
+            def output(argv):
+                name = {"apple-backend": "apple_backend", "waterui": "waterui", "cli": "cli"}[Path(argv[2]).name]
+                if argv[3:] == ["rev-parse", "HEAD"]:
+                    return state["resolved_pins"]["new"][name]
+                self.assertEqual(argv[3:], ["status", "--porcelain", "--untracked-files=all"])
+                status = "?? backends/apple\n" if name == "waterui" else ""
+                return status + ("?? src/injected.rs\n" if name == dirty else "")
+            with self.subTest(dirty=dirty), patch.object(d, "checked_output", side_effect=output):
+                if dirty:
+                    with self.assertRaisesRegex(d.BenchError, "dirty checkout"):
+                        d.verify_checkouts(state, "new")
+                else:
+                    d.verify_checkouts(state, "new")
+        link.unlink()
+        link.symlink_to(self.root / "foreign")
+        with self.assertRaisesRegex(d.BenchError, "harness-owned backend link"):
+            d.require_clean_checkout(framework, backend)
+
     def runtimes(self):
         return [{"identifier": "com.apple.CoreSimulator.SimRuntime.iOS-27-0",
                  "version": "27.0", "isAvailable": True,

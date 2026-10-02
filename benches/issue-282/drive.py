@@ -481,6 +481,20 @@ def preparation_command(argv, timeout_s, source_sha, **kwargs):
     return rec
 
 
+def require_clean_checkout(path, backend=None):
+    """Reject tracked changes and untracked source before trusting a pin."""
+    if backend is not None:
+        link = path / "backends" / "apple"
+        if not link.is_symlink() or link.resolve() != backend.resolve():
+            raise BenchError(f"{link}: expected the harness-owned backend link")
+    status = checked_output([
+        "git", "-C", str(path), "status", "--porcelain", "--untracked-files=all"])
+    changes = [line for line in status.splitlines()
+               if not (backend is not None and line == "?? backends/apple")]
+    if changes:
+        raise BenchError(f"{path}: dirty checkout (tracked changes or untracked inputs); refusing source provenance")
+
+
 def owned_checkout(ctx, path, url):
     """A standalone, clean checkout at our exact path, never another worktree."""
     assert_owned(ctx, path)
@@ -496,8 +510,7 @@ def owned_checkout(ctx, path, url):
     worktrees = checked_output([*git, "worktree", "list", "--porcelain"])
     if sum(line.startswith("worktree ") for line in worktrees.splitlines()) != 1:
         raise BenchError(f"{path}: repository has other worktrees; refusing input replacement")
-    if checked_output([*git, "status", "--porcelain", "--untracked-files=all"]):
-        raise BenchError(f"{path}: dirty checkout; refusing input replacement")
+    require_clean_checkout(path)
     return checked_output([*git, "rev-parse", "HEAD"])
 
 
@@ -547,7 +560,7 @@ def prepare_cli(manifest, ctx, state, side, sha, supplied):
     source = ROOT / "checkouts" / side / "cli"
     if checked_output(["git", "-C", str(source), "rev-parse", "HEAD"]) != sha:
         raise BenchError(f"{side}: CLI source SHA mismatch")
-    checked_output(["git", "-C", str(source), "diff", "--exit-code", "HEAD", "--"])
+    require_clean_checkout(source)
     receipt = state.get("tools", {}).get(side) or supplied.get(side)
     if binary.exists():
         assert_owned(ctx, binary)
@@ -876,7 +889,7 @@ def verify_checkouts(state, side):
         head = checked_output(["git", "-C", str(path), "rev-parse", "HEAD"])
         if head != state["resolved_pins"][side][name]:
             raise BenchError(f"{path}: checkout no longer matches resolved pin")
-        checked_output(["git", "-C", str(path), "diff", "--exit-code", "HEAD", "--"])
+        require_clean_checkout(path, backend_dir(side) if name == "waterui" else None)
 
 
 def source_fingerprint(manifest, side, subject):
