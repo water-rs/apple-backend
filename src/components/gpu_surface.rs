@@ -1,5 +1,5 @@
 //! The `gpu_surface` leaf: `Native<GpuContentView>` and
-//! `Native<ExternalFrameView>` as a kit surface view presenting host-owned
+//! `Native<ExternalFrameView>` and `Native<SceneView>` as a kit surface view presenting host-owned
 //! `IOSurface` textures — the Rust port of `WuiGpuSurface`/
 //! `WuiGpuSurfaceState`, `WuiSurfacePresentation`, `WuiDisplayLinkDriver`,
 //! `WuiRedrawCallback` and `WuiWindowOcclusion`.
@@ -49,17 +49,24 @@ mod platform {
 
 use platform::SurfaceView;
 
+#[path = "scene_surface.rs"]
+mod scene;
+
 /// The semantic half of a mounted GPU surface: what is drawn, measured and
-/// fed input, abstracted over the two view kinds the leaf hosts.
+/// fed input, shared by GPU producers, external frames and retained scenes.
 trait HostedView {
     /// Measures the view against a layout proposal.
     fn measure(&self, proposal: ProposalSize) -> ViewDimensions;
     /// Which axes the view stretches to fill.
     fn stretch_axis(&self) -> StretchAxis;
     /// The accessibility name.
-    fn accessibility_label(&self) -> Option<&str>;
+    fn accessibility_label(&self) -> Option<String>;
     /// The accessibility value.
-    fn accessibility_value(&self) -> Option<&str>;
+    fn accessibility_value(&self) -> Option<String>;
+    /// Starts content-owned frame sources for this mount.
+    fn mount(&mut self, _redraw: &RedrawHandle) {}
+    /// Stops content-owned frame sources before releasing its renderer.
+    fn unmount(&mut self) {}
     /// Whether the view takes input events.
     fn wants_input_events(&self) -> bool;
     /// The dynamic range the view resolves to, when it declares one.
@@ -97,12 +104,12 @@ impl HostedView for GpuContentView {
         NativeView::stretch_axis(self)
     }
 
-    fn accessibility_label(&self) -> Option<&str> {
-        Self::accessibility_label(self)
+    fn accessibility_label(&self) -> Option<String> {
+        Self::accessibility_label(self).map(str::to_owned)
     }
 
-    fn accessibility_value(&self) -> Option<&str> {
-        Self::accessibility_value(self)
+    fn accessibility_value(&self) -> Option<String> {
+        Self::accessibility_value(self).map(str::to_owned)
     }
 
     fn wants_input_events(&self) -> bool {
@@ -161,12 +168,12 @@ impl HostedView for ExternalFrameView {
         NativeView::stretch_axis(self)
     }
 
-    fn accessibility_label(&self) -> Option<&str> {
-        Self::accessibility_label(self)
+    fn accessibility_label(&self) -> Option<String> {
+        Self::accessibility_label(self).map(str::to_owned)
     }
 
-    fn accessibility_value(&self) -> Option<&str> {
-        Self::accessibility_value(self)
+    fn accessibility_value(&self) -> Option<String> {
+        Self::accessibility_value(self).map(str::to_owned)
     }
 
     fn wants_input_events(&self) -> bool {
@@ -219,7 +226,7 @@ impl HostedRenderer for ExternalFrameRenderer {
 struct SurfaceState {
     /// The environment's GPU runtime; `context()` follows device rebuilds.
     runtime: GpuRuntime,
-    /// The hosted semantic view, boxed over the two view kinds.
+    /// The hosted semantic view.
     view: RefCell<Box<dyn HostedView>>,
     /// The view's engine layer on the runtime's current context generation.
     renderer: RefCell<Option<Box<dyn HostedRenderer>>>,
@@ -867,10 +874,7 @@ fn publish_content_accessibility(state: &SurfaceState, view: &Retained<SurfaceVi
     }
     let (label, value) = {
         let view = state.view.borrow();
-        (
-            view.accessibility_label().map(str::to_owned),
-            view.accessibility_value().map(str::to_owned),
-        )
+        (view.accessibility_label(), view.accessibility_value())
     };
     publish_accessibility(view.as_platform_view(), label.as_deref(), value.as_deref());
 }
@@ -1224,7 +1228,9 @@ pub fn capturable_resolver()
 
 /// Dropping unregisters the surface — `deinit`/`shutdown` on the Swift side.
 struct RegistryGuard {
-    view: Retained<cocoa_ui::PlatformView>,
+    view: Retained<SurfaceView>,
+    state: Rc<SurfaceState>,
+    input: Option<Retained<cocoa_ui::PlatformView>>,
 }
 
 impl fmt::Debug for RegistryGuard {
@@ -1235,7 +1241,19 @@ impl fmt::Debug for RegistryGuard {
 
 impl Drop for RegistryGuard {
     fn drop(&mut self) {
-        unregister_capturable(&self.view);
+        self.state.clock.stop();
+        self.state.observers.borrow_mut().clear();
+        self.state.view.borrow_mut().unmount();
+        drop(self.state.renderer.borrow_mut().take());
+        if let Some(input) = &self.input {
+            cocoa_ui::view::remove_from_superview(input);
+        }
+        // Remove callbacks that retain the mount and its native view.
+        self.view.set_layout_handler(|| {});
+        self.view.set_window_changed_handler(|| {});
+        self.view.set_backing_changed_handler(|| {});
+        self.view.set_visibility_changed_handler(|| {});
+        unregister_capturable(self.view.as_platform_view());
     }
 }
 
@@ -1336,10 +1354,13 @@ impl SubView for SurfaceSubView {
 // MARK: - Install
 
 /// Installs the `gpu_surface` handlers — `Native<GpuContentView>` and
-/// `Native<ExternalFrameView>` share the presentation machinery.
+/// `Native<ExternalFrameView>` and `Native<SceneView>` share presentation.
 pub fn install(dispatcher: &mut Dispatcher) {
     dispatcher.register_native::<GpuContentView>(build_surface);
     dispatcher.register_native::<ExternalFrameView>(build_surface);
+    dispatcher.register_native::<waterui_graphics::scene_view::SceneView>(|view, ctx| {
+        build_surface(scene::Scene::new(view), ctx)
+    });
 }
 
 /// The leaf construction shared by the dispatcher and the CEF seam entry
@@ -1355,6 +1376,7 @@ fn build_surface<V: HostedView + 'static>(
         let state = Rc::new_cyclic(|weak| {
             SurfaceState::new(weak, runtime, Box::new(view), &platform_view, mtm)
         });
+        state.view.borrow_mut().mount(&state.redraw_handle);
 
         // The presentation buffers bind to the shared Metal device and the
         // view's presentation layer.
@@ -1395,7 +1417,9 @@ fn build_surface<V: HostedView + 'static>(
         let input_view = install_input(&platform_view, &state);
 
         let registry_guard = RegistryGuard {
-            view: cocoa_ui::view::retain_base(platform_view.as_platform_view()),
+            view: platform_view.clone(),
+            state: state.clone(),
+            input: input_view.clone(),
         };
         let mut leaf = NativeLeaf::new(&platform_view, SurfaceSubView { state });
         leaf.keep(platform_view);

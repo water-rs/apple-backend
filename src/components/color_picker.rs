@@ -331,11 +331,11 @@ pub fn install(dispatcher: &mut Dispatcher) {
         // Binding → well: each `Color` the binding produces is resolved in
         // this environment and observed — `observeColor` re-arming on every
         // `Color` the binding emits, as `WuiColorPicker` does.
-        leaf.watch(&config.value, {
+        leaf.bind(&config.value, {
             let state = Rc::clone(&state);
             let env = ctx.env().clone();
-            move |ctx| {
-                let resolved = ctx.value().resolve(&env);
+            move |color| {
+                let resolved = color.resolve(&env);
                 let apply = |resolved: &WorkingColor| {
                     let state = state.borrow();
                     state.syncing.set(true);
