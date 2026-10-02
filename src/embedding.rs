@@ -253,7 +253,7 @@ fn create_root(
     HostView::new(mtm, cocoa_ui::view::bounds(host))
 }
 
-fn mount_content(
+pub(crate) fn mount_content(
     root: &HostView,
     view: waterui::AnyView,
     env: &Environment,
@@ -276,6 +276,9 @@ fn mount_content(
         );
         crate::proposal::deliver(placed.view(), proposal);
         cocoa_ui::view::set_frame(placed.view(), frame);
+        // Placement changes the child's bounds after the host's own layout.
+        // Complete that child's pending layout before this placement finishes.
+        cocoa_ui::view::layout_immediately(placed.view());
     });
     content
 }

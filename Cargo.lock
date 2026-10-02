@@ -6167,6 +6167,7 @@ dependencies = [
  "objc2-foundation",
  "objc2-metal",
  "objc2-quartz-core",
+ "serde_json",
  "tracing",
  "tracing-oslog",
  "tracing-panic",

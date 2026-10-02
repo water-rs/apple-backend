@@ -36,4 +36,7 @@ device="$WATERUI_IOS_SIM_UDID"
 # bootstatus chatter must stay off it.
 xcrun simctl bootstatus "$device" -b >&2
 
+if [[ -n "${WATERUI_REFERENCE_METRICS:-}" ]]; then
+    export SIMCTL_CHILD_WATERUI_REFERENCE_METRICS="$WATERUI_REFERENCE_METRICS"
+fi
 exec xcrun simctl spawn "$device" "$binary" "$@"

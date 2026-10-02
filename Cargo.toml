@@ -353,6 +353,7 @@ clippy.redundant_feature_names = { level = "allow", priority = 1 }
 [dev-dependencies]
 criterion = "0.8.2"
 libtest-mimic = "0.8"
+serde_json = "1.0"
 # The native tests create real `AppKit`/`UIKit` objects, which are only
 # legal on the process's actual main thread — libtest's worker threads can
 # never hold a `MainThreadMarker`. The custom harness pins execution to

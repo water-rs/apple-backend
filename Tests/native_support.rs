@@ -11,39 +11,57 @@ use cocoa_ui::MainThreadMarker;
 use waterui::window::WindowManager;
 use waterui_backend_core::Environment;
 
-/// Mounts a leaf the way the embedding's `mount_content` does: onto a
-/// real `HostView` whose layout handler delivers the placement proposal
-/// and applies the content frame. Without the proposal pass every child
-/// keeps a `.zero` frame — a bare `mount` is not enough for laid-out
-/// `UIKit` assertions.
+/// A real controller/window lifetime around the production mounting path.
 #[cfg(target_os = "ios")]
+#[derive(Debug)]
+pub struct UIKitMount {
+    pub host: cocoa_ui::Retained<cocoa_ui::uikit::HostView>,
+    pub content: alloc::rc::Rc<crate::contract::Mounted>,
+    pub window: cocoa_ui::Retained<cocoa_ui::objc2_ui_kit::UIWindow>,
+    _controller: cocoa_ui::Retained<cocoa_ui::uikit::ViewController>,
+    _keepalive: crate::contract::KeepAlive,
+}
+
+#[cfg(target_os = "ios")]
+impl Drop for UIKitMount {
+    fn drop(&mut self) {
+        self.window.setHidden(true);
+        self.window.setRootViewController(None);
+    }
+}
+
+/// Hosts real content through embedding's shared mount/primary-content/layout path.
+#[cfg(target_os = "ios")]
+#[expect(
+    deprecated,
+    reason = "the native test process supplies its own window without a scene"
+)]
 pub fn mount_uikit(
     mtm: MainThreadMarker,
     view: waterui::AnyView,
     env: &Environment,
     frame: cocoa_ui::Rect,
-) -> (
-    cocoa_ui::Retained<cocoa_ui::uikit::HostView>,
-    alloc::rc::Rc<crate::contract::Mounted>,
-) {
-    let host = cocoa_ui::uikit::HostView::new(mtm, frame);
-    let leaf = crate::dispatch::render(view, env);
-    let content = alloc::rc::Rc::new(leaf.mount(&host));
-    let placed = content.clone();
-    host.set_layout_handler(move |host| {
-        let frame = crate::native_layout::content_frame(placed.view(), host);
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "the layout contract uses f32 points"
-        )]
-        let proposal = waterui_core::layout::ProposalSize::new(
-            Some(frame.size.width as f32),
-            Some(frame.size.height as f32),
-        );
-        crate::proposal::deliver(placed.view(), proposal);
-        cocoa_ui::view::set_frame(placed.view(), frame);
-    });
-    (host, content)
+) -> UIKitMount {
+    use objc2::{MainThreadOnly, Message};
+    let controller = cocoa_ui::uikit::ViewController::new(mtm);
+    let host = controller.host_view().retain();
+    let window = cocoa_ui::objc2_ui_kit::UIWindow::initWithFrame(
+        cocoa_ui::objc2_ui_kit::UIWindow::alloc(mtm),
+        frame.into(),
+    );
+    window.setRootViewController(Some(&controller));
+    cocoa_ui::view::set_frame(&host, frame);
+    let mut keepalive = crate::contract::KeepAlive::default();
+    let content = crate::embedding::mount_content(&host, view, env, &mut keepalive);
+    window.makeKeyAndVisible();
+    window.layoutIfNeeded();
+    UIKitMount {
+        host,
+        content,
+        window,
+        _controller: controller,
+        _keepalive: keepalive,
+    }
 }
 
 #[cfg(target_os = "macos")]
