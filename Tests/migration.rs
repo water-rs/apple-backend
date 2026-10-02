@@ -34,6 +34,18 @@ pub fn trials() -> Vec<Trial> {
             Ok(())
         }),
     ];
+    #[cfg(target_os = "macos")]
+    let tests = {
+        let mut tests = tests;
+        tests.push(Trial::test(
+            "migration::color::native_well_round_trip",
+            || {
+                colors::native_well_round_trip();
+                Ok(())
+            },
+        ));
+        tests
+    };
     #[cfg(target_os = "ios")]
     let tests = {
         let mut tests = tests;
@@ -429,7 +441,7 @@ mod uikit_surface {
             .find_map(|view| view.downcast::<cocoa_ui::uikit::TextField>().ok())
             .expect("the text field leaf mounts the kit UITextField");
         assert_eq!(field.borderStyle(), UITextBorderStyle::None);
-        close(field.layer().borderWidth(), 0.0);
+        assert!(field.layer().borderWidth().abs() <= f64::EPSILON);
         if let Some(background) = field.backgroundColor() {
             assert!(
                 objc2_core_graphics::CGColor::alpha(Some(&background.CGColor())) <= f64::EPSILON
@@ -440,10 +452,10 @@ mod uikit_surface {
             field.textRectForBounds(bounds),
             field.editingRectForBounds(bounds),
         ] {
-            close(rect.origin.x, bounds.origin.x);
-            close(rect.origin.y, bounds.origin.y);
-            close(rect.size.width, bounds.size.width);
-            close(rect.size.height, bounds.size.height);
+            assert!((rect.origin.x - bounds.origin.x).abs() <= f64::EPSILON);
+            assert!((rect.origin.y - bounds.origin.y).abs() <= f64::EPSILON);
+            assert!((rect.size.width - bounds.size.width).abs() <= f64::EPSILON);
+            assert!((rect.size.height - bounds.size.height).abs() <= f64::EPSILON);
         }
         close(
             field.sizeThatFits(CGSize::new(402.0, f64::MAX)).height,
@@ -543,11 +555,41 @@ mod colors {
     use waterui::reactive::binding;
     use waterui_backend_core::AnyView;
 
+    #[cfg(target_os = "macos")]
+    pub fn native_well_round_trip() {
+        use cocoa_ui::objc2_app_kit::NSColorWell;
+        use waterui::Signal;
+        use waterui::component::form::picker::color::ColorPicker;
+
+        let env = crate::resolve::env();
+        let components = [0.9, 0.4, 0.1, 0.6];
+        let source = binding(Color::new(Working(WorkingColor::new(components))));
+        let leaf = waterui_apple::dispatch::render(
+            AnyView::new(ColorPicker::new("Color", &source).with_alpha().with_hdr()),
+            &env,
+        );
+        let well = cocoa_ui::view::subviews(leaf.view())
+            .into_iter()
+            .find_map(|view| view.downcast::<NSColorWell>().ok())
+            .expect("the native color picker owns an NSColorWell");
+        let color = well.color();
+        well.setColor(&color);
+        // SAFETY: the backend installed this selector on this retained target;
+        // both remain owned by the live leaf on the actual main thread.
+        assert!(unsafe { well.sendAction_to(well.action(), well.target().as_deref()) });
+        let actual = source.snapshot().resolve(&env).snapshot();
+        for (actual, expected) in actual.components.into_iter().zip(components) {
+            assert!(
+                (actual - expected).abs() < 1e-3,
+                "native well round trip changed {expected} to {actual}"
+            );
+        }
+    }
+
     fn assert_fill(view: &cocoa_ui::PlatformView, expected: [f32; 4]) {
         #[cfg(target_os = "macos")]
         let color = {
-            // SAFETY: the retained native view was created on this actual main thread.
-            unsafe { view.layer() }
+            view.layer()
                 .expect("the color leaf has a backing layer")
                 .backgroundColor()
                 .expect("the color leaf has a fill")
