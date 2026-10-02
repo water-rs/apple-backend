@@ -115,7 +115,7 @@ impl core::fmt::Debug for StyledPush {
     }
 }
 
-/// A `WorkingColor` as the platform's extended-sRGB color object.
+/// A `WorkingColor` as the platform's extended linear Display-P3 color object.
 #[cfg(target_os = "ios")]
 fn platform_color(color: &WorkingColor) -> Retained<PlatformColor> {
     {
@@ -129,7 +129,7 @@ fn platform_color(color: &WorkingColor) -> Retained<PlatformColor> {
     }
 }
 
-/// A `WorkingColor` as the platform's extended-sRGB color object, with HDR
+/// A `WorkingColor` as the platform's extended linear Display-P3 color object, with HDR
 /// headroom applied as a content-headroom multiplier — the `AppKit` variant.
 #[cfg(target_os = "macos")]
 fn platform_color(color: &WorkingColor) -> Retained<PlatformColor> {

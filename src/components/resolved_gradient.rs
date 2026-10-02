@@ -25,7 +25,7 @@ mod platform {
 
 use platform::HostView;
 
-/// A `WorkingColor` as a `CGColor` in extended sRGB — channels carried
+/// A `WorkingColor` as a `CGColor` in extended linear Display-P3 — channels carried
 /// straight; values above `1.0` are the color's HDR headroom already.
 fn cg_color(
     color: &WorkingColor,

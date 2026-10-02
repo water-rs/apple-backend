@@ -319,7 +319,7 @@ fn should_animate(metadata: &Metadata) -> bool {
     metadata.try_get::<Animation>().is_some()
 }
 
-/// A `WorkingColor` as the platform's extended-sRGB color object — the
+/// A `WorkingColor` as the platform's extended linear Display-P3 color object — the
 /// `allowHdr: false` variant `wuiProgressPlatformColor` produced.
 #[cfg(target_os = "ios")]
 fn platform_color(color: &WorkingColor) -> Retained<cocoa_ui::objc2_ui_kit::UIColor> {

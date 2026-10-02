@@ -625,7 +625,7 @@ pub fn install(dispatcher: &mut Dispatcher) {
     });
 }
 
-/// A `WorkingColor` as the platform's extended-sRGB color object.
+/// A `WorkingColor` as the platform's extended linear Display-P3 color object.
 #[cfg(target_os = "ios")]
 fn platform_color(color: &waterui::graphics::color::WorkingColor) -> Retained<platform::UIColor> {
     {

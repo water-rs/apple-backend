@@ -655,7 +655,7 @@ const fn platform_weight(weight: waterui::text::font::FontWeight) -> f64 {
     }
 }
 
-/// A `WorkingColor` as the platform's extended-sRGB color object — the
+/// A `WorkingColor` as the platform's extended linear Display-P3 color object — the
 /// `toUIColor`/`toNSColor` semantics sibling ports use.
 #[cfg(target_os = "ios")]
 fn platform_color(color: &waterui::graphics::color::WorkingColor) -> Retained<platform::UIColor> {

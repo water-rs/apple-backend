@@ -37,7 +37,7 @@ mod platform {
     pub(super) use cocoa_ui::uikit::colors;
 }
 
-/// A `WorkingColor` as the platform's extended-sRGB color object — the
+/// A `WorkingColor` as the platform's extended linear Display-P3 color object — the
 /// same conversion `resolved_color` applies.
 #[cfg(target_os = "ios")]
 fn platform_color(color: &WorkingColor) -> Retained<platform::PlatformColor> {
@@ -52,7 +52,7 @@ fn platform_color(color: &WorkingColor) -> Retained<platform::PlatformColor> {
     }
 }
 
-/// A `WorkingColor` as the platform's extended-sRGB color object, with HDR
+/// A `WorkingColor` as the platform's extended linear Display-P3 color object, with HDR
 /// headroom applied as a content-headroom multiplier — the `AppKit` variant.
 #[cfg(target_os = "macos")]
 fn platform_color(color: &WorkingColor) -> Retained<platform::PlatformColor> {

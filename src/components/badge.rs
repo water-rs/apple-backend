@@ -52,7 +52,7 @@ const BADGE_METRICS: cocoa_ui::badge::BadgeMetrics = cocoa_ui::badge::BadgeMetri
     count_vertical_offset: 14.0,
 };
 
-/// A `WorkingColor` as the platform's extended-sRGB color object.
+/// A `WorkingColor` as the platform's extended linear Display-P3 color object.
 #[cfg(target_os = "ios")]
 fn platform_color(color: &WorkingColor) -> Retained<platform::PlatformColor> {
     {
@@ -66,7 +66,7 @@ fn platform_color(color: &WorkingColor) -> Retained<platform::PlatformColor> {
     }
 }
 
-/// A `WorkingColor` as the platform's extended-sRGB color object, with HDR
+/// A `WorkingColor` as the platform's extended linear Display-P3 color object, with HDR
 /// headroom applied as a content-headroom multiplier — the `AppKit` variant.
 #[cfg(target_os = "macos")]
 fn platform_color(color: &WorkingColor) -> Retained<platform::PlatformColor> {

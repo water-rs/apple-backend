@@ -184,9 +184,9 @@ const fn color_scheme(scheme: ColorScheme) -> waterui::graphics::color::ColorSch
     }
 }
 
-/// A resolved platform color becomes the wire `WorkingColor`: the sRGB
-/// channels through the transfer function into linear sRGB, alpha carried
-/// straight.
+/// A resolved platform color becomes the wire `WorkingColor`: the platform's
+/// sRGB channels are decoded and converted into linear Display-P3, with alpha
+/// carried straight.
 #[expect(
     clippy::cast_possible_truncation,
     reason = "platform color components are f64; WorkingColor is f32"

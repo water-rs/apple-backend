@@ -65,7 +65,7 @@ fn as_view(button: &Button) -> &PlatformView {
     button.as_ref()
 }
 
-/// A `WorkingColor` as the platform's extended-sRGB color object.
+/// A `WorkingColor` as the platform's extended linear Display-P3 color object.
 #[cfg(target_os = "ios")]
 fn platform_color(color: &WorkingColor) -> Retained<platform::UIColor> {
     {
@@ -79,7 +79,7 @@ fn platform_color(color: &WorkingColor) -> Retained<platform::UIColor> {
     }
 }
 
-/// A `WorkingColor` as the platform's extended-sRGB color object, with HDR
+/// A `WorkingColor` as the platform's extended linear Display-P3 color object, with HDR
 /// headroom applied as a content-headroom multiplier — the `AppKit` variant.
 #[cfg(target_os = "macos")]
 fn platform_color(color: &WorkingColor) -> Retained<platform::NSColor> {

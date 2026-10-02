@@ -37,7 +37,7 @@ fn as_view(view: &ColorView) -> &PlatformView {
     view
 }
 
-/// A `WorkingColor` as the platform's extended-sRGB color object —
+/// A `WorkingColor` as the platform's extended linear Display-P3 color object —
 /// linear Display-P3 channels carried straight, values above `1.0` being
 /// the color's HDR headroom already.
 #[cfg(target_os = "ios")]
@@ -51,7 +51,7 @@ fn platform_color(color: &WorkingColor) -> Retained<cocoa_ui::objc2_ui_kit::UICo
     )
 }
 
-/// A `WorkingColor` as the platform's extended-sRGB color object — the
+/// A `WorkingColor` as the platform's extended linear Display-P3 color object — the
 /// `AppKit` variant, same straight channels.
 #[cfg(target_os = "macos")]
 fn platform_color(color: &WorkingColor) -> Retained<cocoa_ui::objc2_app_kit::NSColor> {

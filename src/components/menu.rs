@@ -68,7 +68,7 @@ fn label_offer(proposal: ProposalSize) -> ProposalSize {
     }
 }
 
-/// A `WorkingColor` as `UIColor` — the same extended-linear conversion
+/// A `WorkingColor` as `UIColor` — the same extended linear Display-P3 conversion
 /// `button` uses for its tint.
 #[cfg(target_os = "ios")]
 fn platform_color(
