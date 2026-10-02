@@ -779,7 +779,7 @@ impl SubView for ListSubView {
 mod platform_impl {
     use super::*;
     use cocoa_ui::objc2_ui_kit::{
-        NSLayoutConstraint, UILayoutPriorityDefaultHigh, UITableViewAutomaticDimension,
+        NSLayoutConstraint, UILayoutPriorityRequired, UITableViewAutomaticDimension,
     };
     use cocoa_ui::uikit::TableHeaderFooterView;
 
@@ -902,8 +902,9 @@ mod platform_impl {
             let mounted = Rc::new(leaf.mount(cell));
             cell.configure(mounted.view(), insets, shows_disclosure);
             let height = mounted.view().heightAnchor().constraintEqualToConstant(0.0);
-            // The table's encapsulated height remains required while it refits a row.
-            height.setPriority(UILayoutPriorityDefaultHigh);
+            // The measured layout is the row contract; keep UIKit from stretching
+            // the hosted view while fitting the automatic row height.
+            height.setPriority(UILayoutPriorityRequired);
             let layout = RowLayout {
                 mounted: Rc::downgrade(&mounted),
                 explicit_insets,
