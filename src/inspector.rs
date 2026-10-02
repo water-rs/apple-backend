@@ -109,31 +109,20 @@ fn accessibility(view: &PlatformView) -> (String, Option<String>, bool) {
     )
 }
 
-/// Installs interactions for the root's lifetime and returns its layout publisher.
-pub fn install(
-    root: &HostView,
-    env: &Environment,
-    keepalive: &mut KeepAlive,
-) -> impl Fn(&PlatformView) + 'static {
-    let weak = if env.get::<InspectorRuntime>().is_some() {
-        let inspection = Rc::new(Inspection {
-            env: env.clone(),
-            root: Weak::new(root.as_ref()),
-            #[cfg(target_os = "ios")]
-            gesture: std::cell::RefCell::default(),
-        });
-        install_interaction(root, &inspection);
-        let weak = Rc::downgrade(&inspection);
-        keepalive.keep(inspection);
-        weak
-    } else {
-        std::rc::Weak::new()
-    };
-    move |root| {
-        if let Some(inspection) = weak.upgrade() {
-            inspection.publish(root);
-        }
+/// Installs interactions for the root's lifetime. Only an inspect action publishes
+/// a tree, using the same root that supplied the selected node.
+pub fn install(root: &HostView, env: &Environment, keepalive: &mut KeepAlive) {
+    if env.get::<InspectorRuntime>().is_none() {
+        return;
     }
+    let inspection = Rc::new(Inspection {
+        env: env.clone(),
+        root: Weak::new(root.as_ref()),
+        #[cfg(target_os = "ios")]
+        gesture: std::cell::RefCell::default(),
+    });
+    install_interaction(root, &inspection);
+    keepalive.keep(inspection);
 }
 
 #[cfg(target_os = "macos")]

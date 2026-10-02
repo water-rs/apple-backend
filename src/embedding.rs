@@ -257,7 +257,7 @@ fn mount_content(
     let content = Rc::new(leaf.mount(root));
     crate::primary_content::forward(root, content.view());
     let placed = content.clone();
-    let publish = crate::inspector::install(root, env, keepalive);
+    crate::inspector::install(root, env, keepalive);
     root.set_layout_handler(move |root| {
         let frame = crate::native_layout::content_frame(placed.view(), root);
         #[expect(
@@ -270,7 +270,6 @@ fn mount_content(
         );
         crate::proposal::deliver(placed.view(), proposal);
         cocoa_ui::view::set_frame(placed.view(), frame);
-        publish(root);
     });
     content
 }
