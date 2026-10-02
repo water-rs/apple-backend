@@ -30,9 +30,6 @@ jobs:
           languages: swift
           build-mode: manual
 
-      - name: Sync WaterUI header
-        run: ./.github/scripts/setup-waterui.sh
-
       - name: Build for CodeQL
         run: swift build --configuration debug
 

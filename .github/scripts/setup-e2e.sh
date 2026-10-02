@@ -4,11 +4,9 @@
 # initializes whatever submodules that revision still records (none, since
 # water-rs/waterui#937; older revisions carry workspace members there), and replaces
 # `backends/apple` with this repository's tested tree so the suite exercises the
-# commit under test rather than the submodule waterui has pinned. The committed
-# FFI header is then synced from the cloned waterui, matching what
-# `setup-waterui.sh` does for the package build legs. The `water` CLI lives in
-# its own repository now (water-rs/cli); it is checked out alongside so the
-# `cargo install --path` legs have a directory to build.
+# commit under test rather than the submodule waterui has pinned. The `water`
+# CLI lives in its own repository now (water-rs/cli); it is checked out
+# alongside so the `cargo install --path` legs have a directory to build.
 #
 # Inputs: WATERUI_REF/WATER_CLI_REF name a branch or tag (a full 40-hex commit
 # is accepted verbatim); WATERUI_SHA/WATER_CLI_SHA name the resolved commits
@@ -75,7 +73,7 @@ checkout_commit https://github.com/water-rs/cli.git "${cli_sha}" "${cli_dir}"
 # `backends/apple` is consumed by example builds as a SwiftPM path dependency,
 # not through git; replacing the directory wholesale with the tested tree is
 # the whole point of the suite. stage-twin-workspace.sh owns the staging —
-# tested tree + synced FFI header + this repo's Examples — as a checksum
+# tested tree + this repo's Examples — as a checksum
 # rsync that keeps the staged cargo target cache alive across re-stages
 # (#287); this script just drives it.
 "${repo_root}/.github/scripts/stage-twin-workspace.sh" "${waterui_dir}" --apple-repo "${repo_root}"
