@@ -7,11 +7,17 @@ use waterui_backend_core::Environment;
 #[derive(Clone, Debug, Default)]
 pub(crate) struct FirstPaint(Rc<Cell<bool>>);
 
+impl FirstPaint {
+    fn claim(&self) -> bool {
+        !self.0.replace(true)
+    }
+}
+
 pub(crate) fn mark(view: &PlatformView, env: &Environment) {
     let state = env
         .get::<FirstPaint>()
         .expect("first-paint state is installed");
-    if state.0.replace(true) {
+    if !state.claim() {
         return;
     }
     let view = cocoa_ui::view::retain_base(view);
@@ -28,4 +34,22 @@ pub(crate) fn mark(view: &PlatformView, env: &Environment) {
         }
     })
     .detach();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::FirstPaint;
+    use waterui_backend_core::Environment;
+
+    #[test]
+    fn mounts_share_one_runtime_launch_marker() {
+        let mut runtime = Environment::new();
+        runtime.insert(FirstPaint::default());
+        let first_mount = runtime.clone();
+        let second_mount = runtime.clone();
+        assert!(first_mount.get::<FirstPaint>().unwrap().claim());
+        drop(first_mount);
+        assert!(!second_mount.get::<FirstPaint>().unwrap().claim());
+        assert!(!runtime.get::<FirstPaint>().unwrap().claim());
+    }
 }

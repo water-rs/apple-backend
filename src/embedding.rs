@@ -73,6 +73,7 @@ pub unsafe extern "C" fn waterui_apple_runtime_create(
     MainThreadMarker::new().expect("embedding initialization runs on the main thread");
     let inspector = crate::startup::initialize();
     let mut env = Environment::new();
+    env.insert(crate::first_paint::FirstPaint::default());
     waterui::inspector::install(&mut env, inspector);
     waterui::text::install_system_font_collection(&mut env);
     let mut runtime = Box::new(Runtime { env });
@@ -120,7 +121,6 @@ pub unsafe fn mount(
     crate::fonts::register_bundle_fonts(&resources);
     env.insert(resources);
     crate::dispatch::install(&mut env);
-    env.insert(crate::first_paint::FirstPaint::default());
     install_services(&mut env);
 
     let mut keepalive = KeepAlive::default();
