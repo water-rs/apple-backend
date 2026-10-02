@@ -30,6 +30,19 @@ pub struct ThemeSignals {
     fonts: Vec<Box<dyn Fn()>>,
 }
 
+/// Installs and observes the theme owned by a mounted `UIKit` controller.
+#[cfg(target_os = "ios")]
+pub fn install_controller(
+    env: &mut Environment,
+    controller: &cocoa_ui::uikit::ViewController,
+    keepalive: &mut crate::contract::KeepAlive,
+) {
+    let theme = alloc::rc::Rc::new(install(env, controller.color_scheme()));
+    let observed = theme.clone();
+    keepalive.keep(controller.observe_color_scheme(move |scheme| refresh(&observed, scheme)));
+    keepalive.keep(theme);
+}
+
 /// Installs the color-scheme signal and every color and font slot, reading
 /// the platform's current appearance. The app feeds [`refresh`] each time
 /// the platform appearance changes.

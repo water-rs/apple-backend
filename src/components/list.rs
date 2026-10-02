@@ -392,6 +392,7 @@ struct Shared {
     /// `uses_sections` — whether item markers group the list.
     uses_sections: bool,
     /// The theme's row insets for `None` inputs.
+    #[cfg(target_os = "macos")]
     theme_insets: KitInsets,
     /// The resolved minimum row height.
     resolved_min_height: f64,
@@ -455,6 +456,7 @@ impl Shared {
     }
 
     /// The insets the item asks for, or the theme's.
+    #[cfg(target_os = "macos")]
     fn insets_for(&self, insets: Option<&EdgeInsets>) -> KitInsets {
         insets.map_or(self.theme_insets, kit_insets)
     }
@@ -465,6 +467,7 @@ impl Shared {
     }
 
     /// Measures `layout` at `width` and answers the row height.
+    #[cfg(target_os = "macos")]
     fn measure_row(&self, layout: &dyn SubView, width: f64, insets: KitInsets) -> f64 {
         #[expect(
             clippy::cast_possible_truncation,
@@ -481,7 +484,7 @@ impl Shared {
 struct RowPayload {
     /// The mounted content leaf — kept alive by the payload slot.
     #[allow(dead_code)]
-    mounted: Mounted,
+    mounted: Rc<Mounted>,
     /// Guards for the row's per-item watchers — dropped with the cell.
     #[allow(dead_code)]
     guards: Vec<BoxWatcherGuard>,
@@ -775,7 +778,58 @@ impl SubView for ListSubView {
 #[allow(clippy::wildcard_imports)]
 mod platform_impl {
     use super::*;
+    use cocoa_ui::objc2_ui_kit::{
+        NSLayoutConstraint, UILayoutPriorityDefaultHigh, UITableViewAutomaticDimension,
+    };
     use cocoa_ui::uikit::TableHeaderFooterView;
+
+    /// Insets resolved by this cell's current native layout.
+    fn native_insets(cell: &TableCell) -> KitInsets {
+        let margins = cell.contentView().directionalLayoutMargins();
+        KitInsets {
+            top: margins.top,
+            bottom: margins.bottom,
+            left: margins.leading,
+            right: margins.trailing,
+        }
+    }
+
+    /// The same resolved geometry drives the content constraints and row fitting.
+    struct RowLayout {
+        mounted: alloc::rc::Weak<Mounted>,
+        explicit_insets: Option<KitInsets>,
+        applied_insets: Cell<KitInsets>,
+        height: Retained<NSLayoutConstraint>,
+        minimum: f64,
+        disclosure: bool,
+    }
+
+    impl RowLayout {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "native points are f64; proposals are f32"
+        )]
+        fn update(&self, cell: &TableCell) {
+            let Some(mounted) = self.mounted.upgrade() else {
+                return;
+            };
+            let insets = self.explicit_insets.unwrap_or_else(|| native_insets(cell));
+            if self.applied_insets.replace(insets) != insets {
+                cell.configure(mounted.view(), insets, self.disclosure);
+            }
+            let width = cell.contentView().bounds().size.width - insets.left - insets.right;
+            let proposal = ProposalSize::new((width > 0.0).then_some(width as f32), None);
+            let measured = mounted.layout().measure(proposal).size;
+            let height = row_height(f64::from(measured.height), insets, self.minimum)
+                - insets.top
+                - insets.bottom;
+            if self.height.constant().to_bits() != height.to_bits() {
+                self.height.setConstant(height);
+            }
+            proposal::deliver(mounted.view(), proposal);
+            update_separator_insets(cell);
+        }
+    }
 
     /// The `UIKit` data source + delegate: sections and rows answer from
     /// `Shared.groups`.
@@ -794,21 +848,6 @@ mod platform_impl {
             flat_index(&self.state.borrow().groups, index.section, index.row)
                 .expect("index path lands inside the section groups")
         }
-    }
-
-    /// The row's content `proposal` delivered at layout — the width the
-    /// cell's content laid out at.
-    fn cell_on_layout(cell: &TableCell, content: &Retained<cocoa_ui::PlatformView>) {
-        let width = view::frame(content).size.width;
-        if width > 0.0 {
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "kit geometry is f64; layout proposals are f32"
-            )]
-            proposal::deliver(content, ProposalSize::new(Some(width as f32), None));
-        }
-        cell.layout_subtree_if_needed();
-        update_separator_insets(cell);
     }
 
     /// `accessibilityActivate` on a row: toggle its selection the way a
@@ -857,13 +896,27 @@ mod platform_impl {
         fn configure_cell(&self, table: &TableView, cell: &TableCell, index: IndexPath) {
             let flat = self.flat(index);
             let (item_insets, deletable, leaf) = self.state.borrow().render_row(flat);
-            let insets = self.state.borrow().insets_for(item_insets.as_ref());
+            let explicit_insets = item_insets.as_ref().map(kit_insets);
+            let insets = explicit_insets.unwrap_or_else(|| native_insets(cell));
             let shows_disclosure = contains_navigation_link(leaf.view());
-            let mounted = leaf.mount(cell);
+            let mounted = Rc::new(leaf.mount(cell));
             cell.configure(mounted.view(), insets, shows_disclosure);
-
-            let content = view::retain_base(mounted.view());
-            cell.set_layout_handler(move |cell| cell_on_layout(cell, &content));
+            let height = mounted.view().heightAnchor().constraintEqualToConstant(0.0);
+            // The table's encapsulated height remains required while it refits a row.
+            height.setPriority(UILayoutPriorityDefaultHigh);
+            let layout = RowLayout {
+                mounted: Rc::downgrade(&mounted),
+                explicit_insets,
+                applied_insets: Cell::new(insets),
+                height,
+                minimum: self.state.borrow().resolved_min_height,
+                disclosure: shows_disclosure,
+            };
+            layout.update(cell);
+            layout.height.setActive(true);
+            // Cocoa invokes this after UITableViewCell's superclass layout, when
+            // style, readable width and safe-area margins have been resolved.
+            cell.set_layout_handler(move |cell| layout.update(cell));
 
             let id = self.state.borrow().item_ids[flat];
             let guard = watch_deletable(&deletable, id, &self.state, table);
@@ -920,21 +973,9 @@ mod platform_impl {
             true
         }
 
-        fn row_height(&self, table: &TableView, index: IndexPath) -> f64 {
-            let flat = self.flat(index);
-            let state = self.state.borrow();
-            let Some(item) = state.contents.get_view(flat) else {
-                return state.resolved_min_height;
-            };
-            let insets = state.insets_for(item.insets.as_ref());
-            let margins = table.directional_margins();
-            let width = table.bounds_width()
-                - margins.leading
-                - margins.trailing
-                - insets.left
-                - insets.right;
-            let leaf = state.renderer.render(item.content);
-            state.measure_row(leaf.layout(), width, insets)
+        fn row_height(&self, _table: &TableView, _index: IndexPath) -> f64 {
+            // SAFETY: UIKit exports this immutable layout sentinel.
+            unsafe { UITableViewAutomaticDimension }
         }
 
         fn section_header_height(&self, table: &TableView, section: usize) -> f64 {
@@ -1235,7 +1276,7 @@ mod platform_impl {
                     proposal::deliver(mounted.view(), ProposalSize::new(Some(width as f32), None));
                     let guard = watch_deletable(&deletable, id, &self.state, table);
                     container.set_payload(Box::new(RowPayload {
-                        mounted,
+                        mounted: Rc::new(mounted),
                         guards: vec![guard],
                     }));
                     Some(view::retain_base(&*container))
@@ -1466,19 +1507,11 @@ fn render(config: ListConfig, ctx: &RenderContext<'_>) -> NativeLeaf {
     let mtm = ctx.mtm();
     let table = TableView::new(mtm);
     #[cfg(target_os = "ios")]
-    let (theme_insets, stock_height) = {
-        // Rows host arbitrary views, so their chrome follows a stock cell's
-        // content view, not UIListContentConfiguration's text/image padding.
-        let margins = TableCell::new(mtm).contentView().directionalLayoutMargins();
-        (
-            KitInsets {
-                top: margins.top,
-                bottom: margins.bottom,
-                left: margins.leading,
-                right: margins.trailing,
-            },
-            table.stock_row_height(),
-        )
+    let stock_height = {
+        table.setSelfSizingInvalidation(
+            cocoa_ui::objc2_ui_kit::UITableViewSelfSizingInvalidation::EnabledIncludingConstraints,
+        );
+        table.stock_row_height()
     };
     #[cfg(target_os = "macos")]
     let (theme_insets, stock_height) = (
@@ -1509,6 +1542,7 @@ fn render(config: ListConfig, ctx: &RenderContext<'_>) -> NativeLeaf {
         on_delete: config.on_delete,
         on_move: config.on_move,
         uses_sections: config.uses_sections,
+        #[cfg(target_os = "macos")]
         theme_insets,
         resolved_min_height: min_row_height(config.min_row_height, stock_height),
         measured_heights: HashMap::new(),

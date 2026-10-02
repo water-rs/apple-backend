@@ -157,12 +157,7 @@ pub unsafe fn mount(
     let controller = cocoa_ui::uikit::ViewController::new(mtm);
     #[cfg(target_os = "ios")]
     let root = {
-        let theme = Rc::new(crate::theme::install(&mut env, controller.color_scheme()));
-        let observed = theme.clone();
-        keepalive.keep(
-            controller.observe_color_scheme(move |scheme| crate::theme::refresh(&observed, scheme)),
-        );
-        keepalive.keep(theme);
+        crate::theme::install_controller(&mut env, &controller, &mut keepalive);
         controller.host_view().retain()
     };
     keepalive.keep(crate::locale::install(&mut env, mtm));

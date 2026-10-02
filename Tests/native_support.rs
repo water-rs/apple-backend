@@ -53,7 +53,9 @@ pub fn mount_uikit(
     window.setRootViewController(Some(&controller));
     cocoa_ui::view::set_frame(&host, frame);
     let mut keepalive = crate::contract::KeepAlive::default();
-    let content = crate::embedding::mount_content(&host, view, env, &mut keepalive);
+    let mut env = env.clone();
+    crate::theme::install_controller(&mut env, &controller, &mut keepalive);
+    let content = crate::embedding::mount_content(&host, view, &env, &mut keepalive);
     window.makeKeyAndVisible();
     window.layoutIfNeeded();
     UIKitMount {
