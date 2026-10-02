@@ -53,6 +53,7 @@ pub fn install_service(env: &mut Environment) {
 /// `captureViewToRGBA`.
 #[allow(
     clippy::future_not_send,
+    clippy::unused_async,
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss
 )]
@@ -107,6 +108,7 @@ async fn capture_leaf_to_rgba(
         .unwrap_or(usize::MAX)
         .min((usize::MAX - 3) / 4);
 
+    #[cfg(feature = "gpu_surface")]
     wait_for_surfaces(view).await;
     capture::capture(view, actual, scale, pixel_width, pixel_height)
 }
@@ -202,8 +204,8 @@ mod capture {
 /// presented a frame — `view.ready()`: the surfaces present through
 /// `IOSurface` contents, which the layer-capture paths draw like any other
 /// layer content.
+#[cfg(feature = "gpu_surface")]
 #[allow(clippy::future_not_send)]
 async fn wait_for_surfaces(view: &cocoa_ui::PlatformView) {
-    #[cfg(feature = "gpu_surface")]
     crate::components::gpu_surface::wait_for_first_frames(view).await;
 }

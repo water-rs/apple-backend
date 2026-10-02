@@ -148,6 +148,7 @@ pub(crate) fn dispatcher(env: &Environment) -> Rc<Dispatcher> {
 }
 
 /// Stops filter-chain expansion at native leaves and metadata boundaries.
+#[cfg(any(feature = "applied_filter", feature = "view_effect"))]
 pub(crate) fn is_native_boundary(view: &AnyView) -> bool {
     let name = view.name();
     name.starts_with("waterui_core::components::native::Native<")

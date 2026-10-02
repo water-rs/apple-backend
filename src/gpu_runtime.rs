@@ -42,6 +42,7 @@ pub unsafe fn prepare(env: *mut Environment, then: impl FnOnce() + 'static) {
 ///
 /// When no runtime was installed — [`prepare`] runs before any surface or
 /// effect can render, so a missing runtime is a launch error.
+#[cfg(feature = "gpu_surface")]
 pub fn runtime(env: &Environment) -> GpuRuntime {
     env.get::<GpuRuntime>()
         .expect("GPU runtime is not installed in the WaterUI environment")
