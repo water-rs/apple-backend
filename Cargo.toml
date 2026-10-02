@@ -158,7 +158,7 @@ with_env = []
 native-test-support = []
 
 [dependencies]
-waterui = { git = "https://github.com/water-rs/waterui", rev = "3fd396804cd19bfccd38529d73618b522855849e" }
+waterui = { git = "https://github.com/water-rs/waterui", rev = "3fd396804cd19bfccd38529d73618b522855849e", features = ["inspector"] }
 waterui-core = { git = "https://github.com/water-rs/waterui", rev = "3fd396804cd19bfccd38529d73618b522855849e" }
 waterui-backend-core = { git = "https://github.com/water-rs/waterui", rev = "3fd396804cd19bfccd38529d73618b522855849e", features = ["overlay"] }
 waterui-locale = { git = "https://github.com/water-rs/waterui", rev = "3fd396804cd19bfccd38529d73618b522855849e" }
