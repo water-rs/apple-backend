@@ -2,7 +2,9 @@
 //! whose rows carry the reported nested-stack shape — `hstack(icon,
 //! vstack(hstack(text, spacer, flag), text, text))` behind a `Label` — so a
 //! linked test bundle can assert every nested text view lands with a real
-//! frame inside its cell.
+//! frame inside its cell. Its first rows are measurement references instead:
+//! a plain `TextField`, a 24pt row, and a 4pt row, so chrome tests can read
+//! the platform's own insets and heights off the rendered table.
 //!
 //! `.github/scripts/run-ios-device-tests.sh ios_test_host` stages this
 //! directory into a waterui checkout's `examples/` tree and packages it like
@@ -41,7 +43,26 @@ fn message_row(sender: &'static str, subject: &'static str, preview: &'static st
 }
 
 fn inbox() -> impl View {
+    let notes = binding("");
     List::content((
+            move || {
+                let notes = notes.clone();
+                ListItem::new(Label::new("Plain text field", move || {
+                    TextField::new("Notes", &notes).prompt("Write a note")
+                }))
+            },
+            || {
+                ListItem::new(Label::new(
+                    "Row pitch reference",
+                    || Accent.size(200.0, 24.0),
+                ))
+            },
+            || {
+                ListItem::new(Label::new(
+                    "Minimum row height reference",
+                    || Accent.size(200.0, 4.0),
+                ))
+            },
             || {
                 message_row(
                     "Ada Lovelace",

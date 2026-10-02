@@ -57,9 +57,23 @@
       return context
     }
 
-    /// Drives the run loop so layout, display, and cell realization finish.
-    static func pump(_ seconds: TimeInterval = 0.5) {
-      RunLoop.main.run(until: Date(timeIntervalSinceNow: seconds))
+    /// Drives the main run loop until `predicate` holds or `timeout`
+    /// elapses, reporting whether the condition was met. Each turn dispatches
+    /// the run loop's pending events rather than sleeping a fixed interval,
+    /// and a predicate measuring a view drives that view's layout itself
+    /// (`layoutIfNeeded`), so readiness is a checked signal on the measured
+    /// view.
+    @discardableResult
+    static func until(
+      timeout: TimeInterval = 5,
+      _ predicate: () -> Bool
+    ) -> Bool {
+      let deadline = Date(timeIntervalSinceNow: timeout)
+      while !predicate() {
+        guard Date() < deadline else { return false }
+        RunLoop.main.run(mode: .default, before: deadline)
+      }
+      return true
     }
 
     /// The first view in `root`'s subtree satisfying `predicate`, depth-first.

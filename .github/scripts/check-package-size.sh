@@ -26,13 +26,12 @@ mkdir -p "${project_dir}/src"
 # The generated project resolves the backend through waterui_path's
 # backends/apple fallback — the staged checkout this suite produces — so the
 # packaged app builds the commit under test, not the pinned SwiftPM release.
-# Playground manifests cannot declare [backends.*], so no explicit override
-# is possible or needed here.
+# The manifest declares no [backends.*], so no explicit override is possible
+# or needed here.
 cat > "${project_dir}/Water.toml" <<EOF
 waterui_path = "${waterui_dir}"
 
 [package]
-type = "playground"
 name = "Hello World"
 bundle_identifier = "com.waterui.helloworld"
 EOF

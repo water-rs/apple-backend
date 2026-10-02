@@ -20,17 +20,23 @@
     /// ios_test_host`.
     func testNestedStackTextHasNonZeroFramesInsideCells() async throws {
       let context = try await DeviceHostedApp.load()
-      DeviceHostedApp.pump()
+      var hosted: UITableView?
+      XCTAssertTrue(
+        DeviceHostedApp.until {
+          context.rootView.layoutIfNeeded()
+          hosted = DeviceHostedApp.findView(in: context.rootView, where: {
+            $0 is UITableView
+          }) as? UITableView
+          guard let hosted else { return false }
+          hosted.layoutIfNeeded()
+          return hosted.window != nil && !hosted.visibleCells.isEmpty
+        },
+        "timed out waiting for the hosted list to show cells")
 
-      guard
-        let table = DeviceHostedApp.findView(in: context.rootView, where: {
-          $0 is UITableView
-        }) as? UITableView
-      else {
+      guard let table = hosted else {
         throw XCTSkip("the hosted application shows no list")
       }
       table.layoutIfNeeded()
-      DeviceHostedApp.pump()
 
       var cellsChecked = 0
       var textViewsChecked = 0

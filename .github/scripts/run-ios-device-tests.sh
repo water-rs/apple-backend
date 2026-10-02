@@ -20,7 +20,9 @@
 #
 # Prerequisites: a staged checkout — see setup-e2e.sh, which clones waterui,
 # replaces backends/apple with this repository's tree, and syncs the FFI
-# header — and the `water` CLI on PATH.
+# header — and the `water` CLI: WATER_BIN names the exact build under test
+# (PATH is the fallback, and the resolved path is echoed so a stale install
+# is visible in the log).
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -54,17 +56,44 @@ if [[ $# -ge 1 ]]; then
   # from there: it is exactly this example's build for this platform and
   # profile, whereas a search of a shared target directory can return another
   # example's archive once a restored cache holds several.
+  #
+  # Resolve the CLI under test explicitly: WATER_BIN wins over PATH, and the
+  # resolved path is logged, so an older install (e.g. `~/.cargo/bin/water`
+  # shadowing a fresh build) is visible rather than silently driving the
+  # packaging step.
+  water_bin="${WATER_BIN:-$(command -v water || true)}"
+  [[ -n "${water_bin}" && -x "${water_bin}" ]] || {
+    echo "error: no water CLI on PATH; set WATER_BIN to the build under test" >&2
+    exit 1
+  }
+  water_bin="$(cd "$(dirname "${water_bin}")" && pwd)/$(basename "${water_bin}")"
+  echo "run-ios-device-tests: water CLI is ${water_bin}"
+  "${water_bin}" --version || true
+
   package_log="$(mktemp)"
-  water package --platform ios-simulator --backend apple --debug --path "${example_path}" \
+  run_stamp="$(mktemp)"
+  "${water_bin}" package --platform ios-simulator --backend apple --debug --path "${example_path}" \
     2>&1 | tee "${package_log}"
   app_path="$(sed -n 's/.*Packaged at //p' "${package_log}" | tail -n 1 \
     | sed 's/\x1b\[[0-9;]*m//g' | tr -d '\r')"
   rm -f "${package_log}"
   [[ -n "${app_path}" ]] || {
-    echo "error: water package did not report a packaged bundle for ${example}" >&2; exit 1; }
+    echo "error: water package did not report a packaged bundle for ${example}" >&2
+    rm -f "${run_stamp}"; exit 1; }
   archive="$(dirname "${app_path}")/libwaterui_app.a"
   [[ -f "${archive}" ]] || {
-    echo "error: no libwaterui_app.a beside ${app_path} for ${example}" >&2; exit 1; }
+    echo "error: no libwaterui_app.a beside ${app_path} for ${example}" >&2
+    rm -f "${run_stamp}"; exit 1; }
+  # Reject a stale archive: a CLI that predates the staging step leaves the
+  # file an earlier package wrote, and linking that binary would run old
+  # code while reporting green. Inode change time (%c) marks the copy this
+  # run made — it cannot be inherited, whereas clonefile carries the
+  # source's birth and modification stamps onto the staged file.
+  archive_stamp="$(stat -f %c "${archive}")"
+  [[ "${archive_stamp}" -ge "$(stat -f %c "${run_stamp}")" ]] || {
+    echo "error: ${archive} predates this package run; the staged archive is stale" >&2
+    rm -f "${run_stamp}"; exit 1; }
+  rm -f "${run_stamp}"
   ldflags="${ldflags} ${archive}"
 fi
 

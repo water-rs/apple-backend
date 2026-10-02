@@ -2,7 +2,9 @@
 // A WaterUI text field with no explicit style is SwiftUI's automatic style,
 // which on iOS is plain: the input is exactly its text's line box, with no
 // border, fill or padding. The reference is measured live rather than baked
-// in, so a platform change in SwiftUI's field height fails here first.
+// in, so a platform change in SwiftUI's field height fails here first. The
+// measured field is the one the archive-hosted `ios_test_host` application
+// renders; skips when no packaged archive is linked.
 
 #if canImport(UIKit)
   import SwiftUI
@@ -23,21 +25,34 @@
       ).height
     }
 
-    func testPlainInputMatchesSwiftUIAutomaticFieldHeight() {
+    func testPlainInputMatchesSwiftUIAutomaticFieldHeight() async throws {
       let reference = hostedHeight(TextField("", text: .constant("x")))
 
-      let textView = UITextView()
-      WuiTextField.configurePlainInput(textView)
-      textView.font = .preferredFont(forTextStyle: .body)
-      textView.text = "x"
-      let measured = textView.sizeThatFits(
+      let context = try await DeviceHostedApp.load()
+      var mounted: UITextField?
+      XCTAssertTrue(
+        DeviceHostedApp.until {
+          context.rootView.layoutIfNeeded()
+          mounted = DeviceHostedApp.findView(in: context.rootView, where: {
+            $0 is UITextField
+          }) as? UITextField
+          return mounted?.window != nil
+        },
+        "timed out waiting for the hosted text field to mount")
+      let field = try XCTUnwrap(
+        mounted, "the hosted application shows no text field")
+
+      let measured = field.sizeThatFits(
         CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
       ).height
 
       XCTAssertEqual(measured, reference, accuracy: 0.5)
-      XCTAssertEqual(textView.textContainerInset, .zero)
-      XCTAssertEqual(textView.layer.borderWidth, 0)
-      XCTAssertEqual(textView.backgroundColor, .clear)
+      XCTAssertEqual(field.borderStyle, .none)
+      XCTAssertNil(field.leftView)
+      XCTAssertNil(field.rightView)
+      XCTAssertTrue(
+        field.backgroundColor == nil || field.backgroundColor == .clear,
+        "a plain input carries no fill")
     }
   }
 #endif

@@ -17,13 +17,17 @@
     /// carries a selection.
     func testCollapsedSplitShowsSidebar() async throws {
       let context = try await DeviceHostedApp.load()
-      DeviceHostedApp.pump()
+      var hosted: UISplitViewController?
+      let ready = DeviceHostedApp.until {
+        context.rootView.layoutIfNeeded()
+        hosted = DeviceHostedApp.findViewController(ofType: UISplitViewController.self)
+        return hosted?.isCollapsed ?? false
+      }
 
-      guard
-        let split = DeviceHostedApp.findViewController(ofType: UISplitViewController.self)
-      else {
+      guard let split = hosted else {
         throw XCTSkip("the hosted application shows no split view")
       }
+      XCTAssertTrue(ready, "timed out waiting for the hosted split view to collapse")
       XCTAssertTrue(split.isCollapsed, "a 393pt window must collapse the split")
 
       // UIKit wraps the collapsed stack in an anonymous container, so the
