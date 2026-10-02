@@ -39,6 +39,14 @@ pub(crate) mod theme;
 mod toolbar;
 pub(crate) mod windows;
 
+/// Harness-only internals for `Tests/native.rs`: private `windows` and
+/// `embedding` reach for the owned embedding contract. Never compiled
+/// into a production build — gated behind `native-test-support`.
+#[cfg(feature = "native-test-support")]
+#[doc(hidden)]
+#[path = "../Tests/native_support.rs"]
+pub mod native_test_support;
+
 /// Generates the `waterui_apple_main` entry point for the application
 /// crate that calls it.
 ///
