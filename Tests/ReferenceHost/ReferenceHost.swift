@@ -1,3 +1,4 @@
+import Dispatch
 import Foundation
 import SwiftUI
 import UIKit
@@ -20,9 +21,26 @@ private final class Results {
   var row24: CGFloat?
   var row4: CGFloat?
 
+  func startFailureDeadline() {
+    // Successful probes finish immediately; this only bounds missing readiness.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [self] in
+      var missing: [String] = []
+      if field == nil { missing.append("textFieldHeight") }
+      if margins == nil {
+        missing.append(contentsOf: ["rowTop", "rowLeading", "rowBottom", "rowTrailing"])
+      }
+      if row24 == nil { missing.append("row24Height") }
+      if row4 == nil { missing.append("row4Height") }
+      fatalError(
+        "Native reference readiness exceeded 30s; missing metrics: \(missing.joined(separator: ", "))"
+      )
+    }
+  }
+
   func finishWhenReady() {
     guard let field, let margins, let row24, let row4 else { return }
-    let metrics = Metrics(textFieldHeight: field, rowTop: margins.top,
+    let metrics = Metrics(
+      textFieldHeight: field, rowTop: margins.top,
       rowLeading: margins.leading, rowBottom: margins.bottom,
       rowTrailing: margins.trailing, row24Height: row24, row4Height: row4)
     do {
@@ -43,7 +61,9 @@ private final class RowProbeView: UIView {
     guard window != nil else { return }
     var ancestor = superview
     while let view = ancestor {
-      if view is UICollectionViewListCell || String(describing: type(of: view)).contains("ListCollectionViewCell") {
+      if view is UICollectionViewListCell
+        || String(describing: type(of: view)).contains("ListCollectionViewCell")
+      {
         guard view.frame.height > 0 else { return }
         ready?(view.frame.height)
         return
@@ -95,15 +115,20 @@ private final class ReferenceController: UIViewController {
 
   override func viewDidLoad() {
     super.viewDidLoad()
+    results.startFailureDeadline()
     addChild(field)
     view.addSubview(field.view)
     field.didMove(toParent: self)
     for height in [CGFloat(24), CGFloat(4)] {
-      let controller = UIHostingController(rootView:
-        List { Color.red.frame(height: height).background(RowProbe { [results] pitch in
-          if height == 24 { results.row24 = pitch } else { results.row4 = pitch }
-          results.finishWhenReady()
-        }) })
+      let controller = UIHostingController(
+        rootView:
+          List {
+            Color.red.frame(height: height).background(
+              RowProbe { [results] pitch in
+                if height == 24 { results.row24 = pitch } else { results.row4 = pitch }
+                results.finishWhenReady()
+              })
+          })
       addChild(controller)
       view.addSubview(controller.view)
       controller.didMove(toParent: self)
@@ -122,8 +147,11 @@ private final class ReferenceController: UIViewController {
     let frame = CGRect(x: 0, y: 0, width: 402, height: 874)
     for child in children { child.view.frame = frame }
     table.frame = frame
-    results.field = field.sizeThatFits(in:
-      CGSize(width: 402, height: UIView.layoutFittingCompressedSize.height)).height
+    results.field =
+      field.sizeThatFits(
+        in:
+          CGSize(width: 402, height: UIView.layoutFittingCompressedSize.height)
+      ).height
     results.finishWhenReady()
   }
 }
@@ -132,8 +160,10 @@ private final class ReferenceController: UIViewController {
 @MainActor
 final class ReferenceApp: UIResponder, UIApplicationDelegate {
   var window: UIWindow?
-  func application(_ application: UIApplication,
-    didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+  func application(
+    _ application: UIApplication,
+    didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil
+  ) -> Bool {
     let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
     window.rootViewController = ReferenceController()
     self.window = window
