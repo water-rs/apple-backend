@@ -792,7 +792,7 @@ mod imp {
 
     /// All declarations, observations and scene content belonging to one mount.
     #[derive(Default)]
-    pub(crate) struct Scenes {
+    pub struct Scenes {
         hosts: RefCell<std::collections::BTreeMap<String, WindowHost>>,
         pending: RefCell<VecDeque<Pending>>,
         declared: RefCell<Vec<Rc<Window>>>,
@@ -891,7 +891,7 @@ mod imp {
     }
 
     /// Connects a scene forwarded by an existing embedding application delegate.
-    pub(crate) fn connect_embedded(
+    pub fn connect_embedded(
         scenes: &Scenes,
         scene: &cocoa_ui::objc2_ui_kit::UIWindowScene,
         mtm: MainThreadMarker,
@@ -1095,7 +1095,7 @@ mod imp {
 
 pub use imp::install_manager;
 #[cfg(target_os = "ios")]
-pub(crate) use imp::{Scenes, connect, connect_embedded, declare};
+pub use imp::{Scenes, connect, connect_embedded, declare};
 #[cfg(target_os = "macos")]
 pub use imp::{bind_root_window, realize, track};
 

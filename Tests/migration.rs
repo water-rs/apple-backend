@@ -156,7 +156,7 @@ mod signals {
                 drops: drops.clone(),
             })
         };
-        let source = binding(value(1));
+        let source: waterui::reactive::Binding<Rc<Released>> = binding(value(1));
         let displayed = Rc::new(RefCell::new(None));
         let target = displayed.clone();
         leaf.bind(&source, move |value| *target.borrow_mut() = Some(value));
