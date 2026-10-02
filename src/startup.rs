@@ -159,9 +159,13 @@ fn init_tracing(inspector: Option<waterui::inspector::InspectorLayer>) {
             .with_writer(std::io::stderr)
             .without_time()
     });
+    let native_layer = tracing_subscriber::fmt::layer()
+        .with_writer(crate::native_log::NativeLog)
+        .without_time()
+        .with_ansi(false);
     tracing_subscriber::registry()
         .with(env_filter())
-        .with(tracing_oslog::OsLogger::new("dev.waterui", "default"))
+        .with(native_layer)
         .with(console_layer)
         .with(inspector)
         .init();

@@ -198,7 +198,6 @@ dispatch2 = "0.3"
 libc = "0.2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tracing-oslog = "0.2"
 tracing-panic = "0.1"
 
 objc2 = "0.6"

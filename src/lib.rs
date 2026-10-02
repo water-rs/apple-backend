@@ -14,6 +14,7 @@ pub mod dispatch;
 pub mod embedding;
 pub mod entry;
 mod native_layout;
+mod native_log;
 pub mod resources;
 
 pub(crate) mod components;
