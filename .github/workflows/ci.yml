@@ -85,27 +85,23 @@ jobs:
         run: >-
           swift build --configuration ${{ matrix.configuration }}
           -Xswiftc -warnings-as-errors
-      # iOS leg: the adapter's UIKit-only code never type-checks in the
-      # macOS `swift build` above — a UIWindowScene entry point that only an
-      # iOS destination rejects would ship silently otherwise. Both
-      # destinations are build-only: no simulator boots and the device leg
-      # signs nothing, since the product is a library. Debug only: release
-      # adds nothing a compile can observe.
+      # iOS legs: SwiftPM has no Xcode project/scheme, so cross-compile the
+      # package directly for the supported ARM64 simulator and device triples.
+      # Both destinations are build-only and debug-only: no simulator boots,
+      # the device leg signs nothing, and release adds nothing a compile can
+      # observe.
       - name: Build (ios-simulator)
         if: matrix.configuration == 'debug'
         run: >-
-          xcodebuild build -scheme WaterUI
-          -destination 'generic/platform=iOS Simulator'
-          -derivedDataPath .build/ios-sim
-          SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
+          swift build --triple arm64-apple-ios26.0-simulator
+          --scratch-path .build/ios-sim
+          -Xswiftc -warnings-as-errors
       - name: Build (ios-device)
         if: matrix.configuration == 'debug'
         run: >-
-          xcodebuild build -scheme WaterUI
-          -destination 'generic/platform=iOS'
-          -derivedDataPath .build/ios-device
-          SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
-          CODE_SIGNING_ALLOWED=NO
+          swift build --triple arm64-apple-ios26.0
+          --scratch-path .build/ios-device
+          -Xswiftc -warnings-as-errors
       # The behavioural suite moved to the Rust lane: the FFI-bound Swift
       # bundle it replaced could only run with `-undefined dynamic_lookup`,
       # which is gone together with the FFI. The native libtest-mimic
