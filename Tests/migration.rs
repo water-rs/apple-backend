@@ -443,9 +443,9 @@ mod uikit_surface {
         assert_eq!(field.borderStyle(), UITextBorderStyle::None);
         assert!(field.layer().borderWidth().abs() <= f64::EPSILON);
         if let Some(background) = field.backgroundColor() {
-            assert!(
-                objc2_core_graphics::CGColor::alpha(Some(&background.CGColor())) <= f64::EPSILON
-            );
+            // SAFETY: the retained UIKit color is read on the actual main thread.
+            let color = unsafe { background.CGColor() };
+            assert!(objc2_core_graphics::CGColor::alpha(Some(&color)) <= f64::EPSILON);
         }
         let bounds = CGRect::new(CGPoint::ZERO, CGSize::new(402.0, 60.0));
         for rect in [
@@ -595,10 +595,11 @@ mod colors {
                 .expect("the color leaf has a fill")
         };
         #[cfg(target_os = "ios")]
-        let color = view
-            .backgroundColor()
-            .expect("the color leaf has a fill")
-            .CGColor();
+        let color = {
+            let background = view.backgroundColor().expect("the color leaf has a fill");
+            // SAFETY: the retained UIKit color is read on the actual main thread.
+            unsafe { background.CGColor() }
+        };
         assert_eq!(CGColor::number_of_components(Some(&color)), 4);
         let space = CGColor::color_space(Some(&color)).expect("the fill has a color space");
         let name = CGColorSpace::name(Some(&space)).expect("the fill space is named");

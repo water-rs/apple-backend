@@ -36,6 +36,7 @@ impl Drop for UIKitMount {
     deprecated,
     reason = "the native test process supplies its own window without a scene"
 )]
+#[must_use]
 pub fn mount_uikit(
     mtm: MainThreadMarker,
     view: waterui::AnyView,
@@ -83,6 +84,9 @@ use waterui_core::layout::{Point, Rect, Size};
 /// entry the owned embedding runtime runs — and it puts the
 /// `WindowManager` into the env, the piece `window.show(env)` resolves.
 /// The runtime installs the dispatcher first; the harness does the same.
+///
+/// # Panics
+/// Panics if service installation does not provide a window manager.
 pub fn manager_installs_into_the_environment(_mtm: MainThreadMarker) {
     let mut env = Environment::new();
     crate::dispatch::install(&mut env);
@@ -95,6 +99,9 @@ pub fn manager_installs_into_the_environment(_mtm: MainThreadMarker) {
 /// the binding, a declared frame drives the window back, and platform
 /// close publishes `Closed`. The window is never ordered in — the whole
 /// lifecycle stays offscreen.
+///
+/// # Panics
+/// Panics if the native window cannot be retained or a binding assertion fails.
 #[expect(
     clippy::float_cmp,
     reason = "the binding and the window exchange frame fields bit-exact"
@@ -119,8 +126,8 @@ pub fn bind_root_window_wires_a_live_window(mtm: MainThreadMarker) {
     let background: Computed<WindowBackground> =
         binding(WindowBackground::Color(Color::srgb(255, 255, 255))).computed();
 
-    // `window.native()` is +0; the binding retains it for the
-    // declaration's lifetime.
+    // SAFETY: `window.native()` is a live +0 object; the binding retains it
+    // for the declaration's lifetime on the main thread.
     let native = unsafe {
         Retained::retain(std::ptr::from_ref(window.native()).cast_mut())
             .expect("a live NSWindow retains")
