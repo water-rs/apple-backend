@@ -13,7 +13,7 @@ use waterui_backend_core::Environment;
 /// # Safety
 ///
 /// Call once, on the platform's main thread, as the process's entry. `env`
-/// is lent to the fallback's services for the rest of the process, so the
+/// is lent to native services for the rest of the process, so the
 /// caller's frame must live that long — this function does not return, which
 /// is what guarantees it.
 pub unsafe fn run(
@@ -24,7 +24,8 @@ pub unsafe fn run(
     let inspector = crate::startup::initialize();
     waterui::inspector::install(env, inspector);
     waterui::text::install_system_font_collection(env);
-    crate::resources::install_application(env);
+    let mut fonts = crate::fonts::FontRegistrations::default();
+    crate::resources::install_application(env, &mut fonts);
     crate::dispatch::install(env);
     env.insert(crate::first_paint::FirstPaint::default());
     #[cfg(target_os = "ios")]
@@ -49,7 +50,7 @@ mod imp {
 
     use crate::theme::ThemeSignals;
 
-    /// What the seam callback finishes the launch with — everything alive at
+    /// What GPU preparation finishes the launch with — everything alive at
     /// launch-handler time that must live for the rest of the process, plus
     /// the user's `app` and the environment it runs under.
     struct Launch {
@@ -61,18 +62,17 @@ mod imp {
         quit_on_last: Rc<Cell<bool>>,
     }
 
-    /// The seam callback: the fallback's services are installed, so the
-    /// window manager — which must win over the fallback's own —
-    /// goes in now, then `app(env)` declares its windows.
+    /// GPU preparation has installed native services; `app(env)` now declares
+    /// its windows under the native window manager.
     unsafe extern "C" fn prepared(context: *mut c_void) {
-        let mtm = MainThreadMarker::new().expect("the seam callback runs on the main thread");
-        // SAFETY: `context` is the `Launch` box `prepare_env` was given, and
-        // the seam runs this callback exactly once.
+        let mtm = MainThreadMarker::new().expect("GPU completion runs on the main thread");
+        // SAFETY: `context` is the `Launch` box transferred by GPU completion,
+        // which calls this function exactly once.
         let mut launch = unsafe { Box::from_raw(context.cast::<Launch>()) };
         let app = launch
             .app
             .take()
-            .expect("the seam callback must run exactly once");
+            .expect("GPU completion must run exactly once");
         // SAFETY: `run` lent `env` for the process and never returned.
         let env = unsafe { &mut *launch.env };
         crate::windows::install_manager(env);
@@ -126,8 +126,8 @@ mod imp {
     ) -> ! {
         let mtm = MainThreadMarker::new().expect("waterui_apple_main runs on the main thread");
         let application = Application::shared(mtm);
-        // Best-effort: AppKit can refuse during early startup; the bundle's
-        // Info.plist policy is the fallback.
+        // AppKit can refuse policy changes during early startup; the bundle's
+        // Info.plist still supplies the application's activation policy.
         let _ = application.set_activation_policy(if accessory {
             ActivationPolicy::Accessory
         } else {
@@ -161,8 +161,7 @@ mod imp {
                 // SAFETY: `launch` is consumed by `prepared` exactly once —
                 // this handler runs once — and `env` is `run`'s borrow, lent
                 // for the process.
-                // The runtime lands in `env` before the seam's services —
-                // `WuiGpuRuntime.swift` + `waterui_env_install_gpu_runtime`.
+                // Install native services only after the GPU context is ready.
                 unsafe {
                     crate::gpu_runtime::prepare(env_ptr, move || {
                         crate::embedding::install_services(&mut *env_ptr);
@@ -202,17 +201,17 @@ mod imp {
         _locale: Box<dyn Any>,
     }
 
-    /// The seam callback: `app(env)` declares its windows, and each fills
+    /// GPU completion: `app(env)` declares its windows, and each fills
     /// the scene already waiting for it — or queues for the next connection.
     unsafe extern "C" fn prepared(context: *mut c_void) {
-        let mtm = MainThreadMarker::new().expect("the seam callback runs on the main thread");
-        // SAFETY: `context` is the `Launch` box `prepare_env` was given, and
-        // the seam runs this callback exactly once.
+        let mtm = MainThreadMarker::new().expect("GPU completion runs on the main thread");
+        // SAFETY: `context` is the `Launch` box transferred by GPU completion,
+        // which calls this function exactly once.
         let mut launch = unsafe { Box::from_raw(context.cast::<Launch>()) };
         let app = launch
             .app
             .take()
-            .expect("the seam callback must run exactly once");
+            .expect("GPU completion must run exactly once");
         // SAFETY: `run` lent `env` for the process and never returned.
         let env = unsafe { &mut *launch.env };
         crate::windows::install_manager(env);
@@ -286,8 +285,7 @@ mod imp {
             let env_ptr = launch.env;
             // SAFETY: `launch` is consumed by `prepared` exactly once, and
             // `env` is `run`'s borrow, lent for the process.
-            // The runtime lands in `env` before the seam's services —
-            // `WuiGpuRuntime.swift` + `waterui_env_install_gpu_runtime`.
+            // Install native services only after the GPU context is ready.
             unsafe {
                 crate::gpu_runtime::prepare(env_ptr, move || {
                     crate::embedding::install_services(&mut *env_ptr);

@@ -26,11 +26,14 @@ pub unsafe fn from_host(assets: *const c_char, fonts: *const c_char) -> Resource
     ResourceContext::new(PathBuf::from(assets), PathBuf::from(fonts))
 }
 
-pub(crate) fn install_application(env: &mut Environment) {
+pub(crate) fn install_application(
+    env: &mut Environment,
+    fonts: &mut crate::fonts::FontRegistrations,
+) {
     let resources = env.get::<ResourceContext>().cloned().unwrap_or_else(|| {
         ResourceContext::application().expect("application resource directories")
     });
-    crate::fonts::register_bundle_fonts(&resources);
+    fonts.register_bundle_fonts(&resources);
     env.insert(resources);
 }
 

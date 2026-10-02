@@ -19,6 +19,7 @@ use cocoa_ui::uikit::HostView;
 #[derive(Debug)]
 pub struct Runtime {
     env: Environment,
+    fonts: std::cell::RefCell<crate::fonts::FontRegistrations>,
 }
 
 /// An attached application instance. Dropping it detaches the entire subtree.
@@ -83,7 +84,10 @@ pub unsafe extern "C" fn waterui_apple_runtime_create(
     env.insert(crate::scene_registry::SceneRegistry::<crate::windows::Scenes>::default());
     waterui::inspector::install(&mut env, inspector);
     waterui::text::install_system_font_collection(&mut env);
-    let mut runtime = Box::new(Runtime { env });
+    let mut runtime = Box::new(Runtime {
+        env,
+        fonts: std::cell::RefCell::default(),
+    });
     // SAFETY: the owning box moves into the completion closure, keeping the
     // environment alive throughout GPU setup. The host owns it afterwards.
     unsafe {
@@ -118,6 +122,8 @@ pub unsafe extern "C" fn waterui_apple_runtime_drop(runtime: *mut c_void) {
 /// `runtime` is borrowed from `runtime_create`; `host` is a live platform
 /// view on the main thread. Paths are live NUL-terminated UTF-8 strings.
 /// On iOS the host belongs to a view controller. The returned mount is owned.
+/// Registered font files must remain in place until process exit, including
+/// when another package reuses the same font data after this mount is dropped.
 pub unsafe fn mount(
     runtime: *const c_void,
     host: *mut c_void,
@@ -139,7 +145,7 @@ pub unsafe fn mount(
         .register(crate::windows::Scenes::default());
     // SAFETY: both paths remain readable for this call; from_host copies them.
     let resources = unsafe { crate::resources::from_host(assets, fonts) };
-    crate::fonts::register_bundle_fonts(&resources);
+    runtime.fonts.borrow_mut().register_bundle_fonts(&resources);
     env.insert(resources);
     crate::dispatch::install(&mut env);
     install_services(&mut env);

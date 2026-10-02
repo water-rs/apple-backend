@@ -42,8 +42,8 @@ pub(crate) mod windows;
 /// Generates the `waterui_apple_main` entry point for the application
 /// crate that calls it.
 ///
-/// The whole launch — process startup, the environment, the fallback's
-/// services, the declared windows and the platform run loop — ends in
+/// The whole launch — process startup, the environment, native services,
+/// declared windows and the platform run loop — ends in
 /// [`entry::run`], and the Xcode target's `main.swift` is a one-line call
 /// into it.
 #[macro_export]
@@ -83,7 +83,7 @@ macro_rules! export_app {
             let mut env = ::waterui::configure_environment!(::waterui::Environment::new());
             // SAFETY: this is the process's entry on the main thread, and
             // `env` lives in this frame — `run` never returns, so the
-            // borrow outlives every use the seam keeps.
+            // borrow outlives every native service and startup callback.
             unsafe {
                 ::waterui_apple::entry::run($app, &mut env, accessory);
             }

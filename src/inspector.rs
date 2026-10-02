@@ -157,9 +157,11 @@ fn install_interaction(root: &HostView, inspection: &Rc<Inspection>) {
                     let Some(root) = host.window().and_then(|window| window.contentView()) else {
                         return;
                     };
-                    let point = root
-                        .superview()
-                        .map_or(point, |parent| parent.convertPoint_fromView(point, None));
+                    // SAFETY: the retained root is a live NSView accessed on
+                    // AppKit's main thread for the duration of this menu action.
+                    let parent = unsafe { root.superview() };
+                    let point =
+                        parent.map_or(point, |parent| parent.convertPoint_fromView(point, None));
                     let hit = root.hitTest(point).unwrap_or_else(|| root.clone());
                     inspection.inspect(&hit, &root);
                 }),
