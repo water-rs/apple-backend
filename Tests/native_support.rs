@@ -80,10 +80,9 @@ use waterui::window::{UserAttention, WindowBackground, WindowLevel, WindowState,
 #[cfg(target_os = "macos")]
 use waterui_core::layout::{Point, Rect, Size};
 
-/// `install_services` is the real window-service installer — the same
-/// entry the owned embedding runtime runs — and it puts the
-/// `WindowManager` into the env, the piece `window.show(env)` resolves.
-/// The runtime installs the dispatcher first; the harness does the same.
+/// Checks that native service installation provides a window manager.
+///
+/// Uses the embedding runtime's installer after installing the dispatcher.
 ///
 /// # Panics
 /// Panics if service installation does not provide a window manager.
@@ -94,6 +93,8 @@ pub fn manager_installs_into_the_environment(_mtm: MainThreadMarker) {
     assert!(env.get::<WindowManager>().is_some());
 }
 
+/// Checks two-way bindings on a real native root window.
+///
 /// `bind_root_window` adopts a window the host already created: the
 /// declared style and title land on it, the real frame publishes into
 /// the binding, a declared frame drives the window back, and platform

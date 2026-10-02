@@ -304,10 +304,11 @@ mod uikit_surface {
         metrics[key].as_f64().expect("reference metric exists")
     }
 
-    fn close(actual: f64, expected: f64) {
+    fn close(actual: f64, metric: &str) {
+        let expected = reference(metric);
         assert!(
             (actual - expected).abs() <= 0.5,
-            "actual {actual} must match live platform reference {expected} within 0.5pt"
+            "{metric}: actual {actual} must match live platform reference {expected} within 0.5pt"
         );
     }
 
@@ -459,7 +460,7 @@ mod uikit_surface {
         }
         close(
             field.sizeThatFits(CGSize::new(402.0, f64::MAX)).height,
-            reference("textFieldHeight"),
+            "textFieldHeight",
         );
     }
 
@@ -480,7 +481,7 @@ mod uikit_surface {
             let cells = table.visibleCells();
             assert_eq!(cells.count(), 1, "one reference row materializes");
             let cell = cells.objectAtIndex(0);
-            close(cell.frame().size.height, reference(metric));
+            close(cell.frame().size.height, metric);
             let cell = cell
                 .downcast_ref::<cocoa_ui::uikit::TableCell>()
                 .expect("the backend uses the kit's row cell");
@@ -489,15 +490,15 @@ mod uikit_surface {
             let rect =
                 cocoa_ui::view::convert_rect(&hosted, hosted.bounds().into(), Some(&content));
             let bounds = content.bounds();
-            close(rect.origin.y - bounds.origin.y, reference("rowTop"));
-            close(rect.origin.x - bounds.origin.x, reference("rowLeading"));
+            close(rect.origin.y - bounds.origin.y, "rowTop");
+            close(rect.origin.x - bounds.origin.x, "rowLeading");
             close(
                 bounds.origin.y + bounds.size.height - rect.origin.y - rect.size.height,
-                reference("rowBottom"),
+                "rowBottom",
             );
             close(
                 bounds.origin.x + bounds.size.width - rect.origin.x - rect.size.width,
-                reference("rowTrailing"),
+                "rowTrailing",
             );
         }
     }

@@ -116,9 +116,13 @@ private final class ReferenceController: UIViewController {
   override func viewDidLoad() {
     super.viewDidLoad()
     results.startFailureDeadline()
-    addChild(field)
-    view.addSubview(field.view)
-    field.didMove(toParent: self)
+    // The original plain-field test measured an unparented hosting controller.
+    // Attaching it to this window adds safe-area height to sizeThatFits.
+    field.view.frame = CGRect(x: 0, y: 0, width: 402, height: 800)
+    results.field =
+      field.sizeThatFits(
+        in: CGSize(width: 402, height: UIView.layoutFittingCompressedSize.height)
+      ).height
     for height in [CGFloat(24), CGFloat(4)] {
       let controller = UIHostingController(
         rootView:
@@ -142,16 +146,10 @@ private final class ReferenceController: UIViewController {
 
   override func viewDidLayoutSubviews() {
     super.viewDidLayoutSubviews()
-    // Exactly the proposal used by the former Swift tests. Each reference
-    // receives that full proposal and participates in the real window lifecycle.
+    // The list probes use the former hosted tests' window proposal.
     let frame = CGRect(x: 0, y: 0, width: 402, height: 874)
     for child in children { child.view.frame = frame }
     table.frame = frame
-    results.field =
-      field.sizeThatFits(
-        in:
-          CGSize(width: 402, height: UIView.layoutFittingCompressedSize.height)
-      ).height
     results.finishWhenReady()
   }
 }
