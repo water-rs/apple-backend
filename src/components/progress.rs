@@ -324,7 +324,7 @@ fn should_animate(metadata: &Metadata) -> bool {
 #[cfg(target_os = "ios")]
 fn platform_color(color: &WorkingColor) -> Retained<cocoa_ui::objc2_ui_kit::UIColor> {
     let [red, green, blue, alpha] = color.components;
-    platform::colors::extended_linear(
+    platform::colors::extended_linear_display_p3(
         f64::from(red),
         f64::from(green),
         f64::from(blue),

@@ -31,7 +31,7 @@ fn cg_color(
     color: &WorkingColor,
 ) -> cocoa_ui::objc2_core_foundation::CFRetained<cocoa_ui::objc2_core_graphics::CGColor> {
     let [red, green, blue, alpha] = color.components;
-    cocoa_ui::color::cg_extended_linear(
+    cocoa_ui::color::cg_extended_linear_display_p3(
         f64::from(red),
         f64::from(green),
         f64::from(blue),

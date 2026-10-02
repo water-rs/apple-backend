@@ -819,7 +819,7 @@ dependencies = [
 [[package]]
 name = "cocoa-ui"
 version = "0.1.0"
-source = "git+https://github.com/water-rs/cocoa-ui?rev=f8995247c1a55b15f111c3c666c2074bf4b831ea#f8995247c1a55b15f111c3c666c2074bf4b831ea"
+source = "git+https://github.com/water-rs/cocoa-ui?rev=5019efb1a9f7e31163532c7ab1a973fed8874b9a#5019efb1a9f7e31163532c7ab1a973fed8874b9a"
 dependencies = [
  "bitflags 2.13.2",
  "block2",

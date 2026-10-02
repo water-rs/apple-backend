@@ -146,9 +146,14 @@ pub fn install(dispatcher: &mut Dispatcher) {
             let tint_view = view::retain_base(host_view);
             leaf.bind(&Accent.resolve(&env).computed(), move |color| {
                 let accent = {
-     let [red, green, blue, alpha] = color.components;
-     cocoa_ui::uikit::colors::extended_linear(f64::from(red), f64::from(green), f64::from(blue), f64::from(alpha),)
- };
+                    let [red, green, blue, alpha] = color.components;
+                    cocoa_ui::uikit::colors::extended_linear_display_p3(
+                        f64::from(red),
+                        f64::from(green),
+                        f64::from(blue),
+                        f64::from(alpha),
+                    )
+                };
                 view::set_tint_color(&tint_view, Some(&accent));
             });
         }

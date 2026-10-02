@@ -76,7 +76,12 @@ fn platform_color(
 ) -> cocoa_ui::Retained<cocoa_ui::objc2_ui_kit::UIColor> {
     {
         let [red, green, blue, alpha] = color.components;
-        cocoa_ui::uikit::colors::extended_linear(f64::from(red), f64::from(green), f64::from(blue), f64::from(alpha),)
+        cocoa_ui::uikit::colors::extended_linear_display_p3(
+            f64::from(red),
+            f64::from(green),
+            f64::from(blue),
+            f64::from(alpha),
+        )
     }
 }
 

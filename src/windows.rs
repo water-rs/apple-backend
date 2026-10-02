@@ -1045,9 +1045,14 @@ mod imp {
     /// host view's `backgroundColor`, matching the Swift controller.
     fn apply_background(host: &HostView, color: &waterui::graphics::color::WorkingColor) {
         let rgba = {
-     let [red, green, blue, alpha] = color.components;
-     cocoa_ui::uikit::colors::extended_linear(f64::from(red), f64::from(green), f64::from(blue), f64::from(alpha),)
- };
+            let [red, green, blue, alpha] = color.components;
+            cocoa_ui::uikit::colors::extended_linear_display_p3(
+                f64::from(red),
+                f64::from(green),
+                f64::from(blue),
+                f64::from(alpha),
+            )
+        };
         cocoa_ui::view::set_background_color(host, Some(&rgba));
     }
 }

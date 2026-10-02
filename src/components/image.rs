@@ -46,7 +46,12 @@ fn as_view(image: &ImageView) -> &PlatformView {
 fn platform_color(color: &WorkingColor) -> Retained<cocoa_ui::objc2_ui_kit::UIColor> {
     {
         let [red, green, blue, alpha] = color.components;
-        platform::colors::extended_linear(f64::from(red), f64::from(green), f64::from(blue), f64::from(alpha),)
+        platform::colors::extended_linear_display_p3(
+            f64::from(red),
+            f64::from(green),
+            f64::from(blue),
+            f64::from(alpha),
+        )
     }
 }
 
@@ -56,7 +61,12 @@ fn platform_color(color: &WorkingColor) -> Retained<cocoa_ui::objc2_ui_kit::UICo
 fn platform_color(color: &WorkingColor) -> Retained<cocoa_ui::objc2_app_kit::NSColor> {
     {
         let [red, green, blue, alpha] = color.components;
-        platform::colors::extended_linear(f64::from(red), f64::from(green), f64::from(blue), f64::from(alpha),)
+        platform::colors::extended_linear_display_p3(
+            f64::from(red),
+            f64::from(green),
+            f64::from(blue),
+            f64::from(alpha),
+        )
     }
 }
 

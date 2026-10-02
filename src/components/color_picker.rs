@@ -66,7 +66,12 @@ fn platform_color(color: &WorkingColor, allow_hdr: bool) -> Retained<platform::P
     if allow_hdr {
         {
             let [red, green, blue, alpha] = color.components;
-            platform::colors::extended_linear(f64::from(red), f64::from(green), f64::from(blue), f64::from(alpha),)
+            platform::colors::extended_linear_display_p3(
+                f64::from(red),
+                f64::from(green),
+                f64::from(blue),
+                f64::from(alpha),
+            )
         }
     } else {
         let [red, green, blue, alpha] = color.components;
@@ -90,7 +95,7 @@ fn platform_color(color: &WorkingColor, allow_hdr: bool) -> Retained<platform::P
         f64::from(alpha),
     );
     if allow_hdr {
-        platform::colors::extended_linear(red, green, blue, alpha)
+        platform::colors::extended_linear_display_p3(red, green, blue, alpha)
     } else {
         platform::colors::linear(red, green, blue, alpha)
     }

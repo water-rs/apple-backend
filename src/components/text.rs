@@ -184,7 +184,12 @@ fn platform_font(
 pub fn platform_color(color: &WorkingColor) -> Retained<cocoa_ui::objc2_ui_kit::UIColor> {
     {
         let [red, green, blue, alpha] = color.components;
-        platform::colors::extended_linear(f64::from(red), f64::from(green), f64::from(blue), f64::from(alpha),)
+        platform::colors::extended_linear_display_p3(
+            f64::from(red),
+            f64::from(green),
+            f64::from(blue),
+            f64::from(alpha),
+        )
     }
 }
 
@@ -194,7 +199,12 @@ pub fn platform_color(color: &WorkingColor) -> Retained<cocoa_ui::objc2_ui_kit::
 pub fn platform_color(color: &WorkingColor) -> Retained<cocoa_ui::objc2_app_kit::NSColor> {
     {
         let [red, green, blue, alpha] = color.components;
-        platform::colors::extended_linear(f64::from(red), f64::from(green), f64::from(blue), f64::from(alpha),)
+        platform::colors::extended_linear_display_p3(
+            f64::from(red),
+            f64::from(green),
+            f64::from(blue),
+            f64::from(alpha),
+        )
     }
 }
 

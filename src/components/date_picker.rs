@@ -661,7 +661,12 @@ const fn platform_weight(weight: waterui::text::font::FontWeight) -> f64 {
 fn platform_color(color: &waterui::graphics::color::WorkingColor) -> Retained<platform::UIColor> {
     {
         let [red, green, blue, alpha] = color.components;
-        cocoa_ui::uikit::colors::extended_linear(f64::from(red), f64::from(green), f64::from(blue), f64::from(alpha),)
+        cocoa_ui::uikit::colors::extended_linear_display_p3(
+            f64::from(red),
+            f64::from(green),
+            f64::from(blue),
+            f64::from(alpha),
+        )
     }
 }
 
