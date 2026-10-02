@@ -740,23 +740,41 @@ def write_toml(path, data):
 
 
 def ensure_backend_path(water_toml, backend, scheme, side):
-    data = tomllib.loads(water_toml.read_text())
-    apple = data.setdefault("backends", {}).setdefault("apple", {})
-    apple["backend_path"] = str(backend)
+    """Pin the manifest's backend binding for the side's exact CLI schema.
+    The old CLI persists `[backends.apple] backend_path` (+ `scheme`). The new
+    CLI records no `backends` table at all — `water create` already recorded
+    `waterui_path`, and the backend comes from the harness-owned
+    `backends/apple` link under it, so a new-side manifest is validated, never
+    written here."""
     if side == "old":
+        data = tomllib.loads(water_toml.read_text())
+        apple = data.setdefault("backends", {}).setdefault("apple", {})
+        apple["backend_path"] = str(backend)
         apple["scheme"] = scheme
-    write_toml(water_toml, data)
+        write_toml(water_toml, data)
     validate_backend_path(water_toml, backend, side)
 
 
 def validate_backend_path(water_toml, backend, side):
     data = tomllib.loads(water_toml.read_text())
+    package = data.get("package", {})
+    if side == "new":
+        if "type" in package or "backends" in data:
+            raise BenchError(f"{water_toml}: removed app-mode keys on new side")
+        waterui = data.get("waterui_path")
+        if not isinstance(waterui, str) or \
+                Path(waterui).resolve() != waterui_dir(side).resolve():
+            raise BenchError(f"{water_toml}: new side requires exact waterui_path")
+        link = Path(waterui) / "backends" / "apple"
+        if not link.is_symlink() or link.resolve() != Path(backend).resolve():
+            raise BenchError(
+                f"{water_toml}: new side requires the harness-owned "
+                f"backends/apple link to {backend}")
+        return
     apple = data.get("backends", {}).get("apple", {})
     if apple.get("backend_path") != str(backend):
         raise BenchError(f"{water_toml}: exact [backends.apple].backend_path mismatch")
-    if side == "new" and ("type" in data["package"] or set(apple) != {"backend_path"}):
-        raise BenchError(f"{water_toml}: removed app-mode keys on new side")
-    if side == "old" and (data["package"].get("type") != "app" or not apple.get("scheme")):
+    if package.get("type") != "app" or not apple.get("scheme"):
         raise BenchError(f"{water_toml}: old app mode requires type and scheme")
 
 
@@ -799,8 +817,9 @@ def tree_sha256(root):
 
 def stage_form(manifest, side):
     """Stage the ONE pinned form source as a real app project. Both sides
-    get byte-identical view source and identical manifests modulo the
-    side-local checkout paths."""
+    get byte-identical view source; manifests differ only by side schema —
+    the old `[backends.apple]` table versus the new `waterui_path` binding —
+    and the side-local checkout paths."""
     src_ref = manifest["subjects"]["form"]["source"]
     if src_ref["sha"] != manifest["sides"]["old"]["waterui"]["sha"]:
         raise BenchError("form source pin must equal the staged old framework pin")
@@ -818,12 +837,13 @@ def stage_form(manifest, side):
         if (origin / extra).exists():
             shutil.copytree(origin / extra, dest / extra)
     package = {"name": "Form Example", "bundle_identifier": manifest["subjects"]["form"]["bundle_id"]}
-    apple = {"backend_path": str(backend_dir(side))}
+    water_toml = {"waterui_path": str(waterui_dir(side)), "package": package}
     if side == "old":
         package["type"] = "app"
-        apple["scheme"] = manifest["subjects"]["form"]["scheme"]
-    write_toml(dest / "Water.toml", {"waterui_path": str(waterui_dir(side)),
-               "package": package, "backends": {"apple": apple}})
+        water_toml["backends"] = {"apple": {
+            "backend_path": str(backend_dir(side)),
+            "scheme": manifest["subjects"]["form"]["scheme"]}}
+    write_toml(dest / "Water.toml", water_toml)
     write_toml(dest / "Cargo.toml", {
         "package": {"name": "form_example", "version": "0.1.0", "edition": "2024", "publish": False},
         "features": {"dev": ["waterui/dynamic_linking"]},

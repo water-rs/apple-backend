@@ -125,18 +125,72 @@ class ProtocolTests(unittest.TestCase):
         with self.assertRaises(d.BenchError):
             d.require_predecessor(state, "old", "fresh", "macos", 2, "cold-build")
 
-    def test_toml_exact_table_and_quoted_paths(self):
+    def test_old_toml_exact_table_and_quoted_paths(self):
         path = self.root / "Water.toml"
         backend = self.root / 'a "quoted" path'
-        d.write_toml(path, {"package": {"name": "A"},
+        d.write_toml(path, {"package": {"name": "A", "type": "app"},
                            "backends": {"android": {"backend_path": "unrelated"},
                                         "apple": {"backend_path": "wrong"}}})
+        d.ensure_backend_path(path, backend, "bench282", "old")
+        data = tomllib.loads(path.read_text())
+        self.assertEqual(data["backends"]["apple"],
+                         {"backend_path": str(backend), "scheme": "bench282"})
+        self.assertEqual(data["backends"]["android"]["backend_path"], "unrelated")
+        variants = []
+        for label, edit in (
+                ("wrong type", lambda v: v["package"].update({"type": "playground"})),
+                ("missing type", lambda v: v["package"].pop("type")),
+                ("wrong backend_path", lambda v: v["backends"]["apple"].update({"backend_path": "wrong"})),
+                ("missing scheme", lambda v: v["backends"]["apple"].pop("scheme"))):
+            variant = copy.deepcopy(data)
+            edit(variant)
+            variants.append((label, variant))
+        for label, variant in variants:
+            d.write_toml(path, variant)
+            with self.subTest(broken=label):
+                with self.assertRaises(d.BenchError):
+                    d.validate_backend_path(path, backend, "old")
+
+    def test_new_manifest_uses_waterui_path_and_owned_link(self):
+        backend = d.backend_dir("new")
+        backend.mkdir(parents=True)
+        waterui = d.waterui_dir("new")
+        link = waterui / "backends" / "apple"
+        link.parent.mkdir(parents=True)
+        link.symlink_to(backend, target_is_directory=True)
+        path = self.root / "Water.toml"
+        d.write_toml(path, {"waterui_path": str(waterui),
+                           "package": {"name": "A",
+                                       "bundle_identifier": "dev.waterui.a"}})
         d.ensure_backend_path(path, backend, "unused", "new")
         data = tomllib.loads(path.read_text())
-        self.assertEqual(data["backends"]["apple"], {"backend_path": str(backend)})
-        self.assertEqual(data["backends"]["android"]["backend_path"], "unrelated")
-        data["package"]["type"] = "app"
-        d.write_toml(path, data)
+        self.assertNotIn("backends", data)
+        self.assertNotIn("type", data["package"])
+        base = {"waterui_path": str(waterui), "package": {"name": "A"}}
+        for retired in ({"backends": {"apple": {"backend_path": str(backend)}}},
+                        {"backends": {"apple": {"scheme": "bench282"}}},
+                        {"backends": {"path": "backends"}},
+                        {"package": {"type": "app"}}):
+            variant = copy.deepcopy(base)
+            for table, edits in retired.items():
+                variant[table] = variant.get(table, {}) | edits
+            d.write_toml(path, variant)
+            with self.subTest(retired=retired):
+                with self.assertRaises(d.BenchError):
+                    d.validate_backend_path(path, backend, "new")
+        d.write_toml(path, {**base, "waterui_path": str(self.root / "foreign")})
+        with self.assertRaises(d.BenchError):
+            d.validate_backend_path(path, backend, "new")
+        for replacement in (self.root / "elsewhere", waterui / "backends"):
+            link.unlink()
+            link.symlink_to(replacement, target_is_directory=True)
+            d.write_toml(path, base)
+            with self.subTest(link_target=replacement):
+                with self.assertRaises(d.BenchError):
+                    d.validate_backend_path(path, backend, "new")
+        link.unlink()
+        link.parent.rmdir()
+        d.write_toml(path, base)
         with self.assertRaises(d.BenchError):
             d.validate_backend_path(path, backend, "new")
 
@@ -146,10 +200,22 @@ class ProtocolTests(unittest.TestCase):
         source = 'fn app() { text("WaterUI Form Examples"); }\n'
         (origin / "lib.rs").write_text(source)
         for side in ("old", "new"):
+            if side == "new":
+                backend = d.backend_dir("new")
+                backend.mkdir(parents=True)
+                link = d.waterui_dir("new") / "backends" / "apple"
+                link.parent.mkdir(parents=True)
+                link.symlink_to(backend, target_is_directory=True)
             dest = d.stage_form(self.m, side)
             data = tomllib.loads((dest / "Water.toml").read_text())
             self.assertEqual("type" in data["package"], side == "old")
-            self.assertEqual("scheme" in data["backends"]["apple"], side == "old")
+            self.assertEqual(data["waterui_path"], str(d.waterui_dir(side)))
+            if side == "old":
+                self.assertEqual(data["backends"]["apple"],
+                                 {"backend_path": str(d.backend_dir("old")),
+                                  "scheme": "form_example"})
+            else:
+                self.assertNotIn("backends", data)
             self.assertEqual((dest / "src/lib.rs").read_text(), source)
             d.set_source_variant(self.m, side, "form", True)
             self.assertIn('text("WaterUI Form Examples!")', (dest / "src/lib.rs").read_text())

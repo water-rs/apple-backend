@@ -107,17 +107,24 @@ Both sides use the generated fresh app and the same form source from
 `waterui@8cf506ce:examples/form`. Fresh source must match byte for byte.
 Form source hashes must match the staged pinned source on both sides.
 Parity fingerprints all app source files and four Cargo lockfiles.
-Each measurement checks the current source, exact backend table, checkout
+Each measurement checks the current source, exact backend binding, checkout
 HEADs and tracked checkout changes; each record carries its input digest.
 
-The old CLI requires `[package] type = "app"` and
-`[backends.apple] scheme`. The new CLI rejects both keys through
-`project_model/app_mode.rs::APP_MODE_KEYS`. New form manifests therefore
-omit both; `[backends.apple] backend_path` remains on both sides.
+The old CLI requires `[package] type = "app"` and `[backends.apple] scheme`;
+the harness also persists its exact `[backends.apple] backend_path`. The new
+CLI rejects the retired app-mode keys through
+`project_model/app_mode.rs::APP_MODE_KEYS`, and generated projects carry no
+`[backends.*]` table at all: its local backend is the `backends/apple`
+checkout under `waterui_path` — here the harness-owned symlink whose exact
+target is verified. New manifests therefore record `waterui_path` and
+`[package]` only; any `backends` table or `package.type` fails validation,
+as does a wrong or non-owned backend link.
 All generated/edited TOML uses parsed tables and the serializer. The exact
-backend table is read back and validated, including paths containing quotes.
-These schemas were audited in local CLI source at old pin 3927ddc and
-current origin/dev; the eventual new pin still requires the cloud pilot.
+backend binding is read back and validated on both sides, including paths
+containing quotes.
+These schemas were audited in local CLI source at old pin 3927ddc, new-side
+feat/223-embedded-mode 1e65f438 and current origin/dev; the eventual new
+pin still requires the cloud pilot.
 
 Incremental builds change one rendered header string:
 `WaterUI Demo` → `WaterUI Demo!`, or

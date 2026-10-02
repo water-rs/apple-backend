@@ -89,7 +89,7 @@
       "crate_name": "form_example",
       "scheme": "form_example",
       "preview_target": "demo",
-      "comment": "The form src tree comes from the exact old framework pin. Old manifests require package.type=app and an Apple scheme; the new CLI rejects those removed keys. Both sides pin [backends.apple].backend_path exactly.",
+      "comment": "The form src tree comes from the exact old framework pin. Old manifests require package.type=app and an Apple scheme alongside the exact [backends.apple] backend_path; new manifests carry no [backends.*] table — the backend binding is waterui_path plus the harness-owned backends/apple link.",
       "incremental_edit": {
         "before": "text(\"WaterUI Form Examples\")",
         "after": "text(\"WaterUI Form Examples!\")"
