@@ -191,10 +191,6 @@ mod leaf {
     /// A `HostView` leaf mirrors its layout face onto the view's intrinsic
     /// measure only once mounted — before it, the view answers exactly what
     /// an unattached kit host answers.
-    #[expect(
-        clippy::float_cmp,
-        reason = "the fixture's size is an exact constant the platform returns unchanged"
-    )]
     pub fn mounting_installs_the_intrinsic_measure() {
         let mtm = mtm();
         let parent = HostView::new(mtm, cocoa_ui::Rect::new(0.0, 0.0, 200.0, 100.0));
@@ -214,10 +210,6 @@ mod leaf {
     /// A host inside a real (never shown) window runs its layout pass, and
     /// the handler's frames land on the children — the bridge every
     /// container leans on.
-    #[expect(
-        clippy::float_cmp,
-        reason = "the asserted frame fields are exact constants the platform stores verbatim"
-    )]
     pub fn a_layout_pass_applies_the_handler_frame() {
         let mtm = mtm();
         let host = HostView::new(mtm, cocoa_ui::Rect::new(0.0, 0.0, 200.0, 100.0));
@@ -411,10 +403,6 @@ mod resolve {
 
     /// `Metadata<Opacity>` is claimed by its handler: the wrapper is a
     /// `HostView` at the declared alpha with the content mounted inside.
-    #[expect(
-        clippy::float_cmp,
-        reason = "the declared alpha lands on `alphaValue` unmodified"
-    )]
     pub fn opacity_metadata_wraps_the_child() {
         let leaf = render(Metadata::new((), Opacity::new(0.5)));
         let view = cocoa_ui::view::retain_base(leaf.view());

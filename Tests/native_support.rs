@@ -105,10 +105,6 @@ pub fn manager_installs_into_the_environment(_mtm: MainThreadMarker) {
 ///
 /// # Panics
 /// Panics if the native window cannot be retained or a binding assertion fails.
-#[expect(
-    clippy::float_cmp,
-    reason = "the binding and the window exchange frame fields bit-exact"
-)]
 #[cfg(target_os = "macos")]
 pub fn bind_root_window_wires_a_live_window(mtm: MainThreadMarker) {
     let window = cocoa_ui::appkit::Window::new(

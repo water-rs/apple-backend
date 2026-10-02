@@ -20,18 +20,18 @@ import AppKit
 
 @_extern(c, "waterui_apple_runtime_create")
 private func runtimeCreate(
-  _ context: UnsafeMutableRawPointer,
-  _ ready: @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> Void
+  _ _: UnsafeMutableRawPointer,
+  _ _: @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> Void
 )
 @_extern(c, "waterui_apple_runtime_drop")
-private func runtimeDrop(_ runtime: UnsafeMutableRawPointer)
+private func runtimeDrop(_ _: UnsafeMutableRawPointer)
 @_extern(c, "waterui_apple_mount")
 private func mountCreate(
-  _ runtime: UnsafeRawPointer, _ host: UnsafeMutableRawPointer,
-  _ assets: UnsafePointer<CChar>, _ fonts: UnsafePointer<CChar>
+  _ _: UnsafeRawPointer, _ _: UnsafeMutableRawPointer,
+  _ _: UnsafePointer<CChar>, _ _: UnsafePointer<CChar>
 ) -> UnsafeMutableRawPointer
 @_extern(c, "waterui_apple_mount_drop")
-private func mountDrop(_ mount: UnsafeMutableRawPointer)
+private func mountDrop(_ _: UnsafeMutableRawPointer)
 
 /// Resources supplied by the native application or the embedding package.
 public struct WaterUIResourceContext: Sendable {
