@@ -344,6 +344,7 @@ class ProtocolTests(unittest.TestCase):
                       "source_sha256": {"new/form": "stale"}, "packaged": {"stale": {}}})
         with patch.object(d, "dedicated_ctx", return_value={}), \
                 patch.object(d, "requested_pins", return_value=requested), \
+                patch.object(d, "preflight_inputs", return_value=d.PreparedInputs((), ())), \
                 patch.object(d, "prepare_checkouts") as checkouts, \
                 patch.object(d, "prepare_cli", return_value="water"), \
                 patch.object(d, "prepare_simulator"), \
@@ -526,7 +527,9 @@ class ProtocolTests(unittest.TestCase):
                 patch.object(d, "preparation_command", side_effect=prepare), \
                 patch.object(d, "checkout_commit") as clone:
             state = {}
-            d.prepare_checkouts(self.m, {"home": self.root, "uid": os.getuid()}, state, requested, True)
+            ctx = {"home": self.root, "uid": os.getuid()}
+            plan = d.preflight_inputs(self.m, ctx, state, requested, True, {})
+            d.prepare_checkouts(self.m, ctx, state, requested, plan)
             clone.assert_not_called()
         self.assertEqual(len(commands), 2)
         self.assertEqual(commands[-1][-3:], ["checkout", "--detach", requested["new"]["apple_backend"]])
@@ -541,6 +544,125 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(ledger["source_sha"], "a" * 40)
         self.assertEqual(ledger["wall_ms"], 31)
         self.assertFalse(list(d.RESULTS.glob("*.jsonl")))
+
+    def reconciliation_fixture(self):
+        previous = self.locked_state()["resolved_pins"]
+        requested = copy.deepcopy(previous)
+        requested["new"] = {name: digit * 40 for name, digit in
+                            (("apple_backend", "1"), ("waterui", "2"), ("cli", "3"))}
+        state = {"prepared_pins": previous, "resolved_pins": copy.deepcopy(previous),
+                 "inputs_finalized": True, "tools": {}}
+        for side in self.m["sides"]:
+            for folder in ("apple-backend", "waterui", "cli"):
+                (self.root / "checkouts" / side / folder / ".git").mkdir(parents=True)
+            link = d.waterui_dir(side) / "backends/apple"
+            link.parent.mkdir(parents=True)
+            link.symlink_to(d.backend_dir(side))
+            binary = d.water_bin(side)
+            binary.parent.mkdir(parents=True)
+            binary.write_text(f"{side} coordinator-built output\n")
+            state["tools"][side] = {"source_sha": previous[side]["cli"],
+                                    "binary_sha256": d.file_sha256(binary)}
+        state["tools"]["new"]["binary_sha256"] = "f" * 64
+        supplied = {"new": {"source_sha": requested["new"]["cli"],
+                            "binary_sha256": d.file_sha256(d.water_bin("new"))}}
+        ctx = {"home": self.root, "uid": os.getuid()}
+        return state, requested, supplied, ctx
+
+    def test_all_new_inputs_reconcile_with_explicit_receipt_and_history(self):
+        state, requested, supplied, ctx = self.reconciliation_fixture()
+        original = copy.deepcopy(state)
+        heads = copy.deepcopy(state["prepared_pins"])
+        def owned(ctx, path, url, backend=None):
+            name = {"apple-backend": "apple_backend", "waterui": "waterui", "cli": "cli"}[path.name]
+            if name == "waterui":
+                self.assertEqual(backend, d.backend_dir(path.parent.name))
+            return heads[path.parent.name][name]
+        commands = []
+        def preparation(argv, *args, **kwargs):
+            commands.append(argv)
+            if "checkout" in argv:
+                path = Path(argv[2])
+                name = {"apple-backend": "apple_backend", "waterui": "waterui", "cli": "cli"}[path.name]
+                heads[path.parent.name][name] = argv[-1]
+            self.assertNotIn("cargo", argv)
+            return {"stdout": "water\n"}
+        receipt_path = self.root / "receipts.json"
+        receipt_path.write_text(json.dumps(supplied))
+        d.save_state(state)
+        with patch.object(d, "dedicated_ctx", return_value=ctx), \
+                patch.object(d, "requested_pins", return_value=requested), \
+                patch.object(d, "owned_checkout", side_effect=owned), \
+                patch.object(d, "checked_output", side_effect=lambda argv: heads[Path(argv[2]).parent.name]["cli"] if "HEAD" in argv else ""), \
+                patch.object(d, "preparation_command", side_effect=preparation), \
+                patch.object(d, "prepare_simulator"), \
+                patch.object(d, "probe_toolchain", return_value={"rustc": "test"}), redirect_stdout(io.StringIO()):
+            d.cmd_setup(self.m, finalize=True, provenance_path=receipt_path)
+        actual = d.load_state()
+        self.assertEqual(actual["resolved_pins"], requested)
+        self.assertEqual(actual["tools"]["old"], original["tools"]["old"])
+        self.assertEqual(actual["tools"]["new"], supplied["new"])
+        self.assertEqual(actual["tool_history"]["new"], [original["tools"]["new"]])
+        self.assertEqual(actual["input_history"][-1]["previous"]["prepared_pins"], original["prepared_pins"])
+        self.assertEqual(actual["input_history"][-1]["status"], "finalized")
+        self.assertEqual(len([argv for argv in commands if "checkout" in argv]), 3)
+
+    def test_reconciliation_preflight_rejects_old_started_wrong_receipt_and_dirty(self):
+        state, requested, supplied, ctx = self.reconciliation_fixture()
+        def owned(ctx, path, url, backend=None):
+            name = {"apple-backend": "apple_backend", "waterui": "waterui", "cli": "cli"}[path.name]
+            return state["prepared_pins"][path.parent.name][name]
+        for case in ("old", "started", "setup", "missing-receipt", "wrong-sha", "wrong-hash", "dirty"):
+            with self.subTest(case=case):
+                current, pins, receipts = copy.deepcopy(state), copy.deepcopy(requested), copy.deepcopy(supplied)
+                if case == "old":
+                    pins["old"]["cli"] = "9" * 40
+                elif case == "started":
+                    current["run_started"] = True
+                elif case == "missing-receipt":
+                    receipts = {}
+                elif case == "wrong-sha":
+                    receipts["new"]["source_sha"] = state["prepared_pins"]["new"]["cli"]
+                elif case == "wrong-hash":
+                    receipts["new"]["binary_sha256"] = "0" * 64
+                error = d.BenchError("dirty checkout: untracked input") if case == "dirty" else owned
+                with patch.object(d, "owned_checkout", side_effect=error), \
+                        patch.object(d, "preparation_command") as mutate, \
+                        patch.object(d, "save_state") as save:
+                    with self.assertRaises(d.BenchError):
+                        d.preflight_inputs(self.m, ctx, current, pins, case != "setup", receipts)
+                    mutate.assert_not_called()
+                    save.assert_not_called()
+
+    def test_receipt_preflight_failure_preserves_entire_existing_state(self):
+        state, requested, supplied, ctx = self.reconciliation_fixture()
+        d.save_state(state)
+        original = d.STATE_PATH.read_bytes()
+        supplied["new"]["binary_sha256"] = "0" * 64
+        path = self.root / "receipt.json"
+        path.write_text(json.dumps(supplied))
+        def owned(ctx, checkout, url, backend=None):
+            name = {"apple-backend": "apple_backend", "waterui": "waterui", "cli": "cli"}[checkout.name]
+            return state["prepared_pins"][checkout.parent.name][name]
+        with patch.object(d, "dedicated_ctx", return_value=ctx), \
+                patch.object(d, "requested_pins", return_value=requested), \
+                patch.object(d, "owned_checkout", side_effect=owned), \
+                patch.object(d, "prepare_checkouts") as mutate:
+            with self.assertRaisesRegex(d.BenchError, "matching source-SHA/binary-SHA256 provenance"):
+                d.cmd_setup(self.m, True, path)
+            mutate.assert_not_called()
+        self.assertEqual(d.STATE_PATH.read_bytes(), original)
+
+    def test_old_receipt_cannot_be_replaced_even_by_matching_installed_hash(self):
+        state, requested, supplied, ctx = self.reconciliation_fixture()
+        binary = d.water_bin("old")
+        binary.write_text("different old executable fixture\n")
+        supplied["old"] = {"source_sha": requested["old"]["cli"],
+                           "binary_sha256": d.file_sha256(binary)}
+        original = copy.deepcopy(state)
+        with self.assertRaisesRegex(d.BenchError, "receipt replacement requires unstarted new-side"):
+            d.cli_receipt(ctx, state, "old", requested["old"]["cli"], supplied, True)
+        self.assertEqual(state, original)
 
 
 if __name__ == "__main__":

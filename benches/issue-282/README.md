@@ -14,9 +14,10 @@ The old triplet is the pairing resolved by Nightly E2E run 36561768882.
 The coordinator supplies all three exact new-side SHAs after the signed
 fixes land. The former backend placeholder `7088fd9` is explicitly rejected,
 even if supplied through the environment. Fixed old pins cannot be overridden.
-The warm cloud host already has old CLI `3927ddc` and new CLI `63d5ef6`;
-the full 40-character new CLI SHA is still supplied as an input, never expanded
-from that abbreviation by this harness.
+The warm cloud host was prepared with old CLI `3927ddc` and new CLI `63d5ef6`.
+The native-only Apple configuration requires CLI `223487133c` and a later
+framework pin. Supply the full 40-character coordinator-approved SHAs;
+the harness never expands these abbreviations or infers a binary's source.
 
 Use Python 3.11+ and `uv`. The script declares its maintained TOML writer,
 `tomli-w==1.2.0`, inline; reading uses standard-library `tomllib`.
@@ -29,16 +30,28 @@ inputs and snapshots the host toolchain into the measurement run. It also
 performs preparation, so an already provisioned host can call it directly.
 
 Before any scaffold directory, parity result or measurement record exists,
-finalization may change **only the new backend**. Its exact checkout path must
+finalization may reconcile **all three new-side pins**: backend, framework and
+CLI. Old-side pins and receipts remain immutable. Each exact checkout path must
 be owned by bench282, a standalone repository with one worktree, the expected
 origin and a completely clean index/worktree including untracked files.
 The harness fetches the supplied SHA, performs an ordinary detached checkout,
 then rechecks HEAD and cleanliness. It never resets, forces, retries candidates
 or replaces another worktree. The stable backend symlink continues to refer
-to this same owned path. Other prepared pins cannot change.
+to this same owned path and is the only untracked framework entry permitted,
+after its exact target is verified. Ordinary `setup` cannot change prepared pins.
+
+Before mutation, a typed `PreparedInputs` plan checks every existing source
+checkout's ownership, origin, HEAD and complete tracked/untracked cleanliness,
+both backend links, and both installed CLI receipts. A dirty checkout, wrong
+receipt, old-side change or started run fails before fetch, checkout, receipt
+replacement or input-state writes. Only after the whole preflight succeeds are
+the planned exact commits fetched and checked out.
 
 Finalization invalidates unmeasured source/lock/parity/package state while
-preserving independently verified CLI receipts. Scaffold marks the run started
+archiving the previous pins, receipts and derived state in `input_history`.
+Each history entry records the requested pins and whether preparation reached
+finalization; interrupted preparation retains its preflight entry. Superseded
+CLI receipts remain in `tool_history`. Scaffold marks the run started
 before making files. Preparation cannot change a started run; scaffold,
 parity and measurement reject a supplied pin that differs from finalized inputs.
 
@@ -51,7 +64,14 @@ Those values must come from the actual successful source build and its output;
 the current checkout or a version string alone does not certify a binary.
 The receipt is stored under `state.tools` and the binary is checked again at
 the finalized-input gate. Missing or mismatched provenance fails without
-reinstalling an existing binary.
+reinstalling an existing binary. Before starting the run, an explicit
+`finalize-inputs --cli-provenance ...` may replace a stale **new-side** receipt
+with a coordinator build receipt matching both the requested new CLI SHA and
+the actual installed binary hash. The coordinator places that built binary at
+the existing new toolchain path before finalization. A changed source checkout
+or `--version` output never relabels an old receipt, and a supplied mismatching
+receipt is rejected even when a stored receipt exists. No VM transfer or binary
+replacement is performed by this source-only handoff.
 
 When no binary exists, exact unreleased source is installed with
 `cargo install --locked --path <checkout> --root <toolchain>` in that checkout.

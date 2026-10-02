@@ -11,8 +11,8 @@ Reads benches/issue-282/manifest.json. Commands:
     setup        prepare reusable pinned checkouts, verified CLI installs and
                  a compatible owned simulator; no run inputs are frozen.
     finalize-inputs
-                 before scaffold, replace only an owned clean new backend
-                 at the required coordinator SHA and freeze run inputs.
+                 before scaffold, reconcile owned clean new-side inputs
+                 and verified CLI receipts, then freeze run inputs.
     scaffold     <side>: create the fresh app, stage the identical form app,
                  pin manifests, materialize + fingerprint lockfiles.
     parity       hard gate: identical view source both sides, lockfiles
@@ -35,6 +35,7 @@ scoped to the measured PID — no cross-process log fallback.
 """
 
 import argparse
+import copy
 import difflib
 import glob
 import hashlib
@@ -54,6 +55,7 @@ import time
 import tomllib
 import tomli_w
 from contextlib import ExitStack
+from dataclasses import dataclass
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from pathlib import Path
@@ -495,7 +497,7 @@ def require_clean_checkout(path, backend=None):
         raise BenchError(f"{path}: dirty checkout (tracked changes or untracked inputs); refusing source provenance")
 
 
-def owned_checkout(ctx, path, url):
+def owned_checkout(ctx, path, url, backend=None):
     """A standalone, clean checkout at our exact path, never another worktree."""
     assert_owned(ctx, path)
     if path.is_symlink() or not (path / ".git").is_dir() or (path / ".git").is_symlink():
@@ -510,38 +512,98 @@ def owned_checkout(ctx, path, url):
     worktrees = checked_output([*git, "worktree", "list", "--porcelain"])
     if sum(line.startswith("worktree ") for line in worktrees.splitlines()) != 1:
         raise BenchError(f"{path}: repository has other worktrees; refusing input replacement")
-    require_clean_checkout(path)
+    require_clean_checkout(path, backend)
     return checked_output([*git, "rev-parse", "HEAD"])
 
 
-def prepare_checkouts(manifest, ctx, state, requested, finalize):
-    # Inspect every mismatch before any fetch, checkout or install.
-    existing = {}
+@dataclass(frozen=True)
+class PreparedCheckout:
+    side: str
+    name: str
+    path: Path
+    url: str
+    previous_sha: str | None
+    source_sha: str
+    backend_link: Path | None
+
+
+@dataclass(frozen=True)
+class PreparedCLI:
+    side: str
+    source_sha: str
+    receipt: dict | None
+
+
+@dataclass(frozen=True)
+class PreparedInputs:
+    checkouts: tuple[PreparedCheckout, ...]
+    tools: tuple[PreparedCLI, ...]
+
+
+def cli_receipt(ctx, state, side, sha, supplied, finalize):
+    stored = state.get("tools", {}).get(side)
+    explicit = supplied.get(side)
+    receipt = explicit if explicit is not None else stored
+    if stored and explicit and stored != explicit:
+        if not finalize or side != "new" or run_started(state):
+            raise BenchError(f"{side}: CLI receipt replacement requires unstarted new-side finalization")
+    if stored and stored.get("source_sha") != sha and explicit is None:
+        raise BenchError(f"{side}: new CLI pin requires an explicit coordinator receipt")
+    binary = water_bin(side)
+    if binary.exists():
+        assert_owned(ctx, binary)
+        if not receipt or receipt.get("source_sha") != sha or receipt.get("binary_sha256") != file_sha256(binary):
+            raise BenchError(f"{side}: installed CLI needs matching source-SHA/binary-SHA256 provenance")
+    elif receipt:
+        raise BenchError(f"{side}: CLI receipt exists but binary is missing")
+    return copy.deepcopy(receipt)
+
+
+def preflight_inputs(manifest, ctx, state, requested, finalize, supplied):
+    if run_started(state):
+        raise BenchError("started run inputs are immutable")
+    previous = state.get("prepared_pins") or state.get("resolved_pins", {})
+    for side, pins in previous.items():
+        for name, sha in pins.items():
+            if sha != requested[side][name] and (side != "new" or not finalize):
+                raise BenchError(f"{side}/{name}: prepared pin change requires new-side finalization")
+    checkouts = []
     for side, pins in manifest["sides"].items():
+        link = waterui_dir(side) / "backends" / "apple"
+        if link.is_symlink():
+            if link.resolve() != backend_dir(side).resolve():
+                raise BenchError(f"{link}: foreign backend link")
+        elif link.exists():
+            raise BenchError(f"{link}: expected our backend link")
         for name, folder in (("apple_backend", "apple-backend"), ("waterui", "waterui"), ("cli", "cli")):
             path = ROOT / "checkouts" / side / folder
+            head = None
+            backend = backend_dir(side) if name == "waterui" and link.is_symlink() else None
             if path.exists():
-                assert_owned(ctx, path)
-                head = checked_output(["git", "-C", str(path), "rev-parse", "HEAD"])
-                existing[side, name] = head
+                head = owned_checkout(ctx, path, pins[name]["repo"], backend)
                 if head != requested[side][name]:
-                    if not finalize or (side, name) != ("new", "apple_backend"):
-                        raise BenchError(f"{side}/{name}: pin change forbidden; only finalize-inputs may replace an unused new backend")
-                    owned_checkout(ctx, path, pins[name]["repo"])
-    for side, pins in manifest["sides"].items():
-        for name, folder in (("apple_backend", "apple-backend"), ("waterui", "waterui"), ("cli", "cli")):
-            path = ROOT / "checkouts" / side / folder
-            sha = requested[side][name]
-            head = existing.get((side, name))
-            if head is None:
-                checkout_commit(pins[name]["repo"], sha, path)
-            elif head != sha:
-                git = ["git", "-C", str(path)]
-                preparation_command([*git, "fetch", "--depth", "1", "origin", sha],
-                                    manifest["timeouts"]["clone"], sha)
-                preparation_command([*git, "checkout", "--detach", sha], 60, sha)
-                if owned_checkout(ctx, path, pins[name]["repo"]) != sha:
-                    raise BenchError("backend replacement did not reach the requested exact SHA")
+                    if not finalize or side != "new":
+                        raise BenchError(f"{side}/{name}: checkout pin change requires new-side finalization")
+            checkouts.append(PreparedCheckout(side, name, path, pins[name]["repo"], head,
+                                              requested[side][name], backend))
+    tools = tuple(PreparedCLI(side, requested[side]["cli"],
+                             cli_receipt(ctx, state, side, requested[side]["cli"], supplied, finalize))
+                  for side in manifest["sides"])
+    return PreparedInputs(tuple(checkouts), tools)
+
+
+def prepare_checkouts(manifest, ctx, state, requested, plan):
+    for source in plan.checkouts:
+        if source.previous_sha is None:
+            checkout_commit(source.url, source.source_sha, source.path)
+        elif source.previous_sha != source.source_sha:
+            git = ["git", "-C", str(source.path)]
+            preparation_command([*git, "fetch", "--depth", "1", "origin", source.source_sha],
+                                manifest["timeouts"]["clone"], source.source_sha)
+            preparation_command([*git, "checkout", "--detach", source.source_sha], 60, source.source_sha)
+            if owned_checkout(ctx, source.path, source.url, source.backend_link) != source.source_sha:
+                raise BenchError("input replacement did not reach the requested exact SHA")
+    for side in manifest["sides"]:
         link = waterui_dir(side) / "backends" / "apple"
         link.parent.mkdir(parents=True, exist_ok=True)
         if link.is_symlink():
@@ -555,21 +617,14 @@ def prepare_checkouts(manifest, ctx, state, requested, finalize):
     save_state(state)
 
 
-def prepare_cli(manifest, ctx, state, side, sha, supplied):
+def prepare_cli(manifest, ctx, state, side, sha, supplied, finalize=False):
     binary = water_bin(side)
     source = ROOT / "checkouts" / side / "cli"
     if checked_output(["git", "-C", str(source), "rev-parse", "HEAD"]) != sha:
         raise BenchError(f"{side}: CLI source SHA mismatch")
     require_clean_checkout(source)
-    receipt = state.get("tools", {}).get(side) or supplied.get(side)
-    if binary.exists():
-        assert_owned(ctx, binary)
-        actual = file_sha256(binary)
-        if not receipt or receipt.get("source_sha") != sha or receipt.get("binary_sha256") != actual:
-            raise BenchError(f"{side}: installed CLI needs exact source-SHA/binary-SHA256 provenance via --cli-provenance; it will not be rebuilt or silently trusted")
-    else:
-        if receipt:
-            raise BenchError(f"{side}: CLI receipt exists but binary is missing")
+    receipt = cli_receipt(ctx, state, side, sha, supplied, finalize)
+    if not binary.exists():
         # --path uses this checkout's ordinary target; never set a parallel target
         # or copy a foreign user's caches. Reusing installed tools skips this entirely.
         rec = preparation_command(
@@ -579,6 +634,9 @@ def prepare_cli(manifest, ctx, state, side, sha, supplied):
             log_file=LOGS / f"cargo-install-{side}.log")
         receipt = {"source_sha": sha, "binary_sha256": file_sha256(binary),
                    "install": rec}
+    previous = state.get("tools", {}).get(side)
+    if previous and previous != receipt:
+        state.setdefault("tool_history", {}).setdefault(side, []).append(copy.deepcopy(previous))
     state.setdefault("tools", {})[side] = receipt
     save_state(state)
     return preparation_command([str(binary), "--version"], 60, sha, capture=True)["stdout"].strip()
@@ -641,19 +699,21 @@ def cmd_setup(manifest, finalize=False, provenance_path=None):
     if run_started(state):
         require_finalized(manifest, state)
         raise BenchError("run already started; preparation/finalization cannot mutate its inputs")
-    previous = state.get("prepared_pins") or state.get("resolved_pins", {})
-    for side, pins in previous.items():
-        for name, sha in pins.items():
-            if sha != requested[side][name] and (side, name) != ("new", "apple_backend"):
-                raise BenchError(f"{side}/{name}: existing preparation pins are immutable")
     supplied = json.loads(Path(provenance_path).read_text()) if provenance_path else {}
-    prepare_checkouts(manifest, ctx, state, requested, finalize)
+    plan = preflight_inputs(manifest, ctx, state, requested, finalize, supplied)
+    state.setdefault("input_history", []).append({
+        "at": now_eastern(), "previous": copy.deepcopy({key: state.get(key) for key in (
+            "prepared_pins", "resolved_pins", "tools", "inputs_finalized", "lockfile_sha256",
+            "form_src_sha256", "source_sha256", "parity_passed", "last_success", "packaged")}),
+        "requested": copy.deepcopy(requested), "status": "preflight-passed"})
     # A preparation update cannot leave an earlier finalization valid when a
     # later step fails. The reusable tool receipts remain independently valid.
     state.pop("inputs_finalized", None)
     save_state(state)
-    versions = {side: prepare_cli(manifest, ctx, state, side, requested[side]["cli"], supplied)
-                for side in manifest["sides"]}
+    prepare_checkouts(manifest, ctx, state, requested, plan)
+    approved = {tool.side: tool.receipt for tool in plan.tools if tool.receipt is not None}
+    versions = {tool.side: prepare_cli(manifest, ctx, state, tool.side, tool.source_sha, approved, finalize)
+                for tool in plan.tools}
     prepare_simulator(state)
     # Preparation remains reusable. Only explicit finalization freezes run inputs.
     state["water_versions"] = versions
@@ -664,6 +724,7 @@ def cmd_setup(manifest, finalize=False, provenance_path=None):
         state["resolved_pins"] = requested
         state["toolchain"] = probe_toolchain(manifest)
         state["inputs_finalized"] = True
+    state["input_history"][-1]["status"] = "finalized" if finalize else "prepared"
     save_state(state)
     print("[finalize-inputs] ready for scaffold" if finalize else "[setup] tools prepared; run finalize-inputs")
 
