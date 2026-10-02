@@ -427,7 +427,7 @@ mod uikit_surface {
         );
     }
 
-    /// Compare the actual plain field to the independently hosted SwiftUI field.
+    /// Compare the actual plain field to the independently hosted `SwiftUI` field.
     pub fn text_field_renders_plain_with_a_real_height() {
         let value = binding(Str::from("x"));
         let env = crate::resolve::env();
@@ -541,9 +541,9 @@ mod uikit_surface {
             controller.viewControllerForColumn(UISplitViewControllerColumn::Secondary)
         {
             assert!(
-                !detail
+                detail
                     .viewIfLoaded()
-                    .is_some_and(|view| view.window().is_some()),
+                    .is_none_or(|view| view.window().is_none()),
                 "an existing secondary column must not be visible"
             );
         }

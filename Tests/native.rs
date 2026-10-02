@@ -128,7 +128,7 @@ mod leaf {
     use super::{HostView, Label, MainThreadMarker, PlatformView, mtm};
 
     /// A fixed-size leaf: the smallest `SubView` the mount path needs.
-    pub(super) struct TestSubView;
+    pub struct TestSubView;
 
     impl SubView for TestSubView {
         fn measure(&self, _proposal: ProposalSize) -> ViewDimensions {
@@ -311,7 +311,7 @@ mod resolve {
     /// performs the backend's half of the embedding contract (dispatcher,
     /// window manager, realizations); the theme slots text resolves
     /// through are the framework's.
-    pub(super) fn env() -> Environment {
+    pub fn env() -> Environment {
         use waterui::graphics::color::WorkingColor;
         use waterui::text::font::{Body, Caption, FontSlot, Subheadline};
 
@@ -349,7 +349,7 @@ mod resolve {
     /// Renders `view` through the typed dispatch entry point, main thread,
     /// fresh env. Panics when nothing claims the view — the typed
     /// contract's answer to a miss.
-    pub(super) fn render(view: impl View) -> NativeLeaf {
+    pub fn render(view: impl View) -> NativeLeaf {
         let _mtm = mtm();
         waterui_apple::dispatch::render(AnyView::new(view), &env())
     }

@@ -8,6 +8,7 @@ repository.workspace = true
 description = "The native WaterUI backend for Apple platforms, with AppKit and UIKit driven from Rust through objc2"
 keywords = ["gui", "appkit", "uikit"]
 publish = false
+autotests = false
 
 [lints]
 workspace = true
