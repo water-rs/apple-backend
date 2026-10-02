@@ -427,8 +427,8 @@ mod resolve {
     }
 
     /// A `Metadata` nobody claims panics in `body()` — on the typed
-    /// contract there is no seam to catch it and hand the view back, so
-    /// the panic propagates out of `render` itself.
+    /// contract nothing catches it, so the panic propagates out of
+    /// `render` itself.
     pub fn an_unclaimed_metadata_view_panics() {
         assert!(render_or_panic(Metadata::new((), Unregistered)).is_none());
     }
@@ -453,9 +453,9 @@ mod resolve {
         assert_eq!(leaf.layout().stretch_axis(), StretchAxis::MainAxis);
     }
 
-    /// The typed equivalent of the seam's `needs_fallback` probe: a view
-    /// whose `body()` panics — `Metadata`/`Native` wrappers nobody claims
-    /// — propagates the panic out of `render`; composable views resolve.
+    /// The typed unclaimed-view contract: a view whose `body()` panics —
+    /// `Metadata`/`Native` wrappers nobody claims — propagates the panic
+    /// out of `render`; composable views resolve.
     pub fn unclaimed_wrappers_panic_while_claimed_render() {
         assert!(render_or_panic(Metadata::new((), Unregistered)).is_none());
         assert!(render_or_panic(Native::new(UnclaimedNative)).is_none());

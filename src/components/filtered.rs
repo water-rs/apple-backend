@@ -995,8 +995,8 @@ impl Drop for FilteredGuard {
 /// `fuseEnclosedFilters` — folds the filters this one directly encloses
 /// into the chain this leaf renders, returning the view the chain captures.
 ///
-/// The resolve walk expands `body()` on everything the seam would have
-/// handed to the composer layer; when it lands on another
+/// The resolve walk expands `body()` on every composable view; when it
+/// lands on another
 /// `Native<FilteredView>` its effect joins the chain behind this one's —
 /// one capture, one presentation target and one submission instead of two
 /// (#521).

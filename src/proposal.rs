@@ -1,23 +1,21 @@
 //! The placement-proposal channel: how a container's selected
 //! [`ProposalSize`] reaches a leaf's `setPlacementProposal`.
 //!
-//! `SubView` has no placement hook — the wire's `place` callback answers
-//! the question for leaves that crossed the seam, but a Rust parent holding
-//! a mounted child only sees its `&dyn SubView`. A leaf that consumes
-//! placement proposals (a layout container re-proposing its children)
-//! registers a sink under its view here; the container delivering a
-//! proposal asks [`deliver`], which answers through whichever channel the
-//! child's leaf installed — a Rust sink, or the seam's own `place` callback
-//! for a leaf that crossed from the fallback.
+//! `SubView` has no placement hook — a Rust parent holding a mounted
+//! child only sees its `&dyn SubView`. A leaf that consumes placement
+//! proposals (a layout container re-proposing its children) registers a
+//! sink under its view here; the container delivering a proposal asks
+//! [`deliver`], which answers through the channel the child's leaf
+//! installed.
 //!
 //! Both directions live here so the registry stays the single place the
 //! view-pointer ↔ placement-channel mapping exists.
 //!
 //! # Safety
 //!
-//! The `unsafe` calls the seam's `place` callback, which is a live entry
-//! for as long as its leaf — the registration a [`SeamGuard`] drops when
-//! the leaf's `WateruiSubView` drops — guarantees.
+//! A registration lives exactly as long as its [`SinkGuard`], which the
+//! leaf drops when its `SubView` drops — so the map never answers for a
+//! leaf that is gone.
 
 use alloc::rc::Rc;
 use core::cell::RefCell;
@@ -50,8 +48,7 @@ pub fn deliver(view: &PlatformView, proposal: ProposalSize) {
     deliver_key(key(view), proposal);
 }
 
-/// [`deliver`] by map key, for callers holding only the address — the
-/// seam's wire `place` callback.
+/// [`deliver`] by map key, for callers holding only the address.
 pub fn deliver_key(view_key: usize, proposal: ProposalSize) {
     let channel = CHANNELS.with(|channels| channels.borrow().get(&view_key).cloned());
     if let Some(sink) = channel {

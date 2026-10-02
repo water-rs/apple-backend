@@ -1363,8 +1363,8 @@ pub fn install(dispatcher: &mut Dispatcher) {
     });
 }
 
-/// The leaf construction shared by the dispatcher and the CEF seam entry
-/// point — `makeWaterUIGpuSurface`.
+/// The leaf construction the dispatcher's GPU-surface claims share —
+/// `GpuContentView`, `ExternalFrameView`, and `SceneView`.
 fn build_surface<V: HostedView + 'static>(
     view: V,
     ctx: &crate::contract::RenderContext<'_>,

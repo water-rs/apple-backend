@@ -22,8 +22,8 @@ pub(crate) type Handler = Box<dyn Fn(AnyView, &RenderContext<'_>) -> NativeLeaf>
 /// handlers could run.
 pub(crate) struct Dispatcher {
     handlers: BTreeMap<TypeId, Handler>,
-    /// The claimed type's name per registered type, for the seam's debug
-    /// disjointness check; release builds store none.
+    /// The claimed type's name per registered type, kept for the `Debug`
+    /// dump; release builds store none.
     #[cfg(debug_assertions)]
     names: Vec<&'static str>,
 }

@@ -238,8 +238,8 @@ mod imp {
         wire_background(&window, &mut keepalive, &background);
 
         // Content: the declared tree becomes one leaf whose view fills the
-        // host each layout pass, at the safe-area-aware frame the seam
-        // answers.
+        // host each layout pass, at the safe-area-aware frame `content_frame`
+        // resolves.
         let content = declaration.build_content();
         let leaf = crate::dispatch::dispatcher(env)
             .render(content, env, mtm)
@@ -255,8 +255,8 @@ mod imp {
         crate::inspector::install(&host, env, &mut keepalive);
         host.set_layout_handler(move |host| {
             let host_view: &cocoa_ui::PlatformView = host;
-            // SAFETY: the seam borrows the views for the call; `leaf_view`
-            // holds the retain for the host's lifetime.
+            // SAFETY: `content_frame` borrows the views for the call;
+            // `leaf_view` holds the retain for the host's lifetime.
             let frame = crate::native_layout::content_frame(&leaf_view, host_view);
             cocoa_ui::view::set_frame(&leaf_view, frame);
         });
@@ -1011,7 +1011,7 @@ mod imp {
 
     /// Fills a connected scene's window with `declaration`'s content: the
     /// tree becomes one leaf laid out inside the controller's host view, at
-    /// the safe-area-aware frame the seam answers.
+    /// the safe-area-aware frame `content_frame` resolves.
     fn realize(
         declaration: &Window,
         pending: Pending,
@@ -1052,8 +1052,8 @@ mod imp {
         crate::inspector::install(&host, env, &mut keepalive);
         host.set_layout_handler(move |host| {
             let host_view: &cocoa_ui::PlatformView = host;
-            // SAFETY: the seam borrows the views for the call; `leaf_view`
-            // holds the retain for the host's lifetime.
+            // SAFETY: `content_frame` borrows the views for the call;
+            // `leaf_view` holds the retain for the host's lifetime.
             let frame = crate::native_layout::content_frame(&leaf_view, host_view);
             cocoa_ui::view::set_frame(&leaf_view, frame);
         });

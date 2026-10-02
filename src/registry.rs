@@ -14,8 +14,8 @@ use crate::dispatch::Dispatcher;
 /// once, before the first render, inside [`crate::dispatch::dispatcher`].
 #[allow(clippy::too_many_lines)] // a flat registration table is meant to be long
 pub fn install(dispatcher: &mut Dispatcher) {
-    // Core — the unit view, always claimed: an unclaimed `Native<()>` crosses
-    // the seam into a `body()` panic, which `panic = "abort"` makes fatal.
+    // Core — the unit view, always claimed: an unclaimed `Native<()>` falls
+    // through the walk into a `body()` panic, which `panic = "abort"` makes fatal.
     crate::components::empty::install(dispatcher);
 
     // Wave A — trivial leaves.
@@ -62,8 +62,8 @@ pub fn install(dispatcher: &mut Dispatcher) {
     #[cfg(feature = "dynamic")]
     crate::components::dynamic::install(dispatcher);
 
-    // Metadata — transparent wrappers claiming `Metadata<M>` before the
-    // seam can hand it to the fallback.
+    // Metadata — transparent wrappers claiming `Metadata<M>` ahead of the
+    // walk's `body()` expansion.
     #[cfg(feature = "anchored_overlay")]
     crate::components::anchored_overlay::install(dispatcher);
     #[cfg(feature = "draggable")]
