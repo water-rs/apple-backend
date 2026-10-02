@@ -18,7 +18,6 @@ mod imp {
     use alloc::rc::Rc;
     use alloc::vec::Vec;
     use core::cell::{Cell, RefCell};
-    use core::ffi::c_void;
 
     use super::{into_kit_rect, into_kit_size, into_layout_rect};
     use cocoa_ui::appkit::{AttentionRequest, HostView, WindowLevel as KitLevel, WindowStyle};
@@ -33,7 +32,6 @@ mod imp {
     use waterui_backend_core::Environment;
 
     use crate::contract::KeepAlive;
-    use crate::seam::waterui_swift_content_frame;
 
     /// Installs `view` — the rendered window-toolbar host — as `window`'s
     /// toolbar items: lone-child wrappers are descended and the first
@@ -243,7 +241,7 @@ mod imp {
         // host each layout pass, at the safe-area-aware frame the seam
         // answers.
         let content = declaration.build_content();
-        let leaf = crate::dispatch::dispatcher(mtm)
+        let leaf = crate::dispatch::dispatcher(env)
             .render(content, env, mtm)
             .expect("window content must render: no handler or fallback claims it");
 
@@ -252,21 +250,14 @@ mod imp {
         let leaf_view = cocoa_ui::view::retain_base(leaf.view());
 
         // First-paint marking happens on the leaf the fallback produced.
-        crate::first_paint::mark(Retained::as_ptr(&leaf_view).cast::<c_void>().cast_mut());
+        crate::first_paint::mark(&leaf_view, env);
 
         host.set_layout_handler(move |host| {
             let host_view: &cocoa_ui::PlatformView = host;
             // SAFETY: the seam borrows the views for the call; `leaf_view`
             // holds the retain for the host's lifetime.
-            let frame = unsafe {
-                waterui_swift_content_frame(
-                    Retained::as_ptr(&leaf_view).cast::<c_void>().cast_mut(),
-                    core::ptr::from_ref::<cocoa_ui::PlatformView>(host_view)
-                        .cast::<c_void>()
-                        .cast_mut(),
-                )
-            };
-            cocoa_ui::view::set_frame(&leaf_view, frame.into_kit());
+            let frame = crate::native_layout::content_frame(&leaf_view, host_view);
+            cocoa_ui::view::set_frame(&leaf_view, frame);
         });
         window.set_content_view(&host);
         keepalive.keep(leaf);
@@ -276,7 +267,7 @@ mod imp {
         // each child becomes an `NSToolbarItem`, which is what gives it the
         // system's capsule, spacing and overflow.
         if let Some(toolbar) = declaration.toolbar {
-            let toolbar_leaf = crate::dispatch::dispatcher(mtm)
+            let toolbar_leaf = crate::dispatch::dispatcher(env)
                 .render(toolbar, env, mtm)
                 .expect("window toolbar must render: no handler or fallback claims it");
             install_toolbar(window.native(), toolbar_leaf.view());
@@ -374,7 +365,7 @@ mod imp {
         // The declared toolbar goes through the window's one `NSToolbar`,
         // exactly as a realized window's does.
         if let Some(toolbar) = toolbar {
-            let toolbar_leaf = crate::dispatch::dispatcher(mtm)
+            let toolbar_leaf = crate::dispatch::dispatcher(env)
                 .render(toolbar, env, mtm)
                 .expect("window toolbar must render: no handler or fallback claims it");
             install_toolbar(window.native(), toolbar_leaf.view());
@@ -770,7 +761,6 @@ mod imp {
     use alloc::rc::Rc;
     use alloc::vec::Vec;
     use core::cell::{Cell, RefCell};
-    use core::ffi::c_void;
 
     use cocoa_ui::uikit::{ColorSchemeObservation, HostView, ViewController, WindowScene};
     use cocoa_ui::{MainThreadMarker, Retained};
@@ -779,7 +769,6 @@ mod imp {
     use waterui_backend_core::Environment;
 
     use crate::contract::KeepAlive;
-    use crate::seam::waterui_swift_content_frame;
     use crate::theme::ThemeSignals;
 
     /// What a connected scene owns: its root controller and every
@@ -1002,7 +991,7 @@ mod imp {
         });
 
         let content = declaration.build_content();
-        let leaf = crate::dispatch::dispatcher(mtm)
+        let leaf = crate::dispatch::dispatcher(env)
             .render(content, env, mtm)
             .expect("window content must render: no handler or fallback claims it");
         host.add_subview(leaf.view());
@@ -1016,21 +1005,14 @@ mod imp {
         }
         let leaf_view = cocoa_ui::view::retain_base(leaf.view());
 
-        crate::first_paint::mark(Retained::as_ptr(&leaf_view).cast::<c_void>().cast_mut());
+        crate::first_paint::mark(&leaf_view, env);
 
         host.set_layout_handler(move |host| {
             let host_view: &cocoa_ui::PlatformView = host;
             // SAFETY: the seam borrows the views for the call; `leaf_view`
             // holds the retain for the host's lifetime.
-            let frame = unsafe {
-                waterui_swift_content_frame(
-                    Retained::as_ptr(&leaf_view).cast::<c_void>().cast_mut(),
-                    core::ptr::from_ref::<cocoa_ui::PlatformView>(host_view)
-                        .cast::<c_void>()
-                        .cast_mut(),
-                )
-            };
-            cocoa_ui::view::set_frame(&leaf_view, frame.into_kit());
+            let frame = crate::native_layout::content_frame(&leaf_view, host_view);
+            cocoa_ui::view::set_frame(&leaf_view, frame);
         });
         keepalive.keep(leaf);
         keepalive.keep(pending.observation);

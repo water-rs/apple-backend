@@ -15,7 +15,7 @@ use core::cell::{Cell, RefCell};
 
 use cocoa_ui::{PlatformView, Rect, Retained};
 use waterui::component::form::picker::color::ColorPickerConfig;
-use waterui::graphics::color::{Color, WorkingColor, srgb_to_linear, working};
+use waterui::graphics::color::{Color, Working, WorkingColor, srgb_to_linear, working};
 use waterui::reactive::{Computed, Signal};
 use waterui::text::StyledStr;
 use waterui_core::interaction::Disabled;
@@ -120,7 +120,7 @@ fn to_working(rgba: cocoa_ui::Rgba, headroom: f64) -> WorkingColor {
     working::with_headroom(color, headroom as f32)
 }
 
-/// The well's current color on AppKit.
+/// The well's current color on `AppKit`.
 #[cfg(target_os = "macos")]
 fn read_well_color(well: &ColorWell, support_hdr: bool) -> WorkingColor {
     let color = well.color();
@@ -296,7 +296,7 @@ pub fn install(dispatcher: &mut Dispatcher) {
                 let Some(resolved) = read_well_color(&well, support_hdr) else {
                     return;
                 };
-                value.set(Color::new(resolved));
+                value.set(Color::new(Working(resolved)));
             }
         });
 

@@ -106,11 +106,6 @@ pub fn install(dispatcher: &mut Dispatcher) {
         });
         leaf
     });
-    dispatcher.register_native::<WorkingColor>(|config, ctx| {
-        let (view, leaf) = color_leaf(ctx.mtm());
-        view.set_color(Some(&platform_color(&config)));
-        leaf
-    });
 }
 
 #[cfg(test)]

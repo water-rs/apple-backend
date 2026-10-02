@@ -6,8 +6,6 @@
 //! presented frame, and the hierarchy is rasterized into a premultiplied
 //! RGBA8 bitmap — the `CustomViewRenderer` contract.
 
-use core::ffi::c_void;
-
 use waterui_backend_core::Environment;
 use waterui_core::AnyView;
 use waterui_core::layout::ProposalSize;
@@ -43,18 +41,11 @@ impl CustomViewRenderer for AppleViewRenderer {
 /// The environment's `ViewRenderer`, replacing
 /// `waterui_env_install_view_renderer`.
 ///
-/// # Safety
-///
-/// `env` must be a valid `Environment` pointer on the main thread; the
-/// installed renderer borrows the environment's renderer for the env's life.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn waterui_apple_install_view_renderer(env: *mut c_void) {
-    // SAFETY: the caller contract makes `env` a valid, live environment on
-    // the main thread.
-    let env = unsafe { &mut *env.cast::<Environment>() };
+/// Installs the native snapshot renderer into this environment.
+pub(crate) fn install_service(env: &mut Environment) {
     let mtm = cocoa_ui::MainThreadMarker::new().expect("main thread");
     let renderer =
-        crate::contract::RenderContext::new(env, crate::dispatch::dispatcher(mtm), mtm).renderer();
+        crate::contract::RenderContext::new(env, crate::dispatch::dispatcher(env), mtm).renderer();
     env.insert(ViewRenderer::new(AppleViewRenderer { renderer }));
 }
 

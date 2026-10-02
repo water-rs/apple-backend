@@ -21,7 +21,6 @@ use waterui_core::layout::{ProposalSize, StretchAxis, SubView, ViewDimensions};
 use crate::contract::{Mounted, NativeLeaf};
 use crate::dispatch::Dispatcher;
 use crate::proposal;
-use crate::seam::waterui_swift_content_frame;
 
 #[cfg(target_os = "macos")]
 use cocoa_ui::appkit::HostView;
@@ -73,20 +72,7 @@ impl SubView for WithEnvSubView {
 /// `wuiContentFrame(of: contentView, in: self)`: the whole bounds when the
 /// content manages its own safe area, the host's safe-area rect otherwise.
 fn content_frame(host: &HostView, child: &PlatformView) -> Rect {
-    let host_view: &PlatformView = host;
-    // SAFETY: both are live platform views; the contract is a main-thread
-    // read.
-    unsafe {
-        waterui_swift_content_frame(
-            core::ptr::from_ref::<PlatformView>(child)
-                .cast::<core::ffi::c_void>()
-                .cast_mut(),
-            core::ptr::from_ref::<PlatformView>(host_view)
-                .cast::<core::ffi::c_void>()
-                .cast_mut(),
-        )
-    }
-    .into_kit()
+    crate::native_layout::content_frame(child, host)
 }
 
 /// Installs the `with_env` handler on the dispatcher: `Metadata<Environment>`

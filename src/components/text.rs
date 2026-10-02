@@ -452,7 +452,7 @@ fn label_leaf(
         mtm,
         env: ctx.env().clone(),
         label: label.clone(),
-        default_foreground: WorkingColor::default(),
+        default_foreground: WorkingColor::BLACK,
         chunks: Vec::new(),
         signal_guards: Vec::new(),
         default_guard: None,

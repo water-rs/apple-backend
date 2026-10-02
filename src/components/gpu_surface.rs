@@ -16,14 +16,12 @@
 use alloc::boxed::Box;
 use alloc::rc::{Rc, Weak};
 use core::cell::{Cell, RefCell};
-use core::ffi::c_void;
 use core::fmt;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
 use cocoa_ui::Retained;
-use objc2_metal::{MTLPixelFormat, MTLTexture, MTLTextureType};
-use waterui_backend_core::Environment;
+use objc2_metal::{MTLPixelFormat, MTLTexture};
 use waterui_core::NativeView;
 use waterui_core::layout::{ProposalSize, Size, StretchAxis, SubView, ViewDimensions};
 use waterui_graphics::cherenkov::{Display, Next, kurbo};
@@ -34,7 +32,7 @@ use waterui_graphics::gpu::{
 use waterui_graphics::input::SurfaceInputEvent;
 use waterui_graphics::offscreen::OffscreenSize;
 use waterui_graphics::wgpu;
-use wgpu_hal::{Api, api::Metal as MetalApi};
+use wgpu_hal::api::Metal as MetalApi;
 
 use crate::contract::NativeLeaf;
 use crate::dispatch::Dispatcher;
@@ -482,37 +480,6 @@ fn render_to_metal_texture(
 ) -> bool {
     let format = metal_texture_format(&metal_texture);
     state.prepare_format(format);
-    // SAFETY: `metal_texture` is retained by the caller, and the format and
-    // size are read off that same texture.
-    let hal_texture = unsafe {
-        <MetalApi as Api>::Device::texture_from_raw(
-            metal_texture,
-            format,
-            MTLTextureType::Type2D,
-            1,
-            1,
-            wgpu_hal::CopyExtent {
-                width,
-                height,
-                depth: 1,
-            },
-            None,
-        )
-    };
-    let desc = wgpu::TextureDescriptor {
-        label: Some("GpuSurface Imported Metal Texture"),
-        size: wgpu::Extent3d {
-            width,
-            height,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        view_formats: &[],
-    };
     let context = state.runtime.context();
     if context.device_lost_reason().is_some() {
         // The runtime's rebuild is still in flight; nothing may touch the
@@ -520,20 +487,20 @@ fn render_to_metal_texture(
         // lands.
         return true;
     }
-    // SAFETY: the HAL texture above was created from this runtime's device,
-    // which is the device the wgpu texture is being created on.
+    // SAFETY: these presentation buffers belong to this device and are
+    // handed over as color attachments after their preceding frame completed.
     let wgpu_texture = unsafe {
-        context.device().create_texture_from_hal::<MetalApi>(
-            hal_texture,
-            &desc,
-            wgpu::wgt::TextureUses::COLOR_TARGET,
+        cocoa_ui::metal::import_texture(
+            context.device(),
+            metal_texture,
+            format,
+            width,
+            height,
+            wgpu::TextureUsages::RENDER_ATTACHMENT,
+            wgpu::TextureUses::COLOR_TARGET,
+            "GpuSurface Imported Metal Texture",
         )
     };
-    assert_eq!(
-        wgpu_texture.format(),
-        format,
-        "native texture format mismatch"
-    );
     let display = Display {
         scale,
         headroom: display_headroom(format, view),
@@ -1511,64 +1478,4 @@ fn wire_view_handlers(platform_view: &Retained<SurfaceView>, state: &Rc<SurfaceS
             }
         });
     }
-}
-
-// MARK: - CEF seam (`makeWaterUIGpuSurface`)
-
-/// The `CWaterUI.WuiSize` layout `CefSurfaceView` hands over.
-#[repr(C)]
-pub struct WuiSizeFfi {
-    /// The size's width in logical points.
-    pub width: f32,
-    /// The size's height in logical points.
-    pub height: f32,
-}
-
-/// The `CWaterUI.WuiGpuContent` layout `CefSurfaceView` hands over — the
-/// ffi crate's `repr(C)` struct.
-#[repr(C)]
-pub struct WuiGpuContentFfi {
-    /// Opaque pointer to the boxed `GpuContentView`, consumed by this call.
-    pub view: *mut c_void,
-    /// Whether the content has an intrinsic size.
-    pub has_intrinsic_size: bool,
-    /// The content's natural size in logical points.
-    pub intrinsic_size: WuiSizeFfi,
-    /// Whether every pixel the content draws is opaque.
-    pub is_opaque: bool,
-    /// Whether the view takes input events.
-    pub wants_input_events: bool,
-}
-
-/// `makeWaterUIGpuSurface`: builds a `gpu_surface` leaf for a CEF-owned
-/// GPU content view and returns its platform view retained `+1` for
-/// `Unmanaged<NSView>.takeRetainedValue()`.
-///
-/// The leaf's keepalive is leaked for the view's process lifetime: the
-/// returned view outlives the leaf only while it stays in the hierarchy —
-/// CEF surfaces live for the session, matching the Swift side's retention.
-///
-/// # Safety
-/// `content` must point at a valid `CWaterUI.WuiGpuContent` whose `view`
-/// field holds a `Box<GpuContentView>`; `env` must be a valid `Environment`
-/// pointer; called on the main thread.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn waterui_apple_make_gpu_surface_view(
-    content: *mut WuiGpuContentFfi,
-    env: *mut Environment,
-) -> *mut c_void {
-    let mtm = cocoa_ui::MainThreadMarker::new().expect("main thread");
-    // SAFETY: the caller hands ownership of the boxed semantic view.
-    let ffi = unsafe { &mut *content };
-    // SAFETY: the boxed view is live and uniquely owned per the contract.
-    let view = unsafe { *Box::<GpuContentView>::from_raw(ffi.view.cast::<GpuContentView>()) };
-    ffi.view = std::ptr::null_mut();
-    // SAFETY: `env` is the application's environment, valid for the process.
-    let env = unsafe { &*env };
-    let ctx = crate::contract::RenderContext::new(env, crate::dispatch::dispatcher(mtm), mtm);
-    let leaf = build_surface(view, &ctx);
-    let (view, layout, keepalive) = leaf.into_parts();
-    core::mem::forget(layout);
-    core::mem::forget(keepalive);
-    Retained::into_raw(view).cast::<c_void>()
 }

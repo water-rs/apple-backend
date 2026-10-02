@@ -765,14 +765,7 @@ fn asset_scheme(server: &assets::AssetServer) -> web_kit::SchemeHandler {
 /// `installWebViewController` performed, so an application bundling its own
 /// engine keeps the controller it installed during `app(env)`.
 ///
-/// # Safety
-///
-/// `env` must be a live `Environment`, borrowed for the call. Call on the
-/// main thread.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn waterui_apple_install_webview(env: *mut Environment) {
-    // SAFETY: the caller contract borrows a live `Environment`.
-    let env = unsafe { &mut *env };
+pub(crate) fn install_service(env: &mut Environment) {
     if env.get::<waterui_webview::WebViewController>().is_none() {
         env.insert(waterui_webview::WebViewController::new(
             AppleWebViewController,

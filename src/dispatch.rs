@@ -1,12 +1,5 @@
-//! The view dispatcher: walks an [`AnyView`] until a registered handler or
-//! the Swift fallback claims it.
-//!
-//! Composition expands first — a view that is not claimed runs `body()` and
-//! the walk continues on the result — so handlers always see the type the
-//! tree ends on: `Native<C>` for native payloads, `Metadata<M>` /
-//! `IgnorableMetadata<M>` for wrappers, or any composer type a handler
-//! registers directly. A `Native<C>`/`Metadata<M>` that no handler claims
-//! crosses the seam to [`waterui_swift_render`].
+//! Instance-owned native view dispatch. Composers expand through their public
+//! bodies and engine hooks; registered leaves stay entirely in Rust.
 
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
@@ -15,12 +8,10 @@ use alloc::vec::Vec;
 use core::any::TypeId;
 use core::fmt;
 
-use cocoa_ui::{PlatformView, Retained};
-use dispatch2::MainThreadBound;
+use alloc::rc::Rc;
 use waterui_backend_core::{AnyView, Environment, View};
 
 use crate::contract::{NativeLeaf, RenderContext};
-use crate::seam;
 
 /// The handler signature every port implements: the erased view downcast to
 /// the claimed type, the render context, the leaf it becomes.
@@ -126,153 +117,50 @@ impl Dispatcher {
     /// crosses to the fallback. Returns `None` only when the fallback itself
     /// declines the view.
     pub(crate) fn render(
-        &'static self,
+        self: &Rc<Self>,
         view: AnyView,
         env: &Environment,
         mtm: cocoa_ui::MainThreadMarker,
     ) -> Option<NativeLeaf> {
         let mut view = view;
-        let ctx = RenderContext::new(env, self, mtm);
+        let ctx = RenderContext::new(env, self.clone(), mtm);
         loop {
             let type_id = view.type_id();
             if let Some(handler) = self.handler(type_id) {
                 return Some(handler(view, &ctx));
             }
-            if needs_fallback(&view) {
-                #[cfg(debug_assertions)]
-                seam::assert_disjoint(mtm);
-                // SAFETY: the seam contract hands ownership of both boxes
-                // across; the returned leaf is owned by this call.
-                let leaf = unsafe {
-                    seam::waterui_swift_render(
-                        Box::into_raw(Box::new(view)),
-                        Box::into_raw(Box::new(env.clone())),
-                    )
-                };
-                if leaf.view.is_null() {
-                    return None;
-                }
-                // SAFETY: a non-null `view` is the +1 reference the seam
-                // contract hands this call.
-                let view = unsafe { Retained::from_raw(leaf.view.cast::<PlatformView>()) }
-                    .expect("a non-null seam view is a retained platform view");
-                return Some(NativeLeaf::from_seam(view, leaf.subview));
-            }
-            view = AnyView::new(view.body(env));
-        }
-    }
-
-    /// The same walk for a view crossing the seam *from* Swift — the
-    /// `waterui_apple_resolve` entry. The fallback already failed to claim
-    /// it, so a `Native`/`Metadata` here is a double miss — unless it
-    /// expands, which [`SeamResolution::Expand`] reports for the caller to
-    /// re-walk.
-    pub(crate) fn render_across_seam(
-        &'static self,
-        view: AnyView,
-        env: &Environment,
-        mtm: cocoa_ui::MainThreadMarker,
-    ) -> SeamResolution {
-        let mut view = view;
-        let ctx = RenderContext::new(env, self, mtm);
-        loop {
-            let type_id = view.type_id();
-            if let Some(handler) = self.handler(type_id) {
-                return SeamResolution::Claimed(handler(view, &ctx));
-            }
-            if needs_fallback(&view) {
-                // A `Native` carrying `with_fallback` still expands through
-                // `body()` — the embedded view is its backend-agnostic
-                // realization. A bare `Native`/`Metadata` panics, which
-                // `catch_unwind` reports as a miss.
-                let expanded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    AnyView::new(view.body(env))
-                }));
-                return expanded.map_or(SeamResolution::Miss, SeamResolution::Expand);
-            }
             view = AnyView::new(view.body(env));
         }
     }
 }
 
-/// The outcome of rendering a view that crossed the seam from Swift.
-pub(crate) enum SeamResolution {
-    /// A registered handler claimed the view; mount the leaf.
-    Claimed(NativeLeaf),
-    /// The view was an unclaimed `Native` that expands to its embedded
-    /// `with_fallback` view — the caller re-walks the expansion.
-    Expand(AnyView),
-    /// Neither side claims the view and it cannot expand.
-    Miss,
+/// Builds a dispatcher owned by this environment and its rendered leaves.
+pub fn install(env: &mut Environment) {
+    let mut dispatcher = Dispatcher::new();
+    crate::registry::install(&mut dispatcher);
+    env.insert(Rc::new(dispatcher));
 }
 
-/// Whether the erased view is a wrapper whose `body()` must not run — a
-/// `Native<T>` or a `Metadata<T>` — meaning it crosses the seam (or, across
-/// the seam already, is a miss).
-///
-/// The check matches `type_name` prefixes, which is not a stable format:
-/// the test below pins the ones in use.
-pub(crate) fn needs_fallback(view: &AnyView) -> bool {
+pub(crate) fn dispatcher(env: &Environment) -> Rc<Dispatcher> {
+    env.get::<Rc<Dispatcher>>()
+        .expect("Apple dispatcher must be installed before rendering")
+        .clone()
+}
+
+/// Stops filter-chain expansion at native leaves and metadata boundaries.
+pub(crate) fn is_native_boundary(view: &AnyView) -> bool {
     let name = view.name();
     name.starts_with("waterui_core::components::native::Native<")
         || name.starts_with("waterui_core::components::metadata::Metadata<")
 }
 
-/// The process-wide dispatcher, built once by [`crate::registry`]; only
-/// reachable on the main thread.
-pub(crate) fn dispatcher(mtm: cocoa_ui::MainThreadMarker) -> &'static Dispatcher {
-    static DISPATCHER: std::sync::OnceLock<MainThreadBound<Dispatcher>> =
-        std::sync::OnceLock::new();
-    DISPATCHER
-        .get_or_init(|| {
-            let mut dispatcher = Dispatcher::new();
-            crate::registry::install(&mut dispatcher);
-            MainThreadBound::new(dispatcher, mtm)
-        })
-        .get(mtm)
-}
-
-/// The type names this dispatcher claims — the seam's disjointness check
-/// compares them against the fallback's table.
-#[cfg(debug_assertions)]
-pub(crate) fn claimed_type_names(
-    mtm: cocoa_ui::MainThreadMarker,
-) -> impl Iterator<Item = &'static str> {
-    dispatcher(mtm).names.iter().copied()
-}
-
-/// Renders a view crossing the seam *from* Swift — the body of
-/// [`crate::seam::waterui_apple_resolve`]. Runs on the main thread: that is a
-/// caller requirement of the seam contract.
-pub(crate) fn render_across_seam(view: AnyView, env: &Environment) -> SeamResolution {
-    let mtm = cocoa_ui::MainThreadMarker::new().expect("seam renders run on the main thread");
-    dispatcher(mtm).render_across_seam(view, env, mtm)
-}
-
-#[cfg(test)]
-mod tests {
-    use waterui_core::metadata::MetadataKey;
-    use waterui_core::{Metadata, Native, NativeView};
-
-    struct TestNative;
-    impl NativeView for TestNative {}
-    struct TestKey;
-    impl MetadataKey for TestKey {}
-
-    /// `needs_fallback` pattern-matches `type_name` output; if `Native` or
-    /// `Metadata` move, every unclaimed wrapper would run a panicking
-    /// `body()` — this pins the module paths the prefixes assume.
-    #[test]
-    fn type_name_prefixes_hold() {
-        assert!(
-            core::any::type_name::<Native<TestNative>>()
-                .starts_with("waterui_core::components::native::Native<"),
-            "Native's type_name moved; update needs_fallback"
-        );
-        assert!(
-            core::any::type_name::<Metadata<TestKey>>()
-                .starts_with("waterui_core::components::metadata::Metadata<"),
-            "Metadata's type_name moved; update needs_fallback"
-        );
-    }
+/// Renders native content using the owning environment's dispatcher.
+///
+/// # Panics
+/// Panics on an unhandled native component or off the main thread.
+pub fn render(view: AnyView, env: &Environment) -> NativeLeaf {
+    let mtm = cocoa_ui::MainThreadMarker::new().expect("rendering runs on the main thread");
+    dispatcher(env)
+        .render(view, env, mtm)
+        .expect("native view must render")
 }

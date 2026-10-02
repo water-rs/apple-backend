@@ -26,7 +26,7 @@ use waterui_graphics::gpu::GpuRuntime;
 use waterui_graphics::wgpu;
 
 use crate::contract::{Mounted, NativeLeaf, RenderContext};
-use crate::dispatch::{Dispatcher, needs_fallback};
+use crate::dispatch::{Dispatcher, is_native_boundary};
 
 #[cfg(target_os = "macos")]
 mod platform {
@@ -497,6 +497,7 @@ fn finish_prepared_frame(state: &Rc<FilteredState>, frame: CaptureFrame) {
                         frame.height,
                         wgpu::TextureUsages::RENDER_ATTACHMENT
                             | wgpu::TextureUsages::TEXTURE_BINDING,
+                        wgpu::TextureUses::COLOR_TARGET,
                         "FilteredView Imported Input Texture",
                     )
                 };
@@ -517,6 +518,7 @@ fn finish_prepared_frame(state: &Rc<FilteredState>, frame: CaptureFrame) {
             output_width,
             output_height,
             wgpu::TextureUsages::RENDER_ATTACHMENT,
+            wgpu::TextureUses::COLOR_TARGET,
             "FilteredView Host Presentation Texture",
         )
     };
@@ -1010,7 +1012,7 @@ fn fuse_enclosed_filters(
     } = filtered;
     effects.push((effect, guards));
     loop {
-        while !needs_fallback(&content) {
+        while !is_native_boundary(&content) {
             content = AnyView::new(content.body(ctx.env()));
         }
         match content.downcast::<waterui_core::Native<FilteredView>>() {

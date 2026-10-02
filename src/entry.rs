@@ -1,22 +1,5 @@
-//! `waterui_apple_main`'s body — the work `WuiRootContext.init()` did in
-//! Swift, in the same order.
-//!
-//! The staging is dictated by the fallback's environment preparation: its
-//! GPU runtime is created asynchronously, so [`crate::seam`] returns through
-//! a callback on the main thread, and the platform run loop must already be
-//! draining the main queue for the callback to ever run. The launch
-//! therefore splits at the seam — everything before it runs synchronously,
-//! the rest (theme, locale, windows, `app(env)` itself) runs inside the
-//! platform's launch handler, half before the seam call and half in its
-//! callback:
-//!
-//! - `run`: process startup (executors, tracing, the locale listener),
-//!   the inspector, the font collection and bundled fonts;
-//! - launch handler: the platform application, menus, theme, locale — then
-//!   `waterui_swift_prepare_env`;
-//! - seam callback: the window manager (installed after the fallback's own
-//!   services so `Window::show` resolves to this backend), `app(env)`'s
-//!   declared windows, and the `LastWindowPolicy`.
+//! Native application startup. GPU setup completes on the main executor
+//! before services, application declarations, and windows are realized.
 
 use waterui::app::App;
 use waterui_backend_core::Environment;
@@ -41,7 +24,9 @@ pub unsafe fn run(
     let inspector = crate::startup::initialize();
     waterui::inspector::install(env, inspector);
     waterui::text::install_system_font_collection(env);
-    crate::fonts::register_bundle_fonts();
+    crate::resources::install_application(env);
+    crate::dispatch::install(env);
+    env.insert(crate::first_paint::FirstPaint::default());
     imp::launch(app, env, accessory)
 }
 
@@ -101,14 +86,8 @@ mod imp {
         // The web view controller fills its slot late and only when the
         // `webview` port is enabled — an application bundling its own
         // engine installed it during `app(env)`.
-        // SAFETY: `prepared` runs on the main thread; `app_env` outlives
-        // the call and the install borrows it only.
         #[cfg(feature = "webview")]
-        unsafe {
-            crate::components::webview::waterui_apple_install_webview(core::ptr::from_mut(
-                &mut app_env,
-            ));
-        }
+        crate::components::webview::install_service(&mut app_env);
         // `installMenuBar`: the declared menus resolve and rebuild under the
         // environment `app` returned, exactly as windows do. The guard lives
         // for the process.
@@ -184,11 +163,8 @@ mod imp {
                 // `WuiGpuRuntime.swift` + `waterui_env_install_gpu_runtime`.
                 unsafe {
                     crate::gpu_runtime::prepare(env_ptr, move || {
-                        crate::seam::waterui_swift_prepare_env(
-                            env_ptr,
-                            Box::into_raw(launch).cast::<c_void>(),
-                            prepared,
-                        );
+                        crate::embedding::install_services(&mut *env_ptr);
+                        prepared(Box::into_raw(launch).cast::<c_void>());
                     });
                 }
             })
@@ -251,14 +227,8 @@ mod imp {
         // The web view controller fills its slot late and only when the
         // `webview` port is enabled — an application bundling its own
         // engine installed it during `app(env)`.
-        // SAFETY: `prepared` runs on the main thread; `app_env` outlives
-        // the call and the install borrows it only.
         #[cfg(feature = "webview")]
-        unsafe {
-            crate::components::webview::waterui_apple_install_webview(core::ptr::from_mut(
-                &mut app_env,
-            ));
-        }
+        crate::components::webview::install_service(&mut app_env);
         // `installMenuBar`: `declared` feeds the `build_menus` handler the
         // delegate registered at launch; the watch rebuilds on every change.
         // The guard lives for the process.
@@ -312,11 +282,8 @@ mod imp {
             // `WuiGpuRuntime.swift` + `waterui_env_install_gpu_runtime`.
             unsafe {
                 crate::gpu_runtime::prepare(env_ptr, move || {
-                    crate::seam::waterui_swift_prepare_env(
-                        env_ptr,
-                        Box::into_raw(launch).cast::<c_void>(),
-                        prepared,
-                    );
+                    crate::embedding::install_services(&mut *env_ptr);
+                    prepared(Box::into_raw(launch).cast::<c_void>());
                 });
             }
         });

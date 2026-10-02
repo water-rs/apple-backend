@@ -238,7 +238,7 @@ mod tests {
     use cocoa_ui::Rgba;
     use waterui::graphics::color::ColorScheme as WuiColorScheme;
 
-    use super::{color_scheme, font_weight, into_resolved};
+    use super::{color_scheme, font_weight, into_working};
     use waterui::text::font::FontWeight;
 
     /// Every canonical platform weight snaps to its named weight, including

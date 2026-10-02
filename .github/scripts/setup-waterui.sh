@@ -17,18 +17,6 @@ echo "Using waterui ref: ${waterui_ref}"
 rm -rf "${waterui_dir}"
 git clone --depth 1 --branch "${waterui_ref}" https://github.com/water-rs/waterui.git "${waterui_dir}"
 
-header_src="${waterui_dir}/ffi/waterui.h"
-header_dst_dir="${repo_root}/Sources/CWaterUI/include"
-header_dst="${header_dst_dir}/waterui.h"
-
-if [[ ! -f "${header_src}" ]]; then
-  echo "::error::Missing header: ${header_src}"
-  exit 1
-fi
-
-mkdir -p "${header_dst_dir}"
-cp "${header_src}" "${header_dst}"
-
 if [[ -n "${GITHUB_ENV:-}" ]]; then
   {
     echo "WATERUI_DIR=${waterui_dir}"

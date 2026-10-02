@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "The WaterUI backend for Apple platforms: AppKit and UIKit driven from Rust through cocoa-ui, with an Objective-C seam for views the Swift fallback still owns"
+description = "The native WaterUI backend for Apple platforms, with AppKit and UIKit driven from Rust through objc2"
 keywords = ["gui", "appkit", "uikit"]
 publish = false
 
@@ -165,8 +165,7 @@ waterui-graphics = { git = "https://github.com/water-rs/waterui", rev = "3fd3968
     "cpu",
 ] }
 waterui-shape = { git = "https://github.com/water-rs/waterui", rev = "3fd396804cd19bfccd38529d73618b522855849e" }
-# HAL access to the wgpu device's `MTLDevice`, for the Swift-side CEF surface
-# and the surviving applied-filter glue.
+# HAL access to the runtime device for native Metal presentation.
 wgpu-hal = { version = "30.0.1", features = ["metal"] }
 objc2-metal = { version = "0.3", features = [
     "MTLCommandBuffer",
