@@ -5,7 +5,7 @@ use std::{cell::Cell, rc::Rc};
 use waterui_backend_core::Environment;
 
 #[derive(Clone, Debug, Default)]
-pub(crate) struct FirstPaint(Rc<Cell<bool>>);
+pub(super) struct FirstPaint(Rc<Cell<bool>>);
 
 impl FirstPaint {
     fn claim(&self) -> bool {
@@ -13,7 +13,7 @@ impl FirstPaint {
     }
 }
 
-pub(crate) fn mark(view: &PlatformView, env: &Environment) {
+pub(super) fn mark(view: &PlatformView, env: &Environment) {
     let state = env
         .get::<FirstPaint>()
         .expect("first-paint state is installed");

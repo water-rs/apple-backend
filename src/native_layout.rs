@@ -20,7 +20,7 @@ fn owns_safe_area(view: &PlatformView) -> bool {
     }
 }
 
-pub(crate) fn manages_safe_area(view: &PlatformView) -> bool {
+pub(super) fn manages_safe_area(view: &PlatformView) -> bool {
     if owns_safe_area(view) {
         return true;
     }
@@ -28,12 +28,12 @@ pub(crate) fn manages_safe_area(view: &PlatformView) -> bool {
 }
 
 #[cfg(target_os = "macos")]
-pub(crate) fn safe_area_rect(view: &PlatformView) -> Rect {
+pub(super) fn safe_area_rect(view: &PlatformView) -> Rect {
     view.safeAreaRect().into()
 }
 
 #[cfg(target_os = "ios")]
-pub(crate) fn safe_area_rect(view: &PlatformView) -> Rect {
+pub(super) fn safe_area_rect(view: &PlatformView) -> Rect {
     let mut insets = view.safeAreaInsets();
     let mut ancestor = Some(view::retain_base(view));
     while let Some(current) = ancestor {
@@ -77,7 +77,7 @@ pub(crate) fn safe_area_rect(view: &PlatformView) -> Rect {
     }
 }
 
-pub(crate) fn content_frame(content: &PlatformView, host: &PlatformView) -> Rect {
+pub(super) fn content_frame(content: &PlatformView, host: &PlatformView) -> Rect {
     if manages_safe_area(content) {
         view::bounds(host)
     } else {

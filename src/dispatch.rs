@@ -158,6 +158,7 @@ pub(crate) fn is_native_boundary(view: &AnyView) -> bool {
 ///
 /// # Panics
 /// Panics on an unhandled native component or off the main thread.
+#[must_use]
 pub fn render(view: AnyView, env: &Environment) -> NativeLeaf {
     let mtm = cocoa_ui::MainThreadMarker::new().expect("rendering runs on the main thread");
     dispatcher(env)

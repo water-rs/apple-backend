@@ -8,8 +8,12 @@ use waterui_core::{Environment, ResourceContext};
 
 /// Copies the host's asset and font directories into this instance.
 ///
+/// # Panics
+/// Panics if either path is not UTF-8.
+///
 /// # Safety
 /// Both paths must be valid NUL-terminated UTF-8 strings for this call.
+#[must_use]
 pub unsafe fn from_host(assets: *const c_char, fonts: *const c_char) -> ResourceContext {
     // SAFETY: both pointers follow the string-lifetime contract above.
     let assets = unsafe { CStr::from_ptr(assets) }

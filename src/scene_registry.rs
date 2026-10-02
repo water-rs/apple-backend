@@ -6,7 +6,7 @@ use std::{
     rc::{Rc, Weak},
 };
 
-pub(crate) struct SceneRegistry<T>(Rc<Registry<T>>);
+pub(super) struct SceneRegistry<T>(Rc<Registry<T>>);
 
 struct Registry<T> {
     next: Cell<u64>,
@@ -37,7 +37,7 @@ impl<T> core::fmt::Debug for SceneRegistry<T> {
 }
 
 impl<T> SceneRegistry<T> {
-    pub(crate) fn register(&self, state: T) -> Registration<T> {
+    pub(super) fn register(&self, state: T) -> Registration<T> {
         let id = self.0.next.get();
         self.0
             .next
@@ -51,15 +51,15 @@ impl<T> SceneRegistry<T> {
         }
     }
 
-    pub(crate) fn get(&self, id: u64) -> Option<Rc<T>> {
+    pub(super) fn get(&self, id: u64) -> Option<Rc<T>> {
         self.0.mounts.borrow().get(&id).and_then(Weak::upgrade)
     }
 }
 
-pub(crate) struct Registration<T> {
+pub(super) struct Registration<T> {
     registry: Weak<Registry<T>>,
-    pub(crate) id: u64,
-    pub(crate) state: Rc<T>,
+    pub(super) id: u64,
+    pub(super) state: Rc<T>,
 }
 
 impl<T> Drop for Registration<T> {

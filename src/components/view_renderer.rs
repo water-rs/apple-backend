@@ -42,7 +42,7 @@ impl CustomViewRenderer for AppleViewRenderer {
 /// `waterui_env_install_view_renderer`.
 ///
 /// Installs the native snapshot renderer into this environment.
-pub(crate) fn install_service(env: &mut Environment) {
+pub fn install_service(env: &mut Environment) {
     let mtm = cocoa_ui::MainThreadMarker::new().expect("main thread");
     let renderer =
         crate::contract::RenderContext::new(env, crate::dispatch::dispatcher(env), mtm).renderer();

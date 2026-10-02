@@ -64,6 +64,9 @@ pub(crate) fn install_services(env: &mut Environment) {
 
 /// Initializes process services and returns one owned runtime through `ready`.
 ///
+/// # Panics
+/// Panics off the main thread or if native runtime initialization fails.
+///
 /// # Safety
 /// Call once per process, on the main thread. `context` and `ready` must
 /// remain valid until the callback, which runs exactly once on that thread.
@@ -92,6 +95,9 @@ pub unsafe extern "C" fn waterui_apple_runtime_create(
 
 /// Releases a runtime after its last mount is destroyed.
 ///
+/// # Panics
+/// Panics off the main thread.
+///
 /// # Safety
 /// `runtime` is an owned result of `runtime_create`, consumed once on the main thread.
 #[unsafe(no_mangle)]
@@ -102,6 +108,11 @@ pub unsafe extern "C" fn waterui_apple_runtime_drop(runtime: *mut c_void) {
 }
 
 /// Constructs and mounts the app supplied by `export_app!`.
+///
+/// # Panics
+/// Panics off the main thread, if the app declares no root window, or if
+/// native rendering or resource initialization fails. On iOS, also panics
+/// when the host does not belong to a view controller.
 ///
 /// # Safety
 /// `runtime` is borrowed from `runtime_create`; `host` is a live platform
@@ -179,63 +190,14 @@ pub unsafe fn mount(
     cocoa_ui::view::add_subview(host, &root);
     #[cfg(target_os = "ios")]
     cocoa_ui::uikit::view_controller::did_move_to_parent(&controller);
-    let leaf = crate::dispatch::render(declaration.build_content(), &env);
-    let content = Rc::new(leaf.mount(&root));
-    crate::primary_content::forward(&root, content.view());
-    let placed = content.clone();
-    root.set_layout_handler(move |root| {
-        let frame = crate::native_layout::content_frame(placed.view(), root);
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "the layout contract uses f32 points"
-        )]
-        let proposal = waterui_core::layout::ProposalSize::new(
-            Some(frame.size.width as f32),
-            Some(frame.size.height as f32),
-        );
-        crate::proposal::deliver(placed.view(), proposal);
-        cocoa_ui::view::set_frame(placed.view(), frame);
-    });
+    let content = mount_content(&root, declaration.build_content(), &env);
     #[cfg(target_os = "macos")]
     for window in windows {
         keepalive.keep(crate::windows::realize(window, &env, mtm));
     }
     #[cfg(target_os = "macos")]
     {
-        use std::cell::RefCell;
-        use waterui::SignalExt;
-        let declaration = Rc::new(RefCell::new(declaration));
-        let binding = Rc::new(RefCell::new(None));
-        let observed_env = env.clone();
-        let observed_binding = binding.clone();
-        let attach = Rc::new(move |root: &HostView| {
-            let Some(window) = cocoa_ui::view::window(root) else {
-                observed_binding.borrow_mut().take();
-                return;
-            };
-            let mut declaration = declaration.borrow_mut();
-            let toolbar = declaration.toolbar.take();
-            *observed_binding.borrow_mut() = Some(crate::windows::bind_root_window(
-                window,
-                &observed_env,
-                &declaration.title,
-                &declaration.frame,
-                &declaration.state,
-                toolbar,
-                &declaration.style.computed(),
-                &declaration.level,
-                &declaration.attention,
-                declaration.resize_increments.as_ref(),
-                &declaration.background.computed(),
-                declaration.closable,
-                declaration.resizable,
-                mtm,
-            ));
-        });
-        let on_window = attach.clone();
-        root.set_window_handler(move |root| on_window(root));
-        attach(&root);
-        keepalive.keep(binding);
+        bind_root(&root, declaration, &env, &mut keepalive, mtm);
         keepalive.keep(crate::menus::install_declared(
             mtm,
             &cocoa_ui::appkit::Application::shared(mtm),
@@ -277,7 +239,75 @@ pub unsafe fn mount(
     .cast()
 }
 
+fn mount_content(root: &HostView, view: waterui::AnyView, env: &Environment) -> Rc<Mounted> {
+    let leaf = crate::dispatch::render(view, env);
+    let content = Rc::new(leaf.mount(root));
+    crate::primary_content::forward(root, content.view());
+    let placed = content.clone();
+    root.set_layout_handler(move |root| {
+        let frame = crate::native_layout::content_frame(placed.view(), root);
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "the layout contract uses f32 points"
+        )]
+        let proposal = waterui_core::layout::ProposalSize::new(
+            Some(frame.size.width as f32),
+            Some(frame.size.height as f32),
+        );
+        crate::proposal::deliver(placed.view(), proposal);
+        cocoa_ui::view::set_frame(placed.view(), frame);
+    });
+    content
+}
+
+#[cfg(target_os = "macos")]
+fn bind_root(
+    root: &HostView,
+    declaration: waterui::window::Window,
+    env: &Environment,
+    keepalive: &mut KeepAlive,
+    mtm: MainThreadMarker,
+) {
+    use std::cell::RefCell;
+    use waterui::SignalExt;
+    let declaration = Rc::new(RefCell::new(declaration));
+    let binding = Rc::new(RefCell::new(None));
+    let observed_env = env.clone();
+    let observed_binding = binding.clone();
+    let attach = Rc::new(move |root: &HostView| {
+        let Some(window) = cocoa_ui::view::window(root) else {
+            observed_binding.borrow_mut().take();
+            return;
+        };
+        let mut declaration = declaration.borrow_mut();
+        let toolbar = declaration.toolbar.take();
+        *observed_binding.borrow_mut() = Some(crate::windows::bind_root_window(
+            window,
+            &observed_env,
+            &declaration.title,
+            &declaration.frame,
+            &declaration.state,
+            toolbar,
+            &declaration.style.computed(),
+            &declaration.level,
+            &declaration.attention,
+            declaration.resize_increments.as_ref(),
+            &declaration.background.computed(),
+            declaration.closable,
+            declaration.resizable,
+            mtm,
+        ));
+    });
+    let on_window = attach.clone();
+    root.set_window_handler(move |root| on_window(root));
+    attach(root);
+    keepalive.keep(binding);
+}
+
 /// Detaches and destroys one mounted instance.
+///
+/// # Panics
+/// Panics off the main thread.
 ///
 /// # Safety
 /// `mount` is the owned result of `waterui_apple_mount`, consumed once on the main thread.
@@ -289,6 +319,9 @@ pub unsafe extern "C" fn waterui_apple_mount_drop(mount: *mut c_void) {
 }
 
 /// Returns the mount's scene route, valid only in its owning runtime.
+///
+/// # Panics
+/// Panics off the main thread.
 ///
 /// # Safety
 /// `mount` is a live mount handle, borrowed on the main thread.
@@ -302,6 +335,9 @@ pub unsafe extern "C" fn waterui_apple_mount_scene_id(mount: *const c_void) -> u
 
 /// Connects an embedding host's scene to the identified mount.
 /// Returns an owned `UIWindow`, or null when the mount has been destroyed.
+///
+/// # Panics
+/// Panics off the main thread or if the scene's native content cannot render.
 ///
 /// # Safety
 /// `runtime` and `scene` are live runtime and `UIWindowScene` pointers, borrowed
@@ -329,6 +365,9 @@ pub unsafe extern "C" fn waterui_apple_scene_connect(
 }
 
 /// Releases a disconnected scene's content and subscriptions.
+///
+/// # Panics
+/// Panics off the main thread.
 ///
 /// # Safety
 /// `runtime` and `scene` are live borrowed objects on the main thread.

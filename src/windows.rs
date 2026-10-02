@@ -783,6 +783,7 @@ mod imp {
     /// window eagerly at connection, so the platform objects exist already
     /// and the content arrives when [`declare`] runs.
     struct Pending {
+        session_id: String,
         window: Retained<cocoa_ui::objc2_ui_kit::UIWindow>,
         controller: Retained<ViewController>,
         observation: ColorSchemeObservation,
@@ -820,7 +821,7 @@ mod imp {
                     .borrow()
                     .clone()
                     .expect("declared scenes have an environment");
-                let id = scene_id(&pending.window);
+                let id = pending.session_id.clone();
                 let host = realize(&declaration, pending, &env, mtm);
                 self.hosts.borrow_mut().insert(id, host);
             } else {
@@ -832,7 +833,7 @@ mod imp {
             self.hosts.borrow_mut().remove(id);
             self.pending
                 .borrow_mut()
-                .retain(|pending| scene_id(&pending.window) != id);
+                .retain(|pending| pending.session_id != id);
         }
     }
 
@@ -876,9 +877,11 @@ mod imp {
             crate::theme::refresh(&theme, scheme);
         });
 
+        let native_window = cocoa_ui::uikit::window_of(controller.host_view())
+            .expect("a visible root controller belongs to its scene window");
         let pending = Pending {
-            window: cocoa_ui::uikit::window_of(controller.host_view())
-                .expect("a visible root controller belongs to its scene window"),
+            session_id: scene_id(&native_window),
+            window: native_window,
             controller,
             observation,
         };
@@ -909,9 +912,11 @@ mod imp {
             controller.observe_color_scheme(move |scheme| crate::theme::refresh(&theme, scheme));
         // Scene-local appearance overlays the mount's resources and services.
         let declaration = scenes.claim().expect("an embedded app has a root window");
+        let session_id = scene.session().persistentIdentifier().to_string();
         let host = realize(
             &declaration,
             Pending {
+                session_id: session_id.clone(),
                 window: window.clone(),
                 controller,
                 observation,
@@ -919,7 +924,7 @@ mod imp {
             &env,
             mtm,
         );
-        scenes.hosts.borrow_mut().insert(scene_id(&window), host);
+        scenes.hosts.borrow_mut().insert(session_id, host);
         window.makeKeyAndVisible();
         window
     }

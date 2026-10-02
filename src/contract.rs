@@ -211,13 +211,6 @@ impl NativeLeaf {
             cocoa_ui::uikit::view_controller::remove_from_parent(controller);
         }
     }
-
-    /// Splits the leaf for a host that manages the parts separately — a
-    /// window that mounts the view, measures through the layout face, and
-    /// drops the rest with its own resources.
-    pub(crate) fn into_parts(self) -> (Retained<PlatformView>, Rc<dyn SubView>, KeepAlive) {
-        (self.view, self.layout, self.keepalive)
-    }
 }
 
 /// A child leaf attached to a parent view. Dropping it detaches the view
