@@ -13,7 +13,7 @@ use alloc::vec::Vec;
 
 use cocoa_ui::layer;
 use cocoa_ui::{PlatformView, Rect, Retained, Size, view};
-use waterui::graphics::color::ResolvedColor;
+use waterui::graphics::color::WorkingColor;
 use waterui::shape::{ClipShape, PathCommand, ShapeKind};
 use waterui::style::Shadow;
 use waterui_core::Metadata;
@@ -39,33 +39,23 @@ mod platform {
     pub(super) use cocoa_ui::uikit::colors;
 }
 
-/// A `ResolvedColor` as the platform's extended-sRGB color object — the
+/// A `WorkingColor` as the platform's extended-sRGB color object — the
 /// same conversion `resolved_color` applies.
 #[cfg(target_os = "ios")]
-fn platform_color(color: &ResolvedColor) -> Retained<platform::PlatformColor> {
-    platform::colors::extended_linear(
-        f64::from(color.red),
-        f64::from(color.green),
-        f64::from(color.blue),
-        f64::from(color.opacity),
-        f64::from(color.headroom),
-    )
+fn platform_color(color: &WorkingColor) -> Retained<platform::PlatformColor> {
+    {
+        let [red, green, blue, alpha] = color.components;
+        platform::colors::extended_linear(f64::from(red), f64::from(green), f64::from(blue), f64::from(alpha),)
+    }
 }
 
-/// A `ResolvedColor` as the platform's extended-sRGB color object, with HDR
+/// A `WorkingColor` as the platform's extended-sRGB color object, with HDR
 /// headroom applied as a content-headroom multiplier — the `AppKit` variant.
 #[cfg(target_os = "macos")]
-fn platform_color(color: &ResolvedColor) -> Retained<platform::PlatformColor> {
-    let unscaled = platform::colors::extended_linear(
-        f64::from(color.red),
-        f64::from(color.green),
-        f64::from(color.blue),
-        f64::from(color.opacity),
-    );
-    if color.headroom > 0.0 {
-        platform::colors::with_content_headroom(&unscaled, 1.0 + f64::from(color.headroom))
-    } else {
-        unscaled
+fn platform_color(color: &WorkingColor) -> Retained<platform::PlatformColor> {
+    {
+        let [red, green, blue, alpha] = color.components;
+        platform::colors::extended_linear(f64::from(red), f64::from(green), f64::from(blue), f64::from(alpha),)
     }
 }
 
@@ -180,12 +170,12 @@ impl core::fmt::Debug for ShadowState {
 /// `applyShadowColor`: the resolved color lands as `shadowColor` at full
 /// opacity plus `shadowOpacity` carrying the alpha, then any captured
 /// rendering is invalidated.
-fn apply_shadow_color(color: &ResolvedColor, host: &PlatformView) {
+fn apply_shadow_color(color: &WorkingColor, host: &PlatformView) {
     let platform = platform_color(color);
     let opaque = platform::colors::with_alpha(&platform, 1.0);
     if let Some(layer) = layer::layer_of(host) {
         layer::set_shadow_color(&layer, Some(&platform::colors::cg(&opaque)));
-        layer::set_shadow_opacity(&layer, color.opacity);
+        layer::set_shadow_opacity(&layer, color.components[3]);
     }
     view::invalidate_captured_rendering(host);
 }

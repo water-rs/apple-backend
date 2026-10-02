@@ -11,7 +11,7 @@ use core::cell::RefCell;
 use cocoa_ui::Retained;
 use waterui::Str;
 use waterui::animation::Animation;
-use waterui::graphics::color::ResolvedColor;
+use waterui::graphics::color::WorkingColor;
 use waterui::reactive::Signal;
 use waterui::reactive::watcher::Metadata;
 use waterui::resolve::Resolvable;
@@ -112,32 +112,22 @@ fn platform_font(
     }
 }
 
-/// A `ResolvedColor` as the platform's extended-sRGB color object.
+/// A `WorkingColor` as the platform's extended-sRGB color object.
 #[cfg(target_os = "ios")]
-fn platform_color(color: &ResolvedColor) -> Retained<cocoa_ui::objc2_ui_kit::UIColor> {
-    cocoa_ui::uikit::colors::extended_linear(
-        f64::from(color.red),
-        f64::from(color.green),
-        f64::from(color.blue),
-        f64::from(color.opacity),
-        f64::from(color.headroom),
-    )
+fn platform_color(color: &WorkingColor) -> Retained<cocoa_ui::objc2_ui_kit::UIColor> {
+    {
+        let [red, green, blue, alpha] = color.components;
+        cocoa_ui::uikit::colors::extended_linear(f64::from(red), f64::from(green), f64::from(blue), f64::from(alpha),)
+    }
 }
 
-/// A `ResolvedColor` as the platform's extended-sRGB color object, with HDR
+/// A `WorkingColor` as the platform's extended-sRGB color object, with HDR
 /// headroom applied as a content-headroom multiplier.
 #[cfg(target_os = "macos")]
-fn platform_color(color: &ResolvedColor) -> Retained<cocoa_ui::objc2_app_kit::NSColor> {
-    let unscaled = cocoa_ui::appkit::colors::extended_linear(
-        f64::from(color.red),
-        f64::from(color.green),
-        f64::from(color.blue),
-        f64::from(color.opacity),
-    );
-    if color.headroom > 0.0 {
-        cocoa_ui::appkit::colors::with_content_headroom(&unscaled, 1.0 + f64::from(color.headroom))
-    } else {
-        unscaled
+fn platform_color(color: &WorkingColor) -> Retained<cocoa_ui::objc2_app_kit::NSColor> {
+    {
+        let [red, green, blue, alpha] = color.components;
+        cocoa_ui::appkit::colors::extended_linear(f64::from(red), f64::from(green), f64::from(blue), f64::from(alpha),)
     }
 }
 
@@ -153,7 +143,7 @@ struct PlainState {
     /// The latest resolved body font.
     font: ResolvedFont,
     /// The latest resolved theme foreground.
-    foreground: ResolvedColor,
+    foreground: WorkingColor,
 }
 
 impl core::fmt::Debug for PlainState {

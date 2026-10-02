@@ -1047,23 +1047,18 @@ mod platform_impl {
             Self { state, mtm }
         }
 
-        /// The muted-foreground `ResolvedColor` as an `AppKit` color.
+        /// The muted-foreground `WorkingColor` as an `AppKit` color.
         fn platform_color(
-            color: &waterui::graphics::color::ResolvedColor,
+            color: &waterui::graphics::color::WorkingColor,
         ) -> Retained<cocoa_ui::objc2_app_kit::NSColor> {
-            let unscaled = cocoa_ui::appkit::colors::extended_linear(
-                f64::from(color.red),
-                f64::from(color.green),
-                f64::from(color.blue),
-                f64::from(color.opacity),
-            );
-            if color.headroom > 0.0 {
-                cocoa_ui::appkit::colors::with_content_headroom(
-                    &unscaled,
-                    1.0 + f64::from(color.headroom),
+            {
+                let [red, green, blue, alpha] = color.components;
+                cocoa_ui::appkit::colors::extended_linear(
+                    f64::from(red),
+                    f64::from(green),
+                    f64::from(blue),
+                    f64::from(alpha),
                 )
-            } else {
-                unscaled
             }
         }
 

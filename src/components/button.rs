@@ -15,7 +15,7 @@ use core::cell::RefCell;
 use cocoa_ui::action::ActionTarget;
 use cocoa_ui::{PlatformView, Retained, view};
 use waterui::component::button::{ButtonConfig, ButtonStyle};
-use waterui::graphics::color::ResolvedColor;
+use waterui::graphics::color::WorkingColor;
 use waterui::reactive::{Computed, SignalExt};
 use waterui::resolve::Resolvable;
 use waterui::text::StyledStr;
@@ -65,32 +65,22 @@ fn as_view(button: &Button) -> &PlatformView {
     button.as_ref()
 }
 
-/// A `ResolvedColor` as the platform's extended-sRGB color object.
+/// A `WorkingColor` as the platform's extended-sRGB color object.
 #[cfg(target_os = "ios")]
-fn platform_color(color: &ResolvedColor) -> Retained<platform::UIColor> {
-    platform::colors::extended_linear(
-        f64::from(color.red),
-        f64::from(color.green),
-        f64::from(color.blue),
-        f64::from(color.opacity),
-        f64::from(color.headroom),
-    )
+fn platform_color(color: &WorkingColor) -> Retained<platform::UIColor> {
+    {
+        let [red, green, blue, alpha] = color.components;
+        platform::colors::extended_linear(f64::from(red), f64::from(green), f64::from(blue), f64::from(alpha),)
+    }
 }
 
-/// A `ResolvedColor` as the platform's extended-sRGB color object, with HDR
+/// A `WorkingColor` as the platform's extended-sRGB color object, with HDR
 /// headroom applied as a content-headroom multiplier — the `AppKit` variant.
 #[cfg(target_os = "macos")]
-fn platform_color(color: &ResolvedColor) -> Retained<platform::NSColor> {
-    let unscaled = platform::colors::extended_linear(
-        f64::from(color.red),
-        f64::from(color.green),
-        f64::from(color.blue),
-        f64::from(color.opacity),
-    );
-    if color.headroom > 0.0 {
-        platform::colors::with_content_headroom(&unscaled, 1.0 + f64::from(color.headroom))
-    } else {
-        unscaled
+fn platform_color(color: &WorkingColor) -> Retained<platform::NSColor> {
+    {
+        let [red, green, blue, alpha] = color.components;
+        platform::colors::extended_linear(f64::from(red), f64::from(green), f64::from(blue), f64::from(alpha),)
     }
 }
 
@@ -98,7 +88,7 @@ fn platform_color(color: &ResolvedColor) -> Retained<platform::NSColor> {
 /// `UIKit` table: chrome carries the emphasis for glass, accent for
 /// prominent fills.
 #[cfg(target_os = "ios")]
-fn label_foreground(style: ButtonStyle, env: &Environment) -> Computed<ResolvedColor> {
+fn label_foreground(style: ButtonStyle, env: &Environment) -> Computed<WorkingColor> {
     match style {
         ButtonStyle::BorderedProminent | ButtonStyle::GlassProminent => {
             AccentForeground.resolve(env).computed()
@@ -115,7 +105,7 @@ fn label_foreground(style: ButtonStyle, env: &Environment) -> Computed<ResolvedC
 /// The `AppKit` table: bordered titles draw in the primary label color;
 /// only link and borderless styles are accent-tinted.
 #[cfg(target_os = "macos")]
-fn label_foreground(style: ButtonStyle, env: &Environment) -> Computed<ResolvedColor> {
+fn label_foreground(style: ButtonStyle, env: &Environment) -> Computed<WorkingColor> {
     match style {
         ButtonStyle::BorderedProminent | ButtonStyle::GlassProminent => {
             AccentForeground.resolve(env).computed()

@@ -462,7 +462,7 @@ fn wire(
         let muted = waterui::theme::color::MutedForeground.resolve(ctx.env());
         leaf.bind(&muted, {
             let state = Rc::clone(state);
-            move |color: waterui::graphics::color::ResolvedColor| {
+            move |color: waterui::graphics::color::WorkingColor| {
                 let borrowed = state.borrow();
                 *borrowed.decoration_color.borrow_mut() = platform_color(&color);
                 let decorated: Vec<DateParts> = borrowed
@@ -492,7 +492,7 @@ fn wire(
         let foreground = waterui::theme::color::Foreground.resolve(ctx.env());
         leaf.bind(&foreground, {
             let state = Rc::clone(state);
-            move |color: waterui::graphics::color::ResolvedColor| {
+            move |color: waterui::graphics::color::WorkingColor| {
                 *state.borrow().foreground.borrow_mut() = platform_color(&color);
                 sync_from_model(&state.borrow());
             }
@@ -625,16 +625,13 @@ pub fn install(dispatcher: &mut Dispatcher) {
     });
 }
 
-/// A `ResolvedColor` as the platform's extended-sRGB color object.
+/// A `WorkingColor` as the platform's extended-sRGB color object.
 #[cfg(target_os = "ios")]
-fn platform_color(color: &waterui::graphics::color::ResolvedColor) -> Retained<platform::UIColor> {
-    cocoa_ui::uikit::colors::extended_linear(
-        f64::from(color.red),
-        f64::from(color.green),
-        f64::from(color.blue),
-        f64::from(color.opacity),
-        f64::from(color.headroom),
-    )
+fn platform_color(color: &waterui::graphics::color::WorkingColor) -> Retained<platform::UIColor> {
+    {
+        let [red, green, blue, alpha] = color.components;
+        cocoa_ui::uikit::colors::extended_linear(f64::from(red), f64::from(green), f64::from(blue), f64::from(alpha),)
+    }
 }
 
 /// The platform weight of a `FontWeight` on the `NSFont`/`UIFont` scale.
@@ -697,17 +694,10 @@ fn platform_font(
 /// The `AppKit` variant: headroom goes through
 /// `NSColor.applyingContentHeadroom` rather than scaled components.
 #[cfg(target_os = "macos")]
-fn platform_color(color: &waterui::graphics::color::ResolvedColor) -> Retained<platform::NSColor> {
-    let unscaled = cocoa_ui::appkit::colors::extended_linear(
-        f64::from(color.red),
-        f64::from(color.green),
-        f64::from(color.blue),
-        f64::from(color.opacity),
-    );
-    if color.headroom > 0.0 {
-        cocoa_ui::appkit::colors::with_content_headroom(&unscaled, 1.0 + f64::from(color.headroom))
-    } else {
-        unscaled
+fn platform_color(color: &waterui::graphics::color::WorkingColor) -> Retained<platform::NSColor> {
+    {
+        let [red, green, blue, alpha] = color.components;
+        cocoa_ui::appkit::colors::extended_linear(f64::from(red), f64::from(green), f64::from(blue), f64::from(alpha),)
     }
 }
 

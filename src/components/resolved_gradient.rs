@@ -6,7 +6,7 @@
 //! authoring error, as the Swift `fatalError` was).
 
 use cocoa_ui::gradient::{GradientKind, GradientLayer, GradientStop};
-use waterui::graphics::color::ResolvedColor;
+use waterui::graphics::color::WorkingColor;
 use waterui::graphics::{GradientType, ResolvedGradient};
 use waterui_core::layout::{ProposalSize, Size, StretchAxis, SubView, ViewDimensions};
 
@@ -25,16 +25,17 @@ mod platform {
 
 use platform::HostView;
 
-/// A `ResolvedColor` as a `CGColor` in extended sRGB.
+/// A `WorkingColor` as a `CGColor` in extended sRGB — channels carried
+/// straight; values above `1.0` are the color's HDR headroom already.
 fn cg_color(
-    color: &ResolvedColor,
+    color: &WorkingColor,
 ) -> cocoa_ui::objc2_core_foundation::CFRetained<cocoa_ui::objc2_core_graphics::CGColor> {
+    let [red, green, blue, alpha] = color.components;
     cocoa_ui::color::cg_extended_linear(
-        f64::from(color.red),
-        f64::from(color.green),
-        f64::from(color.blue),
-        f64::from(color.opacity),
-        f64::from(color.headroom),
+        f64::from(red),
+        f64::from(green),
+        f64::from(blue),
+        f64::from(alpha),
     )
 }
 

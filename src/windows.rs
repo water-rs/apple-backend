@@ -24,7 +24,7 @@ mod imp {
     use cocoa_ui::appkit::{AttentionRequest, HostView, WindowLevel as KitLevel, WindowStyle};
     use cocoa_ui::{MainThreadMarker, Retained};
     use waterui::animation::Animation;
-    use waterui::graphics::color::ResolvedColor;
+    use waterui::graphics::color::WorkingColor;
     use waterui::reactive::{Binding, Computed, Signal};
     use waterui::window::{
         UserAttention, Window, WindowBackground, WindowLevel, WindowState, WindowStyle as WuiStyle,
@@ -720,7 +720,7 @@ mod imp {
     fn wire_background(
         window: &Rc<cocoa_ui::appkit::Window>,
         keepalive: &mut KeepAlive,
-        resolved: &Computed<ResolvedColor>,
+        resolved: &Computed<WorkingColor>,
     ) {
         keepalive.bind(resolved, {
             let window = window.clone();
@@ -745,16 +745,17 @@ mod imp {
 
     fn apply_background(
         window: &cocoa_ui::appkit::Window,
-        color: waterui::graphics::color::ResolvedColor,
+        color: waterui::graphics::color::WorkingColor,
     ) {
-        let srgb = color.to_srgb();
+        let srgb = waterui::graphics::color::working::to_srgb(color);
+        let alpha = color.components[3];
         window.set_background_color(cocoa_ui::Rgba {
             red: f64::from(srgb.red),
             green: f64::from(srgb.green),
             blue: f64::from(srgb.blue),
-            alpha: f64::from(color.opacity),
+            alpha: f64::from(alpha),
         });
-        window.set_opaque(color.opacity >= 1.0);
+        window.set_opaque(alpha >= 1.0);
         window.set_has_shadow(true);
     }
 
@@ -1042,14 +1043,11 @@ mod imp {
 
     /// `applyWindowBackground`'s write on `UIKit`: the resolved color as the
     /// host view's `backgroundColor`, matching the Swift controller.
-    fn apply_background(host: &HostView, color: &waterui::graphics::color::ResolvedColor) {
-        let rgba = cocoa_ui::uikit::colors::extended_linear(
-            f64::from(color.red),
-            f64::from(color.green),
-            f64::from(color.blue),
-            f64::from(color.opacity),
-            f64::from(color.headroom),
-        );
+    fn apply_background(host: &HostView, color: &waterui::graphics::color::WorkingColor) {
+        let rgba = {
+     let [red, green, blue, alpha] = color.components;
+     cocoa_ui::uikit::colors::extended_linear(f64::from(red), f64::from(green), f64::from(blue), f64::from(alpha),)
+ };
         cocoa_ui::view::set_background_color(host, Some(&rgba));
     }
 }

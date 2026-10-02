@@ -15,7 +15,7 @@ use core::cell::{Cell, RefCell};
 
 use cocoa_ui::{PlatformView, Rect, Retained};
 use waterui::component::form::picker::color::ColorPickerConfig;
-use waterui::graphics::color::{Color, ResolvedColor, srgb_to_linear};
+use waterui::graphics::color::{Color, WorkingColor, srgb_to_linear};
 use waterui::reactive::{Computed, Signal};
 use waterui::text::StyledStr;
 use waterui_core::interaction::Disabled;
@@ -59,51 +59,44 @@ fn accessibility_text(styled: &StyledStr) -> String {
 }
 
 /// The platform color a resolved color sets on the well — `toUIColor` /
-/// `toNSColor` semantics: extended-range components with HDR headroom when
+/// `toNSColor` semantics: extended-range components when
 /// `allow_hdr`, clamped linear sRGB otherwise.
 #[cfg(target_os = "ios")]
-fn platform_color(color: &ResolvedColor, allow_hdr: bool) -> Retained<platform::PlatformColor> {
+fn platform_color(color: &WorkingColor, allow_hdr: bool) -> Retained<platform::PlatformColor> {
     if allow_hdr {
-        platform::colors::extended_linear(
-            f64::from(color.red),
-            f64::from(color.green),
-            f64::from(color.blue),
-            f64::from(color.opacity),
-            f64::from(color.headroom),
-        )
+        {
+            let [red, green, blue, alpha] = color.components;
+            platform::colors::extended_linear(f64::from(red), f64::from(green), f64::from(blue), f64::from(alpha),)
+        }
     } else {
+        let [red, green, blue, alpha] = color.components;
         platform::colors::linear(
-            f64::from(color.red),
-            f64::from(color.green),
-            f64::from(color.blue),
-            f64::from(color.opacity),
+            f64::from(red),
+            f64::from(green),
+            f64::from(blue),
+            f64::from(alpha),
         )
     }
 }
 
-/// The `AppKit` variant: headroom goes through
-/// `NSColor.applyingContentHeadroom` rather than scaled components.
+/// The `AppKit` variant — channels are straight working-color values.
 #[cfg(target_os = "macos")]
-fn platform_color(color: &ResolvedColor, allow_hdr: bool) -> Retained<platform::PlatformColor> {
+fn platform_color(color: &WorkingColor, allow_hdr: bool) -> Retained<platform::PlatformColor> {
+    let [red, green, blue, alpha] = color.components;
     let (red, green, blue, alpha) = (
-        f64::from(color.red),
-        f64::from(color.green),
-        f64::from(color.blue),
-        f64::from(color.opacity),
+        f64::from(red),
+        f64::from(green),
+        f64::from(blue),
+        f64::from(alpha),
     );
     if allow_hdr {
-        let base = platform::colors::extended_linear(red, green, blue, alpha);
-        if color.headroom > 0.0 {
-            platform::colors::with_content_headroom(&base, 1.0 + f64::from(color.headroom))
-        } else {
-            base
-        }
+        platform::colors::extended_linear(red, green, blue, alpha)
     } else {
         platform::colors::linear(red, green, blue, alpha)
     }
 }
 
-/// The well's current color as a `ResolvedColor`: the SDR base read as sRGB
+/// The well's current color as a `WorkingColor`: the SDR base read as sRGB
 /// components converted to linear, plus headroom — `updateBindingWithColor`
 /// in `WuiColorPicker`. `support_hdr` gates the exposure read; `None` is
 /// only a `UIColorWell` with no selection.
@@ -112,7 +105,7 @@ fn platform_color(color: &ResolvedColor, allow_hdr: bool) -> Retained<platform::
     clippy::cast_possible_truncation,
     reason = "the components fit comfortably in f32 — the binding speaks it"
 )]
-fn read_well_color(well: &ColorWell, support_hdr: bool) -> ResolvedColor {
+fn read_well_color(well: &ColorWell, support_hdr: bool) -> WorkingColor {
     let color = well.color();
     let (base, headroom) = if support_hdr {
         platform::colors::sdr_base_and_headroom(&color)
@@ -121,7 +114,7 @@ fn read_well_color(well: &ColorWell, support_hdr: bool) -> ResolvedColor {
     };
     let rgba = platform::colors::srgb_components(&base)
         .expect("NSColorWell returned a color with no sRGB form");
-    ResolvedColor {
+    WorkingColor {
         red: srgb_to_linear(rgba.red as f32),
         green: srgb_to_linear(rgba.green as f32),
         blue: srgb_to_linear(rgba.blue as f32),
@@ -137,7 +130,7 @@ fn read_well_color(well: &ColorWell, support_hdr: bool) -> ResolvedColor {
     reason = "the components fit comfortably in f32 — the binding speaks it"
 )]
 #[cfg(target_os = "ios")]
-fn read_well_color(well: &ColorWell, support_hdr: bool) -> Option<ResolvedColor> {
+fn read_well_color(well: &ColorWell, support_hdr: bool) -> Option<WorkingColor> {
     let color = well.color()?;
     let (base, headroom) = if support_hdr {
         platform::well_colors::sdr_base_and_headroom(&color)
@@ -146,7 +139,7 @@ fn read_well_color(well: &ColorWell, support_hdr: bool) -> Option<ResolvedColor>
     };
     let rgba = platform::well_colors::srgb_components(&base)
         .expect("UIColorWell returned a color that cannot convert to sRGB");
-    Some(ResolvedColor {
+    Some(WorkingColor {
         red: srgb_to_linear(rgba.red as f32),
         green: srgb_to_linear(rgba.green as f32),
         blue: srgb_to_linear(rgba.blue as f32),
@@ -170,7 +163,7 @@ struct ColorPickerState {
     syncing: Rc<Cell<bool>>,
     /// The watcher observing the currently bound `Color`'s resolved value;
     /// replaced every time the binding emits a new `Color`.
-    color_guard: Option<<Computed<ResolvedColor> as Signal>::Guard>,
+    color_guard: Option<<Computed<WorkingColor> as Signal>::Guard>,
     /// Keeps the well's action target alive; the field is never read.
     _action: cocoa_ui::ActionTarget,
 }
@@ -342,7 +335,7 @@ pub fn install(dispatcher: &mut Dispatcher) {
             let env = ctx.env().clone();
             move |ctx| {
                 let resolved = ctx.value().resolve(&env);
-                let apply = |resolved: &ResolvedColor| {
+                let apply = |resolved: &WorkingColor| {
                     let state = state.borrow();
                     state.syncing.set(true);
                     state.well.set_color(&platform_color(resolved, support_hdr));

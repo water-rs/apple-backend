@@ -15,7 +15,7 @@ use core::num::{NonZero, NonZeroUsize};
 use cocoa_ui::Retained;
 use waterui::Str;
 use waterui::animation::Animation;
-use waterui::graphics::color::ResolvedColor;
+use waterui::graphics::color::WorkingColor;
 use waterui::reactive::Signal;
 use waterui::reactive::watcher::Metadata;
 use waterui::resolve::Resolvable;
@@ -64,9 +64,9 @@ struct Chunk {
     /// Its latest resolved font.
     font: ResolvedFont,
     /// Its latest foreground — `None` draws the theme default.
-    foreground: Option<ResolvedColor>,
+    foreground: Option<WorkingColor>,
     /// Its latest background.
-    background: Option<ResolvedColor>,
+    background: Option<WorkingColor>,
     /// Whether the chunk is italicized.
     italic: bool,
     /// Whether the chunk is underlined.
@@ -86,7 +86,7 @@ struct TextState {
     /// The platform label.
     label: Retained<Label>,
     /// The theme default for chunks without their own foreground.
-    default_foreground: ResolvedColor,
+    default_foreground: WorkingColor,
     /// The resolved chunks of the current `StyledStr`.
     chunks: Vec<Chunk>,
     /// Watcher guards of the current `StyledStr`'s per-chunk signals,
@@ -179,32 +179,22 @@ fn platform_font(
     font
 }
 
-/// A `ResolvedColor` as the platform's extended-sRGB color object.
+/// A `WorkingColor` as the platform's extended-sRGB color object.
 #[cfg(target_os = "ios")]
-pub fn platform_color(color: &ResolvedColor) -> Retained<cocoa_ui::objc2_ui_kit::UIColor> {
-    platform::colors::extended_linear(
-        f64::from(color.red),
-        f64::from(color.green),
-        f64::from(color.blue),
-        f64::from(color.opacity),
-        f64::from(color.headroom),
-    )
+pub fn platform_color(color: &WorkingColor) -> Retained<cocoa_ui::objc2_ui_kit::UIColor> {
+    {
+        let [red, green, blue, alpha] = color.components;
+        platform::colors::extended_linear(f64::from(red), f64::from(green), f64::from(blue), f64::from(alpha),)
+    }
 }
 
-/// A `ResolvedColor` as the platform's extended-sRGB color object, with HDR
+/// A `WorkingColor` as the platform's extended-sRGB color object, with HDR
 /// headroom applied as a content-headroom multiplier — the `AppKit` variant.
 #[cfg(target_os = "macos")]
-pub fn platform_color(color: &ResolvedColor) -> Retained<cocoa_ui::objc2_app_kit::NSColor> {
-    let unscaled = platform::colors::extended_linear(
-        f64::from(color.red),
-        f64::from(color.green),
-        f64::from(color.blue),
-        f64::from(color.opacity),
-    );
-    if color.headroom > 0.0 {
-        platform::colors::with_content_headroom(&unscaled, 1.0 + f64::from(color.headroom))
-    } else {
-        unscaled
+pub fn platform_color(color: &WorkingColor) -> Retained<cocoa_ui::objc2_app_kit::NSColor> {
+    {
+        let [red, green, blue, alpha] = color.components;
+        platform::colors::extended_linear(f64::from(red), f64::from(green), f64::from(blue), f64::from(alpha),)
     }
 }
 
@@ -452,7 +442,7 @@ fn label_leaf(
         mtm,
         env: ctx.env().clone(),
         label: label.clone(),
-        default_foreground: ResolvedColor::default(),
+        default_foreground: WorkingColor::default(),
         chunks: Vec::new(),
         signal_guards: Vec::new(),
         default_guard: None,

@@ -10,7 +10,7 @@
 //! crosses into `cocoa-ui`.
 
 use cocoa_ui::Retained;
-use waterui::graphics::color::ResolvedColor;
+use waterui::graphics::color::WorkingColor;
 use waterui::icon::SystemIcon;
 use waterui::reactive::Signal;
 use waterui::resolve::Resolvable;
@@ -41,32 +41,22 @@ fn as_view(image: &ImageView) -> &PlatformView {
     image
 }
 
-/// A `ResolvedColor` as the platform's extended-sRGB color object.
+/// A `WorkingColor` as the platform's extended-sRGB color object.
 #[cfg(target_os = "ios")]
-fn platform_color(color: &ResolvedColor) -> Retained<cocoa_ui::objc2_ui_kit::UIColor> {
-    platform::colors::extended_linear(
-        f64::from(color.red),
-        f64::from(color.green),
-        f64::from(color.blue),
-        f64::from(color.opacity),
-        f64::from(color.headroom),
-    )
+fn platform_color(color: &WorkingColor) -> Retained<cocoa_ui::objc2_ui_kit::UIColor> {
+    {
+        let [red, green, blue, alpha] = color.components;
+        platform::colors::extended_linear(f64::from(red), f64::from(green), f64::from(blue), f64::from(alpha),)
+    }
 }
 
-/// A `ResolvedColor` as the platform's extended-sRGB color object, with HDR
+/// A `WorkingColor` as the platform's extended-sRGB color object, with HDR
 /// headroom applied as a content-headroom multiplier — the `AppKit` variant.
 #[cfg(target_os = "macos")]
-fn platform_color(color: &ResolvedColor) -> Retained<cocoa_ui::objc2_app_kit::NSColor> {
-    let unscaled = platform::colors::extended_linear(
-        f64::from(color.red),
-        f64::from(color.green),
-        f64::from(color.blue),
-        f64::from(color.opacity),
-    );
-    if color.headroom > 0.0 {
-        platform::colors::with_content_headroom(&unscaled, 1.0 + f64::from(color.headroom))
-    } else {
-        unscaled
+fn platform_color(color: &WorkingColor) -> Retained<cocoa_ui::objc2_app_kit::NSColor> {
+    {
+        let [red, green, blue, alpha] = color.components;
+        platform::colors::extended_linear(f64::from(red), f64::from(green), f64::from(blue), f64::from(alpha),)
     }
 }
 
