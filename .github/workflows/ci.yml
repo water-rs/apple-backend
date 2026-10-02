@@ -85,27 +85,29 @@ jobs:
         run: >-
           swift build --configuration ${{ matrix.configuration }}
           -Xswiftc -warnings-as-errors
-      # iOS legs: SwiftPM has no Xcode project/scheme, so cross-compile the
-      # package directly for the supported ARM64 simulator and device triples.
-      # SwiftPM does not select the iOS sysroot from `--triple` on the hosted
-      # toolchain, so each leg passes its SDK explicitly. Both destinations
-      # are build-only and debug-only: no simulator boots,
-      # the device leg signs nothing, and release adds nothing a compile can
-      # observe.
+      # iOS legs: SwiftPM generates the `waterui-apple-host` workspace and
+      # scheme on demand. Build it for the supported ARM64 simulator and
+      # device destinations; `ONLY_ACTIVE_ARCH`/`ARCHS` keeps the simulator
+      # leg from compiling the retired x86_64 iOS target. Both destinations
+      # are build-only and debug-only: no simulator boots, the device leg
+      # signs nothing, and release adds nothing a compile can observe.
       - name: Build (ios-simulator)
         if: matrix.configuration == 'debug'
         run: >-
-          swift build --triple arm64-apple-ios26.0-simulator
-          --scratch-path .build/ios-sim
-          -Xswiftc -sdk -Xswiftc "$(xcrun --sdk iphonesimulator --show-sdk-path)"
-          -Xswiftc -warnings-as-errors
+          xcodebuild build -scheme waterui-apple-host
+          -destination 'generic/platform=iOS Simulator'
+          -derivedDataPath .build/ios-sim
+          ONLY_ACTIVE_ARCH=YES ARCHS=arm64
+          SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
       - name: Build (ios-device)
         if: matrix.configuration == 'debug'
         run: >-
-          swift build --triple arm64-apple-ios26.0
-          --scratch-path .build/ios-device
-          -Xswiftc -sdk -Xswiftc "$(xcrun --sdk iphoneos --show-sdk-path)"
-          -Xswiftc -warnings-as-errors
+          xcodebuild build -scheme waterui-apple-host
+          -destination 'generic/platform=iOS'
+          -derivedDataPath .build/ios-device
+          ONLY_ACTIVE_ARCH=YES ARCHS=arm64
+          SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
+          CODE_SIGNING_ALLOWED=NO
       # The behavioural suite moved to the Rust lane: the FFI-bound Swift
       # bundle it replaced could only run with `-undefined dynamic_lookup`,
       # which is gone together with the FFI. The native libtest-mimic
