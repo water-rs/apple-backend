@@ -87,7 +87,9 @@ jobs:
           -Xswiftc -warnings-as-errors
       # iOS legs: SwiftPM has no Xcode project/scheme, so cross-compile the
       # package directly for the supported ARM64 simulator and device triples.
-      # Both destinations are build-only and debug-only: no simulator boots,
+      # SwiftPM does not select the iOS sysroot from `--triple` on the hosted
+      # toolchain, so each leg passes its SDK explicitly. Both destinations
+      # are build-only and debug-only: no simulator boots,
       # the device leg signs nothing, and release adds nothing a compile can
       # observe.
       - name: Build (ios-simulator)
@@ -95,12 +97,14 @@ jobs:
         run: >-
           swift build --triple arm64-apple-ios26.0-simulator
           --scratch-path .build/ios-sim
+          -Xswiftc -sdk -Xswiftc "$(xcrun --sdk iphonesimulator --show-sdk-path)"
           -Xswiftc -warnings-as-errors
       - name: Build (ios-device)
         if: matrix.configuration == 'debug'
         run: >-
           swift build --triple arm64-apple-ios26.0
           --scratch-path .build/ios-device
+          -Xswiftc -sdk -Xswiftc "$(xcrun --sdk iphoneos --show-sdk-path)"
           -Xswiftc -warnings-as-errors
       # The behavioural suite moved to the Rust lane: the FFI-bound Swift
       # bundle it replaced could only run with `-undefined dynamic_lookup`,
