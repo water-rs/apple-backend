@@ -60,16 +60,16 @@ final class WuiComputedObservation<T> {
   }
 }
 
-extension WuiComputedObservation where T == WuiResolvedColor {
+extension WuiComputedObservation where T == WuiWorkingColor {
   convenience init(
     themeColor slot: WuiColorSlot,
     env: WuiEnvironment,
-    onChange: @escaping (WuiResolvedColor, WuiWatcherMetadata) -> Void
+    onChange: @escaping (WuiWorkingColor, WuiWatcherMetadata) -> Void
   ) {
     guard let pointer = waterui_theme_color(env.inner, slot) else {
       fatalError("WaterUI theme is missing required color slot \(slot.rawValue)")
     }
-    self.init(WuiComputed<WuiResolvedColor>(pointer), onChange: onChange)
+    self.init(WuiComputed<WuiWorkingColor>(pointer), onChange: onChange)
   }
 }
 extension WuiComputed where T == Bool {
@@ -107,18 +107,18 @@ extension WuiComputed where T == CWaterUI.WuiColorScheme {
   }
 }
 
-extension WuiComputed where T == WuiResolvedColor {
+extension WuiComputed where T == WuiWorkingColor {
   convenience init(_ inner: OpaquePointer) {
     self.init(
       inner: inner,
       read: { inner in
-        return waterui_read_computed_resolved_color(inner)
+        return waterui_read_computed_working_color(inner)
       },
       watch: { inner, f in
-        let g = waterui_watch_computed_resolved_color(inner, makeResolvedColorWatcher(f))
+        let g = waterui_watch_computed_working_color(inner, makeWorkingColorWatcher(f))
         return WatcherGuard(g!)
       },
-      drop: waterui_drop_computed_resolved_color
+      drop: waterui_drop_computed_working_color
     )
   }
 }

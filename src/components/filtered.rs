@@ -178,7 +178,7 @@ fn pixel_size(view: &PlatformView, scale: f64) -> (u32, u32) {
 
 /// `outputPixelFormat`: the Metal format the effects render their output in.
 fn output_pixel_format() -> objc2_metal::MTLPixelFormat {
-    crate::gpu_runtime::metal_pixel_format(PRESENTATION_FORMAT)
+    cocoa_ui::metal::wgpu_to_metal_format(PRESENTATION_FORMAT)
 }
 
 /// `isPresentationOccluded`.
@@ -489,8 +489,8 @@ fn finish_prepared_frame(state: &Rc<FilteredState>, frame: CaptureFrame) {
                 // outlives the import; the format and size describe that
                 // same texture.
                 let texture = unsafe {
-                    crate::gpu_runtime::import_texture(
-                        &context,
+                    cocoa_ui::metal::import_texture(
+                        context.device(),
                         frame.texture.clone(),
                         PRESENTATION_FORMAT,
                         frame.width,
@@ -510,8 +510,8 @@ fn finish_prepared_frame(state: &Rc<FilteredState>, frame: CaptureFrame) {
     // SAFETY: `pending.texture` is the retained texture the presenter handed
     // us for this frame; the format and size describe that texture.
     let output_wgpu_texture = unsafe {
-        crate::gpu_runtime::import_texture(
-            &context,
+        cocoa_ui::metal::import_texture(
+            context.device(),
             pending.texture.clone(),
             PRESENTATION_FORMAT,
             output_width,
@@ -1230,7 +1230,7 @@ mod tests {
     fn presentation_format_maps_to_metal() {
         assert_eq!(PRESENTATION_FORMAT, wgpu::TextureFormat::Rgba16Float);
         assert_eq!(
-            crate::gpu_runtime::metal_pixel_format(PRESENTATION_FORMAT),
+            cocoa_ui::metal::wgpu_to_metal_format(PRESENTATION_FORMAT),
             objc2_metal::MTLPixelFormat::RGBA16Float
         );
     }

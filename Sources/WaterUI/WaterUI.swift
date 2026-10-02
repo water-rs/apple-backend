@@ -224,17 +224,17 @@ final class ReactiveWatcherList<Value>: @unchecked Sendable {
 /// This allows Swift to create and update color signals that notify WaterUI watchers.
 @MainActor
 final class ReactiveColorSignal {
-  private typealias State = ReactiveWatcherList<WuiResolvedColor>
+  private typealias State = ReactiveWatcherList<WuiWorkingColor>
 
   private let state: State
   private let statePtr: UnsafeMutableRawPointer
   private var computedPtr: OpaquePointer?
 
-  init(color: WuiResolvedColor) {
+  init(color: WuiWorkingColor) {
     self.state = State(
       value: color,
-      call: { waterui_call_watcher_resolved_color($0, $1) },
-      release: { waterui_drop_watcher_resolved_color($0) }
+      call: { waterui_call_watcher_working_color($0, $1) },
+      release: { waterui_drop_watcher_working_color($0) }
     )
     self.statePtr = Unmanaged.passRetained(state).toOpaque()
   }
@@ -247,9 +247,9 @@ final class ReactiveColorSignal {
   func toComputed() -> OpaquePointer {
     if let computedPtr { return computedPtr }
     guard
-      let computed = waterui_new_computed_resolved_color(
+      let computed = waterui_new_computed_working_color(
         statePtr,
-        { ptr -> WuiResolvedColor in
+        { ptr -> WuiWorkingColor in
           guard let ptr else {
             fatalError("ReactiveColorSignal get received a null state pointer")
           }
@@ -286,12 +286,11 @@ final class ReactiveColorSignal {
   }
 
   /// Updates the color and notifies all watchers.
-  func setValue(_ color: WuiResolvedColor) {
+  func setValue(_ color: WuiWorkingColor) {
     let current = state.value
     guard
       current.red != color.red || current.green != color.green
-        || current.blue != color.blue || current.opacity != color.opacity
-        || current.headroom != color.headroom
+        || current.blue != color.blue || current.alpha != color.alpha
     else { return }
     state.value = color
     state.notifyWatchers()
@@ -300,11 +299,11 @@ final class ReactiveColorSignal {
   /// Convenience to set from platform color
   #if canImport(UIKit)
     func setValue(_ color: UIColor) {
-      setValue(WuiResolvedColor.fromUIColor(color))
+      setValue(WuiWorkingColor.fromUIColor(color))
     }
   #elseif canImport(AppKit)
     func setValue(_ color: NSColor) {
-      setValue(WuiResolvedColor.fromNSColor(color))
+      setValue(WuiWorkingColor.fromNSColor(color))
     }
   #endif
 }
@@ -658,7 +657,7 @@ public final class ThemeBridge {
       slot: WuiColorSlot,
       resolve: @escaping @MainActor () -> UIColor
     ) -> ColorSignalEntry {
-      let signal = ReactiveColorSignal(color: WuiResolvedColor.fromUIColor(resolve()))
+      let signal = ReactiveColorSignal(color: WuiWorkingColor.fromUIColor(resolve()))
       waterui_theme_install_color(env.inner, slot, signal.toComputed())
       return ColorSignalEntry(signal: signal, resolve: resolve)
     }
@@ -719,7 +718,7 @@ public final class ThemeBridge {
       slot: WuiColorSlot,
       resolve: @escaping @MainActor () -> NSColor
     ) -> ColorSignalEntry {
-      let signal = ReactiveColorSignal(color: WuiResolvedColor.fromNSColor(resolve()))
+      let signal = ReactiveColorSignal(color: WuiWorkingColor.fromNSColor(resolve()))
       waterui_theme_install_color(env.inner, slot, signal.toComputed())
       return ColorSignalEntry(signal: signal, resolve: resolve)
     }
@@ -1160,8 +1159,8 @@ public final class WuiRootContext {
   public final class WaterUIViewController: UIViewController {
     private var context: WuiRootContext?
     private var startupTask: Task<Void, Never>?
-    private var backgroundObservation: WuiComputedObservation<WuiResolvedColor>?
-    private var accentObservation: WuiComputedObservation<WuiResolvedColor>?
+    private var backgroundObservation: WuiComputedObservation<WuiWorkingColor>?
+    private var accentObservation: WuiComputedObservation<WuiWorkingColor>?
 
     public init() {
       super.init(nibName: nil, bundle: nil)
@@ -1267,7 +1266,7 @@ public final class WuiRootContext {
   public final class WaterUIView: NSView {
     private var context: WuiRootContext?
     private var startupTask: Task<Void, Never>?
-    private var backgroundObservation: WuiComputedObservation<WuiResolvedColor>?
+    private var backgroundObservation: WuiComputedObservation<WuiWorkingColor>?
     private var rootWindowBinding: WuiRootWindowBinding?
 
     /// Starts the WaterUI runtime and hosts the application's first window.

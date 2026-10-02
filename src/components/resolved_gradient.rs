@@ -1,13 +1,13 @@
-//! The `resolved_gradient` leaf: `Native<ResolvedGradient>` rendered through
-//! a `CAGradientLayer` pinned to a host view — `WuiResolvedGradientView`.
+//! The `resolved_gradient` leaf: `Native<Gradient>` rendered through a
+//! `CAGradientLayer` pinned to a host view.
 //!
 //! The layer is re-framed to the view's bounds on every layout pass and the
 //! gradient type maps one-to-one onto the layer's three kinds (`Mesh` is an
 //! authoring error, as the Swift `fatalError` was).
 
 use cocoa_ui::gradient::{GradientKind, GradientLayer, GradientStop};
-use waterui::graphics::color::WorkingColor;
-use waterui::graphics::{GradientType, ResolvedGradient};
+use waterui::graphics::Gradient;
+use waterui::graphics::cherenkov::Paint;
 use waterui_core::layout::{ProposalSize, Size, StretchAxis, SubView, ViewDimensions};
 
 use crate::contract::NativeLeaf;
@@ -25,10 +25,9 @@ mod platform {
 
 use platform::HostView;
 
-/// A `WorkingColor` as a `CGColor` in extended linear Display-P3 — channels carried
-/// straight; values above `1.0` are the color's HDR headroom already.
+/// A Cherenkov working color as a `CGColor` in extended linear Display-P3.
 fn cg_color(
-    color: &WorkingColor,
+    color: &waterui::graphics::cherenkov::WorkingColor,
 ) -> cocoa_ui::objc2_core_foundation::CFRetained<cocoa_ui::objc2_core_graphics::CGColor> {
     let [red, green, blue, alpha] = color.components;
     cocoa_ui::color::cg_extended_linear_display_p3(
@@ -39,30 +38,26 @@ fn cg_color(
     )
 }
 
-/// The gradient's shape and normalized vector on the layer —
-/// `applyGradient` in `WuiResolvedGradientView`.
-fn configure(layer: &GradientLayer, gradient: &ResolvedGradient) {
-    let start = cocoa_ui::Point::new(
-        f64::from(gradient.start_point[0]),
-        f64::from(gradient.start_point[1]),
-    );
-    let end = cocoa_ui::Point::new(
-        f64::from(gradient.end_point[0]),
-        f64::from(gradient.end_point[1]),
-    );
-    let (kind, start, end) = match gradient.gradient_type {
-        GradientType::Linear => (GradientKind::Linear, start, end),
-        // `endPoint` sits `endValue` points past the center on x — the rim
-        // point the radial gradient's radius reads from.
-        GradientType::Radial => (
-            GradientKind::Radial,
-            start,
-            cocoa_ui::Point::new(end.x + f64::from(gradient.end_value), end.y),
+/// The gradient's shape and normalized geometry on the layer.
+fn configure(layer: &GradientLayer, gradient: &Gradient) {
+    let (kind, start, end) = match gradient.paint() {
+        Paint::Linear(linear) => (
+            GradientKind::Linear,
+            cocoa_ui::Point::new(linear.start.x, linear.start.y),
+            cocoa_ui::Point::new(linear.end.x, linear.end.y),
         ),
-        GradientType::Angular => (GradientKind::Angular, start, start),
-        GradientType::Mesh => {
-            panic!("Mesh gradients are not supported by WuiResolvedGradientView")
-        }
+        Paint::Radial(radial) => (
+            GradientKind::Radial,
+            cocoa_ui::Point::new(radial.start_center.x, radial.start_center.y),
+            cocoa_ui::Point::new(radial.end_center.x + radial.end_radius, radial.end_center.y),
+        ),
+        Paint::Sweep(sweep) => (
+            GradientKind::Angular,
+            cocoa_ui::Point::new(sweep.center.x, sweep.center.y),
+            cocoa_ui::Point::new(sweep.center.x, sweep.center.y),
+        ),
+        Paint::Mesh(_) => panic!("a mesh gradient is rendered by the scene engine"),
+        _ => panic!("a native gradient must carry a gradient paint"),
     };
     layer.configure(kind, start, end);
 }
@@ -97,7 +92,7 @@ impl SubView for GradientSubView {
 
 /// Installs the `resolved_gradient` handler.
 pub fn install(dispatcher: &mut Dispatcher) {
-    dispatcher.register_native::<ResolvedGradient>(|gradient, ctx| {
+    dispatcher.register_native::<Gradient>(|gradient, ctx| {
         let mtm = ctx.mtm();
         let view = HostView::new(mtm, cocoa_ui::Rect::ZERO);
         #[cfg(target_os = "macos")]
@@ -107,14 +102,19 @@ pub fn install(dispatcher: &mut Dispatcher) {
             .expect("host view is layer-backed")
             .addSublayer(&layer.layer());
 
-        let stops: Vec<GradientStop> = gradient
-            .stops
-            .iter()
-            .map(|stop| GradientStop {
-                position: f64::from(stop.position),
-                color: cg_color(&stop.color),
-            })
-            .collect();
+        let stops: Vec<GradientStop> = match gradient.paint() {
+            Paint::Linear(linear) => &linear.stops,
+            Paint::Radial(radial) => &radial.stops,
+            Paint::Sweep(sweep) => &sweep.stops,
+            Paint::Mesh(_) => panic!("a mesh gradient is rendered by the scene engine"),
+            _ => panic!("a native gradient must carry a gradient paint"),
+        }
+        .iter()
+        .map(|stop| GradientStop {
+            position: f64::from(stop.offset),
+            color: cg_color(&stop.color),
+        })
+        .collect();
         layer.set_stops(&stops);
         configure(&layer, &gradient);
         layer.set_frame(cocoa_ui::view::bounds(&view));

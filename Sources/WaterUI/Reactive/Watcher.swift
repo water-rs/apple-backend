@@ -137,19 +137,19 @@ func makeStyledStrWatcher(_ f: @escaping (WuiStyledStr, WuiWatcherMetadata) -> V
 }
 
 @MainActor
-func makeResolvedColorWatcher(_ f: @escaping (WuiResolvedColor, WuiWatcherMetadata) -> Void)
+func makeWorkingColorWatcher(_ f: @escaping (WuiWorkingColor, WuiWatcherMetadata) -> Void)
   -> OpaquePointer
 {
   let data = wrap(f)
-  let call: @convention(c) (UnsafeMutableRawPointer?, WuiResolvedColor, OpaquePointer?) -> Void =
+  let call: @convention(c) (UnsafeMutableRawPointer?, WuiWorkingColor, OpaquePointer?) -> Void =
     {
       data, value, metadata in
       callWrapper(data, value, metadata)
     }
   let drop: @convention(c) (UnsafeMutableRawPointer?) -> Void = {
-    dropWrapper($0, WuiResolvedColor.self)
+    dropWrapper($0, WuiWorkingColor.self)
   }
-  guard let watcher = waterui_new_watcher_resolved_color(data, call, drop) else {
+  guard let watcher = waterui_new_watcher_working_color(data, call, drop) else {
     fatalError("Failed to create resolved color watcher")
   }
   return watcher
