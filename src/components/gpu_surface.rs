@@ -795,10 +795,18 @@ fn ensure_presenter(
         return;
     }
     let device = crate::gpu_runtime::raw_metal_device(context);
-    *state.buffers.borrow_mut() = Some(cocoa_ui::metal::SurfaceBuffers::new(
-        device,
-        platform_view.presentation_layer(),
-    ));
+    let mut buffers =
+        cocoa_ui::metal::SurfaceBuffers::new(device, platform_view.presentation_layer());
+    // A rebuilt ring starts unconfigured; without a layout pass nothing
+    // sizes it and `next_frame` would park the replayed frame forever.
+    if let Some(format) = state.presentation_format.get() {
+        let width = state.current_width.get();
+        let height = state.current_height.get();
+        if width > 0 && height > 0 {
+            buffers.configure(width, height, format);
+        }
+    }
+    *state.buffers.borrow_mut() = Some(buffers);
     state.gpu_generation.set(Some(context.generation()));
 }
 
@@ -813,9 +821,16 @@ fn arm_context_watch(state: &Rc<SurfaceState>, view: &Retained<SurfaceView>, gen
     *state.context_watch.borrow_mut() = Some(executor_core::spawn_local(async move {
         let _published = runtime.context_after(generation).await;
         if let Some(state) = weak.upgrade() {
-            // The owed frame replays through the on-demand path — this
-            // works whether or not the clock is currently ticking.
-            update_display_link_state(&state, &view);
+            if state.external_count.get() > 0 {
+                // Externally rendered surfaces own no presentation to
+                // replay: the owed frame replays by asking the enclosing
+                // capture for a fresh frame through the redraw contract.
+                notify_external_redraw(&state);
+            } else {
+                // The owed frame replays through the on-demand path — this
+                // works whether or not the clock is currently ticking.
+                update_display_link_state(&state, &view);
+            }
         }
     }));
 }
@@ -1230,10 +1245,16 @@ impl cocoa_ui::capture::CapturableSurface for Capturable {
             self.state.current_scale.get(),
         ) else {
             complete_ready(&self.state, false);
+            // The capture's deferred frame replays through the redraw
+            // contract: publication resolves the watch, and an externally
+            // rendered surface turns it into a redraw notification to the
+            // enclosing capture — the parent's owed frame then re-renders.
+            arm_context_watch(&self.state, &self.view, context.generation());
             completion(Err(cocoa_ui::capture::CaptureDeferred));
             return;
         };
         let weak = Sendable(Rc::downgrade(&self.state));
+        let view = Sendable(self.view.clone());
         let submitted_context = context.clone();
         let marker = context
             .device()
@@ -1252,8 +1273,13 @@ impl cocoa_ui::capture::CapturableSurface for Capturable {
                 cocoa_ui::main_queue::enqueue(move |_mtm| {
                     // The generation that carried this frame was lost in
                     // flight: the fence settles, but there are no usable
-                    // pixels to compose.
+                    // pixels to compose. Arm publication so the redraw
+                    // contract wakes the parent once a live context lands.
                     if submitted_context.device_lost_reason().is_some() {
+                        if let Some(state) = weak.get().upgrade() {
+                            complete_ready(&state, false);
+                            arm_context_watch(&state, view.get(), submitted_context.generation());
+                        }
                         completion(Err(cocoa_ui::capture::CaptureDeferred));
                         return;
                     }
