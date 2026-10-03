@@ -545,7 +545,17 @@ fn finish_captured_frame(state: &Rc<FilteredState>, frame: CaptureFrame, capture
     }
     if !captured {
         state.render_in_flight.set(false);
-        schedule_frame_if_needed(state);
+        // The deferred frame produced no pixels, so it stays owed —
+        // `needs_render` was already consumed when the capture started.
+        // A lost submitting context replays only from the next
+        // publication; any other deferral is the child's readiness, which
+        // the capture contract reports through its redraw notification —
+        // re-arming the frame clock here would poll `prepare_external_render`
+        // every tick while the child is still setting up.
+        state.needs_render.set(true);
+        if frame.context.device_lost_reason().is_some() {
+            arm_filtered_context_watch(state, frame.context.generation());
+        }
         return;
     }
     finish_prepared_frame(state, frame);
