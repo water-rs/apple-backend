@@ -165,18 +165,18 @@ pub fn bind_root_window_wires_a_live_window(mtm: MainThreadMarker) {
     // origin).
     let snapshot = frame.snapshot();
     let current = window.frame();
-    assert_eq!(f64::from(snapshot.origin().x), current.origin.x);
-    assert_eq!(f64::from(snapshot.origin().y), current.origin.y);
-    assert_eq!(f64::from(snapshot.size().width), current.size.width);
-    assert_eq!(f64::from(snapshot.size().height), current.size.height);
+    let expected = cocoa_ui::Rect::new(
+        f64::from(snapshot.origin().x),
+        f64::from(snapshot.origin().y),
+        f64::from(snapshot.size().width),
+        f64::from(snapshot.size().height),
+    );
+    assert_eq!(current, expected);
 
     // A declared frame write drives the real window.
     frame.set(Rect::new(Point::new(20.0, 30.0), Size::new(320.0, 240.0)));
     let moved = window.frame();
-    assert_eq!(moved.origin.x, 20.0);
-    assert_eq!(moved.origin.y, 30.0);
-    assert_eq!(moved.size.width, 320.0);
-    assert_eq!(moved.size.height, 240.0);
+    assert_eq!(moved, cocoa_ui::Rect::new(20.0, 30.0, 320.0, 240.0));
 
     // Platform close publishes `Closed` through the binding — the
     // window's own lifecycle event driving the declared state.

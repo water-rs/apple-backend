@@ -203,8 +203,7 @@ mod leaf {
         );
         let _mounted = leaf.mount(&parent);
         let fitting = cocoa_ui::view::fitting_size(&child);
-        assert_eq!(fitting.width, 40.0);
-        assert_eq!(fitting.height, 20.0);
+        assert_eq!(fitting, cocoa_ui::geometry::Size::new(40.0, 20.0));
     }
 
     /// A host inside a real (never shown) window runs its layout pass, and
@@ -228,8 +227,7 @@ mod leaf {
         // the handler must land that frame verbatim.
         let expected = cocoa_ui::view::bounds(&host);
         let frame = cocoa_ui::view::frame(mounted.view());
-        assert_eq!(frame.size.width, expected.size.width);
-        assert_eq!(frame.size.height, expected.size.height);
+        assert_eq!(frame.size, expected.size);
     }
 
     /// Puts `content` inside a real window that is never ordered in — the
@@ -406,7 +404,7 @@ mod resolve {
     pub fn opacity_metadata_wraps_the_child() {
         let leaf = render(Metadata::new((), Opacity::new(0.5)));
         let view = cocoa_ui::view::retain_base(leaf.view());
-        assert_eq!(cocoa_ui::view::alpha(&view), 0.5);
+        assert_eq!(cocoa_ui::view::alpha(&view).to_bits(), 0.5f64.to_bits());
         let subviews = cocoa_ui::view::subviews(&view);
         assert_eq!(subviews.len(), 1);
         let primary = cocoa_ui::view::primary_content(&view)
