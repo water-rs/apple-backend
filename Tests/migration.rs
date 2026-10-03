@@ -66,6 +66,10 @@ pub fn trials() -> Vec<Trial> {
                 uikit_surface::compact_split_shows_the_sidebar();
                 Ok(())
             }),
+            Trial::test("migration::uikit::stable_id_row_replace", || {
+                uikit_surface::stable_id_payload_replace_remateries_the_row();
+                Ok(())
+            }),
         ]);
         tests
     };
@@ -547,6 +551,69 @@ mod uikit_surface {
                 "an existing secondary column must not be visible"
             );
         }
+    }
+
+    /// `items.set` on a surviving `ItemId` is a `replaced` change: the row's
+    /// mounted leaf must be re-materialized and its measured contract
+    /// re-derived, not reused — the `#306` regression.
+    pub fn stable_id_payload_replace_remateries_the_row() {
+        use cocoa_ui::objc2_foundation::{NSDate, NSIndexPath, NSRunLoop};
+        use cocoa_ui::objc2_ui_kit::NSIndexPathUIKitAdditions;
+        use waterui::Identifiable;
+        use waterui::reactive::collection::List as ReactiveList;
+
+        #[derive(Clone, Copy, Identifiable)]
+        struct ProbeRow {
+            #[id]
+            id: u64,
+            tall: bool,
+        }
+
+        let items = ReactiveList::from(vec![
+            ProbeRow { id: 1, tall: false },
+            ProbeRow { id: 2, tall: false },
+        ]);
+        let list = List::for_each(items.clone(), |row: ProbeRow| {
+            let content: AnyView = if row.tall {
+                AnyView::new(text("updated tall row").height(60.0))
+            } else {
+                AnyView::new(text("row"))
+            };
+            ListItem::new(content)
+        });
+        let env = crate::resolve::env();
+        let mount = waterui_apple::native_test_support::mount_uikit(
+            mtm(),
+            AnyView::new(list),
+            &env,
+            cocoa_ui::Rect::new(0.0, 0.0, 393.0, 852.0),
+        );
+        let table = table(mount.content.view());
+        NSRunLoop::currentRunLoop().runUntilDate(&NSDate::dateWithTimeIntervalSinceNow(0.2));
+        let first = table
+            .cellForRowAtIndexPath(&NSIndexPath::indexPathForRow_inSection(0, 0))
+            .expect("the first row stays mounted");
+        let short = first.frame().size.height;
+
+        let _ = items.set(0, ProbeRow { id: 1, tall: true });
+        mount.window.layoutIfNeeded();
+        NSRunLoop::currentRunLoop().runUntilDate(&NSDate::dateWithTimeIntervalSinceNow(0.2));
+
+        let cell = table
+            .cellForRowAtIndexPath(&NSIndexPath::indexPathForRow_inSection(0, 0))
+            .expect("the replaced row stays mounted");
+        let tall = cell.frame().size.height;
+        assert!(
+            tall > short + 10.0,
+            "the replaced row re-measures on its new contract ({short} -> {tall})"
+        );
+        assert!(
+            descendants(&cell.contentView())
+                .iter()
+                .filter_map(|view| view.downcast_ref::<UILabel>().and_then(|l| l.text()))
+                .any(|text| text.to_string().contains("updated tall row")),
+            "the replaced row re-materializes its leaf"
+        );
     }
 }
 

@@ -396,7 +396,8 @@ struct Shared {
     theme_insets: KitInsets,
     /// The resolved minimum row height.
     resolved_min_height: f64,
-    /// `AppKit`'s `measuredRowHeights`.
+    /// `measuredRowHeights`: the row contract the height delegate reports,
+    /// refreshed from both `viewFor`/`cellForRow` layout passes.
     measured_heights: HashMap<ItemId, f64>,
 }
 
@@ -538,16 +539,22 @@ fn metadata_animated(metadata: &Metadata) -> bool {
 /// Applying a change may emit back into `contents` (row mounts mutate the
 /// collection), making the watch fire reentrantly while this borrow is held;
 /// that emission is requeued on the main queue and applied once released.
-fn apply_contents_change(state: &Rc<RefCell<Shared>>, table: &TableView, ids: Vec<ItemId>) {
-    let (diff, single_plain) = {
+fn apply_contents_change(
+    state: &Rc<RefCell<Shared>>,
+    table: &TableView,
+    ids: Vec<ItemId>,
+    change: &waterui::reactive::collection::CollectionChange,
+) {
+    let (diff, reloads) = {
         let Ok(mut borrowed) = state.try_borrow_mut() else {
             let state = Rc::clone(state);
             let table = cocoa_ui::objc2::rc::Weak::new(table);
+            let change = change.clone();
             cocoa_ui::main_queue::enqueue_local(
                 cocoa_ui::MainThreadMarker::new().expect("apply_contents_change runs on main"),
                 move |_mtm| {
                     if let Some(table) = table.load() {
-                        apply_contents_change(&state, &table, ids);
+                        apply_contents_change(&state, &table, ids, &change);
                     }
                 },
             );
@@ -559,32 +566,70 @@ fn apply_contents_change(state: &Rc<RefCell<Shared>>, table: &TableView, ids: Ve
         borrowed.measured_heights.retain(|id, _| seen.contains(id));
         #[cfg(target_os = "macos")]
         rebuild_flat_layout(&mut borrowed);
+        let old_set: HashSet<ItemId> = old_ids.iter().copied().collect();
+        // In-place replacements the id diff cannot cover: a surviving id at a
+        // `replaced` position keeps its mounted leaf and measured contract
+        // unless the row is re-materialized. `replaced` indexes the new
+        // snapshot; the delete index is the id's previous position.
+        let reloads: Vec<(usize, usize)> = borrowed
+            .item_ids
+            .iter()
+            .enumerate()
+            .filter(|(index, id)| change.is_replaced(*index) && old_set.contains(id))
+            .map(|(index, id)| {
+                (
+                    old_ids
+                        .iter()
+                        .position(|old| old == id)
+                        .expect("a surviving id has a previous position"),
+                    index,
+                )
+            })
+            .collect();
+        for &(_, index) in &reloads {
+            let id = borrowed.item_ids[index];
+            borrowed.measured_heights.remove(&id);
+        }
         let single_plain = is_single_plain_section(&borrowed.groups);
         (
             single_plain
                 .then(|| single_section_row_diff(&old_ids, &borrowed.item_ids))
                 .flatten(),
-            single_plain,
+            if single_plain { reloads } else { Vec::new() },
         )
     };
-    let _ = single_plain;
     if table.in_window()
         && let Some((deletes, inserts)) = diff
     {
         #[cfg(target_os = "ios")]
         {
-            let deletes: Vec<IndexPath> = deletes
+            let delete_paths: Vec<IndexPath> = deletes
                 .into_iter()
                 .map(|row| IndexPath { section: 0, row })
                 .collect();
-            let inserts: Vec<IndexPath> = inserts
+            let insert_paths: Vec<IndexPath> = inserts
                 .into_iter()
                 .map(|row| IndexPath { section: 0, row })
                 .collect();
-            table.apply_row_updates(&deletes, &inserts, true);
+            table.apply_row_updates(&delete_paths, &insert_paths, true);
+            if !reloads.is_empty() {
+                let reload_paths: Vec<IndexPath> = reloads
+                    .into_iter()
+                    .map(|(_, row)| IndexPath { section: 0, row })
+                    .collect();
+                table.reload_rows(&reload_paths, true);
+            }
         }
         #[cfg(target_os = "macos")]
-        table.apply_row_updates(&deletes, &inserts, true);
+        {
+            // AppKit re-materializes a row as delete+insert: the replaced
+            // rows join the same update block so `viewFor` rebuilds them.
+            let mut deletes = deletes;
+            let mut inserts = inserts;
+            deletes.extend(reloads.iter().map(|&(old_row, _)| old_row));
+            inserts.extend(reloads.iter().map(|&(_, new_row)| new_row));
+            table.apply_row_updates(&deletes, &inserts, true);
+        }
     } else {
         table.reload_data();
     }
@@ -778,9 +823,7 @@ impl SubView for ListSubView {
 #[allow(clippy::wildcard_imports)]
 mod platform_impl {
     use super::*;
-    use cocoa_ui::objc2_ui_kit::{
-        NSLayoutConstraint, UILayoutPriorityRequired, UITableViewAutomaticDimension,
-    };
+    use cocoa_ui::objc2_ui_kit::{NSLayoutConstraint, UILayoutPriorityRequired};
     use cocoa_ui::uikit::TableHeaderFooterView;
 
     /// Insets resolved by this cell's current native layout.
@@ -802,6 +845,9 @@ mod platform_impl {
         height: Retained<NSLayoutConstraint>,
         minimum: f64,
         disclosure: bool,
+        id: ItemId,
+        state: Rc<RefCell<Shared>>,
+        table: cocoa_ui::objc2::rc::Weak<TableView>,
     }
 
     impl RowLayout {
@@ -820,11 +866,26 @@ mod platform_impl {
             let width = cell.contentView().bounds().size.width - insets.left - insets.right;
             let proposal = ProposalSize::new((width > 0.0).then_some(width as f32), None);
             let measured = mounted.layout().measure(proposal).size;
-            let height = row_height(f64::from(measured.height), insets, self.minimum)
-                - insets.top
-                - insets.bottom;
+            let contract = row_height(f64::from(measured.height), insets, self.minimum);
+            let height = contract - insets.top - insets.bottom;
             if self.height.constant().to_bits() != height.to_bits() {
                 self.height.setConstant(height);
+            }
+            // Publish the contract `heightForRow` reports. When the resolved
+            // pass changes it — the first query runs before the cell's real
+            // margins exist — re-ask the height on the next main-queue turn;
+            // an updates batch inside `layoutSubviews` would re-enter layout.
+            // The mutable borrow ends before `proposal::deliver`, whose
+            // callbacks may synchronously re-enter the shared state.
+            let stale = {
+                let mut state = self.state.borrow_mut();
+                state.measured_heights.insert(self.id, contract) != Some(contract)
+            };
+            if stale && let Some(table) = self.table.load() {
+                cocoa_ui::main_queue::enqueue_local(
+                    cocoa_ui::MainThreadMarker::new().expect("row updates run on the main thread"),
+                    move |_mtm| table.apply_row_updates(&[], &[], false),
+                );
             }
             proposal::deliver(mounted.view(), proposal);
             update_separator_insets(cell);
@@ -912,6 +973,9 @@ mod platform_impl {
                 height,
                 minimum: self.state.borrow().resolved_min_height,
                 disclosure: shows_disclosure,
+                id: self.state.borrow().item_ids[flat],
+                state: Rc::clone(&self.state),
+                table: cocoa_ui::objc2::rc::Weak::new(table),
             };
             layout.update(cell);
             layout.height.setActive(true);
@@ -974,9 +1038,48 @@ mod platform_impl {
             true
         }
 
-        fn row_height(&self, _table: &TableView, _index: IndexPath) -> f64 {
-            // SAFETY: UIKit exports this immutable layout sentinel.
-            unsafe { UITableViewAutomaticDimension }
+        fn row_height(&self, table: &TableView, index: IndexPath) -> f64 {
+            // The row contract is an explicit height: the platform's
+            // automatic-dimension fitting prices the separator in, growing
+            // every row by the separator's point over the contract.
+            let flat = self.flat(index);
+            let borrowed = self.state.borrow();
+            let id = borrowed.item_ids[flat];
+            if let Some(height) = borrowed.measured_heights.get(&id) {
+                return *height;
+            }
+            // `heightForRow` fires before the cell exists, so the platform's
+            // margins aren't readable off a `contentView` yet — the theme's
+            // stock row insets answer the same vertical contract, and the
+            // first layout pass writes back the resolved value.
+            let (item_insets, _deletable, leaf) = borrowed.render_row(flat);
+            let insets = item_insets.as_ref().map_or_else(
+                || {
+                    TableView::theme_row_insets(
+                        cocoa_ui::MainThreadMarker::new()
+                            .expect("row heights resolve on the main thread"),
+                    )
+                },
+                kit_insets,
+            );
+            drop(borrowed);
+            let width = table.bounds_width() - insets.left - insets.right;
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "native points are f64; proposals are f32"
+            )]
+            let proposal = ProposalSize::new((width > 0.0).then_some(width as f32), None);
+            let measured = leaf.layout().measure(proposal).size;
+            let contract = row_height(
+                f64::from(measured.height),
+                insets,
+                self.state.borrow().resolved_min_height,
+            );
+            self.state
+                .borrow_mut()
+                .measured_heights
+                .insert(id, contract);
+            contract
         }
 
         fn section_header_height(&self, table: &TableView, section: usize) -> f64 {
@@ -1608,13 +1711,13 @@ fn render(config: ListConfig, ctx: &RenderContext<'_>) -> NativeLeaf {
     let watcher = state.borrow().contents.watch(.., {
         let state = Rc::clone(&state);
         let table = table.clone();
-        move |ctx, _change| {
+        move |ctx, change| {
             let ids: Vec<ItemId> = ctx.value().to_vec();
             let metadata = ctx.metadata().clone();
             let state = Rc::clone(&state);
             let table = table.clone();
             with_platform_animation(&metadata, move || {
-                apply_contents_change(&state, &table, ids);
+                apply_contents_change(&state, &table, ids, &change);
             });
         }
     });
