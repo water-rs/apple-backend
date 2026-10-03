@@ -610,7 +610,7 @@ mod uikit_surface {
         assert!(
             descendants(&cell.contentView())
                 .iter()
-                .filter_map(|view| view.downcast_ref::<UILabel>().and_then(|l| l.text()))
+                .filter_map(|view| view.downcast_ref::<UILabel>().and_then(UILabel::text))
                 .any(|text| text.to_string().contains("updated tall row")),
             "the replaced row re-materializes its leaf"
         );
