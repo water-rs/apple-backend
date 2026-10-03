@@ -8,25 +8,96 @@
 
 #[cfg(any(feature = "applied_filter", feature = "view_effect"))]
 use alloc::rc::Rc;
+#[cfg(any(
+    feature = "applied_filter",
+    feature = "container",
+    feature = "fixed_container",
+    feature = "gpu_surface",
+    feature = "picture",
+    feature = "resolved_shape",
+    feature = "view_effect"
+))]
 use alloc::rc::Weak;
-use std::collections::HashMap;
-use std::sync::Mutex;
-
+#[cfg(any(
+    feature = "applied_filter",
+    feature = "container",
+    feature = "fixed_container",
+    feature = "gpu_surface",
+    feature = "picture",
+    feature = "resolved_shape",
+    feature = "view_effect"
+))]
 use cocoa_ui::PlatformView;
+#[cfg(any(
+    feature = "applied_filter",
+    feature = "container",
+    feature = "fixed_container",
+    feature = "gpu_surface",
+    feature = "picture",
+    feature = "resolved_shape",
+    feature = "view_effect"
+))]
+use std::collections::HashMap;
+#[cfg(any(
+    feature = "applied_filter",
+    feature = "container",
+    feature = "fixed_container",
+    feature = "gpu_surface",
+    feature = "picture",
+    feature = "resolved_shape",
+    feature = "view_effect"
+))]
+use std::sync::Mutex;
 
 /// Mounted content view → the owning effect's invalidation callback.
 /// `Weak` entries are only ever upgraded on the main queue — the sinks are
 /// main-thread objects crossing through the shared table.
+#[cfg(any(
+    feature = "applied_filter",
+    feature = "container",
+    feature = "fixed_container",
+    feature = "gpu_surface",
+    feature = "picture",
+    feature = "resolved_shape",
+    feature = "view_effect"
+))]
 struct SendableWeak(Weak<dyn Fn()>);
 
+#[allow(clippy::non_send_fields_in_send_ty)]
+#[cfg(any(
+    feature = "applied_filter",
+    feature = "container",
+    feature = "fixed_container",
+    feature = "gpu_surface",
+    feature = "picture",
+    feature = "resolved_shape",
+    feature = "view_effect"
+))]
 // SAFETY: `invalidate` runs the closure through the main queue, so the weak
 // target is only touched where it lives.
-#[allow(clippy::non_send_fields_in_send_ty)]
 unsafe impl Send for SendableWeak {}
 
+#[cfg(any(
+    feature = "applied_filter",
+    feature = "container",
+    feature = "fixed_container",
+    feature = "gpu_surface",
+    feature = "picture",
+    feature = "resolved_shape",
+    feature = "view_effect"
+))]
 static SINKS: Mutex<Option<HashMap<usize, SendableWeak>>> = Mutex::new(None);
 
 /// The map key for a platform view.
+#[cfg(any(
+    feature = "applied_filter",
+    feature = "container",
+    feature = "fixed_container",
+    feature = "gpu_surface",
+    feature = "picture",
+    feature = "resolved_shape",
+    feature = "view_effect"
+))]
 fn key(view: &PlatformView) -> usize {
     core::ptr::from_ref(view).cast::<u8>() as usize
 }
@@ -80,6 +151,15 @@ pub fn invalidate_layout_hierarchy(view: &PlatformView) {
 
 /// Walks `view`'s superview chain to the nearest registered sink and calls
 /// it — `PlatformView.invalidateCapturedRendering`.
+#[cfg(any(
+    feature = "applied_filter",
+    feature = "container",
+    feature = "fixed_container",
+    feature = "gpu_surface",
+    feature = "picture",
+    feature = "resolved_shape",
+    feature = "view_effect"
+))]
 pub fn invalidate_rendered_content(view: &PlatformView) {
     let mut ancestor = cocoa_ui::view::superview(view);
     while let Some(current) = ancestor {

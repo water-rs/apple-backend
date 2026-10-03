@@ -6,20 +6,24 @@ use alloc::rc::Rc;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use cocoa_ui::menu::{Command as KitCommand, MenuTreeNode};
+use cocoa_ui::menu::Command as KitCommand;
+#[cfg(feature = "context_menu")]
+use cocoa_ui::menu::MenuTreeNode;
+#[cfg(feature = "menu")]
 use waterui::animation::Animation;
 use waterui::component::menu::{CommandRole, ResolvedCommand, ResolvedMenuItem, Shortcut};
 use waterui::reactive::Signal;
+#[cfg(feature = "menu")]
 use waterui::reactive::watcher::{BoxWatcherGuard, Metadata};
 use waterui::text::StyledStr;
 use waterui_backend_core::Environment;
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "menu"))]
 mod platform {
     pub(super) use cocoa_ui::appkit::{Menu, MenuItem};
 }
 
-#[cfg(target_os = "ios")]
+#[cfg(all(target_os = "ios", feature = "menu"))]
 mod platform {
     pub(super) use cocoa_ui::uikit::{Menu, MenuAction, MenuElement};
 }
@@ -32,6 +36,7 @@ pub(super) fn item_title(styled: &StyledStr) -> String {
 
 /// `withPlatformAnimation`: the watcher metadata's `Animation` mapped to a
 /// kit timing — `Default` parses to the 0.25s bezier the FFI spells it as.
+#[cfg(feature = "menu")]
 pub(super) fn with_platform_animation(metadata: &Metadata, body: impl FnOnce() + 'static) {
     let timing = match metadata.try_get::<Animation>() {
         None => return body(),
@@ -63,6 +68,7 @@ pub(super) fn with_platform_animation(metadata: &Metadata, body: impl FnOnce() +
 /// labels, `disabled` and `selected`, and each nested menu's `items` —
 /// recursively, as `WuiMenuTree` did per node. Every signal fires `resync`
 /// with the watcher's metadata.
+#[cfg(feature = "menu")]
 pub(super) fn collect_item_watchers(
     items: &[ResolvedMenuItem],
     resync: &Rc<dyn Fn(&Metadata)>,
@@ -143,6 +149,7 @@ fn kit_command(command: &ResolvedCommand) -> KitCommand {
 
 /// A `ResolvedMenuItem` list as a kit menu tree — commands, separators,
 /// nested menus — the input both platform menu builders take.
+#[cfg(feature = "context_menu")]
 pub(super) fn tree_nodes(items: &[ResolvedMenuItem], env: &Environment) -> Vec<MenuTreeNode> {
     items
         .iter()
@@ -175,7 +182,7 @@ pub(super) fn tree_nodes(items: &[ResolvedMenuItem], env: &Environment) -> Vec<M
 
 /// `wuiApplyCommandPresentation`: title, key equivalent, enabled, checked
 /// state, subtitle, destructive red, icon — then the action a pick runs.
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "menu"))]
 fn command_item(
     mtm: cocoa_ui::MainThreadMarker,
     command: &ResolvedCommand,
@@ -206,7 +213,7 @@ fn command_item(
 
 /// `appendAppKitMenuItems`: each item appended in order — commands, a
 /// separator per divider, nested menus under a titled item.
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "menu"))]
 pub(super) fn append_items(
     mtm: cocoa_ui::MainThreadMarker,
     menu: &platform::Menu,
@@ -236,7 +243,7 @@ pub(super) fn append_items(
 /// Rebuilds the trigger's `UIMenu`: dividers split the items into
 /// `.displayInline` groups, flattened when a single group remains —
 /// `splitMenuGroups` + `buildUIKitMenu`.
-#[cfg(target_os = "ios")]
+#[cfg(all(target_os = "ios", feature = "menu"))]
 pub(super) fn build_menu(
     mtm: cocoa_ui::MainThreadMarker,
     title: &str,
@@ -274,7 +281,7 @@ pub(super) fn build_menu(
 /// `buildUIKitMenuElements`: one element per item — `UIAction`s for
 /// commands carrying title, subtitle, icon, disabled/destructive
 /// attributes, on-state and handler; nested menus recurse.
-#[cfg(target_os = "ios")]
+#[cfg(all(target_os = "ios", feature = "menu"))]
 fn menu_elements(
     items: &[ResolvedMenuItem],
     env: &Environment,

@@ -25,6 +25,7 @@ pub mod color_picker;
 pub mod container;
 #[cfg(feature = "context_menu")]
 pub mod context_menu;
+#[cfg(any(test, feature = "button", feature = "slider"))]
 pub mod control_size;
 #[cfg(feature = "cursor")]
 pub mod cursor;

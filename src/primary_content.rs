@@ -15,7 +15,9 @@
 //! own chrome) owns the safe-area answer and frames its children inside
 //! itself.
 
-use cocoa_ui::{PlatformView, Retained, view};
+#[cfg(feature = "dynamic")]
+use cocoa_ui::Retained;
+use cocoa_ui::{PlatformView, view};
 
 #[cfg(target_os = "macos")]
 use cocoa_ui::appkit::HostView;
@@ -34,6 +36,7 @@ pub fn forward(host: &HostView, child: &PlatformView) {
 /// Forwards `host`'s primary content to the view `current` returns at call
 /// time: the variant for a wrapper whose mounted child changes over the
 /// leaf's life (`dynamic`).
+#[cfg(feature = "dynamic")]
 pub fn forward_current(
     host: &HostView,
     current: impl Fn(&HostView) -> Option<Retained<PlatformView>> + 'static,
