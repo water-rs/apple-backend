@@ -5,30 +5,52 @@
 # records three release metrics per platform in release-metrics/release-metrics.json:
 #   app_bytes / executable_bytes - packaged bundle and main-binary size, gated
 #     against Tests/E2EBaselines/package-size.json (5% tolerance fails the job)
-#   first_paint_ms - process start to first frame, from the backend's
-#     waterui_first_paint_ms os_log marker
-#   peak_rss_bytes - peak resident set over a post-launch idle window
-# A record run (RECORD=1) writes fresh size baselines for the
-# publish-baselines flow; startup and memory are recorded, not gated.
+#   first_paint_ms - process start to first frame, proven by the backend's
+#     waterui_first_paint_ms os_log marker arriving on the launched app's own
+#     pid (measure-native-launch.py)
+#   peak_rss_bytes - peak resident set of that same owned pid, sampled over a
+#     post-launch idle window by the same helper
+# Every measured value is bound to the artifact the invoked CLI reported and
+# to the launch this run created; records are JSON lines throughout, and a
+# record run (RECORD=1) writes fresh size baselines for the publish-baselines
+# flow. Startup and memory are recorded, not gated.
 set -euo pipefail
 
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 waterui_dir="${WATERUI_DIR:?WATERUI_DIR must point at the prepared waterui checkout}"
 repo_root="${GITHUB_WORKSPACE:-$(pwd)}"
 baseline_file="${repo_root}/Tests/E2EBaselines/package-size.json"
 record_dir="${RECORD_DIR:-${repo_root}/e2e-baselines}"
 record="${RECORD:-0}"
 
+# Resolve the CLI under test explicitly: WATER_BIN wins over PATH, and the
+# resolved path plus its version land in the log, so an older install (e.g.
+# `~/.cargo/bin/water` shadowing the freshly built artifact) is visible
+# rather than silently driving the measurements.
+water_bin="${WATER_BIN:-$(command -v water || true)}"
+if [[ -z "${water_bin}" || ! -x "${water_bin}" ]]; then
+    echo "::error::No water CLI on PATH; set WATER_BIN to the build under test"
+    exit 1
+fi
+water_bin="$(cd "$(dirname "${water_bin}")" && pwd)/$(basename "${water_bin}")"
+echo "check-package-size: water CLI is ${water_bin}"
+"${water_bin}" --version || {
+    echo "::error::${water_bin} could not report its version"
+    exit 1
+}
+
 work_dir="$(mktemp -d "${TMPDIR:-/tmp}/waterui-size-check.XXXXXX")"
 trap 'rm -rf "${work_dir}"' EXIT
 project_dir="${work_dir}/helloworld"
 mkdir -p "${project_dir}/src"
+measured_jsonl="${work_dir}/measured.jsonl"
+runtime_jsonl="${work_dir}/runtime.jsonl"
 
 # The generated project resolves the backend through waterui_path's
-# backends/apple fallback — the staged checkout this suite produces — so the
-# packaged app builds the commit under test, not the pinned SwiftPM release.
-# An application manifest could declare a [backends.apple] override; this one
-# deliberately doesn't — the waterui_path fallback already resolves the staged
-# tree under test.
+# canonical backends/apple slot — the staged checkout this suite produces —
+# so the packaged app builds the commit under test, not a pinned release.
+# Water.toml has no [backends.*] table for this: a local runtime checkout is
+# discovered at waterui_path/backends/apple, never declared.
 cat > "${project_dir}/Water.toml" <<EOF
 waterui_path = "${waterui_dir}"
 
@@ -64,139 +86,83 @@ pub fn app(env: Environment) -> App {
 }
 EOF
 
+# Extract one field from a JSON record without lossy whitespace splitting —
+# paths and identifiers arrive verbatim.
+json_field() {
+    python3 -c 'import json, sys; print(json.loads(sys.argv[1])[sys.argv[2]])' "$1" "$2"
+}
+
 measure_platform() {
     local label="$1" platform="$2" subject_dir="$3"
     local log_file="${work_dir}/package-${label}-${platform}.log"
 
     echo "=== Packaging ${label} for ${platform} (release)"
-    if ! water package --platform "${platform}" --backend apple --release --path "${subject_dir}" \
+    if ! "${water_bin}" package --platform "${platform}" --backend apple --release --path "${subject_dir}" \
         > "${log_file}" 2>&1; then
         tail -40 "${log_file}" || true
         echo "::error::water package failed for ${label} on ${platform}; see output above"
         return 1
     fi
 
+    # The only artifact this run may measure is the one the invoked CLI
+    # reports. `water package` emits `Packaged at <path>` once the bundle has
+    # landed in the project's target/package directory; a missing or
+    # malformed report fails the platform. There is deliberately no search
+    # of shared build caches: the first .app found there can be another
+    # subject's bundle or an older run's, and measuring it would attribute
+    # another artifact's size to this commit.
     local app_path
     app_path="$(sed -n 's/.*Packaged at //p' "${log_file}" | tail -1 | sed 's/\x1b\[[0-9;]*m//g' | tr -d '\r')"
     if [[ -z "${app_path}" || ! -d "${app_path}" ]]; then
-        app_path="$(find "${subject_dir}" "${HOME}/.water/build_cache" -name "*.app" -type d -print -quit 2>/dev/null || true)"
-    fi
-    if [[ -z "${app_path}" || ! -d "${app_path}" ]]; then
-        echo "::error::Packaged .app not found for ${label} on ${platform}"
+        echo "::error::water package did not report a packaged bundle for ${label} on ${platform}"
         return 1
     fi
-
-    local app_bytes executable_bytes executable
-    app_bytes="$(find "${app_path}" -type f -exec stat -f%z {} + | awk '{s+=$1} END {print s}')"
-    if [[ "${platform}" == macos ]]; then
-        executable="${app_path}/Contents/MacOS/$(basename "${app_path}" .app)"
-    else
-        executable="${app_path}/$(basename "${app_path}" .app)"
+    if ! "${script_dir}/release-metrics.py" inspect-app \
+            --label "${label}" --platform "${platform}" \
+            --app "${app_path}" --out "${measured_jsonl}"; then
+        echo "::error::reported bundle is malformed for ${label} on ${platform}: ${app_path}"
+        return 1
     fi
-    executable_bytes="$(stat -f%z "${executable}")"
-
-    echo "${label}/${platform}: app=${app_bytes}B executable=${executable_bytes}B (${app_path})"
-    printf '%s %s %s %s %s\n' "${label}" "${platform}" "${app_bytes}" "${executable_bytes}" "${app_path}" >> "${work_dir}/measured.txt"
 }
 
-# Launch the packaged release build and capture the two runtime metrics that
-# only exist at run time:
-#   first_paint_ms  - process start to first frame, self-reported by the
-#                     backend's `waterui_first_paint_ms` os_log marker.
-#   peak_rss_bytes  - peak resident set sampled over a short post-launch
-#                     idle window. Simulator apps are host processes, so the
-#                     same `ps` sampling covers both platforms.
-# A launch failure is an error; a missing paint marker records null — the app
-# ran, the marker pipeline broke, and that distinction belongs in the data.
-sample_peak_rss() {
-    local pid="$1" samples="${2:-8}" peak=0 rss
-    for _ in $(seq 1 "${samples}"); do
-        rss="$(ps -o rss= -p "${pid}" 2>/dev/null | tr -d ' ' || true)"
-        if [[ -n "${rss}" ]] && (( rss > peak )); then peak="${rss}"; fi
-        sleep 0.5
-    done
-    echo $(( peak * 1024 ))
-}
-
-wait_first_paint() {
-    local log_file="$1" platform="${2:-}"
-    for _ in $(seq 1 30); do
-        if grep -q "waterui_first_paint_ms=" "${log_file}" 2>/dev/null; then
-            sed -n 's/.*waterui_first_paint_ms=\([0-9][0-9]*\).*/\1/p' "${log_file}" | head -1
-            return 0
-        fi
-        sleep 1
-    done
-    # The fastest apps can paint before the stream attaches; the marker is in
-    # the persisted log store, so replay the recent window from the same
-    # domain the stream reads before giving up.
-    if [[ "${platform}" == macos ]]; then
-        log show --last 2m --predicate 'subsystem == "dev.waterui"' \
-            --style compact >> "${log_file}" 2>/dev/null || true
-    elif [[ -n "${SIMULATOR_UDID:-}" ]]; then
-        xcrun simctl spawn "${SIMULATOR_UDID}" log show --last 2m \
-            --predicate 'subsystem == "dev.waterui"' --style compact \
-            >> "${log_file}" 2>/dev/null || true
-    fi
-    if grep -q "waterui_first_paint_ms=" "${log_file}" 2>/dev/null; then
-        sed -n 's/.*waterui_first_paint_ms=\([0-9][0-9]*\).*/\1/p' "${log_file}" | head -1
-        return 0
-    fi
-    return 1
-}
-
+# Runtime metrics come from one launch measure-native-launch.py owns end to
+# end: it attaches the dev.waterui log stream and waits for the stream's
+# attach header BEFORE launching (no fixed sleep can prove that), accepts
+# the first-paint marker only from this launch's pid, samples the owned
+# pid's RSS over the post-launch idle window, and terminates the app on
+# every path. A launch that cannot be proven fails the platform and records
+# nulls; a launched app whose marker never arrives records a null
+# first_paint_ms — the app ran, the marker pipeline broke, and that
+# distinction belongs in the data.
 measure_runtime() {
-    local label="$1" platform="$2" app_path="$3" bundle_id="$4"
-    local marker_log="${work_dir}/paint-${label}-${platform}.log"
-    local exec_name first_paint="" peak_rss="" pid=""
-    exec_name="$(basename "${app_path}" .app)"
+    local label="$1" platform="$2" app_path="$3" executable="$4" bundle_id="$5"
+    local report="${work_dir}/runtime-${label}-${platform}.json"
+    local rc=0
 
     if [[ "${platform}" == macos ]]; then
-        log stream --predicate 'subsystem == "dev.waterui"' --style compact \
-            > "${marker_log}" 2>/dev/null &
-        local stream_pid=$!
-        sleep 1  # let logd attach before the app can paint
-        "${app_path}/Contents/MacOS/${exec_name}" > /dev/null 2>&1 &
-        pid=$!
-        first_paint="$(wait_first_paint "${marker_log}" "${platform}" || true)"
-        if ! kill -0 "${pid}" 2>/dev/null; then
-            kill "${stream_pid}" 2>/dev/null || true
-            echo "::error::${label}/${platform} release app exited during launch"
-            printf '%s %s %s %s\n' "${label}" "${platform}" "null" "null" >> "${work_dir}/runtime.txt"
-            return 1
-        fi
-        peak_rss="$(sample_peak_rss "${pid}")"
-        kill "${pid}" 2>/dev/null || true
-        kill "${stream_pid}" 2>/dev/null || true
+        "${script_dir}/measure-native-launch.py" macos "${executable}" \
+            --metrics-json "${report}" || rc=$?
     else
         local udid="${SIMULATOR_UDID:?SIMULATOR_UDID is required for ios-simulator runtime metrics}"
-        xcrun simctl install "${udid}" "${app_path}"
-        xcrun simctl spawn "${udid}" log stream --level info \
-            --predicate 'subsystem == "dev.waterui"' --style compact \
-            > "${marker_log}" 2>/dev/null &
-        local stream_pid=$!
-        sleep 1  # let logd attach before the app can paint
-        pid="$(xcrun simctl launch "${udid}" "${bundle_id}" | awk -F': ' '{print $2}')"
-        if [[ -z "${pid}" ]]; then
-            kill "${stream_pid}" 2>/dev/null || true
-            echo "::error::${label}/${platform} release app failed to launch in the simulator"
-            printf '%s %s %s %s\n' "${label}" "${platform}" "null" "null" >> "${work_dir}/runtime.txt"
-            return 1
+        if ! xcrun simctl install "${udid}" "${app_path}"; then
+            echo "::error::${label}/${platform} release app failed to install in the simulator"
+            rc=1
+        else
+            "${script_dir}/measure-native-launch.py" ios-simulator "${udid}" "${bundle_id}" \
+                --metrics-json "${report}" || rc=$?
         fi
-        first_paint="$(wait_first_paint "${marker_log}" "${platform}" || true)"
-        peak_rss="$(sample_peak_rss "${pid}")"
-        xcrun simctl terminate "${udid}" "${bundle_id}" > /dev/null 2>&1 || true
         xcrun simctl uninstall "${udid}" "${bundle_id}" > /dev/null 2>&1 || true
-        kill "${stream_pid}" 2>/dev/null || true
     fi
 
-    if [[ -z "${first_paint}" ]]; then
-        echo "::warning::${label}/${platform} release app did not report a first-paint time"
-        first_paint="null"
+    if [[ "${rc}" != 0 ]]; then
+        echo "::error::${label}/${platform} release app could not be launched for measurement"
+        "${script_dir}/release-metrics.py" record-runtime \
+            --label "${label}" --platform "${platform}" --out "${runtime_jsonl}"
+        return 1
     fi
-    [[ "${peak_rss:-0}" == 0 ]] && peak_rss="null"
-    echo "${label}/${platform}: first_paint=${first_paint}ms peak_rss=${peak_rss}B"
-    printf '%s %s %s %s\n' "${label}" "${platform}" "${first_paint}" "${peak_rss}" >> "${work_dir}/runtime.txt"
+    "${script_dir}/release-metrics.py" record-runtime \
+        --label "${label}" --platform "${platform}" \
+        --report "${report}" --out "${runtime_jsonl}"
 }
 
 # Measurement subject: the generated hello-world — the stable minimal-app
@@ -214,136 +180,49 @@ for entry in ${subjects[@]+"${subjects[@]}"}; do
         measure_platform "${label}" "${platform}" "${subject_dir}" || failed=1
     done
 done
-[[ -f "${work_dir}/measured.txt" ]] || { echo "::error::No platform packaged successfully"; exit 1; }
+[[ -f "${measured_jsonl}" ]] || { echo "::error::No platform packaged successfully"; exit 1; }
 
 # Runtime metrics on the freshly packaged release builds. iOS needs a booted
 # simulator; when SIMULATOR_UDID is unset the size gate still runs and the
 # ios-simulator row records nulls rather than failing the job.
-while read -r label platform app_bytes executable_bytes app_path; do
+while IFS= read -r row <&3; do
+    label="$(json_field "${row}" label)"
+    platform="$(json_field "${row}" platform)"
     if [[ "${platform}" != macos && -z "${SIMULATOR_UDID:-}" ]]; then
         echo "::warning::No booted simulator for ${label}/${platform}; runtime metrics skipped"
-        printf '%s %s %s %s\n' "${label}" "${platform}" "null" "null" >> "${work_dir}/runtime.txt"
+        "${script_dir}/release-metrics.py" record-runtime \
+            --label "${label}" --platform "${platform}" --out "${runtime_jsonl}"
         continue
     fi
-    subject_dir="$(printf '%s\n' "${subjects[@]}" | sed -n "s/^${label}=//p")"
-    bundle_id="$(sed -n 's/^bundle_identifier = "\([^"]*\)"$/\1/p' "${subject_dir}/Water.toml" | head -1)"
-    measure_runtime "${label}" "${platform}" "${app_path}" "${bundle_id}" || failed=1
-done < "${work_dir}/measured.txt"
+    measure_runtime "${label}" "${platform}" \
+        "$(json_field "${row}" app_path)" \
+        "$(json_field "${row}" executable)" \
+        "$(json_field "${row}" bundle_id)" || failed=1
+done 3< "${measured_jsonl}"
 
-# Machine-readable record + human-readable table. Both are uploaded by the
-# workflow: the JSON feeds trend diffs, the markdown lands on the run summary.
+# Machine-readable record + human-readable table, then the record or gate
+# leg: RECORD=1 writes fresh size baselines; otherwise the hello-world byte
+# sizes are held to their recorded baseline within 5%. A missing baseline
+# reports without gating.
 metrics_dir="${METRICS_DIR:-${repo_root}/release-metrics}"
-mkdir -p "${metrics_dir}"
-{
-    echo '{'
-    prev_label=""
-    first=1
-    while read -r label platform app_bytes executable_bytes app_path; do
-        runtime="$(grep "^${label} ${platform} " "${work_dir}/runtime.txt" 2>/dev/null || true)"
-        read -r _ _ first_paint peak_rss <<< "${runtime:-${label} ${platform} null null}"
-        if [[ "${label}" != "${prev_label}" ]]; then
-            if [[ -n "${prev_label}" ]]; then echo '},'; fi
-            first=0
-            printf '  "%s": {\n' "${label}"
-            platform_first=1
-        fi
-        prev_label="${label}"
-        if [[ "${platform_first}" != 1 ]]; then echo ','; fi
-        platform_first=0
-        printf '    "%s": { "app_bytes": %s, "executable_bytes": %s, "first_paint_ms": %s, "peak_rss_bytes": %s }' \
-            "${platform}" "${app_bytes}" "${executable_bytes}" "${first_paint}" "${peak_rss}"
-    done < "${work_dir}/measured.txt"
-    if [[ -n "${prev_label}" ]]; then echo '}'; fi
-    echo '}'
-} > "${metrics_dir}/release-metrics.json"
-
-{
-    echo "## Release metrics (production builds)"
-    echo
-    echo "| App | Platform | .app size | Executable | First paint | Peak RSS |"
-    echo "| --- | --- | --- | --- | --- | --- |"
-    while read -r label platform app_bytes executable_bytes app_path; do
-        runtime="$(grep "^${label} ${platform} " "${work_dir}/runtime.txt" 2>/dev/null || true)"
-        read -r _ _ first_paint peak_rss <<< "${runtime:-${label} ${platform} null null}"
-        fp_cell="—"; rss_cell="—"
-        [[ "${first_paint}" != null ]] && fp_cell="${first_paint} ms"
-        [[ "${peak_rss}" != null ]] && rss_cell="$(awk -v b="${peak_rss}" 'BEGIN{printf "%.1f MB", b/1048576}')"
-        printf '| `%s` | `%s` | %s | %s | %s | %s |\n' "${label}" "${platform}" \
-            "$(awk -v b="${app_bytes}" 'BEGIN{printf "%.1f MB", b/1048576}')" \
-            "$(awk -v b="${executable_bytes}" 'BEGIN{printf "%.1f MB", b/1048576}')" \
-            "${fp_cell}" "${rss_cell}"
-    done < "${work_dir}/measured.txt"
-} > "${metrics_dir}/release-metrics.md"
-cat "${metrics_dir}/release-metrics.md"
-
+report_args=(
+    --measured "${measured_jsonl}"
+    --runtime "${runtime_jsonl}"
+    --metrics-dir "${metrics_dir}"
+)
 if [[ "${record}" == "1" ]]; then
-    mkdir -p "${record_dir}"
-    {
-        echo '{'
-        first=1
-        while read -r label platform app_bytes executable_bytes _app_path; do
-            [[ "${label}" == helloworld ]] || continue
-            if [[ "${first}" != 1 ]]; then echo ','; fi
-            first=0
-            printf '  "%s": { "app_bytes": %s, "executable_bytes": %s }' \
-                "${platform}" "${app_bytes}" "${executable_bytes}"
-        done < "${work_dir}/measured.txt"
-        echo
-        echo '}'
-    } > "${record_dir}/package-size.json"
-    echo "Recorded size baseline -> ${record_dir}/package-size.json"
-    cat "${record_dir}/package-size.json"
-    exit "${failed}"
+    report_args+=(--record "${record_dir}/package-size.json")
+else
+    report_args+=(--baseline "${baseline_file}")
 fi
-
-if [[ ! -f "${baseline_file}" ]]; then
-    echo "::warning::No size baseline at ${baseline_file}; measurements reported but not gated"
-    cat "${work_dir}/measured.txt"
-    exit "${failed}"
-fi
-
-# Compare each measured metric against its baseline. Growth of more than
-# size_tolerance (a percentage, e.g. 0.05) fails the job; shrinkage only gets
-# reported — refreshing the baseline downward is a deliberate record run.
-# Renders a growth in hundredths of a percent as "+1.25%" / "-67.87%"; bash
-# integer division would print a shrink as "-67.-87%".
-format_growth() {
-    local growth_x100="$1" sign="+"
-    if (( growth_x100 < 0 )); then
-        sign="-"
-        growth_x100=$(( -growth_x100 ))
-    fi
-    printf '%s%d.%02d%%' "${sign}" $(( growth_x100 / 100 )) $(( growth_x100 % 100 ))
-}
-
-check_metric() {
-    local platform="$1" metric="$2" measured="$3" baseline="$4"
-    local limit growth_x100
-    limit=$(( baseline + baseline / 20 ))
-    growth_x100=$(( (measured - baseline) * 10000 / baseline ))
-    if (( measured > limit )); then
-        echo "::error::${platform} ${metric} grew $(format_growth "${growth_x100}") (${baseline} -> ${measured} bytes, allowed +5%)"
-        return 1
-    fi
-    echo "${platform} ${metric}: ${measured} bytes (baseline ${baseline}, $(format_growth "${growth_x100}"))"
-}
-
-# The byte gate applies to hello-world only — it is the stable minimal-app
-# signal. Example sizes are recorded for visibility, not gated.
-while read -r label platform app_bytes executable_bytes _app_path; do
-    [[ "${label}" == helloworld ]] || continue
-    baseline_app="$(plutil -extract "${platform}.app_bytes" raw "${baseline_file}" 2>/dev/null || true)"
-    baseline_exe="$(plutil -extract "${platform}.executable_bytes" raw "${baseline_file}" 2>/dev/null || true)"
-    if [[ -z "${baseline_app}" || -z "${baseline_exe}" ]]; then
-        echo "::warning::No baseline entry for ${platform}; skipping gate"
-        continue
-    fi
-    check_metric "${platform}" "app" "${app_bytes}" "${baseline_app}" || failed=1
-    check_metric "${platform}" "executable" "${executable_bytes}" "${baseline_exe}" || failed=1
-done < "${work_dir}/measured.txt"
+"${script_dir}/release-metrics.py" report "${report_args[@]}" || failed=1
 
 if [[ "${failed}" == 1 ]]; then
     echo "Release metrics failed: see the errors above — a package that did not build, a runtime measurement that did not complete, or a size past its baseline (refresh the baseline only if the growth is intended: record_baselines run)."
     exit 1
 fi
-echo "Package sizes within baseline."
+if [[ "${record}" == 1 ]]; then
+    echo "Baselines recorded."
+else
+    echo "Package sizes within baseline."
+fi

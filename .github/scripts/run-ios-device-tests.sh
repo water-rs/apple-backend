@@ -30,7 +30,9 @@
 #
 # Prerequisites: a staged checkout — see setup-e2e.sh, which clones waterui
 # and replaces backends/apple with this repository's tree — plus the
-# `water` CLI and `cargo nextest` on PATH.
+# `water` CLI and `cargo nextest`: WATER_BIN names the exact CLI build
+# under test (PATH is the fallback, and the resolved path is echoed so a
+# stale install is visible in the log).
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -58,23 +60,40 @@ if [[ "${example}" != "none" ]]; then
     echo "error: no example at ${example_path}" >&2; exit 1; }
 
   # `water package` stages the example's Rust archive as `libwaterui_app.a`
-  # beside the packaged `.app` in the project's managed DerivedData products
-  # directory (`~/.water/build_cache/<project>/managed_backends/apple/...`),
-  # and names the bundle on its `Packaged at <path>` line. Read the archive
-  # from there: it is exactly this example's build for this platform and
-  # profile, whereas a search of a shared target directory can return another
-  # example's archive once a restored cache holds several.
+  # in the directory its `Packaged at <path>` line names: the CLI
+  # unconditionally copies the run's own BuiltTarget archive beside the
+  # placed `.app` BEFORE emitting the report, so the archive found there is
+  # this run's artifact by the producer's own contract — no timestamp or
+  # side-effect check can or needs to prove that.
+
+  # Resolve the CLI under test explicitly: WATER_BIN wins over PATH, and the
+  # resolved path is logged, so an older install (e.g. `~/.cargo/bin/water`
+  # shadowing a fresh build) is visible rather than silently driving the
+  # packaging step.
+  water_bin="${WATER_BIN:-$(command -v water || true)}"
+  [[ -n "${water_bin}" && -x "${water_bin}" ]] || {
+    echo "error: no water CLI on PATH; set WATER_BIN to the build under test" >&2
+    exit 1
+  }
+  water_bin="$(cd "$(dirname "${water_bin}")" && pwd)/$(basename "${water_bin}")"
+  echo "run-ios-device-tests: water CLI is ${water_bin}"
+  "${water_bin}" --version || {
+    echo "error: ${water_bin} could not report its version" >&2
+    exit 1
+  }
+
   package_log="$(mktemp)"
-  water package --platform ios-simulator --backend apple --debug --path "${example_path}" \
+  "${water_bin}" package --platform ios-simulator --backend apple --debug --path "${example_path}" \
     2>&1 | tee "${package_log}"
   app_path="$(sed -n 's/.*Packaged at //p' "${package_log}" | tail -n 1 \
     | sed 's/\x1b\[[0-9;]*m//g' | tr -d '\r')"
   rm -f "${package_log}"
-  [[ -n "${app_path}" ]] || {
+  [[ -n "${app_path}" && -d "${app_path}" ]] || {
     echo "error: water package did not report a packaged bundle for ${example}" >&2; exit 1; }
   archive="$(dirname "${app_path}")/libwaterui_app.a"
   [[ -f "${archive}" ]] || {
-    echo "error: no libwaterui_app.a beside ${app_path} for ${example}" >&2; exit 1; }
+    echo "error: no libwaterui_app.a beside ${app_path} for ${example};" \
+      "the invoked CLI did not stage this run's archive" >&2; exit 1; }
 
   # The thin adapter binds `waterui_apple_mount` through `@_extern(c)` and
   # the generated app entry point calls `waterui_apple_main`; both symbols
@@ -95,7 +114,7 @@ if [[ "${example}" != "none" ]]; then
   # path. A returned pid alone never counts as having rendered.
   xcrun simctl install "${simulator_udid}" "${app_path}"
   bundle_id="$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "${app_path}/Info.plist")"
-  "${repo_root}/.github/scripts/wait-native-first-paint.py" \
+  "${repo_root}/.github/scripts/measure-native-launch.py" ios-simulator \
     "${simulator_udid}" "${bundle_id}"
 fi
 
