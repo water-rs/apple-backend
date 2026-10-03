@@ -6,10 +6,14 @@
 //! with the declared `menu_bar` content appended — macOS rebuilds the whole
 //! bar on every change, iOS rebuilds through `application:buildMenuWith:`.
 
+use alloc::rc::Rc;
+use alloc::string::String;
 use alloc::vec::Vec;
 
-use waterui::component::menu::{Menu as DeclaredMenu, ResolvedMenuItem};
-use waterui::reactive::Computed;
+use waterui::component::menu::{
+    CommandRole, Menu as DeclaredMenu, ResolvedCommand, ResolvedMenuItem, ResolvedNestedMenu,
+};
+use waterui::reactive::{Computed, Signal};
 use waterui_backend_core::Environment;
 
 /// Resolves `menu_bar` against `env` — items live-resolve under the
@@ -20,6 +24,95 @@ fn resolve(
     env: &Environment,
 ) -> Computed<Vec<ResolvedMenuItem>> {
     waterui::component::menu::resolve_menu_bar_items(menu_bar, env)
+}
+
+/// A resolved command as the kit's shared `Command` payload — label text,
+/// subtitle, symbol name, destructive flag and shortcut.
+fn kit_command(command: &ResolvedCommand) -> cocoa_ui::menu::Command {
+    kit_command_fields(
+        command.label.content.snapshot().to_plain().to_string(),
+        command.subtitle.as_ref().map(ToString::to_string),
+        command.icon.as_ref().map(|icon| icon.name.to_string()),
+        command.role,
+        command.shortcut.as_ref(),
+    )
+}
+
+/// A resolved nested menu's header as the kit's shared `Command` payload.
+pub fn kit_command_for_menu(menu: &ResolvedNestedMenu) -> cocoa_ui::menu::Command {
+    kit_command_fields(
+        menu.label.content.snapshot().to_plain().to_string(),
+        None,
+        menu.icon.as_ref().map(|icon| icon.name.to_string()),
+        CommandRole::Standard,
+        None,
+    )
+}
+
+fn kit_command_fields(
+    label: String,
+    subtitle: Option<String>,
+    symbol: Option<String>,
+    role: CommandRole,
+    shortcut: Option<&waterui::component::menu::Shortcut>,
+) -> cocoa_ui::menu::Command {
+    let mut modifiers = cocoa_ui::menu::KeyModifiers::empty();
+    let mut key_equivalent = String::new();
+    if let Some(shortcut) = shortcut {
+        key_equivalent = shortcut.key.to_string();
+        if shortcut.modifiers.command() {
+            modifiers |= cocoa_ui::menu::KeyModifiers::COMMAND;
+        }
+        if shortcut.modifiers.shift() {
+            modifiers |= cocoa_ui::menu::KeyModifiers::SHIFT;
+        }
+        if shortcut.modifiers.option() {
+            modifiers |= cocoa_ui::menu::KeyModifiers::OPTION;
+        }
+        if shortcut.modifiers.control() {
+            modifiers |= cocoa_ui::menu::KeyModifiers::CONTROL;
+        }
+    }
+    cocoa_ui::menu::Command {
+        label,
+        subtitle,
+        symbol,
+        destructive: matches!(role, CommandRole::Destructive),
+        enabled: true,
+        selected: false,
+        key_equivalent,
+        modifiers,
+    }
+}
+
+/// Resolved items as the kit's shared `MenuTreeNode` list, with each
+/// command's action bound to fire under `env`. The menu-tree conversion's
+/// semantic owner: every caller that renders resolved menu content — app
+/// menus and `Native<ResolvedMenu>` alike — goes through this.
+pub fn menu_tree(
+    items: &[ResolvedMenuItem],
+    env: &Environment,
+) -> Vec<cocoa_ui::menu::MenuTreeNode> {
+    items
+        .iter()
+        .map(|item| match item {
+            ResolvedMenuItem::Divider => cocoa_ui::menu::MenuTreeNode::Divider,
+            ResolvedMenuItem::Command(command) => {
+                let action = command.action.clone();
+                let env = env.clone();
+                cocoa_ui::menu::MenuTreeNode::Command(
+                    kit_command(command),
+                    Rc::new(move || {
+                        action.call(&env);
+                    }),
+                )
+            }
+            ResolvedMenuItem::Menu(menu) => cocoa_ui::menu::MenuTreeNode::Submenu(
+                kit_command_for_menu(menu),
+                menu_tree(&menu.items.snapshot(), env),
+            ),
+        })
+        .collect()
 }
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -39,7 +132,7 @@ mod imp {
     use waterui::reactive::{Computed, Signal};
     use waterui_backend_core::Environment;
 
-    use super::resolve;
+    use super::{menu_tree, resolve};
 
     /// What this application calls itself in its own menu: the display name a
     /// bundle chooses for people to read, then the bundle name, then the
@@ -174,7 +267,7 @@ mod imp {
             let resolved = resolved.clone();
             Rc::new(move || {
                 let items = resolved.snapshot();
-                let nodes = crate::components::navigation::menu_tree(&items, &env);
+                let nodes = menu_tree(&items, &env);
                 install(mtm, &application, &nodes);
             })
         };
@@ -200,7 +293,7 @@ mod imp {
     use waterui::reactive::{Computed, Signal};
     use waterui_backend_core::Environment;
 
-    use super::resolve;
+    use super::{kit_command_for_menu, menu_tree, resolve};
 
     /// What `install_declared` shares with the `build_menus` handler: the
     /// resolved items plus the environment their actions run under, filled
@@ -226,8 +319,8 @@ mod imp {
                     panic!("App::menu_bar only accepts top-level Menu values");
                 };
                 let identifier = alloc::format!("dev.waterui.menu.{index}");
-                let command = crate::components::navigation::kit_command_for_menu(menu);
-                let nodes = crate::components::navigation::menu_tree(&menu.items.snapshot(), &env);
+                let command = kit_command_for_menu(menu);
+                let nodes = menu_tree(&menu.items.snapshot(), &env);
                 let ui_menu =
                     cocoa_ui::uikit::menu_with_identifier(mtm, &command, Some(&identifier), &nodes);
                 if builder.contains(&identifier) {

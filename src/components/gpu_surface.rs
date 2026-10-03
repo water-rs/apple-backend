@@ -15,24 +15,25 @@
 
 use alloc::boxed::Box;
 use alloc::rc::{Rc, Weak};
+use alloc::sync::Arc;
 use core::cell::{Cell, RefCell};
 use core::fmt;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
 use cocoa_ui::Retained;
+use objc2::MainThreadMarker;
 use objc2_metal::{MTLPixelFormat, MTLTexture};
 use waterui_core::NativeView;
 use waterui_core::layout::{ProposalSize, Size, StretchAxis, SubView, ViewDimensions};
 use waterui_graphics::cherenkov::{Display, Next, kurbo};
 use waterui_graphics::gpu::{
     ExternalFrameRenderer, ExternalFrameStream, ExternalFrameView, GpuContentRenderer,
-    GpuContentView, GpuRuntime, RedrawHandle,
+    GpuContentView, GpuRuntime, RedrawHandle, SharedGpuContext,
 };
 use waterui_graphics::input::SurfaceInputEvent;
 use waterui_graphics::offscreen::OffscreenSize;
 use waterui_graphics::wgpu;
-use wgpu_hal::api::Metal as MetalApi;
 
 use crate::contract::NativeLeaf;
 use crate::dispatch::Dispatcher;
@@ -77,10 +78,12 @@ trait HostedView {
     fn ime_caret(&self) -> Option<kurbo::Rect>;
     /// Runs the view's per-frame UI hook before the engine pass.
     fn before_frame(&self);
-    /// Builds the view's engine layer on the runtime's current context.
+    /// Builds the view's engine layer on `context` — the exact generation
+    /// the caller is holding for the frame this renderer presents.
     fn renderer(
         &mut self,
         runtime: &GpuRuntime,
+        context: &Arc<SharedGpuContext>,
         redraw: &RedrawHandle,
         size: OffscreenSize,
     ) -> Box<dyn HostedRenderer>;
@@ -135,17 +138,23 @@ impl HostedView for GpuContentView {
     fn renderer(
         &mut self,
         runtime: &GpuRuntime,
+        context: &Arc<SharedGpuContext>,
         redraw: &RedrawHandle,
         size: OffscreenSize,
     ) -> Box<dyn HostedRenderer> {
         // `engine_content` answers the same content object every time, so a
         // renderer rebuilt after device loss re-installs it with its state.
         let redraw = redraw.clone();
-        let content = waterui_graphics::cherenkov_gpu::interop::GpuContentBox::new(
+        let producer = waterui_graphics::cherenkov_gpu::interop::GpuContentBox::new(
             self.engine_content(),
             move || redraw.request_redraw(),
         );
-        Box::new(GpuContentRenderer::new(runtime, content, size))
+        Box::new(GpuContentRenderer::new(
+            runtime,
+            context.clone(),
+            producer,
+            size,
+        ))
     }
 }
 
@@ -197,12 +206,14 @@ impl HostedView for ExternalFrameView {
     fn renderer(
         &mut self,
         runtime: &GpuRuntime,
+        context: &Arc<SharedGpuContext>,
         redraw: &RedrawHandle,
         size: OffscreenSize,
     ) -> Box<dyn HostedRenderer> {
         let stream: ExternalFrameStream = self.stream();
         Box::new(ExternalFrameRenderer::new(
             runtime,
+            context.clone(),
             &stream,
             size,
             redraw.clone(),
@@ -291,6 +302,13 @@ struct SurfaceState {
     /// The last measurement the renderer answered — reused while setup
     /// owns the semantic renderer (`deferredMeasurementInvalidation`).
     last_resolved_size: RefCell<Option<Size>>,
+    /// The context generation `buffers` was built under — the `IOSurface`
+    /// ring is recreated when the runtime publishes a new context.
+    gpu_generation: Cell<Option<u64>>,
+    /// The parked wait on the next context publication, armed while a
+    /// frame's context reported device loss. Stored so a newer wait
+    /// replaces it and dropping the state cancels it.
+    context_watch: RefCell<Option<executor_core::AnyLocalExecutorTask<()>>>,
 }
 
 impl core::fmt::Debug for SurfaceState {
@@ -322,14 +340,17 @@ impl SurfaceState {
         });
         // The redraw waker: external capture intercepts while it owns
         // rendering; otherwise the request is handled on the main queue.
-        let redraw_weak = Sendable(weak.clone());
-        let redraw_view = Sendable(platform_view.clone());
+        // The handle fires on arbitrary producer threads, so the weak and
+        // the view travel in a `MainThreadBound` — the clone and upgrade
+        // happen only once the work item lands on the main queue.
+        let redraw_weak = Arc::new(dispatch2::MainThreadBound::new(weak.clone(), mtm));
+        let redraw_view = Arc::new(dispatch2::MainThreadBound::new(platform_view.clone(), mtm));
         let redraw_handle = RedrawHandle::new(move || {
-            let weak = Sendable(redraw_weak.get().clone());
-            let view = Sendable(redraw_view.get().clone());
-            cocoa_ui::main_queue::enqueue(move |_mtm| {
-                if let Some(state) = weak.get().upgrade() {
-                    handle_redraw_request(&state, view.get());
+            let weak = Arc::clone(&redraw_weak);
+            let view = Arc::clone(&redraw_view);
+            cocoa_ui::main_queue::enqueue(move |mtm| {
+                if let Some(state) = weak.get(mtm).upgrade() {
+                    handle_redraw_request(&state, view.get(mtm));
                 }
             });
         });
@@ -374,6 +395,8 @@ impl SurfaceState {
             observers: RefCell::new(Vec::new()),
             last_proposal: Cell::new(None),
             last_resolved_size: RefCell::new(None),
+            gpu_generation: Cell::new(None),
+            context_watch: RefCell::new(None),
         }
     }
 
@@ -396,6 +419,7 @@ impl SurfaceState {
     /// context generation moves on.
     fn render_into(
         &self,
+        context: &Arc<SharedGpuContext>,
         texture: &wgpu::Texture,
         (width, height): (u32, u32),
         display: Display,
@@ -403,8 +427,9 @@ impl SurfaceState {
         self.dirty.set(false);
         self.view.borrow().before_frame();
         // A renderer bound to a context generation that has since been lost
-        // and rebuilt holds a dead device; recreate it on the current one.
-        let generation = self.runtime.context().generation();
+        // and rebuilt holds a dead device; recreate it on `context`, the
+        // generation this frame is rendering under.
+        let generation = context.generation();
         let mut slot = self.renderer.borrow_mut();
         if slot
             .as_ref()
@@ -416,6 +441,7 @@ impl SurfaceState {
             *slot = Some(
                 self.view.borrow_mut().renderer(
                     &self.runtime,
+                    context,
                     &self.redraw_handle,
                     OffscreenSize::try_from_pixels(width, height)
                         .expect("native target must be nonempty"),
@@ -473,26 +499,37 @@ fn display_headroom(format: wgpu::TextureFormat, view: &Retained<SurfaceView>) -
     }
 }
 
+/// What one call to [`render_to_metal_texture`] did with the frame.
+enum FrameRender {
+    /// The context's device was already reported lost, so no submission was
+    /// made — nothing may touch the dead device, and the caller must not
+    /// latch a frame or present a ring slot nothing was rendered into.
+    PendingRebuild,
+    /// The frame's work was submitted on the context the caller passed in;
+    /// that exact context owns the completion marker and callback.
+    Submitted {
+        /// Whether another frame should be scheduled.
+        needs_redraw: bool,
+    },
+}
+
 /// Imports an `MTLTexture` as a wgpu texture, renders a frame into it and
-/// submits; returns whether another frame should be scheduled — the
+/// submits; reports whether the frame submitted or the context is dead — the
 /// `waterui_gpu_content_render_to_metal_texture` half of the ffi entry
 /// point.
 fn render_to_metal_texture(
     state: &Rc<SurfaceState>,
     view: &Retained<SurfaceView>,
+    context: &Arc<SharedGpuContext>,
     metal_texture: Retained<objc2::runtime::ProtocolObject<dyn MTLTexture>>,
     width: u32,
     height: u32,
     scale: f64,
-) -> bool {
+) -> FrameRender {
     let format = metal_texture_format(&metal_texture);
     state.prepare_format(format);
-    let context = state.runtime.context();
     if context.device_lost_reason().is_some() {
-        // The runtime's rebuild is still in flight; nothing may touch the
-        // dead device, so the frame reports pending until the fresh context
-        // lands.
-        return true;
+        return FrameRender::PendingRebuild;
     }
     // SAFETY: these presentation buffers belong to this device and are
     // handed over as color attachments after their preceding frame completed.
@@ -512,12 +549,11 @@ fn render_to_metal_texture(
         scale,
         headroom: display_headroom(format, view),
     };
-    let needs_redraw = state.render_into(&wgpu_texture, (width, height), display);
-    // The completion callback reads the texture after the queue drains;
-    // ordering the frame's work before this empty submission is what it
-    // waits on.
-    context.queue().submit([]);
-    needs_redraw
+    // The completion marker submitted by the caller orders the frame's work
+    // ahead of the callback that presents it.
+    FrameRender::Submitted {
+        needs_redraw: state.render_into(context, &wgpu_texture, (width, height), display),
+    }
 }
 
 // MARK: - Presentation lifecycle (WuiGpuSurface + WuiSurfacePresentation)
@@ -746,6 +782,44 @@ fn update_display_link_state(state: &Rc<SurfaceState>, view: &Retained<SurfaceVi
     }
 }
 
+/// `ensurePresenterGeneration` — `buffers` is an `IOSurface` ring on the
+/// context's Metal device; recreate it when the runtime publishes a new
+/// context generation (the ring predates the new context even when the
+/// underlying `MTLDevice` is unchanged).
+fn ensure_presenter(
+    state: &SurfaceState,
+    platform_view: &Retained<SurfaceView>,
+    context: &Arc<SharedGpuContext>,
+) {
+    if state.gpu_generation.get() == Some(context.generation()) {
+        return;
+    }
+    let device = crate::gpu_runtime::raw_metal_device(context);
+    *state.buffers.borrow_mut() = Some(cocoa_ui::metal::SurfaceBuffers::new(
+        device,
+        platform_view.presentation_layer(),
+    ));
+    state.gpu_generation.set(Some(context.generation()));
+}
+
+/// `awaitNextContextGeneration` — parks the surface until the runtime
+/// publishes a context newer than the lost one, the publication wake a
+/// lost-context frame is owed. Stored on the state so replacing the wait
+/// or dropping the state cancels it.
+fn arm_context_watch(state: &Rc<SurfaceState>, view: &Retained<SurfaceView>, generation: u64) {
+    let runtime = state.runtime.clone();
+    let weak = Rc::downgrade(state);
+    let view = view.clone();
+    *state.context_watch.borrow_mut() = Some(executor_core::spawn_local(async move {
+        let _published = runtime.context_after(generation).await;
+        if let Some(state) = weak.upgrade() {
+            // The owed frame replays through the on-demand path — this
+            // works whether or not the clock is currently ticking.
+            update_display_link_state(&state, &view);
+        }
+    }));
+}
+
 /// The one-frame-per-tick body — `renderFrame`. `force` draws through the
 /// visibility gates for the first frame a window's reveal waits on.
 fn render_frame(state: &Rc<SurfaceState>, view: &Retained<SurfaceView>, force: bool) {
@@ -762,6 +836,11 @@ fn render_frame(state: &Rc<SurfaceState>, view: &Retained<SurfaceView>, force: b
         return;
     }
 
+    // One context generation covers the render, the completion marker, and
+    // the callback registration — a rebuild mid-frame cannot split them.
+    let context = state.runtime.context();
+    ensure_presenter(state, view, &context);
+
     let Some(pending) = state
         .buffers
         .borrow()
@@ -777,45 +856,75 @@ fn render_frame(state: &Rc<SurfaceState>, view: &Retained<SurfaceView>, force: b
 
     let width = state.current_width.get();
     let height = state.current_height.get();
-    let needs_redraw = render_to_metal_texture(
+    let FrameRender::Submitted { needs_redraw } = render_to_metal_texture(
         state,
         view,
+        &context,
         pending.texture.clone(),
         width,
         height,
         state.current_scale.get(),
-    );
+    ) else {
+        // The lost context never receives work again; owe the frame and
+        // park until the runtime publishes the rebuilt context, whose wake
+        // replays it through `update_display_link_state` — the owed path
+        // schedules an on-demand render even with the clock stopped.
+        state.frame_owed.set(true);
+        arm_context_watch(state, view, context.generation());
+        return;
+    };
 
     state.frame_in_flight.set(true);
     state.keep_redrawing.set(needs_redraw);
     publish_content_accessibility(state, view);
     update_display_link_state(state, view);
 
-    let context = state.runtime.context();
     let weak = Sendable(Rc::downgrade(state));
     let view = Sendable(view.clone());
     let pending = Sendable(pending);
-    context.queue().on_submitted_work_done(move || {
-        cocoa_ui::main_queue::enqueue(move |_mtm| {
-            let Some(state) = weak.get().upgrade() else {
-                return;
-            };
-            state.frame_in_flight.set(false);
-            let presented = state
-                .buffers
-                .borrow_mut()
-                .as_mut()
-                .is_some_and(|buffers| buffers.present(pending.get()));
-            if presented {
-                complete_ready(&state, true);
-            } else {
-                // The buffers were replaced while this frame was in flight —
-                // owe it again rather than reveal a hole.
-                state.frame_owed.set(true);
-            }
-            update_display_link_state(&state, view.get());
+    let submitted_context = context.clone();
+    let marker = context
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("gpu surface frame completion marker"),
         });
-    });
+    crate::gpu_completion::submit_with_completion(
+        MainThreadMarker::new().expect("GpuSurface frames render on the main thread"),
+        marker,
+        &context,
+        move || {
+            cocoa_ui::main_queue::enqueue(move |_mtm| {
+                let Some(state) = weak.get().upgrade() else {
+                    return;
+                };
+                state.frame_in_flight.set(false);
+                if submitted_context.device_lost_reason().is_some() {
+                    // The submitted generation died in flight — the slot
+                    // holds no ready pixels; park until publication replays
+                    // the owed frame on a live context.
+                    state.frame_owed.set(true);
+                    arm_context_watch(&state, view.get(), submitted_context.generation());
+                    return;
+                }
+                let presented = state
+                    .buffers
+                    .borrow_mut()
+                    .as_mut()
+                    .is_some_and(|buffers| buffers.present(pending.get()));
+                if presented {
+                    // A presented frame makes this generation productive —
+                    // the runtime's unproductive-loss detector keys on it.
+                    submitted_context.note_frame_presented();
+                    complete_ready(&state, true);
+                } else {
+                    // The buffers were replaced while this frame was in flight —
+                    // owe it again rather than reveal a hole.
+                    state.frame_owed.set(true);
+                }
+                update_display_link_state(&state, view.get());
+            });
+        },
+    );
 }
 
 /// `handleRedrawRequest`: the redraw waker's main-queue body — republishes
@@ -1100,7 +1209,7 @@ impl cocoa_ui::capture::CapturableSurface for Capturable {
         texture: &objc2::runtime::ProtocolObject<dyn MTLTexture>,
         width: u32,
         height: u32,
-        completion: Box<dyn FnOnce() + Send>,
+        completion: cocoa_ui::capture::SurfaceCaptureCompletion,
     ) {
         // SAFETY: `texture` is the live texture the capture pipeline retained
         // for this call; `retain` takes our own reference.
@@ -1110,22 +1219,54 @@ impl cocoa_ui::capture::CapturableSurface for Capturable {
             )
         }
         .expect("GpuSurface external render received a null texture");
-        render_to_metal_texture(
+        let context = self.state.runtime.context();
+        let FrameRender::Submitted { .. } = render_to_metal_texture(
             &self.state,
             &self.view,
+            &context,
             texture,
             width,
             height,
             self.state.current_scale.get(),
-        );
-        let context = self.state.runtime.context();
+        ) else {
+            complete_ready(&self.state, false);
+            completion(Err(cocoa_ui::capture::CaptureDeferred));
+            return;
+        };
         let weak = Sendable(Rc::downgrade(&self.state));
-        context.queue().on_submitted_work_done(move || {
-            if weak.get().upgrade().is_some() {
-                complete_ready_static(weak.get());
-            }
-            completion();
-        });
+        let submitted_context = context.clone();
+        let marker = context
+            .device()
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("gpu surface external completion marker"),
+            });
+        crate::gpu_completion::submit_with_completion(
+            MainThreadMarker::new()
+                .expect("GpuSurface external renders complete on the main thread"),
+            marker,
+            &context,
+            move || {
+                // `on_submitted_work_done` closures can run on any thread
+                // that maintains the device — hop to the main queue before
+                // touching the weak state handle.
+                cocoa_ui::main_queue::enqueue(move |_mtm| {
+                    // The generation that carried this frame was lost in
+                    // flight: the fence settles, but there are no usable
+                    // pixels to compose.
+                    if submitted_context.device_lost_reason().is_some() {
+                        completion(Err(cocoa_ui::capture::CaptureDeferred));
+                        return;
+                    }
+                    if let Some(state) = weak.get().upgrade() {
+                        complete_ready(&state, true);
+                    }
+                    // A composited capture is a presented frame for the
+                    // runtime's unproductive-loss detector.
+                    submitted_context.note_frame_presented();
+                    completion(Ok(()));
+                });
+            },
+        );
     }
 }
 
@@ -1134,12 +1275,6 @@ const fn state_format(state: &SurfaceState) -> MTLPixelFormat {
         .presentation_format
         .get()
         .expect("GpuSurface must have a configured dynamic range before external capture")
-}
-
-fn complete_ready_static(weak: &Weak<SurfaceState>) {
-    if let Some(state) = weak.upgrade() {
-        complete_ready(&state, true);
-    }
 }
 
 /// Shows or hides the presentation layer inside a transaction —
@@ -1370,25 +1505,7 @@ fn build_surface<V: HostedView + 'static>(
         // The presentation buffers bind to the shared Metal device and the
         // view's presentation layer.
         let context = state.runtime.context();
-        // SAFETY: `raw_device` is the `MTLDevice` the runtime created and
-        // still owns; `retain` takes our own reference on it.
-        let device = unsafe {
-            Retained::<objc2::runtime::ProtocolObject<dyn objc2_metal::MTLDevice>>::retain(
-                Retained::as_ptr(
-                    context
-                        .device()
-                        .as_hal::<MetalApi>()
-                        .expect("the Apple runtime's device is Metal")
-                        .raw_device(),
-                )
-                .cast_mut(),
-            )
-            .expect("the Metal device is non-null")
-        };
-        *state.buffers.borrow_mut() = Some(cocoa_ui::metal::SurfaceBuffers::new(
-            device,
-            platform_view.presentation_layer(),
-        ));
+        ensure_presenter(&state, &platform_view, &context);
 
         // Registry: captures resolve surfaces by their platform view.
         let capturable = Rc::new(Capturable {

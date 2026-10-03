@@ -22,7 +22,7 @@ use waterui_graphics::filter_view::{AnyEffect, ErasedEffect, FilteredView, Param
 use waterui_graphics::filtrate::{
     EffectContext, EffectFrameClock, EffectInput, EffectOutput, EffectRedrawCallback, ShapeTextures,
 };
-use waterui_graphics::gpu::GpuRuntime;
+use waterui_graphics::gpu::{GpuRuntime, SharedGpuContext};
 use waterui_graphics::wgpu;
 
 use crate::contract::{Mounted, NativeLeaf, RenderContext};
@@ -46,11 +46,14 @@ use platform::HostView;
 /// did.
 const PRESENTATION_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
-/// A captured content frame — `WuiAppliedFilterCaptureFrame`.
+/// A captured content frame — `WuiAppliedFilterCaptureFrame`. Carries the
+/// exact context its capture was prepared under so `finish` encodes,
+/// imports, and submits on that generation — never a re-fetched one.
 struct CaptureFrame {
     texture: Retained<objc2::runtime::ProtocolObject<dyn objc2_metal::MTLTexture>>,
     width: u32,
     height: u32,
+    context: Arc<SharedGpuContext>,
 }
 
 impl fmt::Debug for CaptureFrame {
@@ -98,8 +101,9 @@ pub struct FilteredState {
     view: Retained<HostView>,
     /// The output presentation view.
     output_view: Retained<PlatformView>,
-    /// The shared Metal device — `metalDevice`.
-    device: Retained<MetalDevice>,
+    /// The shared Metal device — `metalDevice`. Recreated when the
+    /// runtime publishes a new context generation.
+    device: RefCell<Retained<MetalDevice>>,
     /// The erased effect chain, innermost (content-adjacent) first; `None`
     /// while asynchronous setup owns it — the ffi state's effect slot.
     effects: EffectSlot,
@@ -107,8 +111,10 @@ pub struct FilteredState {
     runtime: GpuRuntime,
     /// The host-owned effect clock — `frame_clock` on the ffi state.
     frame_clock: RefCell<EffectFrameClock>,
-    /// Setup ran to completion on the current context — `setup_ready`.
-    setup_ready: Rc<Cell<bool>>,
+    /// The context generation the installed effects finished setup on —
+    /// `setup_ready` keyed to the resources' generation. A frame may only
+    /// encode through an effect bundle when this equals `gpu_generation`.
+    setup_generation: Rc<Cell<Option<u64>>>,
     /// The imported capture texture of the live frame — `imported_texture`.
     imported_texture: RefCell<Option<wgpu::Texture>>,
     /// Attach-time input size — `input_width`/`input_height`; the output
@@ -154,13 +160,24 @@ pub struct FilteredState {
     clock: cocoa_ui::display_link::FrameClock,
     /// Window observers — `occlusionObserver`/app-activation watchers.
     observers: RefCell<Vec<cocoa_ui::notification::NotificationObserver>>,
+    /// The context generation `device`/`presenter`/`capture_texture` were
+    /// built under — all are recreated when the runtime publishes a new
+    /// context.
+    gpu_generation: Cell<Option<u64>>,
+    /// The parked wait on the next context publication, armed when a frame
+    /// finds the current context lost. Stored so replacing the wait or
+    /// dropping the state cancels it.
+    context_watch: RefCell<Option<executor_core::AnyLocalExecutorTask<()>>>,
+    /// The in-flight effect setup. Stored so dropping the state cancels a
+    /// setup parked on `context_after` instead of leaking the future.
+    setup_task: RefCell<Option<executor_core::AnyLocalExecutorTask<()>>>,
 }
 
 impl fmt::Debug for FilteredState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FilteredState")
             .field("attached", &self.attached)
-            .field("setup_ready", &self.setup_ready)
+            .field("setup_generation", &self.setup_generation)
             .finish_non_exhaustive()
     }
 }
@@ -232,21 +249,75 @@ fn prepare_dynamic_range(
     true
 }
 
+/// `ensureGpuGeneration` — every device-bound resource (`device`,
+/// `presenter`, `capture_texture`, `imported_texture`, the set-up effects)
+/// predates a newly published context and must not be reused, even when
+/// the underlying `MTLDevice` is unchanged.
+fn ensure_filtered_generation(state: &Rc<FilteredState>, context: &SharedGpuContext) {
+    if state.gpu_generation.get() == Some(context.generation()) {
+        return;
+    }
+    let device = crate::gpu_runtime::raw_metal_device(context);
+    *state.device.borrow_mut() = device.clone();
+    *state.presenter.borrow_mut() = Some(cocoa_ui::metal::SurfaceBuffers::new(
+        device,
+        cocoa_ui::view::layer(&state.output_view).expect("output view is layer-backed"),
+    ));
+    *state.capture_texture.borrow_mut() = None;
+    *state.imported_texture.borrow_mut() = None;
+    state.gpu_generation.set(Some(context.generation()));
+    // The effect pipeline was set up on the previous generation — set up
+    // again on this one.
+    state.setup_generation.set(None);
+    start_setup(state);
+}
+
+/// The installed effects are ready only when they finished setup on the
+/// generation the device-bound resources belong to.
+fn effects_ready(state: &FilteredState) -> bool {
+    state.setup_generation.get() == state.gpu_generation.get()
+}
+
+/// Parks the filter until the runtime publishes a context newer than the
+/// lost one, then requests a frame. Stored on the state so replacing the
+/// wait or dropping the state cancels it.
+fn arm_filtered_context_watch(state: &Rc<FilteredState>, generation: u64) {
+    let runtime = state.runtime.clone();
+    let weak = Rc::downgrade(state);
+    *state.context_watch.borrow_mut() = Some(spawn_local(async move {
+        let _published = runtime.context_after(generation).await;
+        if let Some(state) = weak.upgrade() {
+            // A park taken before attach re-runs the GPU initialization so
+            // `attach_if_needed` retakes on the published context.
+            initialize_gpu(&state);
+            state.needs_render.set(true);
+            schedule_frame_if_needed(&state);
+        }
+    }));
+}
+
 /// `waterui_applied_filter_attach_host_textures` — the capture texture and
 /// output format an attached presentation implies, always at the
-/// extended-range target.
-fn attach_if_needed(state: &Rc<FilteredState>, width: u32, height: u32) {
+/// extended-range target. `context` is the live context `initialize_gpu`
+/// already verified and bound; attach never re-fetches it.
+fn attach_if_needed(
+    state: &Rc<FilteredState>,
+    context: &Arc<SharedGpuContext>,
+    width: u32,
+    height: u32,
+) {
     if state.attached.get() {
         return;
     }
-    let gpu = state.runtime.context();
+    ensure_filtered_generation(state, context);
     // `assert_capture_usable_format`: the capture texture and the output
     // share one format, so the check runs at attach, not inside a frame.
     let capture_usages = wgpu::TextureUsages::TEXTURE_BINDING
         | wgpu::TextureUsages::RENDER_ATTACHMENT
         | wgpu::TextureUsages::COPY_DST;
     assert!(
-        gpu.adapter()
+        context
+            .adapter()
             .get_texture_format_features(PRESENTATION_FORMAT)
             .allowed_usages
             .contains(capture_usages),
@@ -258,7 +329,7 @@ fn attach_if_needed(state: &Rc<FilteredState>, width: u32, height: u32) {
     );
     state.input_size.set((width, height));
     state.attached.set(true);
-    if state.setup_ready.get() {
+    if effects_ready(state) {
         request_render(state);
     } else {
         start_setup(state);
@@ -277,9 +348,11 @@ fn detach_if_needed(state: &FilteredState) {
 }
 
 /// `ensureCaptureTexture` — a private-storage render target in the
-/// presentation format, reallocated on size change.
+/// presentation format, reallocated on size change, allocated on the
+/// explicit live `context` the caller bound this generation to.
 fn ensure_capture_texture(
     state: &FilteredState,
+    context: &SharedGpuContext,
     width: u32,
     height: u32,
 ) -> Retained<MetalTexture> {
@@ -304,8 +377,7 @@ fn ensure_capture_texture(
         objc2_metal::MTLTextureUsage::ShaderRead | objc2_metal::MTLTextureUsage::RenderTarget,
     );
     descriptor.setStorageMode(objc2_metal::MTLStorageMode::Private);
-    let texture = state
-        .device
+    let texture = crate::gpu_runtime::raw_metal_device(context)
         .newTextureWithDescriptor(&descriptor)
         .expect("Failed to create the filtered-content capture texture");
     *state.capture_texture.borrow_mut() = Some(texture.clone());
@@ -338,9 +410,21 @@ fn initialize_gpu(state: &Rc<FilteredState>) {
     if !can_attach_now(&state.view) {
         return;
     }
+    // One explicit live context for everything below: on loss the whole
+    // initialization parks before attach or any native allocation, and the
+    // publication watch re-runs `initialize_gpu` on the rebuilt context.
+    let context = state.runtime.context();
+    if context.device_lost_reason().is_some() {
+        arm_filtered_context_watch(state, context.generation());
+        return;
+    }
+    // Device-bound state always binds to this exact generation — including
+    // when the view is already attached — so nothing later allocates on a
+    // stale device.
+    ensure_filtered_generation(state, &context);
     let (width, height) = pixel_size(&state.view, scale);
-    attach_if_needed(state, width, height);
-    let _ = ensure_capture_texture(state, width, height);
+    attach_if_needed(state, &context, width, height);
+    let _ = ensure_capture_texture(state, &context, width, height);
 }
 
 /// `updateOutputLayerFrame`.
@@ -358,7 +442,7 @@ fn update_output_frame(state: &FilteredState) {
 /// `scheduleFrameIfNeeded`.
 fn schedule_frame_if_needed(state: &Rc<FilteredState>) {
     if state.attached.get()
-        && state.setup_ready.get()
+        && effects_ready(state)
         && cocoa_ui::view::window(&state.view).is_some()
         && state.needs_render.get()
         && !state.render_in_flight.get()
@@ -395,7 +479,17 @@ fn request_render_if_geometry_changed(state: &Rc<FilteredState>) {
 
 /// `renderFrame` — capture the hidden content into the input-size texture.
 fn render_frame(state: &Rc<FilteredState>) {
-    if !state.setup_ready.get()
+    let context = state.runtime.context();
+    if context.device_lost_reason().is_some() {
+        // Nothing prepares, captures, or submits on a dead device — park
+        // until the rebuilt context is published.
+        arm_filtered_context_watch(state, context.generation());
+        return;
+    }
+    // A new context generation rebuilds the device-bound resources and
+    // re-arms the effect setup before the gates below run.
+    ensure_filtered_generation(state, &context);
+    if !effects_ready(state)
         || !state.needs_render.get()
         || state.render_in_flight.get()
         || state.frame_presentation_in_flight.get()
@@ -411,9 +505,10 @@ fn render_frame(state: &Rc<FilteredState>) {
     state.render_in_flight.set(true);
     state.clock.stop();
     let frame = CaptureFrame {
-        texture: ensure_capture_texture(state, width, height),
+        texture: ensure_capture_texture(state, &context, width, height),
         width,
         height,
+        context,
     };
     let weak = Sendable(Rc::downgrade(state));
     let frame_texture = frame.texture.clone();
@@ -461,6 +556,35 @@ fn finish_captured_frame(state: &Rc<FilteredState>, frame: CaptureFrame, capture
 #[allow(clippy::needless_pass_by_value)]
 #[allow(clippy::too_many_lines)]
 fn finish_prepared_frame(state: &Rc<FilteredState>, frame: CaptureFrame) {
+    // Encode, import, and submit on the exact context the capture was
+    // prepared under — a fresh fetch could name a generation this frame's
+    // native texture was never prepared for.
+    let context = frame.context.clone();
+    if context.device_lost_reason().is_some() {
+        // The prepared context died during the capture: the frame's native
+        // texture must not mix into another generation's resources. Drop
+        // it before any reset/import/encode and park for publication.
+        state.render_in_flight.set(false);
+        arm_filtered_context_watch(state, context.generation());
+        return;
+    }
+    if state.runtime.context().generation() != context.generation() {
+        // A newer generation published during the capture — this frame's
+        // native texture predates it. Drop the frame before any
+        // reset/import/encode; the next frame runs on the new context.
+        state.render_in_flight.set(false);
+        state.needs_render.set(true);
+        schedule_frame_if_needed(state);
+        return;
+    }
+    ensure_filtered_generation(state, &context);
+    if !effects_ready(state) {
+        // The ready bundle belongs to a different generation — re-setup
+        // is in flight and its landing re-requests the frame.
+        state.render_in_flight.set(false);
+        state.needs_render.set(true);
+        return;
+    }
     let (output_width, output_height) = (frame.width, frame.height);
     let pixel_format = output_pixel_format();
     {
@@ -476,8 +600,6 @@ fn finish_prepared_frame(state: &Rc<FilteredState>, frame: CaptureFrame) {
         .as_ref()
         .and_then(cocoa_ui::metal::SurfaceBuffers::next_frame)
         .expect("FilteredView presenter has no texture to render into");
-
-    let context = state.runtime.context();
     let input_texture = {
         let mut imported = state.imported_texture.borrow_mut();
         match imported.as_ref() {
@@ -523,7 +645,7 @@ fn finish_prepared_frame(state: &Rc<FilteredState>, frame: CaptureFrame) {
         )
     };
     let timing = state.frame_clock.borrow_mut().tick();
-    let needs_redraw = {
+    let (needs_redraw, encoder) = {
         let device = context.device();
         let queue = context.queue();
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -600,8 +722,7 @@ fn finish_prepared_frame(state: &Rc<FilteredState>, frame: CaptureFrame) {
                 .unwrap_or_else(|error| panic!("filtered render: {error}"))
                 || effect.redraw_hint();
         }
-        queue.submit([encoder.finish()]);
-        needs_redraw
+        (needs_redraw, encoder)
     };
     drop(input_texture);
     drop(output_wgpu_texture);
@@ -610,17 +731,37 @@ fn finish_prepared_frame(state: &Rc<FilteredState>, frame: CaptureFrame) {
     state.frame_presentation_in_flight.set(true);
     let weak = Sendable(Rc::downgrade(state));
     let pending = Sendable(pending);
-    context.queue().on_submitted_work_done(move || {
-        let weak = Sendable(weak.get().clone());
-        let pending = pending;
-        cocoa_ui::main_queue::enqueue(move |_mtm| {
-            let Some(state) = weak.get().upgrade() else {
-                return;
-            };
-            state.frame_presentation_in_flight.set(false);
-            finish_presented_frame(&state, pending.get(), needs_redraw);
-        });
-    });
+    let submitted_context = context.clone();
+    crate::gpu_completion::submit_with_completion(
+        cocoa_ui::MainThreadMarker::new().expect("FilteredView frames render on the main thread"),
+        encoder,
+        &context,
+        move || {
+            // `on_submitted_work_done` closures can run on any thread that
+            // maintains the device — hop to the main queue before touching
+            // the weak state handle.
+            cocoa_ui::main_queue::enqueue(move |_mtm| {
+                if submitted_context.device_lost_reason().is_some() {
+                    // The submitted generation died in flight — the fence
+                    // settled on a dead queue and the ring slot holds no
+                    // ready pixels. Park until the rebuilt context
+                    // publishes instead of revealing it.
+                    if let Some(state) = weak.get().upgrade() {
+                        state.frame_presentation_in_flight.set(false);
+                        state.render_in_flight.set(false);
+                        state.needs_render.set(true);
+                        arm_filtered_context_watch(&state, submitted_context.generation());
+                    }
+                    return;
+                }
+                let Some(state) = weak.get().upgrade() else {
+                    return;
+                };
+                state.frame_presentation_in_flight.set(false);
+                finish_presented_frame(&state, pending.get(), needs_redraw, &submitted_context);
+            });
+        },
+    );
 }
 
 /// The fence continuation — `present`/`revealFilteredOutput`/`completeReady`.
@@ -628,6 +769,7 @@ fn finish_presented_frame(
     state: &Rc<FilteredState>,
     pending: &cocoa_ui::metal::PendingFrame,
     needs_redraw: bool,
+    submitted_context: &SharedGpuContext,
 ) {
     if state.detach_after_capture.get() {
         state.detach_after_capture.set(false);
@@ -647,6 +789,9 @@ fn finish_presented_frame(
     if let Some(presenter) = state.presenter.borrow_mut().as_mut() {
         presenter.present(pending);
     }
+    // A presented frame makes this generation productive — the runtime's
+    // unproductive-loss detector keys on it.
+    submitted_context.note_frame_presented();
     reveal_output(state);
     crate::invalidation::invalidate_rendered_content(&state.view);
     state
@@ -687,7 +832,7 @@ fn complete_ready(state: &FilteredState, _result: bool) {
 /// UI-local executor, retrying on device loss until it lands on the
 /// still-current context.
 fn start_setup(state: &Rc<FilteredState>) {
-    if state.setup_ready.get() {
+    if effects_ready(state) {
         return;
     }
     if state.effects.borrow().is_none() {
@@ -705,17 +850,23 @@ fn spawn_setup(state: &Rc<FilteredState>) {
         .take()
         .expect("FilteredView effects are unavailable before setup starts");
     let effects_slot = Rc::downgrade(&state.effects);
-    let setup_ready = Rc::clone(&state.setup_ready);
+    let setup_generation = Rc::clone(&state.setup_generation);
     let weak = Sendable(Rc::downgrade(state));
     let runtime = state.runtime.clone();
     let fire_redraw: EffectRedrawCallback = Arc::new(redraw_callback_for(state));
-    spawn_local(async move {
+    *state.setup_task.borrow_mut() = Some(spawn_local(async move {
         // Setup retries until it completes on the context that is still the
         // runtime's current one; a device loss mid-setup leaves corpses that
         // must not be installed, and a panic from inside `wgpu`'s purged
         // storage is loss fallout — not an effect bug — so it retries too.
-        loop {
+        // A lost context parks on the publication wait rather than retrying
+        // against the dead device.
+        let context = loop {
             let context = runtime.context();
+            if context.device_lost_reason().is_some() {
+                let _published = runtime.context_after(context.generation()).await;
+                continue;
+            }
             let device = context.device();
             let queue = context.queue();
             let outcome = {
@@ -745,30 +896,33 @@ fn spawn_setup(state: &Rc<FilteredState>) {
             if context.device_lost_reason().is_none()
                 && runtime.context().generation() == context.generation()
             {
-                break;
+                break context;
             }
-        }
+        };
         let Some(slot) = effects_slot.upgrade() else {
             return;
         };
         slot.borrow_mut().replace(effects);
-        setup_ready.set(true);
+        setup_generation.set(Some(context.generation()));
         if let Some(state) = weak.get().upgrade() {
             schedule_frame_if_needed(&state);
         }
         fire_redraw();
-    })
-    .detach();
+    }));
 }
 
 /// The callback every effect fires when external state becomes dirty —
-/// `installRedrawCallback`'s target.
+/// `installRedrawCallback`'s target. The callback runs on arbitrary
+/// effect-owned threads, so the weak travels in a `MainThreadBound`: its
+/// clone and upgrade happen only inside the main-queue work item.
 fn redraw_callback_for(state: &Rc<FilteredState>) -> impl Fn() + Send + Sync + 'static {
-    let weak = Sendable(Rc::downgrade(state));
+    let mtm = cocoa_ui::MainThreadMarker::new()
+        .expect("FilteredView callbacks install on the main thread");
+    let weak = Arc::new(dispatch2::MainThreadBound::new(Rc::downgrade(state), mtm));
     move || {
-        let weak = Sendable(weak.get().clone());
-        cocoa_ui::main_queue::enqueue(move |_mtm| {
-            if let Some(state) = weak.get().upgrade() {
+        let weak = Arc::clone(&weak);
+        cocoa_ui::main_queue::enqueue(move |mtm| {
+            if let Some(state) = weak.get(mtm).upgrade() {
                 handle_redraw(&state);
             }
         });
@@ -1107,11 +1261,11 @@ pub fn install(dispatcher: &mut Dispatcher) {
             FilteredState {
                 view: view.clone(),
                 output_view: output_view.clone(),
-                device,
+                device: RefCell::new(device),
                 effects: Rc::new(RefCell::new(None)),
                 runtime,
                 frame_clock: RefCell::new(EffectFrameClock::new()),
-                setup_ready: Rc::new(Cell::new(false)),
+                setup_generation: Rc::new(Cell::new(None)),
                 imported_texture: RefCell::new(None),
                 input_size: Cell::new((0, 0)),
                 attached: Cell::new(false),
@@ -1132,6 +1286,9 @@ pub fn install(dispatcher: &mut Dispatcher) {
                 capture,
                 clock,
                 observers: RefCell::new(Vec::new()),
+                gpu_generation: Cell::new(Some(gpu_context.generation())),
+                context_watch: RefCell::new(None),
+                setup_task: RefCell::new(None),
             }
         });
         *state.effects.borrow_mut() = Some(effects);
