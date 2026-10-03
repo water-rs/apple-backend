@@ -67,6 +67,11 @@ pub fn unregister_sink(view: &PlatformView) {
 /// reschedules a layout pass, the native walk alone leaves memoized leaf
 /// measures serving the size that is no longer true, and skipping the
 /// capture walk leaves an enclosing effect compositing stale pixels.
+#[cfg(any(
+    feature = "container",
+    feature = "fixed_container",
+    feature = "gpu_surface"
+))]
 pub fn invalidate_layout_hierarchy(view: &PlatformView) {
     crate::measure_memo::invalidate();
     cocoa_ui::view::invalidate_layout(view);

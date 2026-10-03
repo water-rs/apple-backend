@@ -10,16 +10,9 @@
 //! three-column split, `Native<TabsLayout>` the platform's tab container,
 //! and `Native<ResolvedMenu>` a menu trigger.
 
-use alloc::rc::Rc;
 use alloc::string::String;
-use alloc::vec::Vec;
 
 use cocoa_ui::PlatformView;
-use waterui::component::menu::{
-    CommandRole, ResolvedCommand, ResolvedMenuItem, ResolvedNestedMenu,
-};
-use waterui::reactive::Signal;
-use waterui_backend_core::Environment;
 
 pub mod bar;
 pub mod menu;
@@ -83,91 +76,4 @@ pub fn extract_title_text(view: &PlatformView) -> Option<String> {
         }
     }
     None
-}
-
-/// A resolved command as the kit's shared `Command` payload — label text,
-/// subtitle, symbol name, destructive flag and shortcut.
-fn kit_command(command: &ResolvedCommand) -> cocoa_ui::menu::Command {
-    kit_command_fields(
-        command.label.content.snapshot().to_plain().to_string(),
-        command.subtitle.as_ref().map(ToString::to_string),
-        command.icon.as_ref().map(|icon| icon.name.to_string()),
-        command.role,
-        command.shortcut.as_ref(),
-    )
-}
-
-/// A resolved nested menu's header as the kit's shared `Command` payload.
-pub fn kit_command_for_menu(menu: &ResolvedNestedMenu) -> cocoa_ui::menu::Command {
-    kit_command_fields(
-        menu.label.content.snapshot().to_plain().to_string(),
-        None,
-        menu.icon.as_ref().map(|icon| icon.name.to_string()),
-        CommandRole::Standard,
-        None,
-    )
-}
-
-fn kit_command_fields(
-    label: String,
-    subtitle: Option<String>,
-    symbol: Option<String>,
-    role: CommandRole,
-    shortcut: Option<&waterui::component::menu::Shortcut>,
-) -> cocoa_ui::menu::Command {
-    let mut modifiers = cocoa_ui::menu::KeyModifiers::empty();
-    let mut key_equivalent = String::new();
-    if let Some(shortcut) = shortcut {
-        key_equivalent = shortcut.key.to_string();
-        if shortcut.modifiers.command() {
-            modifiers |= cocoa_ui::menu::KeyModifiers::COMMAND;
-        }
-        if shortcut.modifiers.shift() {
-            modifiers |= cocoa_ui::menu::KeyModifiers::SHIFT;
-        }
-        if shortcut.modifiers.option() {
-            modifiers |= cocoa_ui::menu::KeyModifiers::OPTION;
-        }
-        if shortcut.modifiers.control() {
-            modifiers |= cocoa_ui::menu::KeyModifiers::CONTROL;
-        }
-    }
-    cocoa_ui::menu::Command {
-        label,
-        subtitle,
-        symbol,
-        destructive: matches!(role, CommandRole::Destructive),
-        enabled: true,
-        selected: false,
-        key_equivalent,
-        modifiers,
-    }
-}
-
-/// Resolved items as the kit's shared `MenuTreeNode` list, with each
-/// command's action bound to fire under `env`.
-pub fn menu_tree(
-    items: &[ResolvedMenuItem],
-    env: &Environment,
-) -> Vec<cocoa_ui::menu::MenuTreeNode> {
-    items
-        .iter()
-        .map(|item| match item {
-            ResolvedMenuItem::Divider => cocoa_ui::menu::MenuTreeNode::Divider,
-            ResolvedMenuItem::Command(command) => {
-                let action = command.action.clone();
-                let env = env.clone();
-                cocoa_ui::menu::MenuTreeNode::Command(
-                    kit_command(command),
-                    Rc::new(move || {
-                        action.call(&env);
-                    }),
-                )
-            }
-            ResolvedMenuItem::Menu(menu) => cocoa_ui::menu::MenuTreeNode::Submenu(
-                kit_command_for_menu(menu),
-                menu_tree(&menu.items.snapshot(), env),
-            ),
-        })
-        .collect()
 }

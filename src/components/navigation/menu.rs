@@ -23,7 +23,7 @@ use waterui_core::layout::{ProposalSize, Size, StretchAxis, SubView, ViewDimensi
 use crate::contract::NativeLeaf;
 use crate::dispatch::Dispatcher;
 
-use super::menu_tree;
+use crate::menus::menu_tree;
 
 /// Watches every signal a resolved item collection owns and calls `rebuild`
 /// on change — `WuiMenuTree`'s per-node observations (label, disabled,

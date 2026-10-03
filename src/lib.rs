@@ -21,6 +21,8 @@ pub(crate) mod components;
 pub(crate) mod first_paint;
 pub(crate) mod fonts;
 #[cfg(feature = "gpu_surface")]
+mod gpu_completion;
+#[cfg(feature = "gpu_surface")]
 mod gpu_input;
 mod gpu_runtime;
 mod inspector;

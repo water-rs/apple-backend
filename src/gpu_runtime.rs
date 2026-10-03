@@ -2,9 +2,19 @@
 //! installed into the environment before the fallback's services — the Rust
 //! half of what `WuiGpuRuntime.swift` + the `waterui_gpu_runtime_*` FFI did.
 
+#[cfg(feature = "gpu_surface")]
+use cocoa_ui::Retained;
 use executor_core::{spawn, spawn_local};
+#[cfg(feature = "gpu_surface")]
+use objc2::runtime::ProtocolObject;
+#[cfg(feature = "gpu_surface")]
+use objc2_metal::MTLDevice;
 use waterui_backend_core::Environment;
 use waterui_graphics::gpu::GpuRuntime;
+#[cfg(feature = "gpu_surface")]
+use waterui_graphics::gpu::SharedGpuContext;
+#[cfg(feature = "gpu_surface")]
+use wgpu_hal::api::Metal as MetalApi;
 
 /// Creates the runtime on the shared executor, installs it into `env` on the
 /// main thread, then runs `then`. The owner retains `env` until setup and
@@ -47,4 +57,28 @@ pub fn runtime(env: &Environment) -> GpuRuntime {
     env.get::<GpuRuntime>()
         .expect("GPU runtime is not installed in the WaterUI environment")
         .clone()
+}
+
+/// The `MTLDevice` a context generation's wgpu device wraps.
+///
+/// # Panics
+///
+/// When the runtime's device is not Metal or the device pointer is null.
+#[cfg(feature = "gpu_surface")]
+pub fn raw_metal_device(context: &SharedGpuContext) -> Retained<ProtocolObject<dyn MTLDevice>> {
+    // SAFETY: `raw_device` is the `MTLDevice` the runtime created and still
+    // owns; `retain` takes our own reference on it.
+    unsafe {
+        Retained::retain(
+            Retained::as_ptr(
+                context
+                    .device()
+                    .as_hal::<MetalApi>()
+                    .expect("the Apple runtime's device is Metal")
+                    .raw_device(),
+            )
+            .cast_mut(),
+        )
+        .expect("the Metal device is non-null")
+    }
 }

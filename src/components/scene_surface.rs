@@ -95,10 +95,11 @@ impl HostedView for Scene {
     fn renderer(
         &mut self,
         runtime: &GpuRuntime,
+        context: &Arc<SharedGpuContext>,
         redraw: &RedrawHandle,
         size: OffscreenSize,
     ) -> Box<dyn HostedRenderer> {
-        Box::new(SceneRenderer::new(runtime, redraw, size, self))
+        Box::new(SceneRenderer::new(runtime, context, redraw, size, self))
     }
 }
 
@@ -121,14 +122,14 @@ struct SceneRenderer {
 impl SceneRenderer {
     fn new(
         runtime: &GpuRuntime,
+        context: &Arc<SharedGpuContext>,
         redraw: &RedrawHandle,
         size: OffscreenSize,
         scene: &Scene,
     ) -> Self {
-        let context = runtime.context();
         let engine = Rc::new(
             runtime
-                .engine_on(&context)
+                .engine_on(context)
                 .expect("scene engine creation failed"),
         );
         let wake = redraw.clone();
@@ -154,7 +155,7 @@ impl SceneRenderer {
             installed: HeldResources::empty(),
             resources,
             engine,
-            context,
+            context: context.clone(),
             textures,
             source,
             presenter,
