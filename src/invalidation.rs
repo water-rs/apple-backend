@@ -58,6 +58,21 @@ pub fn unregister_sink(view: &PlatformView) {
     }
 }
 
+/// The full layout invalidation shared by reactive layout watchers and the
+/// GPU measure-change path — `invalidateLayoutHierarchy`: bump the measure
+/// epoch so no leaf answers a stale size, mark `view` and every native
+/// ancestor for layout, then notify an enclosing rendered-content capture.
+///
+/// All three halves are required together: the epoch bump alone never
+/// reschedules a layout pass, the native walk alone leaves memoized leaf
+/// measures serving the size that is no longer true, and skipping the
+/// capture walk leaves an enclosing effect compositing stale pixels.
+pub fn invalidate_layout_hierarchy(view: &PlatformView) {
+    crate::measure_memo::invalidate();
+    cocoa_ui::view::invalidate_layout(view);
+    invalidate_rendered_content(view);
+}
+
 /// Walks `view`'s superview chain to the nearest registered sink and calls
 /// it — `PlatformView.invalidateCapturedRendering`.
 pub fn invalidate_rendered_content(view: &PlatformView) {

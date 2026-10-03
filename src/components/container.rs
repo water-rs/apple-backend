@@ -886,8 +886,7 @@ pub fn install(dispatcher: &mut Dispatcher) {
             let host = host.clone();
             move || {
                 let _ = &state;
-                host.set_needs_layout();
-                view::invalidate_layout(&host);
+                crate::invalidation::invalidate_layout_hierarchy(&host);
             }
         }));
         state.borrow_mut().layout_guards = layout_guards;
