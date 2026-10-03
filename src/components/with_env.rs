@@ -21,7 +21,6 @@ use waterui_core::layout::{ProposalSize, StretchAxis, SubView, ViewDimensions};
 use crate::contract::{Mounted, NativeLeaf};
 use crate::dispatch::Dispatcher;
 use crate::proposal;
-use crate::seam::waterui_swift_content_frame;
 
 #[cfg(target_os = "macos")]
 use cocoa_ui::appkit::HostView;
@@ -73,20 +72,7 @@ impl SubView for WithEnvSubView {
 /// `wuiContentFrame(of: contentView, in: self)`: the whole bounds when the
 /// content manages its own safe area, the host's safe-area rect otherwise.
 fn content_frame(host: &HostView, child: &PlatformView) -> Rect {
-    let host_view: &PlatformView = host;
-    // SAFETY: both are live platform views; the contract is a main-thread
-    // read.
-    unsafe {
-        waterui_swift_content_frame(
-            core::ptr::from_ref::<PlatformView>(child)
-                .cast::<core::ffi::c_void>()
-                .cast_mut(),
-            core::ptr::from_ref::<PlatformView>(host_view)
-                .cast::<core::ffi::c_void>()
-                .cast_mut(),
-        )
-    }
-    .into_kit()
+    crate::native_layout::content_frame(child, host)
 }
 
 /// Installs the `with_env` handler on the dispatcher: `Metadata<Environment>`
@@ -145,13 +131,15 @@ pub fn install(dispatcher: &mut Dispatcher) {
             // wrapper's tint follows the overlaid environment's accent.
             let tint_view = view::retain_base(host_view);
             leaf.bind(&Accent.resolve(&env).computed(), move |color| {
-                let accent = cocoa_ui::uikit::colors::extended_linear(
-                    f64::from(color.red),
-                    f64::from(color.green),
-                    f64::from(color.blue),
-                    f64::from(color.opacity),
-                    f64::from(color.headroom),
-                );
+                let accent = {
+                    let [red, green, blue, alpha] = color.components;
+                    cocoa_ui::uikit::colors::extended_linear_display_p3(
+                        f64::from(red),
+                        f64::from(green),
+                        f64::from(blue),
+                        f64::from(alpha),
+                    )
+                };
                 view::set_tint_color(&tint_view, Some(&accent));
             });
         }

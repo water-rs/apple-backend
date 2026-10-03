@@ -11,7 +11,7 @@
 //! Every `NativeLeaf` wraps its `SubView` in a [`MemoizingSubView`], so each
 //! consult at a repeated proposal hits the leaf's cache instead of
 //! re-descending its subtree — containers, delegates, metadata wrappers and
-//! seam faces alike. Entries are keyed on the proposal's bits and stamped
+//! fallback leaves alike. Entries are keyed on the proposal's bits and stamped
 //! with the global generation; any measure-relevant mutation anywhere calls
 //! [`invalidate`], which bumps the generation and stales every cache at
 //! once. The policy is deliberately conservative — a leaf that forgets to
@@ -83,7 +83,7 @@ impl MeasureMemo {
 /// Wraps any leaf `SubView` in a [`MeasureMemo`]: repeated probes at the same
 /// proposal hit the cache instead of re-running the leaf's compute. Wrapping
 /// at the `NativeLeaf` boundary memoizes delegates (env/metadata wrappers,
-/// `AnyView`, seam faces) that have no memo of their own.
+/// `AnyView`, fallback leaves) that have no memo of their own.
 pub struct MemoizingSubView {
     inner: Box<dyn SubView>,
     memo: MeasureMemo,

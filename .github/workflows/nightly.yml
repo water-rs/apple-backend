@@ -595,17 +595,19 @@ jobs:
           path: e2e-baselines/
           retention-days: 7
 
-  # The DeviceHostedApp cases (ListCellLayoutTests, CompactSplitTests) drive a
-  # real WaterUI application and run only when an example's Rust archive is
-  # linked into the test bundle — `swift test` in the PR lane binds nothing,
-  # so they skip there. This job stages the same waterui checkout the shards
-  # build, packages the repository's own ios_test_host fixture with the water
-  # CLI from `prepare`, and runs the suite on an iOS simulator. It belongs to
-  # the nightly rather than the PR lane: measured cold on a PR run it timed
-  # out at thirty minutes (CLI build ~5.5m, `water package` ~10.5m, then a
-  # cold xcodebuild DerivedData), and even warm it does not fit a per-change
-  # gate. The helper fails the run when the archive never lands in the test
-  # bundle, so a broken staging step cannot turn the check green by skipping.
+  # The embedding contract is verified end to end: this job stages the same
+  # waterui checkout the shards build, packages the repository's own
+  # ios_test_host fixture with the water CLI from `prepare`, asserts the
+  # `export_app!` archive defines the `waterui_apple_main`/`waterui_apple_mount`
+  # entry points the thin Swift adapter binds, installs and launches the
+  # packaged app on an iOS simulator, and runs the native libtest-mimic
+  # suite (Tests/native.rs, `native-test-support`) inside that simulator
+  # through the aarch64-apple-ios-sim target runner. It belongs to the
+  # nightly rather than the PR lane: measured cold on a PR run it timed out
+  # at thirty minutes (CLI build ~5.5m, `water package` ~10.5m, then a cold
+  # simulator boot), and even warm it does not fit a per-change gate. The
+  # helper fails the run when the archive lacks the entry points, so a
+  # broken staging step cannot turn the check green by skipping.
   ios-device-tests:
     name: ios-device-tests
     needs: prepare
@@ -666,7 +668,11 @@ jobs:
           chmod +x cli-bin/bin/water
           echo "${{ github.workspace }}/cli-bin/bin" >> "$GITHUB_PATH"
 
-      - name: Run archive-backed iOS tests
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: Run packaged-app and native iOS tests
         env:
           WATERUI_DIR: ${{ github.workspace }}/waterui
         run: ./.github/scripts/run-ios-device-tests.sh ios_test_host

@@ -31,8 +31,6 @@ use waterui_core::layout::SubView;
 
 use cocoa_ui::Retained;
 
-use crate::seam::WateruiSubView;
-
 /// What a rendered component owns beyond its platform view: watcher guards,
 /// action targets, rendered children, the platform objects they act on.
 ///
@@ -213,72 +211,6 @@ impl NativeLeaf {
             cocoa_ui::uikit::view_controller::remove_from_parent(controller);
         }
     }
-
-    /// A leaf built from a `WateruiSubView` that crossed the seam: `view` is
-    /// the +1 reference the other side handed over.
-    pub(crate) fn from_seam(view: Retained<PlatformView>, layout: WateruiSubView) -> Self {
-        Self {
-            keepalive: KeepAlive::default(),
-            layout: Rc::new(crate::measure_memo::MemoizingSubView::new(Box::new(
-                SeamSubView::new(&view, layout),
-            ))),
-            view,
-            #[cfg(target_os = "ios")]
-            attached_controllers: Vec::new(),
-        }
-    }
-
-    /// Splits the leaf for a host that manages the parts separately — a
-    /// window that mounts the view, measures through the layout face, and
-    /// drops the rest with its own resources.
-    pub(crate) fn into_parts(self) -> (Retained<PlatformView>, Rc<dyn SubView>, KeepAlive) {
-        (self.view, self.layout, self.keepalive)
-    }
-}
-
-/// The `SubView` of a leaf that crossed the seam: the wire face plus the
-/// registration that lets a Rust parent deliver the leaf's selected
-/// proposal back through the seam's `place` callback.
-///
-/// `_guard` is declared first so its drop runs before `inner` releases the
-/// wire context: unregistering after the context is freed would leave a
-/// stale `place`/`context` pair in the channel map.
-struct SeamSubView {
-    _guard: crate::proposal::SeamGuard,
-    inner: WateruiSubView,
-}
-
-impl SeamSubView {
-    fn new(view: &PlatformView, inner: WateruiSubView) -> Self {
-        Self {
-            _guard: crate::proposal::register_seam(view, &inner),
-            inner,
-        }
-    }
-}
-
-impl fmt::Debug for SeamSubView {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SeamSubView").finish_non_exhaustive()
-    }
-}
-
-impl SubView for SeamSubView {
-    fn measure(
-        &self,
-        proposal: waterui_core::layout::ProposalSize,
-    ) -> waterui_core::layout::ViewDimensions {
-        self.inner.measure(proposal)
-    }
-    fn stretch_axis(&self) -> waterui_core::layout::StretchAxis {
-        self.inner.stretch_axis()
-    }
-    fn priority(&self) -> i32 {
-        self.inner.priority()
-    }
-    fn is_empty(&self) -> bool {
-        self.inner.is_empty()
-    }
 }
 
 /// A child leaf attached to a parent view. Dropping it detaches the view
@@ -372,7 +304,7 @@ pub(crate) fn adopt_controllers(
 /// What a handler sees while it renders.
 pub struct RenderContext<'a> {
     env: &'a Environment,
-    dispatcher: &'static crate::dispatch::Dispatcher,
+    dispatcher: Rc<crate::dispatch::Dispatcher>,
     mtm: cocoa_ui::MainThreadMarker,
 }
 
@@ -385,7 +317,7 @@ impl fmt::Debug for RenderContext<'_> {
 impl<'a> RenderContext<'a> {
     pub(crate) const fn new(
         env: &'a Environment,
-        dispatcher: &'static crate::dispatch::Dispatcher,
+        dispatcher: Rc<crate::dispatch::Dispatcher>,
         mtm: cocoa_ui::MainThreadMarker,
     ) -> Self {
         Self {
@@ -418,7 +350,7 @@ impl<'a> RenderContext<'a> {
     #[must_use]
     pub fn render(&self, view: impl Into<AnyView>) -> NativeLeaf {
         self.try_render(view)
-            .expect("no handler and no fallback claim this view")
+            .expect("native view has no backend handler")
     }
 
     /// Renders `view`, answering `None` when nothing claims it.
@@ -433,8 +365,8 @@ impl<'a> RenderContext<'a> {
     /// — and keep the clone in the leaf's [`KeepAlive`] when the subtree's
     /// signals may resolve through it after the handler returns.
     #[must_use]
-    pub const fn with_env<'b>(&self, env: &'b Environment) -> RenderContext<'b> {
-        RenderContext::new(env, self.dispatcher, self.mtm)
+    pub fn with_env<'b>(&self, env: &'b Environment) -> RenderContext<'b> {
+        RenderContext::new(env, self.dispatcher.clone(), self.mtm)
     }
 
     /// An owned handle that can render after the handler returns — from a
@@ -444,7 +376,7 @@ impl<'a> RenderContext<'a> {
     pub fn renderer(&self) -> Renderer {
         Renderer {
             env: self.env.clone(),
-            dispatcher: self.dispatcher,
+            dispatcher: self.dispatcher.clone(),
             mtm: self.mtm,
         }
     }
@@ -456,7 +388,7 @@ impl<'a> RenderContext<'a> {
 #[derive(Debug, Clone)]
 pub struct Renderer {
     env: Environment,
-    dispatcher: &'static crate::dispatch::Dispatcher,
+    dispatcher: Rc<crate::dispatch::Dispatcher>,
     mtm: cocoa_ui::MainThreadMarker,
 }
 
@@ -470,7 +402,7 @@ impl Renderer {
     #[must_use]
     pub fn render(&self, view: impl Into<AnyView>) -> NativeLeaf {
         self.try_render(view)
-            .expect("no handler and no fallback claim this view")
+            .expect("native view has no backend handler")
     }
 
     /// Renders `view`, answering `None` when nothing claims it.
@@ -481,7 +413,7 @@ impl Renderer {
 
     /// The captured environment and dispatcher as a context.
     #[must_use]
-    pub const fn context(&self) -> RenderContext<'_> {
-        RenderContext::new(&self.env, self.dispatcher, self.mtm)
+    pub fn context(&self) -> RenderContext<'_> {
+        RenderContext::new(&self.env, self.dispatcher.clone(), self.mtm)
     }
 }

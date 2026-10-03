@@ -12,7 +12,10 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 use cocoa_ui::ColorScheme;
-use waterui::graphics::color::{ResolvedColor, Srgb};
+use waterui::graphics::color::{
+    WorkingColor, srgb_to_linear,
+    working::{self},
+};
 use waterui::reactive::{Binding, SignalExt};
 use waterui::text::font::{self, FontWeight, ResolvedFont};
 use waterui::theme::{self, color};
@@ -25,6 +28,19 @@ pub struct ThemeSignals {
     scheme: Binding<waterui::graphics::color::ColorScheme>,
     colors: Vec<Box<dyn Fn(ColorScheme)>>,
     fonts: Vec<Box<dyn Fn()>>,
+}
+
+/// Installs and observes the theme owned by a mounted `UIKit` controller.
+#[cfg(target_os = "ios")]
+pub fn install_controller(
+    env: &mut Environment,
+    controller: &cocoa_ui::uikit::ViewController,
+    keepalive: &mut crate::contract::KeepAlive,
+) {
+    let theme = alloc::rc::Rc::new(install(env, controller.color_scheme()));
+    let observed = theme.clone();
+    keepalive.keep(controller.observe_color_scheme(move |scheme| refresh(&observed, scheme)));
+    keepalive.keep(theme);
 }
 
 /// Installs the color-scheme signal and every color and font slot, reading
@@ -144,11 +160,11 @@ impl ThemeSignals {
         env: &mut Environment,
         resolver: impl Fn(ColorScheme) -> Option<cocoa_ui::Rgba> + 'static,
     ) {
-        let binding = waterui::reactive::binding(ResolvedColor::from_srgb(Srgb::BLACK));
+        let binding = waterui::reactive::binding(working::from_linear_srgb([0.0, 0.0, 0.0], 1.0));
         theme::install_color_signal::<S>(env, binding.computed());
         self.colors.push(Box::new(move |scheme| {
             if let Some(rgba) = resolver(scheme) {
-                binding.set(into_resolved(rgba));
+                binding.set(into_working(rgba));
             }
         }));
     }
@@ -181,20 +197,22 @@ const fn color_scheme(scheme: ColorScheme) -> waterui::graphics::color::ColorSch
     }
 }
 
-/// A resolved platform color becomes the wire `ResolvedColor`: linear-RGB
-/// components plus its alpha as opacity.
+/// A resolved platform color becomes the wire `WorkingColor`: the platform's
+/// sRGB channels are decoded and converted into linear Display-P3, with alpha
+/// carried straight.
 #[expect(
     clippy::cast_possible_truncation,
-    reason = "platform color components are f64; ResolvedColor is f32"
+    reason = "platform color components are f64; WorkingColor is f32"
 )]
-fn into_resolved(rgba: cocoa_ui::Rgba) -> ResolvedColor {
-    let mut color = ResolvedColor::from_srgb(Srgb {
-        red: rgba.red as f32,
-        green: rgba.green as f32,
-        blue: rgba.blue as f32,
-    });
-    color.opacity = rgba.alpha as f32;
-    color
+fn into_working(rgba: cocoa_ui::Rgba) -> WorkingColor {
+    working::from_linear_srgb(
+        [
+            srgb_to_linear(rgba.red as f32),
+            srgb_to_linear(rgba.green as f32),
+            srgb_to_linear(rgba.blue as f32),
+        ],
+        rgba.alpha as f32,
+    )
 }
 
 /// The semantic weight a platform font's numeric weight expresses.
@@ -233,7 +251,7 @@ mod tests {
     use cocoa_ui::Rgba;
     use waterui::graphics::color::ColorScheme as WuiColorScheme;
 
-    use super::{color_scheme, font_weight, into_resolved};
+    use super::{color_scheme, font_weight, into_working};
     use waterui::text::font::FontWeight;
 
     /// Every canonical platform weight snaps to its named weight, including
@@ -288,14 +306,15 @@ mod tests {
         );
     }
 
-    /// The wire `ResolvedColor` keeps the alpha as `opacity`; components are
-    /// the platform's sRGB channels narrowed to f32.
+    /// The wire `WorkingColor` keeps the alpha straight; components are
+    /// the platform's sRGB channels through the transfer function,
+    /// narrowed to f32.
     #[test]
-    fn into_resolved_carries_alpha_as_opacity() {
-        let resolved = into_resolved(Rgba::new(0.25, 0.5, 0.75, 0.4));
-        assert_eq!(resolved.opacity, 0.4_f32);
-        assert!(resolved.opacity < 1.0);
-        let opaque = into_resolved(Rgba::new(1.0, 0.0, 0.0, 1.0));
-        assert_eq!(opaque.opacity, 1.0);
+    fn into_working_carries_alpha_straight() {
+        let working = into_working(Rgba::new(0.25, 0.5, 0.75, 0.4));
+        assert_eq!(working.components[3], 0.4_f32);
+        assert!(working.components[3] < 1.0);
+        let opaque = into_working(Rgba::new(1.0, 0.0, 0.0, 1.0));
+        assert_eq!(opaque.components[3], 1.0);
     }
 }

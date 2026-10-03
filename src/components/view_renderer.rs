@@ -6,8 +6,6 @@
 //! presented frame, and the hierarchy is rasterized into a premultiplied
 //! RGBA8 bitmap — the `CustomViewRenderer` contract.
 
-use core::ffi::c_void;
-
 use waterui_backend_core::Environment;
 use waterui_core::AnyView;
 use waterui_core::layout::ProposalSize;
@@ -43,18 +41,11 @@ impl CustomViewRenderer for AppleViewRenderer {
 /// The environment's `ViewRenderer`, replacing
 /// `waterui_env_install_view_renderer`.
 ///
-/// # Safety
-///
-/// `env` must be a valid `Environment` pointer on the main thread; the
-/// installed renderer borrows the environment's renderer for the env's life.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn waterui_apple_install_view_renderer(env: *mut c_void) {
-    // SAFETY: the caller contract makes `env` a valid, live environment on
-    // the main thread.
-    let env = unsafe { &mut *env.cast::<Environment>() };
+/// Installs the native snapshot renderer into this environment.
+pub fn install_service(env: &mut Environment) {
     let mtm = cocoa_ui::MainThreadMarker::new().expect("main thread");
     let renderer =
-        crate::contract::RenderContext::new(env, crate::dispatch::dispatcher(mtm), mtm).renderer();
+        crate::contract::RenderContext::new(env, crate::dispatch::dispatcher(env), mtm).renderer();
     env.insert(ViewRenderer::new(AppleViewRenderer { renderer }));
 }
 
@@ -62,6 +53,7 @@ pub unsafe extern "C" fn waterui_apple_install_view_renderer(env: *mut c_void) {
 /// `captureViewToRGBA`.
 #[allow(
     clippy::future_not_send,
+    clippy::unused_async,
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss
 )]
@@ -116,6 +108,7 @@ async fn capture_leaf_to_rgba(
         .unwrap_or(usize::MAX)
         .min((usize::MAX - 3) / 4);
 
+    #[cfg(feature = "gpu_surface")]
     wait_for_surfaces(view).await;
     capture::capture(view, actual, scale, pixel_width, pixel_height)
 }
@@ -211,8 +204,8 @@ mod capture {
 /// presented a frame — `view.ready()`: the surfaces present through
 /// `IOSurface` contents, which the layer-capture paths draw like any other
 /// layer content.
+#[cfg(feature = "gpu_surface")]
 #[allow(clippy::future_not_send)]
 async fn wait_for_surfaces(view: &cocoa_ui::PlatformView) {
-    #[cfg(feature = "gpu_surface")]
     crate::components::gpu_surface::wait_for_first_frames(view).await;
 }

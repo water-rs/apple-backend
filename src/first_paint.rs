@@ -1,47 +1,55 @@
-//! The `waterui_first_paint_ms` marker CI reads.
-//!
-//! Measures process start to the first window's first painted frame, once per
-//! process, exactly as `WuiLaunchTiming` did: wait until the leaf's
-//! first-paint participants report ready, commit a display pass, then log
-//! `waterui_first_paint_ms=<millis>` on `os_log` subsystem `dev.waterui`.
-//! `os_log` is the one channel `water run` streams back on both platforms —
-//! `open -W` leaves a macOS app's stdout unreachable, and a simulator app's
-//! stdout is not captured either.
+//! First presentation readiness for an owning application environment.
 
-use core::ffi::c_void;
-use core::sync::atomic::{AtomicBool, Ordering};
+use cocoa_ui::PlatformView;
+use std::{cell::Cell, rc::Rc};
+use waterui_backend_core::Environment;
 
-/// The marker source's once-per-process latch.
-static REPORTED: AtomicBool = AtomicBool::new(false);
+#[derive(Clone, Debug, Default)]
+pub struct FirstPaint(Rc<Cell<bool>>);
 
-/// Marks first paint for `view` — a leaf's platform view — once the platform
-/// reports it ready; later calls are no-ops. The platform performs the
-/// display pass itself — the caller's continuation runs on the main thread
-/// inside the readiness callback, before the run loop hands the frame to the
-/// window.
-pub fn mark(view: *mut c_void) {
-    if REPORTED.swap(true, Ordering::Relaxed) {
-        return;
-    }
-    // SAFETY: `view` is a live platform view for the duration of the
-    // callback; `waterui_swift_when_ready` delivers the callback once, on the
-    // main thread, while the view is still alive.
-    unsafe {
-        crate::seam::waterui_swift_when_ready(view, core::ptr::null_mut(), on_ready);
+impl FirstPaint {
+    fn claim(&self) -> bool {
+        !self.0.replace(true)
     }
 }
 
-extern "C" fn on_ready(_context: *mut c_void) {
-    cocoa_ui::core_animation::flush_transaction();
-    match cocoa_ui::process::time_since_start() {
-        Ok(elapsed) => {
-            cocoa_ui::log::Log::new("dev.waterui", "Startup").notice(&alloc::format!(
-                "waterui_first_paint_ms={}",
-                elapsed.as_millis()
-            ));
+pub fn mark(view: &PlatformView, env: &Environment) {
+    let state = env
+        .get::<FirstPaint>()
+        .expect("first-paint state is installed");
+    if !state.claim() {
+        return;
+    }
+    let view = cocoa_ui::view::retain_base(view);
+    executor_core::spawn_local(async move {
+        cocoa_ui::view::layout_immediately(&view);
+        #[cfg(feature = "gpu_surface")]
+        crate::components::gpu_surface::wait_for_first_frames(&view).await;
+        cocoa_ui::view::display_immediately(&view);
+        cocoa_ui::core_animation::flush_transaction();
+        match cocoa_ui::process::time_since_start() {
+            Ok(elapsed) => cocoa_ui::log::Log::new("dev.waterui", "Startup")
+                .notice(&format!("waterui_first_paint_ms={}", elapsed.as_millis())),
+            Err(error) => tracing::warn!("could not measure first paint: {error}"),
         }
-        Err(error) => {
-            tracing::warn!("could not measure first paint: {error}");
-        }
+    })
+    .detach();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::FirstPaint;
+    use waterui_backend_core::Environment;
+
+    #[test]
+    fn mounts_share_one_runtime_launch_marker() {
+        let mut runtime = Environment::new();
+        runtime.insert(FirstPaint::default());
+        let first_mount = runtime.clone();
+        let second_mount = runtime.clone();
+        assert!(first_mount.get::<FirstPaint>().unwrap().claim());
+        drop(first_mount);
+        assert!(!second_mount.get::<FirstPaint>().unwrap().claim());
+        assert!(!runtime.get::<FirstPaint>().unwrap().claim());
     }
 }

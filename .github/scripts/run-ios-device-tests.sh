@@ -1,29 +1,40 @@
 #!/usr/bin/env bash
-# Runs the WaterUITests suite on an iOS simulator, optionally with a real
-# WaterUI application archive linked into the test bundle.
+# Packages a WaterUI application for the iOS simulator with the `water` CLI
+# and runs the backend's native test suite inside a booted simulator.
 #
-# The package resolves waterui_* symbols by dynamic lookup, so the
-# device-backed tests (DeviceHostedApp) can drive a real application only
-# when an example's Rust archive is linked into the test bundle. This script
-# builds one with the `water` CLI against a staged waterui checkout and hands
-# it to `xcodebuild test`.
+# Two things are verified end to end, with no C header and no
+# `dynamic_lookup` anywhere:
+#
+#   * the application static library `water package` produces through
+#     `export_app!` really defines the `waterui_apple_main` /
+#     `waterui_apple_mount` entry points the thin Swift adapter binds via
+#     `@_extern(c)` — asserted on the archive's symbol table so a broken
+#     packaging leg cannot turn the check green — and the packaged `.app`
+#     installs and launches on the simulator; and
+#   * the `native` libtest-mimic suite (Tests/native.rs, behind the
+#     `native-test-support` feature) runs inside the same booted device:
+#     `cargo nextest run --target aarch64-apple-ios-sim` hands every test
+#     binary to the `nextest-ios-sim.sh` target runner
+#     (`.cargo/config.toml`), which `simctl spawn`s it, so UIKit-touching
+#     assertions execute natively on the platform rather than the host.
 #
 # Usage:
-#   WATERUI_DIR=<staged waterui checkout> run-ios-device-tests.sh <example> [simulator-udid]
+#   WATERUI_DIR=<staged waterui checkout> run-ios-device-tests.sh [example] [simulator-udid]
 #
-#   <example>   a project under ${WATERUI_DIR}/examples (e.g. reminders,
-#               navigation), or `ios_test_host` — this repository's own
-#               fixture (Tests/IOSTestHost), staged into the framework's
-#               examples tree the way setup-e2e.sh stages Examples/*.
+#   [example]  a project under ${WATERUI_DIR}/examples (e.g. reminders,
+#              navigation), or `ios_test_host` — this repository's own
+#              fixture (Tests/IOSTestHost), staged into the framework's
+#              examples tree the way setup-e2e.sh stages Examples/*.
+#              Default: ios_test_host. Pass `none` to run only the native
+#              suite.
 #
-# With no example the suite still runs; the archive-backed tests skip.
-#
-# Prerequisites: a staged checkout — see setup-e2e.sh, which clones waterui,
-# replaces backends/apple with this repository's tree, and syncs the FFI
-# header — and the `water` CLI on PATH.
+# Prerequisites: a staged checkout — see setup-e2e.sh, which clones waterui
+# and replaces backends/apple with this repository's tree — plus the
+# `water` CLI and `cargo nextest` on PATH.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+example="${1:-ios_test_host}"
 simulator_udid="${2:-${SIMULATOR_UDID:-}}"
 if [[ -z "${simulator_udid}" ]]; then
   simulator_udid="$(xcrun simctl list devices available \
@@ -34,11 +45,10 @@ if [[ -z "${simulator_udid}" ]]; then
   exit 1
 fi
 
-ldflags="-Xlinker -undefined -Xlinker dynamic_lookup"
-archive=""
+# Boot if needed and wait for it to be ready; a no-op when already booted.
+xcrun simctl bootstatus "${simulator_udid}" -b
 
-if [[ $# -ge 1 ]]; then
-  example="$1"
+if [[ "${example}" != "none" ]]; then
   waterui_dir="${WATERUI_DIR:?WATERUI_DIR must name the staged waterui checkout}"
   example_path="${waterui_dir}/examples/${example}"
   if [[ "${example}" == "ios_test_host" && ! -f "${example_path}/Water.toml" ]]; then
@@ -65,39 +75,43 @@ if [[ $# -ge 1 ]]; then
   archive="$(dirname "${app_path}")/libwaterui_app.a"
   [[ -f "${archive}" ]] || {
     echo "error: no libwaterui_app.a beside ${app_path} for ${example}" >&2; exit 1; }
-  ldflags="${ldflags} ${archive}"
+
+  # The thin adapter binds `waterui_apple_mount` through `@_extern(c)` and
+  # the generated app entry point calls `waterui_apple_main`; both symbols
+  # are the `export_app!` contract and must be defined by this archive.
+  # `grep -qx` reads nm's whole output, so no broken-pipe false negative.
+  for symbol in _waterui_apple_main _waterui_apple_mount; do
+    nm -gU "${archive}" | awk '{print $3}' | grep -qx "${symbol}" || {
+      echo "error: ${symbol} is not defined by ${archive};" \
+        "the packaged app cannot bind the adapter" >&2
+      exit 1
+    }
+  done
+
+  # Install the packaged app, then hand launch + readiness to the helper:
+  # it attaches the dev.waterui log stream before launching, accepts the
+  # `waterui_first_paint_ms` marker only from this launch's pid, fails on a
+  # stream loss or a 30 s marker deadline, and terminates the app on every
+  # path. A returned pid alone never counts as having rendered.
+  xcrun simctl install "${simulator_udid}" "${app_path}"
+  bundle_id="$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "${app_path}/Info.plist")"
+  "${repo_root}/.github/scripts/wait-native-first-paint.py" \
+    "${simulator_udid}" "${bundle_id}"
 fi
 
-derived_data="${DERIVED_DATA_PATH:-$(mktemp -d)/DerivedData}"
+# The reference host runs once on the same simulator and leaves its
+# measured values as JSON; the suite's native-layout assertions compare
+# against them through WATERUI_REFERENCE_METRICS, which the target runner
+# forwards into every spawned test process as SIMCTL_CHILD_*.
+# Assigned before exporting: `export X="$(...)"` would mask the
+# substitution's exit status, so a failing reference build must fail here.
+reference_metrics="$("${repo_root}/.github/scripts/prepare-native-reference.sh" \
+  "$(mktemp -d)/native-reference")"
+export WATERUI_IOS_SIM_UDID="${simulator_udid}"
+export WATERUI_REFERENCE_METRICS="${reference_metrics}"
 
-status=0
-xcodebuild test \
-  -scheme WaterUITests \
-  -destination "platform=iOS Simulator,id=${simulator_udid}" \
-  -derivedDataPath "${derived_data}" \
-  OTHER_LDFLAGS="${ldflags}" || status=$?
-
-if [[ ${status} -eq 0 && -n "${archive}" ]]; then
-  # The DeviceHostedApp cases bind `waterui_app` through dynamic lookup, so a
-  # staging failure that drops the archive still produces a green suite —
-  # those tests simply skip. Assert the symbol actually landed in the built
-  # test bundle rather than trusting that OTHER_LDFLAGS was honoured.
-  xctest_bundle="$(find "${derived_data}/Build/Products" \
-    -maxdepth 2 -name '*.xctest' -print -quit)"
-  [[ -n "${xctest_bundle}" ]] || {
-    echo "error: no .xctest bundle under ${derived_data}/Build/Products" >&2
-    exit 1
-  }
-  xctest_bin="${xctest_bundle}/$(basename "${xctest_bundle}" .xctest)"
-  # `grep -q` exits on the first match and closes the pipe under nm, which
-  # then dies with "LLVM ERROR: IO failure on output stream: Broken pipe";
-  # with `pipefail` that reports a linked bundle as unlinked. Let grep read
-  # nm's whole output instead.
-  nm -gU "${xctest_bin}" | grep ' _waterui_app$' >/dev/null || {
-    echo "error: waterui_app is not linked into ${xctest_bundle};" \
-      "the archive-backed tests skipped" >&2
-    exit 1
-  }
-fi
-
-exit "${status}"
+# The native assertions run inside the same simulator through the target
+# runner — every test binary is spawned on the device itself.
+cargo nextest run -p waterui-apple --locked --features native-test-support \
+  --manifest-path "${repo_root}/Cargo.toml" \
+  --target aarch64-apple-ios-sim

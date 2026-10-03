@@ -249,6 +249,6 @@ pub fn search_prompt(
 }
 
 /// A resolved color signal, when the bar color has resolved.
-pub fn bar_color(bar: &BarState) -> Option<&Computed<waterui::graphics::color::ResolvedColor>> {
+pub fn bar_color(bar: &BarState) -> Option<&Computed<waterui::graphics::color::WorkingColor>> {
     bar.color.as_ref().and_then(|color| color.resolved())
 }

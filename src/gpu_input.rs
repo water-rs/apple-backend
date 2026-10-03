@@ -5,7 +5,7 @@
 use waterui_graphics::input::SurfaceInputEvent;
 
 /// Converts a [`cocoa_ui::input::SurfaceEvent`] into the event a
-/// [`GpuSurface`](waterui_graphics::gpu_surface::GpuSurface) consumes.
+/// [`GpuContentView`](waterui_graphics::gpu::GpuContentView) consumes.
 ///
 /// The kit vocabulary mirrors the platform events it translates; the mapping
 /// is one-to-one except pointer buttons with no W3C meaning, which the kit

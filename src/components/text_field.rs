@@ -27,7 +27,7 @@ use waterui::Str;
 #[cfg(target_os = "ios")]
 use waterui::component::text_field::KeyboardType;
 use waterui::component::text_field::ResolvedTextFieldConfig;
-use waterui::graphics::color::ResolvedColor;
+use waterui::graphics::color::WorkingColor;
 use waterui::reactive::{Binding, Signal};
 use waterui::resolve::Resolvable;
 use waterui::text::StyledStr;
@@ -78,9 +78,9 @@ struct Chunk {
     /// Its latest resolved font.
     font: ResolvedFont,
     /// Its latest foreground — `None` draws the state's default.
-    foreground: Option<ResolvedColor>,
+    foreground: Option<WorkingColor>,
     /// Its latest background.
-    background: Option<ResolvedColor>,
+    background: Option<WorkingColor>,
     /// Whether the chunk is italicized.
     italic: bool,
     /// Whether the chunk is underlined.
@@ -115,32 +115,32 @@ impl core::fmt::Debug for StyledPush {
     }
 }
 
-/// A `ResolvedColor` as the platform's extended-sRGB color object.
+/// A `WorkingColor` as the platform's extended linear Display-P3 color object.
 #[cfg(target_os = "ios")]
-fn platform_color(color: &ResolvedColor) -> Retained<PlatformColor> {
-    platform::colors::extended_linear(
-        f64::from(color.red),
-        f64::from(color.green),
-        f64::from(color.blue),
-        f64::from(color.opacity),
-        f64::from(color.headroom),
-    )
+fn platform_color(color: &WorkingColor) -> Retained<PlatformColor> {
+    {
+        let [red, green, blue, alpha] = color.components;
+        platform::colors::extended_linear_display_p3(
+            f64::from(red),
+            f64::from(green),
+            f64::from(blue),
+            f64::from(alpha),
+        )
+    }
 }
 
-/// A `ResolvedColor` as the platform's extended-sRGB color object, with HDR
+/// A `WorkingColor` as the platform's extended linear Display-P3 color object, with HDR
 /// headroom applied as a content-headroom multiplier — the `AppKit` variant.
 #[cfg(target_os = "macos")]
-fn platform_color(color: &ResolvedColor) -> Retained<PlatformColor> {
-    let unscaled = platform::colors::extended_linear(
-        f64::from(color.red),
-        f64::from(color.green),
-        f64::from(color.blue),
-        f64::from(color.opacity),
-    );
-    if color.headroom > 0.0 {
-        platform::colors::with_content_headroom(&unscaled, 1.0 + f64::from(color.headroom))
-    } else {
-        unscaled
+fn platform_color(color: &WorkingColor) -> Retained<PlatformColor> {
+    {
+        let [red, green, blue, alpha] = color.components;
+        platform::colors::extended_linear_display_p3(
+            f64::from(red),
+            f64::from(green),
+            f64::from(blue),
+            f64::from(alpha),
+        )
     }
 }
 

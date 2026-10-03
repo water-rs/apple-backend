@@ -1,17 +1,17 @@
-//! The `resolved_color` leaf: `Native<ResolvedColor>` rendered through the
+//! The working-color leaf: `Native<WorkingColor>` rendered through the
 //! kit's color-fill view — and `Native<Color>` alongside it, because the
 //! deleted `WuiResolvedColorView.swift` also served `WuiColorView`, the
 //! semantic-color twin whose `AnyResolvable` resolves through the
-//! environment into a watched `Computed<ResolvedColor>`.
+//! environment into a watched `Computed<WorkingColor>`.
 //!
 //! Mirrors `WuiColorViewBase`: the view is a greedy fill — it takes the
 //! whole proposal on every axis and stretches both ways. A `Color`'s
 //! resolution is scheme-aware, so every change lands as an imperative
-//! `set_color` inside a watcher; a bare `ResolvedColor` is already resolved
+//! `set_color` inside a watcher; a bare `WorkingColor` is already resolved
 //! and applies once. No signal type crosses into `cocoa-ui`.
 
 use cocoa_ui::Retained;
-use waterui::graphics::color::{Color, ResolvedColor};
+use waterui::graphics::color::{Color, WorkingColor};
 use waterui_core::layout::{ProposalSize, Size, StretchAxis, SubView, ViewDimensions};
 
 use crate::contract::NativeLeaf;
@@ -37,33 +37,31 @@ fn as_view(view: &ColorView) -> &PlatformView {
     view
 }
 
-/// A `ResolvedColor` as the platform's extended-sRGB color object.
+/// A `WorkingColor` as the platform's extended linear Display-P3 color object —
+/// linear Display-P3 channels carried straight, values above `1.0` being
+/// the color's HDR headroom already.
 #[cfg(target_os = "ios")]
-fn platform_color(color: &ResolvedColor) -> Retained<cocoa_ui::objc2_ui_kit::UIColor> {
-    platform::colors::extended_linear(
-        f64::from(color.red),
-        f64::from(color.green),
-        f64::from(color.blue),
-        f64::from(color.opacity),
-        f64::from(color.headroom),
+fn platform_color(color: &WorkingColor) -> Retained<cocoa_ui::objc2_ui_kit::UIColor> {
+    let [red, green, blue, alpha] = color.components;
+    platform::colors::extended_linear_display_p3(
+        f64::from(red),
+        f64::from(green),
+        f64::from(blue),
+        f64::from(alpha),
     )
 }
 
-/// A `ResolvedColor` as the platform's extended-sRGB color object, with HDR
-/// headroom applied as a content-headroom multiplier — the `AppKit` variant.
+/// A `WorkingColor` as the platform's extended linear Display-P3 color object — the
+/// `AppKit` variant, same straight channels.
 #[cfg(target_os = "macos")]
-fn platform_color(color: &ResolvedColor) -> Retained<cocoa_ui::objc2_app_kit::NSColor> {
-    let unscaled = platform::colors::extended_linear(
-        f64::from(color.red),
-        f64::from(color.green),
-        f64::from(color.blue),
-        f64::from(color.opacity),
-    );
-    if color.headroom > 0.0 {
-        platform::colors::with_content_headroom(&unscaled, 1.0 + f64::from(color.headroom))
-    } else {
-        unscaled
-    }
+fn platform_color(color: &WorkingColor) -> Retained<cocoa_ui::objc2_app_kit::NSColor> {
+    let [red, green, blue, alpha] = color.components;
+    platform::colors::extended_linear_display_p3(
+        f64::from(red),
+        f64::from(green),
+        f64::from(blue),
+        f64::from(alpha),
+    )
 }
 
 /// The color view's layout face: greedy on both axes, no intrinsic size —
@@ -96,9 +94,9 @@ fn color_leaf(mtm: cocoa_ui::MainThreadMarker) -> (Retained<ColorView>, NativeLe
     (view, leaf)
 }
 
-/// Installs the `resolved_color` handler on the dispatcher: `Native<Color>`
-/// resolves through the environment into a watched color signal;
-/// `Native<ResolvedColor>` applies its already-resolved fill once.
+/// Installs the handler on the dispatcher: `Native<Color>` resolves through
+/// the environment into a watched color signal; `Native<WorkingColor>`
+/// applies its already-resolved fill once.
 pub fn install(dispatcher: &mut Dispatcher) {
     dispatcher.register_native::<Color>(|config, ctx| {
         let (view, mut leaf) = color_leaf(ctx.mtm());
@@ -106,11 +104,6 @@ pub fn install(dispatcher: &mut Dispatcher) {
         leaf.bind(&resolved, move |color| {
             view.set_color(Some(&platform_color(&color)));
         });
-        leaf
-    });
-    dispatcher.register_native::<ResolvedColor>(|config, ctx| {
-        let (view, leaf) = color_leaf(ctx.mtm());
-        view.set_color(Some(&platform_color(&config)));
         leaf
     });
 }

@@ -15,7 +15,7 @@ use core::cell::RefCell;
 
 use cocoa_ui::{PlatformView, Rect, Retained};
 use waterui::component::badge::BadgeConfig;
-use waterui::graphics::color::ResolvedColor;
+use waterui::graphics::color::WorkingColor;
 use waterui::reactive::{Computed, Signal, SignalExt};
 use waterui::resolve::Resolvable;
 use waterui::theme::color::AccentForeground;
@@ -52,32 +52,32 @@ const BADGE_METRICS: cocoa_ui::badge::BadgeMetrics = cocoa_ui::badge::BadgeMetri
     count_vertical_offset: 14.0,
 };
 
-/// A `ResolvedColor` as the platform's extended-sRGB color object.
+/// A `WorkingColor` as the platform's extended linear Display-P3 color object.
 #[cfg(target_os = "ios")]
-fn platform_color(color: &ResolvedColor) -> Retained<platform::PlatformColor> {
-    platform::colors::extended_linear(
-        f64::from(color.red),
-        f64::from(color.green),
-        f64::from(color.blue),
-        f64::from(color.opacity),
-        f64::from(color.headroom),
-    )
+fn platform_color(color: &WorkingColor) -> Retained<platform::PlatformColor> {
+    {
+        let [red, green, blue, alpha] = color.components;
+        platform::colors::extended_linear_display_p3(
+            f64::from(red),
+            f64::from(green),
+            f64::from(blue),
+            f64::from(alpha),
+        )
+    }
 }
 
-/// A `ResolvedColor` as the platform's extended-sRGB color object, with HDR
+/// A `WorkingColor` as the platform's extended linear Display-P3 color object, with HDR
 /// headroom applied as a content-headroom multiplier — the `AppKit` variant.
 #[cfg(target_os = "macos")]
-fn platform_color(color: &ResolvedColor) -> Retained<platform::PlatformColor> {
-    let unscaled = platform::colors::extended_linear(
-        f64::from(color.red),
-        f64::from(color.green),
-        f64::from(color.blue),
-        f64::from(color.opacity),
-    );
-    if color.headroom > 0.0 {
-        platform::colors::with_content_headroom(&unscaled, 1.0 + f64::from(color.headroom))
-    } else {
-        unscaled
+fn platform_color(color: &WorkingColor) -> Retained<platform::PlatformColor> {
+    {
+        let [red, green, blue, alpha] = color.components;
+        platform::colors::extended_linear_display_p3(
+            f64::from(red),
+            f64::from(green),
+            f64::from(blue),
+            f64::from(alpha),
+        )
     }
 }
 
@@ -114,7 +114,7 @@ struct BadgeState {
     content: Mounted,
     /// The watcher observing the currently bound `Color`'s resolved value;
     /// replaced every time the color signal emits a new `Color`.
-    color_guard: Option<<Computed<ResolvedColor> as Signal>::Guard>,
+    color_guard: Option<<Computed<WorkingColor> as Signal>::Guard>,
 }
 
 /// The container's layout face: every query forwards to the content, so

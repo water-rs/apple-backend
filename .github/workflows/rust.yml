@@ -6,37 +6,63 @@ permissions:
 on:
   # Integration branches only: a topic branch that also has a pull request
   # would otherwise run the job twice for one commit, and it draws from the
-  # org's five-slot macOS pool. Only changes that can affect the Rust
-  # workspace start it.
+  # org's macOS pool (20 of 60 total slots). Only changes that can affect
+  # the crate's Rust build, tests, benches or lint outcome start it.
   push:
     branches: [main, dev]
     paths:
       - Cargo.toml
       - Cargo.lock
-      - "kit/**"
+      - build.rs
+      - Package.swift
+      - "src/**"
+      - "Sources/**"
+      - "Tests/native*.rs"
+      - "Tests/migration.rs"
+      - "Tests/ReferenceHost/**"
+      - "benches/**"
+      - ".cargo/**"
+      - ".config/**"
+      - "rust-toolchain.toml"
       - .github/workflows/rust.yml
+      - ".github/scripts/**"
   pull_request:
     branches: ["**"]
     paths:
       - Cargo.toml
       - Cargo.lock
-      - "kit/**"
+      - build.rs
+      - Package.swift
+      - "src/**"
+      - "Sources/**"
+      - "Tests/native*.rs"
+      - "Tests/migration.rs"
+      - "Tests/ReferenceHost/**"
+      - "benches/**"
+      - ".cargo/**"
+      - ".config/**"
+      - "rust-toolchain.toml"
       - .github/workflows/rust.yml
+      - ".github/scripts/**"
 
 concurrency:
   group: rust-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # One job for every target: the three clippy passes and the tests share the
-  # dependency cache, and one runner working through them in a row gets
-  # through the macOS queue sooner than a matrix waiting on three. The iOS
-  # passes need the iOS SDK, which only a macOS runner has.
+  # One job for every target: the three clippy passes, the feature shapes,
+  # the tests and the bench compile share one checkout, one toolchain
+  # install and one warm dependency graph — a matrix would pay the full
+  # dependency build again on every leg. The iOS passes need the iOS SDK,
+  # which only a macOS runner has. CARGO_BUILD_TARGET pins the host graph
+  # to aarch64-apple-darwin so the untargeted steps build into the same
+  # target dir the explicit clippy legs use; the iOS legs override it.
   rust:
     name: rust
     runs-on: macos-26
     env:
       CARGO_TERM_COLOR: always
+      CARGO_BUILD_TARGET: aarch64-apple-darwin
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -44,13 +70,113 @@ jobs:
           components: clippy, rustfmt
           targets: aarch64-apple-darwin, aarch64-apple-ios, aarch64-apple-ios-sim
       - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
       - name: Format
         run: cargo fmt --all -- --check
+      # `native-test-support` is on for these legs because the `native`
+      # test target is `required-features`-gated: without the feature
+      # `--all-targets` silently skips it and none of the harness code is
+      # linted. Production paths are unchanged — the feature only makes
+      # the suite's support module exist.
       - name: Clippy (macOS)
-        run: cargo clippy --workspace --all-targets --locked --target aarch64-apple-darwin -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked --features native-test-support -- -D warnings
       - name: Clippy (iOS)
-        run: cargo clippy --workspace --all-targets --locked --target aarch64-apple-ios -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked --features native-test-support --target aarch64-apple-ios -- -D warnings
       - name: Clippy (iOS simulator)
-        run: cargo clippy --workspace --all-targets --locked --target aarch64-apple-ios-sim -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked --features native-test-support --target aarch64-apple-ios-sim -- -D warnings
+      # The component shapes the Swift `WATERUI_MAP`/`WATERUI_NO_GPU` legs
+      # used to cover are Cargo features now (waterui#343 reasoned the same
+      # way), so they lint under -D warnings like the production legs —
+      # `cargo check` would let a warnings-only regression ship. `map`
+      # pulls waterui-map + cocoa-ui/map.
+      - name: Clippy (map)
+        run: cargo clippy -p waterui-apple --locked --features map -- -D warnings
+      # The no-GPU shape is the default component set minus the features
+      # that depend on GPU support (`gpu_surface` and what requires it:
+      # `applied_filter`, `view_effect`, `picture`, `resolved_gradient`).
+      # The list is derived from the manifest's own `default` table rather
+      # than a hardcoded copy, so a newly ported component joins the shape
+      # automatically and only the GPU set is subtracted. `--no-default-features`
+      # alone would disable every ported component — much weaker than the
+      # old no-gpu leg.
+      - name: Clippy (no GPU components)
+        run: |
+          features="$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[0].features.default[]' \
+            | grep -vx -e gpu_surface -e applied_filter -e view_effect \
+                -e picture -e resolved_gradient \
+            | paste -sd, -)"
+          echo "non-GPU feature set: ${features}"
+          cargo clippy -p waterui-apple --locked \
+            --no-default-features --features "${features}" -- -D warnings
+      # The native suite (Tests/native.rs, `native-test-support`) is a
+      # libtest-mimic harness pinned to the real main thread — AppKit/UIKit
+      # objects are only legal there — and nextest runs each case as its
+      # own process, giving every test the whole process's framework state.
       - name: Test
-        run: cargo test -p waterui-apple --locked
+        run: cargo nextest run -p waterui-apple --locked --features native-test-support
+      - name: Doc tests
+        run: cargo test -p waterui-apple --locked --doc
+      # The same suite natively on the iOS simulator: every test binary is
+      # handed to the `aarch64-apple-ios-sim` target runner
+      # (`.cargo/config.toml` → `.github/scripts/nextest-ios-sim.sh`), which
+      # spawns it inside a booted iPhone simulator — cross-compiling is
+      # never the test. The job creates and owns the device so no other
+      # job's (or developer's) UIKit state leaks in; the runner only ever
+      # sees its UDID through WATERUI_IOS_SIM_UDID.
+      - name: Create the iOS test simulator
+        id: ios-sim
+        run: |
+          # The runtime's own supportedDeviceTypes declares which device
+          # types it accepts — pick the latest-introduced compatible iPhone
+          # (devicetypes carry packed minRuntimeVersion and are NOT listed
+          # newest-last) and create it once; no guessed-type retry loop.
+          device_list="$(xcrun simctl list --json)"
+          runtime="$(jq -er '([.runtimes[] | select(.isAvailable
+              and (.identifier | test("SimRuntime\\.iOS")))]
+              | if length == 0 then error("no available iOS runtime")
+                else max_by(.version | split(".") | map(tonumber)) | .identifier end)' <<<"${device_list}")"
+          echo "runtime: $runtime"
+          device_type="$(jq -er --arg rt "${runtime}" '
+            (.runtimes[] | select(.identifier == $rt)
+              | .supportedDeviceTypes // [] | map(.identifier)) as $supported
+            | [.devicetypes[] | select(.productFamily == "iPhone"
+                and (.identifier as $id | ($supported | index($id))))]
+            | if length == 0 then error("no iPhone device type supported by \($rt)")
+              else (max_by(.minRuntimeVersion) | .identifier) end' <<<"${device_list}")"
+          echo "device type: $device_type"
+          udid="$(xcrun simctl create waterui-apple-ci-tests "$device_type" "$runtime")"
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+      # The reference host's measured values must exist before the suite
+      # runs: the native assertions compare against them through
+      # WATERUI_REFERENCE_METRICS, which the target runner forwards into
+      # every spawned test process as SIMCTL_CHILD_*.
+      - name: Test (iOS simulator)
+        env:
+          WATERUI_IOS_SIM_UDID: ${{ steps.ios-sim.outputs.udid }}
+        run: |
+          xcrun simctl boot "$WATERUI_IOS_SIM_UDID"
+          xcrun simctl bootstatus "$WATERUI_IOS_SIM_UDID" -b
+          # Assignment before export: under `run:`'s bash -e a failing
+          # reference build must abort the step here — `export X=$(...)`
+          # would mask the substitution's exit status.
+          WATERUI_REFERENCE_METRICS="$(.github/scripts/prepare-native-reference.sh \
+            "${RUNNER_TEMP}/native-reference")"
+          export WATERUI_REFERENCE_METRICS
+          cargo nextest run -p waterui-apple --locked --features native-test-support \
+            --target aarch64-apple-ios-sim
+      - name: Delete the iOS test simulator
+        if: always()
+        run: |
+          udid="${{ steps.ios-sim.outputs.udid }}"
+          if [[ -n "$udid" ]]; then
+            xcrun simctl shutdown "$udid" 2>/dev/null || true
+            xcrun simctl delete "$udid"
+          fi
+      # The benches are an informational trend series, not a gate: this
+      # step only guarantees they stay compilable. Numbers come from the
+      # bench lane and the Mac mini, never a shared macOS runner.
+      - name: Benchmarks (compile)
+        run: cargo bench -p waterui-apple --locked --no-run

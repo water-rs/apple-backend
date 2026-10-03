@@ -24,7 +24,6 @@ use waterui_core::layout::{
 use crate::contract::{Mounted, NativeLeaf};
 use crate::dispatch::Dispatcher;
 use crate::proposal;
-use crate::seam::{waterui_swift_manages_safe_area, waterui_swift_safe_area_rect};
 
 #[cfg(target_os = "macos")]
 use cocoa_ui::appkit::{HitTest, HostView};
@@ -78,16 +77,7 @@ fn perform_layout(state: &Rc<RefCell<FixedState>>) {
         }
         let host = state.host.clone();
         let host_view: &PlatformView = &state.host;
-        // SAFETY: `host_view` is a live platform view; the contract is a
-        // main-thread read.
-        let safe_rect = unsafe {
-            waterui_swift_safe_area_rect(
-                core::ptr::from_ref::<PlatformView>(host_view)
-                    .cast::<core::ffi::c_void>()
-                    .cast_mut(),
-            )
-        }
-        .into_kit();
+        let safe_rect = crate::native_layout::safe_area_rect(host_view);
         // Placed by a Rust parent: the proposal it selected. Natively hosted:
         // the boundary offer for the rect this container fills.
         let proposal = state.selected.get().unwrap_or_else(|| {
@@ -136,14 +126,7 @@ fn perform_layout(state: &Rc<RefCell<FixedState>>) {
             frame.is_valid_for_layout(),
             "fixed container received an invalid layout rect for child {index}: {frame:?}"
         );
-        // SAFETY: the child's view is live while it is mounted here.
-        if unsafe {
-            waterui_swift_manages_safe_area(
-                core::ptr::from_ref::<PlatformView>(child.view())
-                    .cast::<core::ffi::c_void>()
-                    .cast_mut(),
-            )
-        } {
+        if crate::native_layout::manages_safe_area(child.view()) {
             frame = frame.extended_through(safe_rect, bounds);
         }
         // The negotiated proposal lands before the frame: a container child
