@@ -596,7 +596,7 @@ fn wire(
         let foreground = waterui::theme::color::Foreground.resolve(ctx.env());
         leaf.bind(&foreground, {
             let state = Rc::clone(state);
-            move |color: waterui::graphics::color::ResolvedColor| {
+            move |color: waterui::graphics::color::WorkingColor| {
                 let borrowed = state.borrow();
                 if let Some(seconds) = &borrowed.seconds {
                     *seconds.foreground.borrow_mut() = platform_color(&color);
@@ -655,17 +655,19 @@ const fn platform_weight(weight: waterui::text::font::FontWeight) -> f64 {
     }
 }
 
-/// A `ResolvedColor` as the platform's extended-sRGB color object — the
+/// A `WorkingColor` as the platform's extended linear Display-P3 color object — the
 /// `toUIColor`/`toNSColor` semantics sibling ports use.
 #[cfg(target_os = "ios")]
-fn platform_color(color: &waterui::graphics::color::ResolvedColor) -> Retained<platform::UIColor> {
-    cocoa_ui::uikit::colors::extended_linear(
-        f64::from(color.red),
-        f64::from(color.green),
-        f64::from(color.blue),
-        f64::from(color.opacity),
-        f64::from(color.headroom),
-    )
+fn platform_color(color: &waterui::graphics::color::WorkingColor) -> Retained<platform::UIColor> {
+    {
+        let [red, green, blue, alpha] = color.components;
+        cocoa_ui::uikit::colors::extended_linear_display_p3(
+            f64::from(red),
+            f64::from(green),
+            f64::from(blue),
+            f64::from(alpha),
+        )
+    }
 }
 
 /// The platform face a resolved font names — the `Body` resolved font

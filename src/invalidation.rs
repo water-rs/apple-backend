@@ -6,7 +6,9 @@
 //! registered its content view through [`register_sink`] and re-renders its
 //! capture — `WuiRenderedContentInvalidationSink`.
 
-use alloc::rc::{Rc, Weak};
+#[cfg(any(feature = "applied_filter", feature = "view_effect"))]
+use alloc::rc::Rc;
+use alloc::rc::Weak;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -34,6 +36,7 @@ fn key(view: &PlatformView) -> usize {
 ///
 /// The entry is weak: it clears itself when the owning leaf drops.
 #[allow(clippy::needless_pass_by_value)]
+#[cfg(any(feature = "applied_filter", feature = "view_effect"))]
 pub fn register_sink(view: &PlatformView, callback: Rc<dyn Fn()>) {
     SINKS
         .lock()
@@ -44,6 +47,7 @@ pub fn register_sink(view: &PlatformView, callback: Rc<dyn Fn()>) {
 
 /// Removes the sink for `view`, if any — a leaf tearing down before its
 /// callback would die on its own.
+#[cfg(any(feature = "applied_filter", feature = "view_effect"))]
 pub fn unregister_sink(view: &PlatformView) {
     if let Some(sinks) = SINKS
         .lock()

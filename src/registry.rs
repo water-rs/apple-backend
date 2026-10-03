@@ -14,8 +14,8 @@ use crate::dispatch::Dispatcher;
 /// once, before the first render, inside [`crate::dispatch::dispatcher`].
 #[allow(clippy::too_many_lines)] // a flat registration table is meant to be long
 pub fn install(dispatcher: &mut Dispatcher) {
-    // Core — the unit view, always claimed: an unclaimed `Native<()>` crosses
-    // the seam into a `body()` panic, which `panic = "abort"` makes fatal.
+    // Core — the unit view, always claimed: an unclaimed `Native<()>` falls
+    // through the walk into a `body()` panic, which `panic = "abort"` makes fatal.
     crate::components::empty::install(dispatcher);
 
     // Wave A — trivial leaves.
@@ -62,8 +62,8 @@ pub fn install(dispatcher: &mut Dispatcher) {
     #[cfg(feature = "dynamic")]
     crate::components::dynamic::install(dispatcher);
 
-    // Metadata — transparent wrappers claiming `Metadata<M>` before the
-    // seam can hand it to the fallback.
+    // Metadata — transparent wrappers claiming `Metadata<M>` ahead of the
+    // walk's `body()` expansion.
     #[cfg(feature = "anchored_overlay")]
     crate::components::anchored_overlay::install(dispatcher);
     #[cfg(feature = "draggable")]
@@ -159,14 +159,12 @@ pub fn install(dispatcher: &mut Dispatcher) {
     #[cfg(feature = "badge")]
     crate::components::badge::install(dispatcher);
 
-    // GPU/graphics — the surface leaf first: view_effect's capture
+    // GPU/graphics — the surface leaf first: the filtered leaf's capture
     // resolves mounted surfaces through its registry.
     #[cfg(feature = "gpu_surface")]
     crate::components::gpu_surface::install(dispatcher);
-    #[cfg(feature = "view_effect")]
-    crate::components::view_effect::install(dispatcher);
-    #[cfg(feature = "applied_filter")]
-    crate::components::applied_filter::install(dispatcher);
+    #[cfg(any(feature = "applied_filter", feature = "view_effect"))]
+    crate::components::filtered::install(dispatcher);
     #[cfg(feature = "picture")]
     crate::components::picture::install(dispatcher);
     #[cfg(feature = "resolved_gradient")]

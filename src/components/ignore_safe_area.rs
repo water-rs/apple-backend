@@ -109,23 +109,10 @@ pub fn install(dispatcher: &mut Dispatcher) {
         // against the insets that remain once the ignored edges are erased.
         #[cfg(target_os = "ios")]
         host.set_layout_handler({
-            use crate::seam::waterui_swift_content_frame;
             let state = Rc::clone(&state);
             move |host| {
                 let host_view: &PlatformView = host;
-                // SAFETY: both are live platform views; the contract is a
-                // main-thread read.
-                let frame = unsafe {
-                    waterui_swift_content_frame(
-                        core::ptr::from_ref::<PlatformView>(state.child.view())
-                            .cast::<core::ffi::c_void>()
-                            .cast_mut(),
-                        core::ptr::from_ref::<PlatformView>(host_view)
-                            .cast::<core::ffi::c_void>()
-                            .cast_mut(),
-                    )
-                }
-                .into_kit();
+                let frame = crate::native_layout::content_frame(state.child.view(), host_view);
                 view::set_frame(state.child.view(), frame);
             }
         });

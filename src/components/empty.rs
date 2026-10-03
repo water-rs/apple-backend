@@ -4,9 +4,9 @@
 //! answers `is_empty` so a stack treats it as a non-member (no slot, no
 //! spacing). It must be claimed unconditionally — the Rust walk expands a
 //! bare `()` into `Native<()>`, which the fallback's registry keys under
-//! `()`, not `Native<()>` — so leaving it unclaimed sends it across the
-//! seam, where `body()` panics and the packaging profile (`panic = "abort"`)
-//! turns that into a process abort.
+//! `()`, not `Native<()>` — so leaving it unclaimed drops it into
+//! `body()`, where the panic propagates out of `render` and the packaging
+//! profile (`panic = "abort"`) turns that into a process abort.
 
 use waterui_core::layout::{ProposalSize, Size, StretchAxis, SubView, ViewDimensions};
 

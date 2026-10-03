@@ -68,19 +68,21 @@ fn label_offer(proposal: ProposalSize) -> ProposalSize {
     }
 }
 
-/// A `ResolvedColor` as `UIColor` — the same extended-linear conversion
+/// A `WorkingColor` as `UIColor` — the same extended linear Display-P3 conversion
 /// `button` uses for its tint.
 #[cfg(target_os = "ios")]
 fn platform_color(
-    color: &waterui::graphics::color::ResolvedColor,
+    color: &waterui::graphics::color::WorkingColor,
 ) -> cocoa_ui::Retained<cocoa_ui::objc2_ui_kit::UIColor> {
-    cocoa_ui::uikit::colors::extended_linear(
-        f64::from(color.red),
-        f64::from(color.green),
-        f64::from(color.blue),
-        f64::from(color.opacity),
-        f64::from(color.headroom),
-    )
+    {
+        let [red, green, blue, alpha] = color.components;
+        cocoa_ui::uikit::colors::extended_linear_display_p3(
+            f64::from(red),
+            f64::from(green),
+            f64::from(blue),
+            f64::from(alpha),
+        )
+    }
 }
 
 /// The leaf's live state: the trigger, the latest resolved items, the

@@ -13,7 +13,7 @@ use alloc::rc::Rc;
 use cocoa_ui::layer;
 use cocoa_ui::{PlatformView, Rect, Retained, view};
 use waterui::border::Border;
-use waterui::graphics::color::ResolvedColor;
+use waterui::graphics::color::WorkingColor;
 use waterui_core::Metadata;
 use waterui_core::layout::{ProposalSize, StretchAxis, SubView, ViewDimensions};
 
@@ -37,33 +37,33 @@ mod platform {
     pub(super) use cocoa_ui::uikit::colors;
 }
 
-/// A `ResolvedColor` as the platform's extended-sRGB color object — the
+/// A `WorkingColor` as the platform's extended linear Display-P3 color object — the
 /// same conversion `resolved_color` applies.
 #[cfg(target_os = "ios")]
-fn platform_color(color: &ResolvedColor) -> Retained<platform::PlatformColor> {
-    platform::colors::extended_linear(
-        f64::from(color.red),
-        f64::from(color.green),
-        f64::from(color.blue),
-        f64::from(color.opacity),
-        f64::from(color.headroom),
-    )
+fn platform_color(color: &WorkingColor) -> Retained<platform::PlatformColor> {
+    {
+        let [red, green, blue, alpha] = color.components;
+        platform::colors::extended_linear_display_p3(
+            f64::from(red),
+            f64::from(green),
+            f64::from(blue),
+            f64::from(alpha),
+        )
+    }
 }
 
-/// A `ResolvedColor` as the platform's extended-sRGB color object, with HDR
+/// A `WorkingColor` as the platform's extended linear Display-P3 color object, with HDR
 /// headroom applied as a content-headroom multiplier — the `AppKit` variant.
 #[cfg(target_os = "macos")]
-fn platform_color(color: &ResolvedColor) -> Retained<platform::PlatformColor> {
-    let unscaled = platform::colors::extended_linear(
-        f64::from(color.red),
-        f64::from(color.green),
-        f64::from(color.blue),
-        f64::from(color.opacity),
-    );
-    if color.headroom > 0.0 {
-        platform::colors::with_content_headroom(&unscaled, 1.0 + f64::from(color.headroom))
-    } else {
-        unscaled
+fn platform_color(color: &WorkingColor) -> Retained<platform::PlatformColor> {
+    {
+        let [red, green, blue, alpha] = color.components;
+        platform::colors::extended_linear_display_p3(
+            f64::from(red),
+            f64::from(green),
+            f64::from(blue),
+            f64::from(alpha),
+        )
     }
 }
 
@@ -86,7 +86,7 @@ impl core::fmt::Debug for BorderState {
 /// `applyBorderColor`: the resolved color lands on the layer's border and
 /// the stroke layer, then any captured rendering is invalidated.
 fn apply_border_color(
-    color: &ResolvedColor,
+    color: &WorkingColor,
     host: &PlatformView,
     border_layer: Option<&layer::ShapeLayer>,
 ) {

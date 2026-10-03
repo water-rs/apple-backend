@@ -18,13 +18,12 @@ mod imp {
     use alloc::rc::Rc;
     use alloc::vec::Vec;
     use core::cell::{Cell, RefCell};
-    use core::ffi::c_void;
 
     use super::{into_kit_rect, into_kit_size, into_layout_rect};
     use cocoa_ui::appkit::{AttentionRequest, HostView, WindowLevel as KitLevel, WindowStyle};
     use cocoa_ui::{MainThreadMarker, Retained};
     use waterui::animation::Animation;
-    use waterui::graphics::color::ResolvedColor;
+    use waterui::graphics::color::WorkingColor;
     use waterui::reactive::{Binding, Computed, Signal};
     use waterui::window::{
         UserAttention, Window, WindowBackground, WindowLevel, WindowState, WindowStyle as WuiStyle,
@@ -33,7 +32,6 @@ mod imp {
     use waterui_backend_core::Environment;
 
     use crate::contract::KeepAlive;
-    use crate::seam::waterui_swift_content_frame;
 
     /// Installs `view` — the rendered window-toolbar host — as `window`'s
     /// toolbar items: lone-child wrappers are descended and the first
@@ -240,10 +238,10 @@ mod imp {
         wire_background(&window, &mut keepalive, &background);
 
         // Content: the declared tree becomes one leaf whose view fills the
-        // host each layout pass, at the safe-area-aware frame the seam
-        // answers.
+        // host each layout pass, at the safe-area-aware frame `content_frame`
+        // resolves.
         let content = declaration.build_content();
-        let leaf = crate::dispatch::dispatcher(mtm)
+        let leaf = crate::dispatch::dispatcher(env)
             .render(content, env, mtm)
             .expect("window content must render: no handler or fallback claims it");
 
@@ -252,21 +250,15 @@ mod imp {
         let leaf_view = cocoa_ui::view::retain_base(leaf.view());
 
         // First-paint marking happens on the leaf the fallback produced.
-        crate::first_paint::mark(Retained::as_ptr(&leaf_view).cast::<c_void>().cast_mut());
+        crate::first_paint::mark(&leaf_view, env);
 
+        crate::inspector::install(&host, env, &mut keepalive);
         host.set_layout_handler(move |host| {
             let host_view: &cocoa_ui::PlatformView = host;
-            // SAFETY: the seam borrows the views for the call; `leaf_view`
-            // holds the retain for the host's lifetime.
-            let frame = unsafe {
-                waterui_swift_content_frame(
-                    Retained::as_ptr(&leaf_view).cast::<c_void>().cast_mut(),
-                    core::ptr::from_ref::<cocoa_ui::PlatformView>(host_view)
-                        .cast::<c_void>()
-                        .cast_mut(),
-                )
-            };
-            cocoa_ui::view::set_frame(&leaf_view, frame.into_kit());
+            // SAFETY: `content_frame` borrows the views for the call;
+            // `leaf_view` holds the retain for the host's lifetime.
+            let frame = crate::native_layout::content_frame(&leaf_view, host_view);
+            cocoa_ui::view::set_frame(&leaf_view, frame);
         });
         window.set_content_view(&host);
         keepalive.keep(leaf);
@@ -276,7 +268,7 @@ mod imp {
         // each child becomes an `NSToolbarItem`, which is what gives it the
         // system's capsule, spacing and overflow.
         if let Some(toolbar) = declaration.toolbar {
-            let toolbar_leaf = crate::dispatch::dispatcher(mtm)
+            let toolbar_leaf = crate::dispatch::dispatcher(env)
                 .render(toolbar, env, mtm)
                 .expect("window toolbar must render: no handler or fallback claims it");
             install_toolbar(window.native(), toolbar_leaf.view());
@@ -374,7 +366,7 @@ mod imp {
         // The declared toolbar goes through the window's one `NSToolbar`,
         // exactly as a realized window's does.
         if let Some(toolbar) = toolbar {
-            let toolbar_leaf = crate::dispatch::dispatcher(mtm)
+            let toolbar_leaf = crate::dispatch::dispatcher(env)
                 .render(toolbar, env, mtm)
                 .expect("window toolbar must render: no handler or fallback claims it");
             install_toolbar(window.native(), toolbar_leaf.view());
@@ -720,7 +712,7 @@ mod imp {
     fn wire_background(
         window: &Rc<cocoa_ui::appkit::Window>,
         keepalive: &mut KeepAlive,
-        resolved: &Computed<ResolvedColor>,
+        resolved: &Computed<WorkingColor>,
     ) {
         keepalive.bind(resolved, {
             let window = window.clone();
@@ -745,16 +737,17 @@ mod imp {
 
     fn apply_background(
         window: &cocoa_ui::appkit::Window,
-        color: waterui::graphics::color::ResolvedColor,
+        color: waterui::graphics::color::WorkingColor,
     ) {
-        let srgb = color.to_srgb();
+        let srgb = waterui::graphics::color::working::to_srgb(color);
+        let alpha = color.components[3];
         window.set_background_color(cocoa_ui::Rgba {
             red: f64::from(srgb.red),
             green: f64::from(srgb.green),
             blue: f64::from(srgb.blue),
-            alpha: f64::from(color.opacity),
+            alpha: f64::from(alpha),
         });
-        window.set_opaque(color.opacity >= 1.0);
+        window.set_opaque(alpha >= 1.0);
         window.set_has_shadow(true);
     }
 
@@ -769,7 +762,6 @@ mod imp {
     use alloc::rc::Rc;
     use alloc::vec::Vec;
     use core::cell::{Cell, RefCell};
-    use core::ffi::c_void;
 
     use cocoa_ui::uikit::{ColorSchemeObservation, HostView, ViewController, WindowScene};
     use cocoa_ui::{MainThreadMarker, Retained};
@@ -778,7 +770,6 @@ mod imp {
     use waterui_backend_core::Environment;
 
     use crate::contract::KeepAlive;
-    use crate::seam::waterui_swift_content_frame;
     use crate::theme::ThemeSignals;
 
     /// What a connected scene owns: its root controller and every
@@ -793,31 +784,67 @@ mod imp {
     /// window eagerly at connection, so the platform objects exist already
     /// and the content arrives when [`declare`] runs.
     struct Pending {
-        _scene: WindowScene,
+        session_id: String,
+        window: Retained<cocoa_ui::objc2_ui_kit::UIWindow>,
         controller: Retained<ViewController>,
         observation: ColorSchemeObservation,
     }
 
-    thread_local! {
-        /// Every window the process is showing, by connection order.
-        static HOSTS: RefCell<Vec<WindowHost>> = const { RefCell::new(Vec::new()) };
-        /// Scenes connected ahead of their declaration, in connection order.
-        static PENDING: RefCell<VecDeque<Pending>> =
-            const { RefCell::new(VecDeque::new()) };
-        /// The app's window declarations, kept for the process: `Window` is
-        /// a `ViewBuilder` factory — `build_content` answers a fresh tree
-        /// per call — so a scene that connects after the declarations are
-        /// claimed renders a new instance of the main window rather than
-        /// waiting on a declaration that already exists. `WindowGroup`
-        /// semantics: scene *n* gets declaration *n* while they last, and
-        /// every further scene a fresh instance of the first (main) one.
-        static DECLARED: RefCell<Vec<Window>> = const { RefCell::new(Vec::new()) };
-        /// How many declarations have been claimed by a scene, in order.
-        static CLAIMED: Cell<usize> = const { Cell::new(0) };
-        /// The environment `app` returned, stored once `declare` runs: a
-        /// scene connecting afterward realizes its declaration under it,
-        /// since the app's own installs are invisible to the launch env.
-        static APP_ENV: RefCell<Option<Environment>> = const { RefCell::new(None) };
+    /// All declarations, observations and scene content belonging to one mount.
+    #[derive(Default)]
+    pub struct Scenes {
+        hosts: RefCell<std::collections::BTreeMap<String, WindowHost>>,
+        pending: RefCell<VecDeque<Pending>>,
+        declared: RefCell<Vec<Rc<Window>>>,
+        claimed: Cell<usize>,
+        env: RefCell<Option<Environment>>,
+    }
+
+    impl Scenes {
+        fn claim(&self) -> Option<Rc<Window>> {
+            let declared = self.declared.borrow();
+            if declared.is_empty() {
+                return None;
+            }
+            let index = self.claimed.get();
+            if index < declared.len() {
+                self.claimed.set(index + 1);
+                Some(declared[index].clone())
+            } else {
+                Some(declared[0].clone())
+            }
+        }
+
+        fn receive(&self, pending: Pending, mtm: MainThreadMarker) {
+            if let Some(declaration) = self.claim() {
+                let env = self
+                    .env
+                    .borrow()
+                    .clone()
+                    .expect("declared scenes have an environment");
+                let id = pending.session_id.clone();
+                let host = realize(&declaration, pending, &env, mtm);
+                self.hosts.borrow_mut().insert(id, host);
+            } else {
+                self.pending.borrow_mut().push_back(pending);
+            }
+        }
+
+        pub(crate) fn disconnect(&self, id: &str) {
+            self.hosts.borrow_mut().remove(id);
+            self.pending
+                .borrow_mut()
+                .retain(|pending| pending.session_id != id);
+        }
+    }
+
+    fn scene_id(window: &cocoa_ui::objc2_ui_kit::UIWindow) -> String {
+        window
+            .windowScene()
+            .expect("a scene window has its scene")
+            .session()
+            .persistentIdentifier()
+            .to_string()
     }
 
     /// Installs the `WindowManager` service: `Window::show` resolves the
@@ -829,30 +856,14 @@ mod imp {
         }));
     }
 
-    /// Picks the declaration a newly connected scene instantiates: the next
-    /// unclaimed one, or a fresh instance of the main window once every
-    /// declaration is claimed (a second iPad scene, an app-switcher relaunch).
-    fn claim_index() -> Option<usize> {
-        let len = DECLARED.with(|declared| declared.borrow().len());
-        let claimed = CLAIMED.with(Cell::get);
-        if len == 0 {
-            None
-        } else if claimed < len {
-            CLAIMED.with(|c| c.set(claimed + 1));
-            Some(claimed)
-        } else {
-            Some(0)
-        }
-    }
-
     /// Connects `scene`: the platform window must exist at connection time,
     /// so it is built eagerly — with an empty root — and its declaration
     /// fills it; with no declarations landed yet, the scene queues in
-    /// `PENDING` until [`declare`] runs.
+    /// its owner's pending list until [`declare`] runs.
     pub fn connect(
+        scenes: &Scenes,
         scene: &WindowScene,
         theme: Rc<ThemeSignals>,
-        env: &Environment,
         _mtm: MainThreadMarker,
     ) -> cocoa_ui::uikit::Window {
         let mtm = scene.main_thread();
@@ -867,33 +878,55 @@ mod imp {
             crate::theme::refresh(&theme, scheme);
         });
 
+        let native_window = cocoa_ui::uikit::window_of(controller.host_view())
+            .expect("a visible root controller belongs to its scene window");
         let pending = Pending {
-            _scene: scene.clone(),
+            session_id: scene_id(&native_window),
+            window: native_window,
             controller,
             observation,
         };
-        match claim_index() {
-            Some(index) => {
-                // `declare` ran before this scene connected, so the app env
-                // exists and carries the app's own installs; the launch env
-                // is the fallback only for a path that cannot happen.
-                let app_env =
-                    APP_ENV.with(|app_env| app_env.borrow().clone().unwrap_or_else(|| env.clone()));
-                DECLARED.with(|declared| {
-                    let declared = declared.borrow();
-                    HOSTS.with(|hosts| {
-                        hosts
-                            .borrow_mut()
-                            .push(realize(&declared[index], pending, &app_env, mtm));
-                    });
-                });
-            }
-            None => {
-                PENDING.with(|pending_scenes| {
-                    pending_scenes.borrow_mut().push_back(pending);
-                });
-            }
-        }
+        scenes.receive(pending, mtm);
+        window
+    }
+
+    /// Connects a scene forwarded by an existing embedding application delegate.
+    pub fn connect_embedded(
+        scenes: &Scenes,
+        scene: &cocoa_ui::objc2_ui_kit::UIWindowScene,
+        mtm: MainThreadMarker,
+    ) -> Retained<cocoa_ui::objc2_ui_kit::UIWindow> {
+        use objc2::MainThreadOnly;
+        let window = cocoa_ui::objc2_ui_kit::UIWindow::initWithWindowScene(
+            cocoa_ui::objc2_ui_kit::UIWindow::alloc(mtm),
+            scene,
+        );
+        let controller = ViewController::new(mtm);
+        window.setRootViewController(Some(&controller));
+        let mut env = scenes
+            .env
+            .borrow()
+            .clone()
+            .expect("an embedded mount has declared its windows");
+        let theme = Rc::new(crate::theme::install(&mut env, controller.color_scheme()));
+        let observation =
+            controller.observe_color_scheme(move |scheme| crate::theme::refresh(&theme, scheme));
+        // Scene-local appearance overlays the mount's resources and services.
+        let declaration = scenes.claim().expect("an embedded app has a root window");
+        let session_id = scene.session().persistentIdentifier().to_string();
+        let host = realize(
+            &declaration,
+            Pending {
+                session_id: session_id.clone(),
+                window: window.clone(),
+                controller,
+                observation,
+            },
+            &env,
+            mtm,
+        );
+        scenes.hosts.borrow_mut().insert(session_id, host);
+        window.makeKeyAndVisible();
         window
     }
 
@@ -902,25 +935,24 @@ mod imp {
     /// while they last, and the overflow each gets a fresh instance of the
     /// main window. `env` is the env `app` returned; it is stored so
     /// `connect` realizes declarations under the same env.
-    pub fn declare(windows: Vec<Window>, env: &Environment, mtm: MainThreadMarker) {
-        APP_ENV.with(|app_env| {
-            *app_env.borrow_mut() = Some(env.clone());
-        });
-        DECLARED.with(|declared| *declared.borrow_mut() = windows);
+    pub fn declare(
+        scenes: &Scenes,
+        windows: Vec<Window>,
+        env: &Environment,
+        claimed: usize,
+        mtm: MainThreadMarker,
+    ) {
+        *scenes.env.borrow_mut() = Some(env.clone());
+        *scenes.declared.borrow_mut() = windows.into_iter().map(Rc::new).collect();
+        scenes.claimed.set(claimed);
         loop {
-            let pending = PENDING.with(|pending_scenes| pending_scenes.borrow_mut().pop_front());
+            let pending = scenes.pending.borrow_mut().pop_front();
             let Some(pending) = pending else { break };
-            let index = claim_index().expect("declare landed at least one window");
-            DECLARED.with(|declared| {
-                let declared = declared.borrow();
-                HOSTS.with(|hosts| {
-                    hosts
-                        .borrow_mut()
-                        .push(realize(&declared[index], pending, env, mtm));
-                });
-            });
+            scenes.receive(pending, mtm);
         }
-        open_second_scene_when_flagged();
+        if claimed == 0 {
+            open_second_scene_when_flagged();
+        }
     }
 
     /// E2E hook for the overflow-scene path: launched with
@@ -979,7 +1011,7 @@ mod imp {
 
     /// Fills a connected scene's window with `declaration`'s content: the
     /// tree becomes one leaf laid out inside the controller's host view, at
-    /// the safe-area-aware frame the seam answers.
+    /// the safe-area-aware frame `content_frame` resolves.
     fn realize(
         declaration: &Window,
         pending: Pending,
@@ -1001,7 +1033,7 @@ mod imp {
         });
 
         let content = declaration.build_content();
-        let leaf = crate::dispatch::dispatcher(mtm)
+        let leaf = crate::dispatch::dispatcher(env)
             .render(content, env, mtm)
             .expect("window content must render: no handler or fallback claims it");
         host.add_subview(leaf.view());
@@ -1015,24 +1047,20 @@ mod imp {
         }
         let leaf_view = cocoa_ui::view::retain_base(leaf.view());
 
-        crate::first_paint::mark(Retained::as_ptr(&leaf_view).cast::<c_void>().cast_mut());
+        crate::first_paint::mark(&leaf_view, env);
 
+        crate::inspector::install(&host, env, &mut keepalive);
         host.set_layout_handler(move |host| {
             let host_view: &cocoa_ui::PlatformView = host;
-            // SAFETY: the seam borrows the views for the call; `leaf_view`
-            // holds the retain for the host's lifetime.
-            let frame = unsafe {
-                waterui_swift_content_frame(
-                    Retained::as_ptr(&leaf_view).cast::<c_void>().cast_mut(),
-                    core::ptr::from_ref::<cocoa_ui::PlatformView>(host_view)
-                        .cast::<c_void>()
-                        .cast_mut(),
-                )
-            };
-            cocoa_ui::view::set_frame(&leaf_view, frame.into_kit());
+            // SAFETY: `content_frame` borrows the views for the call;
+            // `leaf_view` holds the retain for the host's lifetime.
+            let frame = crate::native_layout::content_frame(&leaf_view, host_view);
+            cocoa_ui::view::set_frame(&leaf_view, frame);
         });
         keepalive.keep(leaf);
         keepalive.keep(pending.observation);
+        keepalive.keep(SceneWindow(pending.window));
+        keepalive.keep(env.clone());
 
         WindowHost {
             _controller: pending.controller,
@@ -1040,25 +1068,36 @@ mod imp {
         }
     }
 
+    struct SceneWindow(Retained<cocoa_ui::objc2_ui_kit::UIWindow>);
+
+    impl Drop for SceneWindow {
+        fn drop(&mut self) {
+            self.0.setHidden(true);
+            self.0.setRootViewController(None);
+        }
+    }
+
     /// `applyWindowBackground`'s write on `UIKit`: the resolved color as the
     /// host view's `backgroundColor`, matching the Swift controller.
-    fn apply_background(host: &HostView, color: &waterui::graphics::color::ResolvedColor) {
-        let rgba = cocoa_ui::uikit::colors::extended_linear(
-            f64::from(color.red),
-            f64::from(color.green),
-            f64::from(color.blue),
-            f64::from(color.opacity),
-            f64::from(color.headroom),
-        );
+    fn apply_background(host: &HostView, color: &waterui::graphics::color::WorkingColor) {
+        let rgba = {
+            let [red, green, blue, alpha] = color.components;
+            cocoa_ui::uikit::colors::extended_linear_display_p3(
+                f64::from(red),
+                f64::from(green),
+                f64::from(blue),
+                f64::from(alpha),
+            )
+        };
         cocoa_ui::view::set_background_color(host, Some(&rgba));
     }
 }
 
 pub use imp::install_manager;
-#[cfg(target_os = "macos")]
-pub use imp::{RootWindowBinding, bind_root_window, realize, track};
 #[cfg(target_os = "ios")]
-pub use imp::{connect, declare};
+pub use imp::{Scenes, connect, connect_embedded, declare};
+#[cfg(target_os = "macos")]
+pub use imp::{bind_root_window, realize, track};
 
 /// A waterui layout rect, as the kit sees it.
 #[cfg(target_os = "macos")]

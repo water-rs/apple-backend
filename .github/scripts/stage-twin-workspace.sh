@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Stage a twin workspace: this repository's tree replaces
 # <waterui-dir>/backends/apple so the waterui examples build the backend
-# revision under test instead of the checkout waterui pins. The waterui FFI
-# header is layered in, and this repo's own Examples/ are staged as waterui
-# workspace members — the same staging setup-e2e.sh performs for the suite.
+# revision under test instead of the checkout waterui pins. This repo's own
+# Examples/ are staged as waterui workspace members — the same staging
+# setup-e2e.sh performs for the suite.
 #
 # With --cocoa-ui, that repository's tree is staged into
 # <waterui-dir>/backends/cocoa-ui as well and the staged apple manifest's
@@ -82,11 +82,6 @@ trap cleanup EXIT
 
 mkdir -p "${waterui_dir}/backends/apple"
 git -C "${apple_repo}" archive "${apple_ref}" | tar -x -C "${tmp_apple}"
-
-# The Rust library the examples link is waterui's own checkout; the Swift
-# side must see its declarations, not the snapshot the backend repo last
-# synced.
-cp "${waterui_dir}/ffi/waterui.h" "${tmp_apple}/Sources/CWaterUI/include/waterui.h"
 
 if [[ -n "${cocoa_repo}" ]]; then
   tmp_cocoa="$(mktemp -d)"

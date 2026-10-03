@@ -6,7 +6,7 @@ permissions:
 on:
   # Integration branches only: a topic branch that also has a pull request
   # would otherwise run the whole suite twice for one commit, and every job
-  # here draws from the org's five-slot macOS pool.
+  # here draws from the org's macOS pool (20 of 60 total slots).
   push:
     branches: [main, dev]
   pull_request:
@@ -20,7 +20,7 @@ jobs:
   # None of the lint tools need macOS: swiftformat and ast-grep are pure source
   # tools, and the pinned swiftlint-static binary bundles SourceKit (which the
   # `unused_import` rule requires). Running on Ubuntu frees one slot of the
-  # org's five-slot macOS pool for every run. Tool versions are pinned in the
+  # org's 20-slot macOS pool for every run. Tool versions are pinned in the
   # cache key; bump them there to upgrade.
   lint:
     name: lint
@@ -59,20 +59,13 @@ jobs:
       - name: ast-grep
         run: ast-grep scan Sources Tests --inline-rules "$(cat .ci/sg/swift.yml)" --report-style short
 
-  # Every Swift compilation condition the water CLI can hand this package
-  # (`apple_swift_conditions` in waterui's cli/src/apple/platform.rs) is built:
-  # `WATERUI_MAP` adds the map component; `WATERUI_NO_GPU` removes the GPU
-  # surface. Neither is compiled by the default shape, and a symbol used only
-  # behind one of them once shipped deleted (waterui#343).
-  #
-  # The three shapes are steps of one job per configuration, not a matrix
-  # axis: they share the checkout and the header sync, and macOS runners are
-  # what the org's concurrent-job cap runs out of, so one job that builds
-  # three shapes in a row gets through the queue where three jobs wait on
-  # three runners. Each shape gets its own scratch path because -Xswiftc
-  # flags invalidate SwiftPM's whole build plan — a shared `.build` would be
-  # fully rewritten by every shape and the cache would only ever warm the
-  # last one. Per-shape scratch dirs let all three restore warm.
+  # The Swift side is now the thin host adapter in Sources/WaterUI — a
+  # single file that binds the backend's `waterui_apple_*` entry points
+  # through `@_extern(c)`. There is no generated header to sync and no
+  # Swift compilation conditions left: the component shapes the
+  # `WATERUI_MAP`/`WATERUI_NO_GPU` legs used to cover are Cargo features
+  # now, compiled in the Rust lane (rust.yml), so this job builds the one
+  # remaining shape per configuration.
   build:
     name: build (${{ matrix.configuration }})
     runs-on: macos-26
@@ -82,71 +75,45 @@ jobs:
         configuration: [debug, release]
     steps:
       - uses: actions/checkout@v4
-      - name: Sync WaterUI header
-        run: ./.github/scripts/setup-waterui.sh
       - name: Restore build cache
         uses: actions/cache@v4
         with:
-          path: |
-            .build
-            .build-shapes
+          path: .build
           key: swiftpm-${{ matrix.configuration }}-${{ hashFiles('Package.swift', 'Sources/**', 'Tests/**', '.periphery.yml') }}
           restore-keys: swiftpm-${{ matrix.configuration }}-
-      - name: Build (default)
+      - name: Build
         run: >-
           swift build --configuration ${{ matrix.configuration }}
-          --scratch-path .build-shapes/default
           -Xswiftc -warnings-as-errors
-      - name: Build (map)
-        run: >-
-          swift build --configuration ${{ matrix.configuration }}
-          --scratch-path .build-shapes/map
-          -Xswiftc -warnings-as-errors -Xswiftc -DWATERUI_MAP
-      - name: Build (no-gpu)
-        run: >-
-          swift build --configuration ${{ matrix.configuration }}
-          --scratch-path .build-shapes/nogpu
-          -Xswiftc -warnings-as-errors -Xswiftc -DWATERUI_NO_GPU
-      # iOS leg: the package's UIKit-only code never type-checks in the macOS
-      # `swift build` shapes above — a UIWindow subclass shipped a missing
-      # `init(coder:)` that only an iOS destination rejects (93b23d3). Both
-      # destinations are build-only: no simulator boots and the device leg
-      # signs nothing, since the product is a library. Derived data goes into
-      # the cached shape dirs. Debug only: release adds nothing a compile can
-      # observe, same as the test step.
+      # iOS legs: SwiftPM generates the `waterui-apple-host` workspace and
+      # scheme on demand. Build it for the supported ARM64 simulator and
+      # device destinations; `ONLY_ACTIVE_ARCH`/`ARCHS` keeps the simulator
+      # leg from compiling the retired x86_64 iOS target. Both destinations
+      # are build-only and debug-only: no simulator boots, the device leg
+      # signs nothing, and release adds nothing a compile can observe.
       - name: Build (ios-simulator)
         if: matrix.configuration == 'debug'
         run: >-
-          xcodebuild build -scheme WaterUI
+          xcodebuild build -scheme waterui-apple-host
           -destination 'generic/platform=iOS Simulator'
-          -derivedDataPath .build-shapes/ios-sim
+          -derivedDataPath .build/ios-sim
+          ONLY_ACTIVE_ARCH=YES ARCHS=arm64
           SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
       - name: Build (ios-device)
         if: matrix.configuration == 'debug'
         run: >-
-          xcodebuild build -scheme WaterUI
+          xcodebuild build -scheme waterui-apple-host
           -destination 'generic/platform=iOS'
-          -derivedDataPath .build-shapes/ios-device
+          -derivedDataPath .build/ios-device
+          ONLY_ACTIVE_ARCH=YES ARCHS=arm64
           SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
           CODE_SIGNING_ALLOWED=NO
-      # The unit suite exercises the closure-based machinery around the FFI
-      # surface — signal subscriptions, watcher plumbing, the layout bridge's
-      # SubView vtable — with the Rust library absent: `waterui_*` symbols only
-      # arrive when an app links the Rust library, so the test bundle is built
-      # with dynamic lookup and binds lazily what it never calls. A test that
-      # needs the real FFI belongs to the nightly e2e, not here. Debug only:
-      # the release shape adds nothing the suite can observe.
-      - name: Test
-        if: matrix.configuration == 'debug'
-        run: >-
-          swift test --scratch-path .build-shapes/default
-          -Xswiftc -warnings-as-errors
-          -Xlinker -undefined -Xlinker dynamic_lookup
-      # Scans the largest shape (`.periphery.yml` passes `-DWATERUI_MAP`), so
-      # code that only the map component reaches counts as used. Lives inside
-      # this job rather than its own: a separate job cost a whole macOS slot
-      # just to redo checkout, header sync and brew. Its scan build lands in
-      # `.build` next to the shape dirs and stays cached.
+      # The behavioural suite moved to the Rust lane: the FFI-bound Swift
+      # bundle it replaced could only run with `-undefined dynamic_lookup`,
+      # which is gone together with the FFI. The native libtest-mimic
+      # harness runs in rust.yml. Lives inside this job rather than its
+      # own: a separate job cost a whole macOS slot just to redo checkout
+      # and brew. Its scan build lands in `.build` and stays cached.
       - name: Install Periphery
         if: matrix.configuration == 'debug'
         env:

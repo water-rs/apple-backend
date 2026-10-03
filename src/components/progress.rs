@@ -25,7 +25,7 @@ use cocoa_ui::Retained;
 use cocoa_ui::{PlatformView, Rect};
 use waterui::animation::Animation;
 use waterui::component::progress::{ProgressConfig, ProgressStyle};
-use waterui::graphics::color::ResolvedColor;
+use waterui::graphics::color::WorkingColor;
 use waterui::reactive::watcher::Metadata;
 use waterui::reactive::{Signal, SignalExt};
 use waterui::resolve::Resolvable;
@@ -97,7 +97,7 @@ struct ProgressState {
     value: f64,
     /// The indeterminate palette: accent alone, or accent plus the
     /// container/tertiary slots when `four_color` is set.
-    palette: Vec<ResolvedColor>,
+    palette: Vec<WorkingColor>,
     /// The palette position currently applied as the tint.
     tint_index: usize,
     /// Whether the tint-cycle timer is armed (`UIKit` only — `AppKit`
@@ -105,7 +105,7 @@ struct ProgressState {
     #[cfg(target_os = "ios")]
     cycling: bool,
     /// The most recent track color — the `Border` slot.
-    track: Option<ResolvedColor>,
+    track: Option<WorkingColor>,
     /// Whether `four_color` widens the indeterminate palette.
     #[cfg(target_os = "ios")]
     four_color: bool,
@@ -319,16 +319,16 @@ fn should_animate(metadata: &Metadata) -> bool {
     metadata.try_get::<Animation>().is_some()
 }
 
-/// A `ResolvedColor` as the platform's extended-sRGB color object — the
+/// A `WorkingColor` as the platform's extended linear Display-P3 color object — the
 /// `allowHdr: false` variant `wuiProgressPlatformColor` produced.
 #[cfg(target_os = "ios")]
-fn platform_color(color: &ResolvedColor) -> Retained<cocoa_ui::objc2_ui_kit::UIColor> {
-    platform::colors::extended_linear(
-        f64::from(color.red),
-        f64::from(color.green),
-        f64::from(color.blue),
-        f64::from(color.opacity),
-        0.0,
+fn platform_color(color: &WorkingColor) -> Retained<cocoa_ui::objc2_ui_kit::UIColor> {
+    let [red, green, blue, alpha] = color.components;
+    platform::colors::extended_linear_display_p3(
+        f64::from(red),
+        f64::from(green),
+        f64::from(blue),
+        f64::from(alpha),
     )
 }
 

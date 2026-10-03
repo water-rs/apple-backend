@@ -392,10 +392,12 @@ struct Shared {
     /// `uses_sections` — whether item markers group the list.
     uses_sections: bool,
     /// The theme's row insets for `None` inputs.
+    #[cfg(target_os = "macos")]
     theme_insets: KitInsets,
     /// The resolved minimum row height.
     resolved_min_height: f64,
-    /// `AppKit`'s `measuredRowHeights`.
+    /// `measuredRowHeights`: the row contract the height delegate reports,
+    /// refreshed from both `viewFor`/`cellForRow` layout passes.
     measured_heights: HashMap<ItemId, f64>,
 }
 
@@ -455,6 +457,7 @@ impl Shared {
     }
 
     /// The insets the item asks for, or the theme's.
+    #[cfg(target_os = "macos")]
     fn insets_for(&self, insets: Option<&EdgeInsets>) -> KitInsets {
         insets.map_or(self.theme_insets, kit_insets)
     }
@@ -465,6 +468,7 @@ impl Shared {
     }
 
     /// Measures `layout` at `width` and answers the row height.
+    #[cfg(target_os = "macos")]
     fn measure_row(&self, layout: &dyn SubView, width: f64, insets: KitInsets) -> f64 {
         #[expect(
             clippy::cast_possible_truncation,
@@ -481,7 +485,7 @@ impl Shared {
 struct RowPayload {
     /// The mounted content leaf — kept alive by the payload slot.
     #[allow(dead_code)]
-    mounted: Mounted,
+    mounted: Rc<Mounted>,
     /// Guards for the row's per-item watchers — dropped with the cell.
     #[allow(dead_code)]
     guards: Vec<BoxWatcherGuard>,
@@ -535,16 +539,22 @@ fn metadata_animated(metadata: &Metadata) -> bool {
 /// Applying a change may emit back into `contents` (row mounts mutate the
 /// collection), making the watch fire reentrantly while this borrow is held;
 /// that emission is requeued on the main queue and applied once released.
-fn apply_contents_change(state: &Rc<RefCell<Shared>>, table: &TableView, ids: Vec<ItemId>) {
-    let (diff, single_plain) = {
+fn apply_contents_change(
+    state: &Rc<RefCell<Shared>>,
+    table: &TableView,
+    ids: Vec<ItemId>,
+    change: &waterui::reactive::collection::CollectionChange,
+) {
+    let (diff, reloads) = {
         let Ok(mut borrowed) = state.try_borrow_mut() else {
             let state = Rc::clone(state);
             let table = cocoa_ui::objc2::rc::Weak::new(table);
+            let change = change.clone();
             cocoa_ui::main_queue::enqueue_local(
                 cocoa_ui::MainThreadMarker::new().expect("apply_contents_change runs on main"),
                 move |_mtm| {
                     if let Some(table) = table.load() {
-                        apply_contents_change(&state, &table, ids);
+                        apply_contents_change(&state, &table, ids, &change);
                     }
                 },
             );
@@ -556,32 +566,70 @@ fn apply_contents_change(state: &Rc<RefCell<Shared>>, table: &TableView, ids: Ve
         borrowed.measured_heights.retain(|id, _| seen.contains(id));
         #[cfg(target_os = "macos")]
         rebuild_flat_layout(&mut borrowed);
+        let old_set: HashSet<ItemId> = old_ids.iter().copied().collect();
+        // In-place replacements the id diff cannot cover: a surviving id at a
+        // `replaced` position keeps its mounted leaf and measured contract
+        // unless the row is re-materialized. `replaced` indexes the new
+        // snapshot; the delete index is the id's previous position.
+        let reloads: Vec<(usize, usize)> = borrowed
+            .item_ids
+            .iter()
+            .enumerate()
+            .filter(|(index, id)| change.is_replaced(*index) && old_set.contains(id))
+            .map(|(index, id)| {
+                (
+                    old_ids
+                        .iter()
+                        .position(|old| old == id)
+                        .expect("a surviving id has a previous position"),
+                    index,
+                )
+            })
+            .collect();
+        for &(_, index) in &reloads {
+            let id = borrowed.item_ids[index];
+            borrowed.measured_heights.remove(&id);
+        }
         let single_plain = is_single_plain_section(&borrowed.groups);
         (
             single_plain
                 .then(|| single_section_row_diff(&old_ids, &borrowed.item_ids))
                 .flatten(),
-            single_plain,
+            if single_plain { reloads } else { Vec::new() },
         )
     };
-    let _ = single_plain;
     if table.in_window()
         && let Some((deletes, inserts)) = diff
     {
         #[cfg(target_os = "ios")]
         {
-            let deletes: Vec<IndexPath> = deletes
+            let delete_paths: Vec<IndexPath> = deletes
                 .into_iter()
                 .map(|row| IndexPath { section: 0, row })
                 .collect();
-            let inserts: Vec<IndexPath> = inserts
+            let insert_paths: Vec<IndexPath> = inserts
                 .into_iter()
                 .map(|row| IndexPath { section: 0, row })
                 .collect();
-            table.apply_row_updates(&deletes, &inserts, true);
+            table.apply_row_updates(&delete_paths, &insert_paths, true);
+            if !reloads.is_empty() {
+                let reload_paths: Vec<IndexPath> = reloads
+                    .into_iter()
+                    .map(|(_, row)| IndexPath { section: 0, row })
+                    .collect();
+                table.reload_rows(&reload_paths, true);
+            }
         }
         #[cfg(target_os = "macos")]
-        table.apply_row_updates(&deletes, &inserts, true);
+        {
+            // AppKit re-materializes a row as delete+insert: the replaced
+            // rows join the same update block so `viewFor` rebuilds them.
+            let mut deletes = deletes;
+            let mut inserts = inserts;
+            deletes.extend(reloads.iter().map(|&(old_row, _)| old_row));
+            inserts.extend(reloads.iter().map(|&(_, new_row)| new_row));
+            table.apply_row_updates(&deletes, &inserts, true);
+        }
     } else {
         table.reload_data();
     }
@@ -775,7 +823,74 @@ impl SubView for ListSubView {
 #[allow(clippy::wildcard_imports)]
 mod platform_impl {
     use super::*;
+    use cocoa_ui::objc2_ui_kit::{NSLayoutConstraint, UILayoutPriorityRequired};
     use cocoa_ui::uikit::TableHeaderFooterView;
+
+    /// Insets resolved by this cell's current native layout.
+    fn native_insets(cell: &TableCell) -> KitInsets {
+        let margins = cell.contentView().directionalLayoutMargins();
+        KitInsets {
+            top: margins.top,
+            bottom: margins.bottom,
+            left: margins.leading,
+            right: margins.trailing,
+        }
+    }
+
+    /// The same resolved geometry drives the content constraints and row fitting.
+    struct RowLayout {
+        mounted: alloc::rc::Weak<Mounted>,
+        explicit_insets: Option<KitInsets>,
+        applied_insets: Cell<KitInsets>,
+        height: Retained<NSLayoutConstraint>,
+        minimum: f64,
+        disclosure: bool,
+        id: ItemId,
+        state: Rc<RefCell<Shared>>,
+        table: cocoa_ui::objc2::rc::Weak<TableView>,
+    }
+
+    impl RowLayout {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "native points are f64; proposals are f32"
+        )]
+        fn update(&self, cell: &TableCell) {
+            let Some(mounted) = self.mounted.upgrade() else {
+                return;
+            };
+            let insets = self.explicit_insets.unwrap_or_else(|| native_insets(cell));
+            if self.applied_insets.replace(insets) != insets {
+                cell.configure(mounted.view(), insets, self.disclosure);
+            }
+            let width = cell.contentView().bounds().size.width - insets.left - insets.right;
+            let proposal = ProposalSize::new((width > 0.0).then_some(width as f32), None);
+            let measured = mounted.layout().measure(proposal).size;
+            let contract = row_height(f64::from(measured.height), insets, self.minimum);
+            let height = contract - insets.top - insets.bottom;
+            if self.height.constant().to_bits() != height.to_bits() {
+                self.height.setConstant(height);
+            }
+            // Publish the contract `heightForRow` reports. When the resolved
+            // pass changes it — the first query runs before the cell's real
+            // margins exist — re-ask the height on the next main-queue turn;
+            // an updates batch inside `layoutSubviews` would re-enter layout.
+            // The mutable borrow ends before `proposal::deliver`, whose
+            // callbacks may synchronously re-enter the shared state.
+            let stale = {
+                let mut state = self.state.borrow_mut();
+                state.measured_heights.insert(self.id, contract) != Some(contract)
+            };
+            if stale && let Some(table) = self.table.load() {
+                cocoa_ui::main_queue::enqueue_local(
+                    cocoa_ui::MainThreadMarker::new().expect("row updates run on the main thread"),
+                    move |_mtm| table.apply_row_updates(&[], &[], false),
+                );
+            }
+            proposal::deliver(mounted.view(), proposal);
+            update_separator_insets(cell);
+        }
+    }
 
     /// The `UIKit` data source + delegate: sections and rows answer from
     /// `Shared.groups`.
@@ -794,21 +909,6 @@ mod platform_impl {
             flat_index(&self.state.borrow().groups, index.section, index.row)
                 .expect("index path lands inside the section groups")
         }
-    }
-
-    /// The row's content `proposal` delivered at layout — the width the
-    /// cell's content laid out at.
-    fn cell_on_layout(cell: &TableCell, content: &Retained<cocoa_ui::PlatformView>) {
-        let width = view::frame(content).size.width;
-        if width > 0.0 {
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "kit geometry is f64; layout proposals are f32"
-            )]
-            proposal::deliver(content, ProposalSize::new(Some(width as f32), None));
-        }
-        cell.layout_subtree_if_needed();
-        update_separator_insets(cell);
     }
 
     /// `accessibilityActivate` on a row: toggle its selection the way a
@@ -857,13 +957,31 @@ mod platform_impl {
         fn configure_cell(&self, table: &TableView, cell: &TableCell, index: IndexPath) {
             let flat = self.flat(index);
             let (item_insets, deletable, leaf) = self.state.borrow().render_row(flat);
-            let insets = self.state.borrow().insets_for(item_insets.as_ref());
+            let explicit_insets = item_insets.as_ref().map(kit_insets);
+            let insets = explicit_insets.unwrap_or_else(|| native_insets(cell));
             let shows_disclosure = contains_navigation_link(leaf.view());
-            let mounted = leaf.mount(cell);
+            let mounted = Rc::new(leaf.mount(cell));
             cell.configure(mounted.view(), insets, shows_disclosure);
-
-            let content = view::retain_base(mounted.view());
-            cell.set_layout_handler(move |cell| cell_on_layout(cell, &content));
+            let height = mounted.view().heightAnchor().constraintEqualToConstant(0.0);
+            // The measured layout is the row contract; keep UIKit from stretching
+            // the hosted view while fitting the automatic row height.
+            height.setPriority(UILayoutPriorityRequired);
+            let layout = RowLayout {
+                mounted: Rc::downgrade(&mounted),
+                explicit_insets,
+                applied_insets: Cell::new(insets),
+                height,
+                minimum: self.state.borrow().resolved_min_height,
+                disclosure: shows_disclosure,
+                id: self.state.borrow().item_ids[flat],
+                state: Rc::clone(&self.state),
+                table: cocoa_ui::objc2::rc::Weak::new(table),
+            };
+            layout.update(cell);
+            layout.height.setActive(true);
+            // Cocoa invokes this after UITableViewCell's superclass layout, when
+            // style, readable width and safe-area margins have been resolved.
+            cell.set_layout_handler(move |cell| layout.update(cell));
 
             let id = self.state.borrow().item_ids[flat];
             let guard = watch_deletable(&deletable, id, &self.state, table);
@@ -921,20 +1039,47 @@ mod platform_impl {
         }
 
         fn row_height(&self, table: &TableView, index: IndexPath) -> f64 {
+            // The row contract is an explicit height: the platform's
+            // automatic-dimension fitting prices the separator in, growing
+            // every row by the separator's point over the contract.
             let flat = self.flat(index);
-            let state = self.state.borrow();
-            let Some(item) = state.contents.get_view(flat) else {
-                return state.resolved_min_height;
-            };
-            let insets = state.insets_for(item.insets.as_ref());
-            let margins = table.directional_margins();
-            let width = table.bounds_width()
-                - margins.leading
-                - margins.trailing
-                - insets.left
-                - insets.right;
-            let leaf = state.renderer.render(item.content);
-            state.measure_row(leaf.layout(), width, insets)
+            let borrowed = self.state.borrow();
+            let id = borrowed.item_ids[flat];
+            if let Some(height) = borrowed.measured_heights.get(&id) {
+                return *height;
+            }
+            // `heightForRow` fires before the cell exists, so the platform's
+            // margins aren't readable off a `contentView` yet — the theme's
+            // stock row insets answer the same vertical contract, and the
+            // first layout pass writes back the resolved value.
+            let (item_insets, _deletable, leaf) = borrowed.render_row(flat);
+            let insets = item_insets.as_ref().map_or_else(
+                || {
+                    TableView::theme_row_insets(
+                        cocoa_ui::MainThreadMarker::new()
+                            .expect("row heights resolve on the main thread"),
+                    )
+                },
+                kit_insets,
+            );
+            drop(borrowed);
+            let width = table.bounds_width() - insets.left - insets.right;
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "native points are f64; proposals are f32"
+            )]
+            let proposal = ProposalSize::new((width > 0.0).then_some(width as f32), None);
+            let measured = leaf.layout().measure(proposal).size;
+            let contract = row_height(
+                f64::from(measured.height),
+                insets,
+                self.state.borrow().resolved_min_height,
+            );
+            self.state
+                .borrow_mut()
+                .measured_heights
+                .insert(id, contract);
+            contract
         }
 
         fn section_header_height(&self, table: &TableView, section: usize) -> f64 {
@@ -1047,23 +1192,18 @@ mod platform_impl {
             Self { state, mtm }
         }
 
-        /// The muted-foreground `ResolvedColor` as an `AppKit` color.
+        /// The muted-foreground `WorkingColor` as an `AppKit` color.
         fn platform_color(
-            color: &waterui::graphics::color::ResolvedColor,
+            color: &waterui::graphics::color::WorkingColor,
         ) -> Retained<cocoa_ui::objc2_app_kit::NSColor> {
-            let unscaled = cocoa_ui::appkit::colors::extended_linear(
-                f64::from(color.red),
-                f64::from(color.green),
-                f64::from(color.blue),
-                f64::from(color.opacity),
-            );
-            if color.headroom > 0.0 {
-                cocoa_ui::appkit::colors::with_content_headroom(
-                    &unscaled,
-                    1.0 + f64::from(color.headroom),
+            {
+                let [red, green, blue, alpha] = color.components;
+                cocoa_ui::appkit::colors::extended_linear_display_p3(
+                    f64::from(red),
+                    f64::from(green),
+                    f64::from(blue),
+                    f64::from(alpha),
                 )
-            } else {
-                unscaled
             }
         }
 
@@ -1240,7 +1380,7 @@ mod platform_impl {
                     proposal::deliver(mounted.view(), ProposalSize::new(Some(width as f32), None));
                     let guard = watch_deletable(&deletable, id, &self.state, table);
                     container.set_payload(Box::new(RowPayload {
-                        mounted,
+                        mounted: Rc::new(mounted),
                         guards: vec![guard],
                     }));
                     Some(view::retain_base(&*container))
@@ -1471,7 +1611,12 @@ fn render(config: ListConfig, ctx: &RenderContext<'_>) -> NativeLeaf {
     let mtm = ctx.mtm();
     let table = TableView::new(mtm);
     #[cfg(target_os = "ios")]
-    let (theme_insets, stock_height) = (TableView::theme_row_insets(mtm), table.stock_row_height());
+    let stock_height = {
+        table.setSelfSizingInvalidation(
+            cocoa_ui::objc2_ui_kit::UITableViewSelfSizingInvalidation::EnabledIncludingConstraints,
+        );
+        table.stock_row_height()
+    };
     #[cfg(target_os = "macos")]
     let (theme_insets, stock_height) = (
         KitInsets {
@@ -1501,6 +1646,7 @@ fn render(config: ListConfig, ctx: &RenderContext<'_>) -> NativeLeaf {
         on_delete: config.on_delete,
         on_move: config.on_move,
         uses_sections: config.uses_sections,
+        #[cfg(target_os = "macos")]
         theme_insets,
         resolved_min_height: min_row_height(config.min_row_height, stock_height),
         measured_heights: HashMap::new(),
@@ -1565,13 +1711,13 @@ fn render(config: ListConfig, ctx: &RenderContext<'_>) -> NativeLeaf {
     let watcher = state.borrow().contents.watch(.., {
         let state = Rc::clone(&state);
         let table = table.clone();
-        move |ctx, _change| {
+        move |ctx, change| {
             let ids: Vec<ItemId> = ctx.value().to_vec();
             let metadata = ctx.metadata().clone();
             let state = Rc::clone(&state);
             let table = table.clone();
             with_platform_animation(&metadata, move || {
-                apply_contents_change(&state, &table, ids);
+                apply_contents_change(&state, &table, ids, &change);
             });
         }
     });

@@ -11,8 +11,6 @@ pub mod accessibility_identifier;
 pub mod accessibility_metadata;
 #[cfg(feature = "anchored_overlay")]
 pub mod anchored_overlay;
-#[cfg(feature = "applied_filter")]
-pub mod applied_filter;
 #[cfg(feature = "badge")]
 pub mod badge;
 #[cfg(feature = "border")]
@@ -41,6 +39,8 @@ pub mod dynamic;
 #[cfg(feature = "dynamic_range")]
 pub mod dynamic_range;
 pub mod empty;
+#[cfg(any(feature = "applied_filter", feature = "view_effect"))]
+pub mod filtered;
 #[cfg(feature = "fixed_container")]
 pub mod fixed_container;
 #[cfg(feature = "focused")]
@@ -129,8 +129,6 @@ pub mod text_field;
 pub mod toggle;
 #[cfg(any(feature = "video", feature = "video_player"))]
 pub mod video;
-#[cfg(feature = "view_effect")]
-pub mod view_effect;
 #[cfg(feature = "view_renderer")]
 pub mod view_renderer;
 #[cfg(feature = "webview")]
