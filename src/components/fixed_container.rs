@@ -250,6 +250,16 @@ pub fn install(dispatcher: &mut Dispatcher) {
             }
         });
 
+        // The layout's own invalidation signal — a reactive constraint (a
+        // frame's computed bound, padding's computed inset) re-marks the host
+        // and its ancestors for layout when it publishes a new value.
+        let layout_guards = state.borrow().layout.watch_invalidation(Rc::new({
+            let host = host.clone();
+            move || {
+                crate::invalidation::invalidate_layout_hierarchy(&host);
+            }
+        }));
+
         let mut leaf = NativeLeaf::new(
             &*host,
             FixedSubView {
@@ -257,6 +267,7 @@ pub fn install(dispatcher: &mut Dispatcher) {
             },
         );
         leaf.keep(sink_guard);
+        leaf.keep(layout_guards);
         leaf.keep(state);
         leaf
     });

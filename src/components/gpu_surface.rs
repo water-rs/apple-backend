@@ -824,7 +824,7 @@ fn handle_redraw_request(state: &Rc<SurfaceState>, view: &Retained<SurfaceView>)
     state.dirty.set(true);
     state.needs_a11y_refresh.set(true);
     if take_measurement_invalidation(state) {
-        invalidate_layout_hierarchy(view.as_platform_view());
+        crate::invalidation::invalidate_layout_hierarchy(view.as_platform_view());
     }
     if state.external_count.get() > 0 {
         notify_external_redraw(state);
@@ -905,17 +905,6 @@ fn complete_ready(state: &SurfaceState, _presented: bool) {
     for waker in state.ready_waiters.borrow_mut().drain(..) {
         waker.wake();
     }
-}
-
-/// `invalidateLayoutHierarchy`: intrinsic-size invalidation up the whole
-/// ancestor chain, then captured-content invalidation.
-fn invalidate_layout_hierarchy(view: &cocoa_ui::PlatformView) {
-    let mut node = Some(cocoa_ui::view::retain_base(view));
-    while let Some(current) = node {
-        cocoa_ui::view::invalidate_layout(&current);
-        node = cocoa_ui::view::superview(&current);
-    }
-    crate::invalidation::invalidate_rendered_content(view);
 }
 
 // MARK: - Window observers (WuiWindowOcclusion)
